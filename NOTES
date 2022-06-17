@@ -23,8 +23,6 @@
   GoCreate events for these goroutines. Are the timestamps historically accurate, or synthetic?
 - What is the base of timestamps? When the process started, or when tracing started? What happens if we start and stop
   tracing repeatedly?
-- Are we interested in live ingesting and displaying traces? It complicates the rendering, and may not be all that
-  useful, as there are _a lot_ of events, and they're not cyclic, unlike e.g. a game loop in Tracy.
 
 * All events
 - [ ] traceEvNone              = 0  // unused
@@ -109,3 +107,16 @@
   - A per-task view, seeing the regions running in a task. We'll probably want to see which goroutine a region is
     running on
 - Graphs for heap usage, running/runnable goroutines, and whatever other stats are emitted
+
+* Design decisions
+** Live tracing
+We will not support live ingestion and rendering of trace data. Instead, we will require being able to process an
+entire, already finished trace file. This will simplify certain rendering aspects, as we'll be able to know about future
+events.
+
+Live tracing would likely not offer much value in the first place. At small time steps, events are too numerous and too
+irregular to be looked at, and at large time steps, no interesting patterns can be seen. This differs from some common
+use cases in e.g. Tracy, where one may be tracing a game's render loop, where each frame is clearly delineated and one
+might be interested in spotting differences between frames.
+
+Finally, we haven't checked if the trace data's format allows for live processing in the first place.
