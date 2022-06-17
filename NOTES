@@ -1,0 +1,111 @@
+- Processors run goroutines, runtime code, or syscalls (possibly on behalf of goroutines).
+- Goroutines can be running, sleeping, blocked, … - runtime/runtime2.go has constants for all possible states a
+  goroutine can be in, although I don't know yet if all of them are reflected in tracing
+- New goroutines are in a state of created but not having been scheduled yet
+- Goroutines may be runnable and waiting for a free processor
+- Goroutines have stack samples
+- Goroutines run user regions
+- Goroutines can cause other goroutines to become unblocked or created
+- Tasks consist of user regions
+- Regions have a start and end time
+- Regions can overlap CPU samples
+- Log messages happen on goroutines and may be associated with tasks
+- Tasks and regions can be nested
+- When a processor stops executing a goroutine, the goroutine may have finished, or just gotten unscheduled
+- When a processor starts executing a goroutine, it might be the goroutine's first time running, or it may have gotten
+  resumed
+- When goroutines get scheduled, they might have a "label", which seems to be GC assist related
+- Traces ensure consistency. For example, we get goroutine creation events for goroutines that were started before - but
+  still exist when - we start tracing. Also, tracing won't start in the middle of a GC cycle.
+
+* Open questions
+- When tracing starts, goroutines may already exist and may already be running or blocked. The trace will contain
+  GoCreate events for these goroutines. Are the timestamps historically accurate, or synthetic?
+- What is the base of timestamps? When the process started, or when tracing started? What happens if we start and stop
+  tracing repeatedly?
+- Are we interested in live ingesting and displaying traces? It complicates the rendering, and may not be all that
+  useful, as there are _a lot_ of events, and they're not cyclic, unlike e.g. a game loop in Tracy.
+
+* All events
+- [ ] traceEvNone              = 0  // unused
+- [ ] traceEvBatch             = 1  // start of per-P batch of events [pid, timestamp]
+- [ ] traceEvFrequency         = 2  // contains tracer timer frequency [frequency (ticks per second)]
+- [ ] traceEvStack             = 3  // stack [stack id, number of PCs, array of {PC, func string ID, file string ID, line}]
+- [ ] traceEvGomaxprocs        = 4  // current value of GOMAXPROCS [timestamp, GOMAXPROCS, stack id]
+- [ ] traceEvProcStart         = 5  // start of P [timestamp, thread id]
+- [ ] traceEvProcStop          = 6  // stop of P [timestamp]
+- [ ] traceEvGCStart           = 7  // GC start [timestamp, seq, stack id]
+- [ ] traceEvGCDone            = 8  // GC done [timestamp]
+- [ ] traceEvGCSTWStart        = 9  // GC STW start [timestamp, kind]
+- [ ] traceEvGCSTWDone         = 10 // GC STW done [timestamp]
+- [ ] traceEvGCSweepStart      = 11 // GC sweep start [timestamp, stack id]
+- [ ] traceEvGCSweepDone       = 12 // GC sweep done [timestamp, swept, reclaimed]
+- [ ] traceEvGoCreate          = 13 // goroutine creation [timestamp, new goroutine id, new stack id, stack id]
+- [ ] traceEvGoStart           = 14 // goroutine starts running [timestamp, goroutine id, seq]
+- [ ] traceEvGoEnd             = 15 // goroutine ends [timestamp]
+- [ ] traceEvGoStop            = 16 // goroutine stops (like in select{}) [timestamp, stack]
+- [ ] traceEvGoSched           = 17 // goroutine calls Gosched [timestamp, stack]
+- [ ] traceEvGoPreempt         = 18 // goroutine is preempted [timestamp, stack]
+- [ ] traceEvGoSleep           = 19 // goroutine calls Sleep [timestamp, stack]
+- [ ] traceEvGoBlock           = 20 // goroutine blocks [timestamp, stack]
+- [ ] traceEvGoUnblock         = 21 // goroutine is unblocked [timestamp, goroutine id, seq, stack]
+- [ ] traceEvGoBlockSend       = 22 // goroutine blocks on chan send [timestamp, stack]
+- [ ] traceEvGoBlockRecv       = 23 // goroutine blocks on chan recv [timestamp, stack]
+- [ ] traceEvGoBlockSelect     = 24 // goroutine blocks on select [timestamp, stack]
+- [ ] traceEvGoBlockSync       = 25 // goroutine blocks on Mutex/RWMutex [timestamp, stack]
+- [ ] traceEvGoBlockCond       = 26 // goroutine blocks on Cond [timestamp, stack]
+- [ ] traceEvGoBlockNet        = 27 // goroutine blocks on network [timestamp, stack]
+- [ ] traceEvGoSysCall         = 28 // syscall enter [timestamp, stack]
+- [ ] traceEvGoSysExit         = 29 // syscall exit [timestamp, goroutine id, seq, real timestamp]
+- [ ] traceEvGoSysBlock        = 30 // syscall blocks [timestamp]
+- [ ] traceEvGoWaiting         = 31 // denotes that goroutine is blocked when tracing starts [timestamp, goroutine id]
+- [ ] traceEvGoInSyscall       = 32 // denotes that goroutine is in syscall when tracing starts [timestamp, goroutine id]
+- [ ] traceEvHeapAlloc         = 33 // gcController.heapLive change [timestamp, heap_alloc]
+- [ ] traceEvHeapGoal          = 34 // gcController.heapGoal() (formerly next_gc) change [timestamp, heap goal in bytes]
+- [ ] traceEvTimerGoroutine    = 35 // not currently used; previously denoted timer goroutine [timer goroutine id]
+- [ ] traceEvFutileWakeup      = 36 // denotes that the previous wakeup of this goroutine was futile [timestamp]
+- [ ] traceEvString            = 37 // string dictionary entry [ID, length, string]
+- [ ] traceEvGoStartLocal      = 38 // goroutine starts running on the same P as the last event [timestamp, goroutine id]
+- [ ] traceEvGoUnblockLocal    = 39 // goroutine is unblocked on the same P as the last event [timestamp, goroutine id, stack]
+- [ ] traceEvGoSysExitLocal    = 40 // syscall exit on the same P as the last event [timestamp, goroutine id, real timestamp]
+- [ ] traceEvGoStartLabel      = 41 // goroutine starts running with label [timestamp, goroutine id, seq, label string id]
+- [ ] traceEvGoBlockGC         = 42 // goroutine blocks on GC assist [timestamp, stack]
+- [ ] traceEvGCMarkAssistStart = 43 // GC mark assist start [timestamp, stack]
+- [ ] traceEvGCMarkAssistDone  = 44 // GC mark assist done [timestamp]
+- [ ] traceEvUserTaskCreate    = 45 // trace.NewContext [timestamp, internal task id, internal parent task id, stack, name string]
+- [ ] traceEvUserTaskEnd       = 46 // end of a task [timestamp, internal task id, stack]
+- [ ] traceEvUserRegion        = 47 // trace.WithRegion [timestamp, internal task id, mode(0:start, 1:end), stack, name string]
+- [ ] traceEvUserLog           = 48 // trace.Log [timestamp, internal task id, key string id, stack, value string]
+- [ ] traceEvCPUSample         = 49 // CPU profiling sample [timestamp, stack, real timestamp, real P id (-1 when absent), goroutine id]
+- [ ] traceEvCount             = 50
+
+* Reasons for goroutines to stop running
+- GoEnd
+- GoStop
+- GoSched
+- GoPreempt
+- GoSleep
+- GoBlock
+- GoBlockSend
+- GoBlockRecv
+- GoBlockSelect
+- GoBlockSync
+- GoBlockCond
+- GoBlockNet
+- GoSysBlock
+- GoBlockGC
+
+* UI features we'll want
+- Finding goroutines, tasks and regions based on stacks and user logs
+- Being able to display select objects, and displaying related objects. For example, display a single goroutine, all
+  procs it ran on, but hide other goroutines from those procs, but optionally display related goroutine spans that
+  create or unblock us or are created or unblocked by us
+- Toggling display of futile wakeups
+- "Flow events", being able to see that goroutine A created/unblocked/preempted goroutine B
+- We'll have different views of the world:
+  - A per-proc view, seeing what's running on a proc
+  - A per-goroutine view, seeing what a goroutine is doing (is it running/blocked? CPU samples, user regions). We'll
+    probably want a way to see which proc a goroutine is running on
+  - A per-task view, seeing the regions running in a task. We'll probably want to see which goroutine a region is
+    running on
+- Graphs for heap usage, running/runnable goroutines, and whatever other stats are emitted
