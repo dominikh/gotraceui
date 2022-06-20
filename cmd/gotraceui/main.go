@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"log"
@@ -46,8 +47,8 @@ The various displays of information should start as popups that can be "undocked
 */
 
 type Span struct {
-	Start time.Duration
-	End   time.Duration
+	Start int64
+	End   int64
 	State schedulingState
 }
 
@@ -92,7 +93,7 @@ func main() {
 			continue
 		}
 
-		spans = append(spans, Span{Start: time.Duration(ev.Ts), State: state})
+		spans = append(spans, Span{Start: ev.Ts * 1000, State: state})
 	}
 
 	if len(spans) == 0 {
@@ -104,7 +105,7 @@ func main() {
 		spans[i].End = spans[i+1].Start
 	}
 	// XXX what's the event for goroutine destruction?
-	spans[len(spans)-1].End = time.Hour
+	spans[len(spans)-1].End = int64(time.Hour) * 1000
 
 	go func() {
 		w := app.NewWindow()
@@ -153,10 +154,10 @@ func toColor(c uint32) color.NRGBA {
 }
 
 func run(w *app.Window) error {
-	// How much time one device-independent pixel represents
-	timeStep := 200 * time.Nanosecond
-	// Offset into the trace
-	var offset time.Duration
+	// How much time one device-independent pixel represents, in picoseconds
+	timeStep := int64(1000000000000)
+	// Offset into the trace, in picoseconds
+	var offset int64
 
 	const stateBarHeight = unit.Dp(10)
 
@@ -167,12 +168,15 @@ func run(w *app.Window) error {
 		case system.DestroyEvent:
 			return e.Err
 		case system.FrameEvent:
+			t := time.Now()
+
 			ops.Reset()
 			gtx := layout.NewContext(&ops, e)
+			gtx.Metric.PxPerDp = 2 // XXX
 
 			for _, ev := range gtx.Queue.Events(&timeStep) {
 				ev := ev.(pointer.Event)
-				d := timeStep / 100 * time.Duration(ev.Scroll.Y)
+				d := timeStep / 100 * int64(ev.Scroll.Y)
 				if d == 0 {
 					if ev.Scroll.Y < 0 {
 						d = -1
@@ -185,6 +189,7 @@ func run(w *app.Window) error {
 					timeStep = 1
 				}
 
+				log.Printf("1 dp = %d ps", timeStep)
 			}
 
 			for _, ev := range gtx.Queue.Events(&offset) {
@@ -209,51 +214,106 @@ func run(w *app.Window) error {
 			// XXX make sure our rounding is stable and doesn't jitter
 			// XXX handle spans that would be smaller than 1 unit
 
-			var off int
-			for _, s := range spans {
-				if off > gtx.Constraints.Max.X {
-					// No point drawing spans outside the visible region
-					break
-				}
+			widthInDp := unit.Dp(gtx.Constraints.Max.X / int(gtx.Metric.PxPerDp))
+			widthInPs := int64(widthInDp) * timeStep
 
-				if s.End < offset {
-					// OPT(dh): find starting point in spans based on offset, instead of always iterating from the beginning.
-					continue
-				}
+			log.Printf("timespan: %d - %d", offset, offset+widthInPs)
 
-				if s.Start < offset {
-					s.Start = offset
-				}
-
-				width := gtx.Metric.Dp(unit.Dp((s.End - s.Start) / timeStep))
-				// if width == 0 {
-				// 	// XXX right now this screws up the timeline, because consecutive tiny spans will add up to
-				// 	// significant size. We'll have to do what Tracy does and merge consecutive spans if we enlargened
-				// 	// one.
-				// 	width = 1
-				// }
-				end := off + width
-				if end > gtx.Constraints.Max.X {
-					end = gtx.Constraints.Max.X
-				}
-				stack := clip.Rect{
-					Min: image.Point{off, 0},
-					Max: image.Point{end, gtx.Metric.Dp(stateBarHeight)},
-				}.Push(gtx.Ops)
-				off += width
-
-				var c color.NRGBA
-				if int(s.State) >= len(stateColors) {
-					c = toColor(colorStateUnknown)
+			// OPT(dh): use binary search
+			first := -1
+			last := -1
+			for i, s := range spans {
+				visible := (s.Start >= offset && s.Start < offset+widthInPs) ||
+					(s.End >= offset && s.End < offset+widthInPs) ||
+					(s.Start <= offset && s.End >= offset+widthInPs)
+				if first == -1 {
+					if visible {
+						first = i
+					}
 				} else {
-					c = stateColors[s.State]
+					if !visible {
+						last = i
+						break
+					}
 				}
-				paint.ColorOp{Color: c}.Add(gtx.Ops)
-				paint.PaintOp{}.Add(gtx.Ops)
-
-				stack.Pop()
 			}
 
+			if first == -1 {
+				log.Println("found no spans")
+			}
+			if last == -1 {
+				last = len(spans)
+			}
+			if first == last {
+				panic("first == last")
+			}
+
+			if first != -1 {
+				log.Printf("rendering %d spans", len(spans[first:last]))
+
+				// OPT(dh): for large time steps and long traces, we may attempt to render hundreds of thousands of
+				// spans, a lot of which may map to the same point on account of being tiny. We should introduce some
+				// indexed data structure that lets us cull them.
+
+				// Prev is used to avoid drawing to the same place multiple times. This is a performance optimization.
+				prev := clip.Rect{Min: image.Point{-1, -1}, Max: image.Point{-1, -1}}
+				var merged bool
+
+				for _, s := range spans[first:last] {
+					// XXX if timeStep doesn't align cleanly with nanoseconds, then we need to round
+					// XXX when multiple spans map to the same dp, then we shouldn't just overdraw, we should visually merge them
+					startInPs := s.Start - offset
+					endInPs := s.End - offset
+					startInDp := unit.Dp(startInPs / timeStep)
+					endInDp := unit.Dp(endInPs / timeStep)
+
+					if startInDp < 0 {
+						startInDp = 0
+					}
+					if endInDp > widthInDp {
+						endInDp = widthInDp
+					}
+
+					if endInDp == startInDp {
+						endInDp += 1
+					}
+
+					var c color.NRGBA
+					if int(s.State) >= len(stateColors) {
+						c = toColor(colorStateUnknown)
+					} else {
+						c = stateColors[s.State]
+					}
+
+					rect := clip.Rect{
+						Min: image.Point{gtx.Metric.Dp(startInDp), 0},
+						Max: image.Point{gtx.Metric.Dp(endInDp), gtx.Metric.Dp(stateBarHeight)},
+					}
+
+					// FIXME(dh): this only merges spans that are exactly the same. But two spans may start at the same point and end at other points, if the first span was small and had to be expanded to be 1dp wide.
+					if rect == prev {
+						if !merged {
+							merged = true
+
+							// TODO(dh): draw a nice pattern or something
+							c = toColor(0xFF00FFFF)
+							stack := rect.Push(gtx.Ops)
+							paint.ColorOp{Color: c}.Add(gtx.Ops)
+							paint.PaintOp{}.Add(gtx.Ops)
+							stack.Pop()
+						}
+					} else {
+						prev = rect
+						merged = false
+						stack := rect.Push(gtx.Ops)
+						paint.ColorOp{Color: c}.Add(gtx.Ops)
+						paint.PaintOp{}.Add(gtx.Ops)
+						stack.Pop()
+					}
+				}
+			}
+
+			fmt.Println(time.Since(t))
 			e.Frame(&ops)
 		}
 	}
