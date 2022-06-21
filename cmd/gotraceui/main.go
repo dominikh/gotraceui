@@ -26,26 +26,6 @@ import (
 // NOTE: how Tracy deals with spans that are too small to see at a zoom level: there's a minimum width for the first
 // span, and consecutive spans that would fall into that span get merged into it
 
-/*
-TODO:
-   Components of a goroutine timeline:
-   - markers displaying incoming/outgoing scheduling events and user events
-   - thin bar displaying a goroutine's state (active, inactive, blocked, …)
-     - clicking a segment of the bar should bring up information about that segment
-       - duration of the segment, event that triggered the segment, event that triggered its end
-   - area showing stack samples and user regions
-     - clicking samples and regions should bring up information about them
-   - info block fixed on the left side, displaying goroutine ID
-     - clicking it should display information such as
-       - event that created the goroutine
-       - duration
-       - time spent in the various states
-       - counts of events etc
-
-The various displays of information should start as popups that can be "undocked" into their own windows, MDI style.
-
-*/
-
 type Span struct {
 	Start int64
 	End   int64

@@ -120,3 +120,20 @@ use cases in e.g. Tracy, where one may be tracing a game's render loop, where ea
 might be interested in spotting differences between frames.
 
 Finally, we haven't checked if the trace data's format allows for live processing in the first place.
+
+* Per-goroutine timeline
+   Components of a goroutine timeline:
+   - markers displaying incoming/outgoing scheduling events and user events
+   - thin bar displaying a goroutine's state (active, inactive, blocked, …)
+     - clicking a segment of the bar should bring up information about that segment
+       - duration of the segment, event that triggered the segment, event that triggered its end
+   - area showing stack samples and user regions
+     - clicking samples and regions should bring up information about them
+   - info block fixed on the left side, displaying goroutine ID
+     - clicking it should display information such as
+       - event that created the goroutine
+       - duration
+       - time spent in the various states
+       - counts of events etc
+
+The various displays of information should start as popups that can be "undocked" into their own windows, MDI style.
