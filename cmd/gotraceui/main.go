@@ -103,7 +103,7 @@ const (
 	colorStateActive   = 0x00FF00FF
 	colorStateBlocked  = 0xFF0000FF
 	colorStateWaiting  = 0x0000FFFF
-	colorStateUnknown  = 0xFF00FFFF
+	colorStateUnknown  = 0xFFFF00FF
 )
 
 type schedulingState int
@@ -235,9 +235,10 @@ func run(w *app.Window) error {
 				// spans, a lot of which may map to the same point on account of being tiny. We should introduce some
 				// indexed data structure that lets us cull them.
 
-				// Prev is used to avoid drawing to the same place multiple times. This is a performance optimization.
+				// prev records the previously drawn span, to handle drawing of overlapping spans. If spans do overlap,
+				// prev will record the larger of the two.
 				prev := clip.Rect{Min: image.Point{-1, -1}, Max: image.Point{-1, -1}}
-				var merged bool
+				prevMerged := false
 
 				for _, s := range spans[first:last] {
 					// XXX if timeStep doesn't align cleanly with nanoseconds, then we need to round
@@ -270,21 +271,56 @@ func run(w *app.Window) error {
 						Max: image.Point{gtx.Metric.Dp(endInDp), gtx.Metric.Dp(stateBarHeight)},
 					}
 
-					// FIXME(dh): this only merges spans that are exactly the same. But two spans may start at the same point and end at other points, if the first span was small and had to be expanded to be 1dp wide.
-					if rect == prev {
-						if !merged {
-							merged = true
+					// XXX this algorithm sucks. Changing the zoom level can change which spans overlap, simply due to
+					// rounding errors. This means that while zooming in, spans may flicker between being merged and not
+					// being merged. Can't we just fudge the pixels? Being a pixel or two off shouldn't matter, people
+					// aren't using a ruler on their screen to measure the width of spans; and we already force spans to
+					// be at least 1 pixel wide, which isn't accurate, either. At least we should be able to fudge those
+					// spans that we didn't have to widen to be 1 pixel wide. For the others, we can't, because
+					// otherwise the widening adds up.
+					//
+					// XXX another fun problem is spans in the leftmost column that are 0 pixels wide and get widened.
+					// these are bound to overlap with the next span, causing to flicker when scrolling.
+					//
+					// XXX what if we just merge all spans that come out to a width of 0 and then do… something?
+					if rect.Min.X == prev.Min.X {
+						// Our spans - before being mapped to pixels - never overlap. A span n will always begin exactly
+						// after span n-1 ends. When mapping to pixels, however, multiple spans may have the same
+						// starting point, because they may round down to it. This is the only way in which spans can
+						// overlap. Even in pixel space, span n cannot begin in the middle of span n-1, only its
+						// beginning (or its end.)
 
-							// TODO(dh): draw a nice pattern or something
-							c = toColor(0xFF00FFFF)
-							stack := rect.Push(gtx.Ops)
-							paint.ColorOp{Color: c}.Add(gtx.Ops)
-							paint.PaintOp{}.Add(gtx.Ops)
-							stack.Pop()
+						if prev == rect {
+							if !prevMerged {
+								// The two spans are exactly the same. We only need to draw the new span as a merged span,
+								// which will hide the other span.
+								stack := rect.Push(gtx.Ops)
+								paint.ColorOp{Color: toColor(0xFF00FFFF)}.Add(gtx.Ops)
+								paint.PaintOp{}.Add(gtx.Ops)
+								stack.Pop()
+								prevMerged = true
+							}
+						} else {
+							if rect.Max.X > prev.Max.X {
+								// The new span is wider than the previous span. Draw it as merged, hiding the previous span.
+								c = toColor(0xFF00FFFF)
+								stack := rect.Push(gtx.Ops)
+								paint.ColorOp{Color: c}.Add(gtx.Ops)
+								paint.PaintOp{}.Add(gtx.Ops)
+								stack.Pop()
+								prev = rect
+							} else {
+								// The previous span is wider than the new span. Redraw it as merged.
+								c = toColor(0xFF00FFFF)
+								stack := prev.Push(gtx.Ops)
+								paint.ColorOp{Color: c}.Add(gtx.Ops)
+								paint.PaintOp{}.Add(gtx.Ops)
+								stack.Pop()
+							}
 						}
 					} else {
 						prev = rect
-						merged = false
+						prevMerged = false
 						stack := rect.Push(gtx.Ops)
 						paint.ColorOp{Color: c}.Add(gtx.Ops)
 						paint.PaintOp{}.Add(gtx.Ops)
