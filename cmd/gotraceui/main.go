@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -27,8 +27,8 @@ import (
 // span, and consecutive spans that would fall into that span get merged into it
 
 type Span struct {
-	Start int64
-	End   int64
+	Start time.Duration
+	End   time.Duration
 	State schedulingState
 }
 
@@ -73,7 +73,7 @@ func main() {
 			continue
 		}
 
-		spans = append(spans, Span{Start: ev.Ts * 1000, State: state})
+		spans = append(spans, Span{Start: time.Duration(ev.Ts), State: state})
 	}
 
 	if len(spans) == 0 {
@@ -85,7 +85,7 @@ func main() {
 		spans[i].End = spans[i+1].Start
 	}
 	// XXX what's the event for goroutine destruction?
-	spans[len(spans)-1].End = int64(time.Hour) * 1000
+	spans[len(spans)-1].End = time.Hour
 
 	go func() {
 		w := app.NewWindow()
@@ -134,13 +134,21 @@ func toColor(c uint32) color.NRGBA {
 }
 
 func run(w *app.Window) error {
-	// How much time one device-independent pixel represents, in picoseconds
-	timeStep := int64(1000000000000)
-	// Offset into the trace, in picoseconds
-	var offset int64
+	var (
+		// The region of the timeline that we're displaying, measured in nanoseconds
+		tlStart, tlEnd time.Duration
+		// The number of nanoseconds a pixel represents.
+		nsPerPx float64
+	)
+
+	tlStart = 0
+	// XXX find out how long the last span is
+	tlEnd = 30 * time.Millisecond
+	// tlEnd = spans[len(spans)-1].End
 
 	const stateBarHeight = unit.Dp(10)
 
+	// TODO(dh): handle window resize events and update nsPerPx
 	var ops op.Ops
 	for {
 		e := <-w.Events()
@@ -148,64 +156,76 @@ func run(w *app.Window) error {
 		case system.DestroyEvent:
 			return e.Err
 		case system.FrameEvent:
-			t := time.Now()
-
 			ops.Reset()
 			gtx := layout.NewContext(&ops, e)
 			gtx.Metric.PxPerDp = 2 // XXX
 
-			for _, ev := range gtx.Queue.Events(&timeStep) {
-				ev := ev.(pointer.Event)
-				d := timeStep / 100 * int64(ev.Scroll.Y)
-				if d == 0 {
+			for _, ev := range gtx.Queue.Events(&tlStart) {
+				switch ev := ev.(type) {
+				case pointer.Event:
+					// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
+					// TODO(dh): scroll centered on the mouse position
+					// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
 					if ev.Scroll.Y < 0 {
-						d = -1
-					} else {
-						d = 1
+						// Scrolling up, into the screen, zooming in
+						tlStart += time.Duration(nsPerPx * 100)
+						tlEnd -= time.Duration(nsPerPx * 100)
+						if tlEnd < 0 {
+							tlEnd = 0
+						}
+					} else if ev.Scroll.Y > 0 {
+						// Scrolling down, out of the screen, zooming out
+						tlStart -= time.Duration(nsPerPx * 100)
+						tlEnd += time.Duration(nsPerPx * 100)
+						if tlStart < 0 {
+							tlStart = 0
+						}
 					}
-				}
-				timeStep += d
-				if timeStep <= 0 {
-					timeStep = 1
-				}
 
-				log.Printf("1 dp = %d ps", timeStep)
-			}
-
-			for _, ev := range gtx.Queue.Events(&offset) {
-				if ev, ok := ev.(key.Event); ok {
+				case key.Event:
 					if ev.State == key.Press {
+						// TODO(dh): don't move if we're at the limit
 						switch ev.Name {
 						case "←":
-							offset -= 10 * timeStep
-							if offset < 0 {
-								offset = 0
+							tlStart -= time.Duration(10 * nsPerPx)
+							tlEnd -= time.Duration(10 * nsPerPx)
+							if tlStart < 0 {
+								tlStart = 0
 							}
 						case "→":
-							offset += 10 * timeStep
+							tlStart += time.Duration(10 * nsPerPx)
+							tlEnd += time.Duration(10 * nsPerPx)
 						}
 					}
 				}
 			}
 
-			pointer.InputOp{Tag: &timeStep, Types: pointer.Scroll, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
-			key.InputOp{Tag: &offset, Keys: "←|→"}.Add(gtx.Ops)
+			nsPerPx = float64(tlEnd-tlStart) / float64(gtx.Constraints.Max.X)
+			log.Printf("displaying %s–%s (%ens per px)", tlStart, tlEnd, nsPerPx)
+
+			if tlStart < 0 {
+				panic("XXX")
+			}
+			if tlEnd < tlStart {
+				panic("XXX")
+			}
+			if nsPerPx <= 0 {
+				panic("XXX")
+			}
+
+			pointer.InputOp{Tag: &tlStart, Types: pointer.Scroll, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
+			key.InputOp{Tag: &tlStart, Keys: "←|→"}.Add(gtx.Ops)
 
 			// XXX make sure our rounding is stable and doesn't jitter
 			// XXX handle spans that would be smaller than 1 unit
-
-			widthInDp := unit.Dp(gtx.Constraints.Max.X / int(gtx.Metric.PxPerDp))
-			widthInPs := int64(widthInDp) * timeStep
-
-			log.Printf("timespan: %d - %d", offset, offset+widthInPs)
 
 			// OPT(dh): use binary search
 			first := -1
 			last := -1
 			for i, s := range spans {
-				visible := (s.Start >= offset && s.Start < offset+widthInPs) ||
-					(s.End >= offset && s.End < offset+widthInPs) ||
-					(s.Start <= offset && s.End >= offset+widthInPs)
+				visible := (s.Start >= tlStart && s.Start < tlEnd) ||
+					(s.End >= tlStart && s.End < tlEnd) ||
+					(s.Start <= tlStart && s.End >= tlEnd)
 				if first == -1 {
 					if visible {
 						first = i
@@ -228,36 +248,18 @@ func run(w *app.Window) error {
 				panic("first == last")
 			}
 
+			widthOfSpan := func(s Span) float64 {
+				return float64(s.End-s.Start) / nsPerPx
+			}
+
 			if first != -1 {
 				log.Printf("rendering %d spans", len(spans[first:last]))
 
-				// OPT(dh): for large time steps and long traces, we may attempt to render hundreds of thousands of
-				// spans, a lot of which may map to the same point on account of being tiny. We should introduce some
-				// indexed data structure that lets us cull them.
-
-				// prev records the previously drawn span, to handle drawing of overlapping spans. If spans do overlap,
-				// prev will record the larger of the two.
-				prev := clip.Rect{Min: image.Point{-1, -1}, Max: image.Point{-1, -1}}
-				prevMerged := false
-
-				for _, s := range spans[first:last] {
-					// XXX if timeStep doesn't align cleanly with nanoseconds, then we need to round
-					// XXX when multiple spans map to the same dp, then we shouldn't just overdraw, we should visually merge them
-					startInPs := s.Start - offset
-					endInPs := s.End - offset
-					startInDp := unit.Dp(startInPs / timeStep)
-					endInDp := unit.Dp(endInPs / timeStep)
-
-					if startInDp < 0 {
-						startInDp = 0
-					}
-					if endInDp > widthInDp {
-						endInDp = widthInDp
-					}
-
-					if endInDp == startInDp {
-						endInDp += 1
-					}
+				spans := spans[first:last]
+				for i := 0; i < len(spans); i++ {
+					s := spans[i]
+					startPx := float64(s.Start-tlStart) / nsPerPx
+					endPx := float64(s.End-tlStart) / nsPerPx
 
 					var c color.NRGBA
 					if int(s.State) >= len(stateColors) {
@@ -266,70 +268,40 @@ func run(w *app.Window) error {
 						c = stateColors[s.State]
 					}
 
-					rect := clip.Rect{
-						Min: image.Point{gtx.Metric.Dp(startInDp), 0},
-						Max: image.Point{gtx.Metric.Dp(endInDp), gtx.Metric.Dp(stateBarHeight)},
-					}
+					const minSpanWidth = 5
 
-					// XXX this algorithm sucks. Changing the zoom level can change which spans overlap, simply due to
-					// rounding errors. This means that while zooming in, spans may flicker between being merged and not
-					// being merged. Can't we just fudge the pixels? Being a pixel or two off shouldn't matter, people
-					// aren't using a ruler on their screen to measure the width of spans; and we already force spans to
-					// be at least 1 pixel wide, which isn't accurate, either. At least we should be able to fudge those
-					// spans that we didn't have to widen to be 1 pixel wide. For the others, we can't, because
-					// otherwise the widening adds up.
-					//
-					// XXX another fun problem is spans in the leftmost column that are 0 pixels wide and get widened.
-					// these are bound to overlap with the next span, causing to flicker when scrolling.
-					//
-					// XXX what if we just merge all spans that come out to a width of 0 and then do… something?
-					if rect.Min.X == prev.Min.X {
-						// Our spans - before being mapped to pixels - never overlap. A span n will always begin exactly
-						// after span n-1 ends. When mapping to pixels, however, multiple spans may have the same
-						// starting point, because they may round down to it. This is the only way in which spans can
-						// overlap. Even in pixel space, span n cannot begin in the middle of span n-1, only its
-						// beginning (or its end.)
+					if endPx-startPx < minSpanWidth {
+						c = toColor(colorStateUnknown) // XXX use different color
+						// Collect enough spans until we've filled the minimum width
+						for {
+							i++
+							if i == len(spans) {
+								// We've run out of spans
+								break
+							}
 
-						if prev == rect {
-							if !prevMerged {
-								// The two spans are exactly the same. We only need to draw the new span as a merged span,
-								// which will hide the other span.
-								stack := rect.Push(gtx.Ops)
-								paint.ColorOp{Color: toColor(0xFF00FFFF)}.Add(gtx.Ops)
-								paint.PaintOp{}.Add(gtx.Ops)
-								stack.Pop()
-								prevMerged = true
+							if widthOfSpan(spans[i]) >= minSpanWidth {
+								// Don't merge spans that can stand on their own
+								i--
+								break
 							}
-						} else {
-							if rect.Max.X > prev.Max.X {
-								// The new span is wider than the previous span. Draw it as merged, hiding the previous span.
-								c = toColor(0xFF00FFFF)
-								stack := rect.Push(gtx.Ops)
-								paint.ColorOp{Color: c}.Add(gtx.Ops)
-								paint.PaintOp{}.Add(gtx.Ops)
-								stack.Pop()
-								prev = rect
-							} else {
-								// The previous span is wider than the new span. Redraw it as merged.
-								c = toColor(0xFF00FFFF)
-								stack := prev.Push(gtx.Ops)
-								paint.ColorOp{Color: c}.Add(gtx.Ops)
-								paint.PaintOp{}.Add(gtx.Ops)
-								stack.Pop()
-							}
+
+							endPx = float64(spans[i].End-tlStart) / nsPerPx
 						}
-					} else {
-						prev = rect
-						prevMerged = false
-						stack := rect.Push(gtx.Ops)
-						paint.ColorOp{Color: c}.Add(gtx.Ops)
-						paint.PaintOp{}.Add(gtx.Ops)
-						stack.Pop()
 					}
+
+					// XXX .5 needs to be rounded up or down for the end or start
+					rect := clip.Rect{
+						Min: image.Point{int(math.Round(startPx)), 0},
+						Max: image.Point{int(math.Round(endPx)), int(stateBarHeight)},
+					}
+					stack := rect.Push(gtx.Ops)
+					paint.ColorOp{Color: c}.Add(gtx.Ops)
+					paint.PaintOp{}.Add(gtx.Ops)
+					stack.Pop()
 				}
 			}
 
-			fmt.Println(time.Since(t))
 			e.Frame(&ops)
 		}
 	}
