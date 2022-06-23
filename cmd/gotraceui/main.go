@@ -291,8 +291,8 @@ func run(w *app.Window) error {
 
 							// XXX .5 needs to be rounded up or down for the end or start
 							rect := clip.Rect{
-								Min: image.Point{int(math.Round(startPx)), 0},
-								Max: image.Point{int(math.Round(endPx)), int(stateBarHeight)},
+								Min: image.Point{max(int(math.Round(startPx)), 0), 0},
+								Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
 							}
 							stack := rect.Push(gtx.Ops)
 							paint.ColorOp{Color: c}.Add(gtx.Ops)
@@ -305,5 +305,21 @@ func run(w *app.Window) error {
 
 			e.Frame(&ops)
 		}
+	}
+}
+
+func min(a, b int) int {
+	if a <= b {
+		return a
+	} else {
+		return b
+	}
+}
+
+func max(a, b int) int {
+	if a >= b {
+		return a
+	} else {
+		return b
 	}
 }
