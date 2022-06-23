@@ -197,19 +197,20 @@ func run(w *app.Window) error {
 				switch ev := ev.(type) {
 				case pointer.Event:
 					// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
-					// TODO(dh): scroll centered on the mouse position
 					// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
 					if ev.Scroll.Y < 0 {
 						// Scrolling up, into the screen, zooming in
-						tlStart += time.Duration(nsPerPx * 100)
-						tlEnd -= time.Duration(nsPerPx * 100)
+						ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
+						tlStart += time.Duration(nsPerPx * 100 * ratio)
+						tlEnd -= time.Duration(nsPerPx * 100 * (1 - ratio))
 						if tlEnd < 0 {
 							tlEnd = 0
 						}
 					} else if ev.Scroll.Y > 0 {
 						// Scrolling down, out of the screen, zooming out
-						tlStart -= time.Duration(nsPerPx * 100)
-						tlEnd += time.Duration(nsPerPx * 100)
+						ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
+						tlStart -= time.Duration(nsPerPx * 100 * ratio)
+						tlEnd += time.Duration(nsPerPx * 100 * (1 - ratio))
 						if tlStart < 0 {
 							tlStart = 0
 						}
