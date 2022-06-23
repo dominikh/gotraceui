@@ -20,6 +20,8 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
+// XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
+
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
 // time or should it display the same time, stretched to fill the new space? Tracy does the latter.
 
@@ -49,9 +51,15 @@ func main() {
 	for _, ev := range res.Events {
 		var state schedulingState
 		switch ev.Type {
+		case trace.EvGoCreate:
+			state = stateInactive
 		case trace.EvGoStart:
 			state = stateActive
-		case trace.EvGoStop, trace.EvGoEnd, trace.EvGoSched, trace.EvGoSleep:
+		case trace.EvGoStop:
+			state = stateStuck
+		case trace.EvGoEnd:
+			state = -1
+		case trace.EvGoSched, trace.EvGoSleep:
 			state = stateInactive
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
@@ -72,12 +80,19 @@ func main() {
 		sspans[ev.G] = append(sspans[ev.G], Span{Start: time.Duration(ev.Ts), State: state})
 	}
 
-	for _, spans := range sspans {
+	for gid, spans := range sspans {
 		for i := range spans[:len(spans)-1] {
 			spans[i].End = spans[i+1].Start
 		}
-		// XXX what's the event for goroutine destruction?
-		spans[len(spans)-1].End = time.Hour
+		last := spans[len(spans)-1]
+		if last.State == -1 {
+			// The goroutine has ended
+			// XXX the event probably has a stack associated with it, which we shouldn't discard.
+			sspans[gid] = spans[:len(spans)-1]
+		} else {
+			// XXX somehow encode open-ended traces
+			spans[len(spans)-1].End = time.Hour
+		}
 	}
 
 	go func() {
@@ -96,6 +111,7 @@ const (
 	colorStateActive   = 0x00FF00FF
 	colorStateBlocked  = 0xFF0000FF
 	colorStateWaiting  = 0x0000FFFF
+	colorStateStuck    = 0x000000FF
 	colorStateUnknown  = 0xFFFF00FF
 )
 
@@ -105,6 +121,7 @@ const (
 	stateInactive = iota
 	stateActive
 	stateBlocked
+	stateStuck
 	stateWaiting
 )
 
@@ -112,6 +129,7 @@ var stateColors = [...]color.NRGBA{
 	stateInactive: toColor(colorStateInactive),
 	stateActive:   toColor(colorStateActive),
 	stateBlocked:  toColor(colorStateBlocked),
+	stateStuck:    toColor(colorStateStuck),
 	stateWaiting:  toColor(colorStateWaiting),
 }
 
