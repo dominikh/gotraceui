@@ -34,7 +34,7 @@ type Span struct {
 
 // XXX in the real code we'll want to directly process the parsed events, not transform them to another
 // representation. We're doing this only because it's easy to prototype with.
-var spans []Span
+var sspans = map[uint64][]Span{}
 
 func main() {
 	r, err := os.Open(os.Args[1])
@@ -47,10 +47,6 @@ func main() {
 	}
 
 	for _, ev := range res.Events {
-		if ev.G != 3 {
-			continue
-		}
-
 		var state schedulingState
 		switch ev.Type {
 		case trace.EvGoStart:
@@ -73,19 +69,16 @@ func main() {
 			continue
 		}
 
-		spans = append(spans, Span{Start: time.Duration(ev.Ts), State: state})
+		sspans[ev.G] = append(sspans[ev.G], Span{Start: time.Duration(ev.Ts), State: state})
 	}
 
-	if len(spans) == 0 {
-		// XXX
-		log.Fatal("boring trace")
+	for _, spans := range sspans {
+		for i := range spans[:len(spans)-1] {
+			spans[i].End = spans[i+1].Start
+		}
+		// XXX what's the event for goroutine destruction?
+		spans[len(spans)-1].End = time.Hour
 	}
-
-	for i := range spans[:len(spans)-1] {
-		spans[i].End = spans[i+1].Start
-	}
-	// XXX what's the event for goroutine destruction?
-	spans[len(spans)-1].End = time.Hour
 
 	go func() {
 		w := app.NewWindow()
@@ -219,87 +212,95 @@ func run(w *app.Window) error {
 			// XXX make sure our rounding is stable and doesn't jitter
 			// XXX handle spans that would be smaller than 1 unit
 
-			// OPT(dh): use binary search
-			first := -1
-			last := -1
-			for i, s := range spans {
-				visible := (s.Start >= tlStart && s.Start < tlEnd) ||
-					(s.End >= tlStart && s.End < tlEnd) ||
-					(s.Start <= tlStart && s.End >= tlEnd)
-				if first == -1 {
-					if visible {
-						first = i
-					}
-				} else {
-					if !visible {
-						last = i
-						break
-					}
+			for gid, spans := range sspans {
+				if gid > 100 {
+					continue
 				}
-			}
-
-			if first == -1 {
-				log.Println("found no spans")
-			}
-			if last == -1 {
-				last = len(spans)
-			}
-			if first == last {
-				panic("first == last")
-			}
-
-			widthOfSpan := func(s Span) float64 {
-				return float64(s.End-s.Start) / nsPerPx
-			}
-
-			if first != -1 {
-				log.Printf("rendering %d spans", len(spans[first:last]))
-
-				spans := spans[first:last]
-				for i := 0; i < len(spans); i++ {
-					s := spans[i]
-					startPx := float64(s.Start-tlStart) / nsPerPx
-					endPx := float64(s.End-tlStart) / nsPerPx
-
-					var c color.NRGBA
-					if int(s.State) >= len(stateColors) {
-						c = toColor(colorStateUnknown)
-					} else {
-						c = stateColors[s.State]
-					}
-
-					const minSpanWidth = 5
-
-					if endPx-startPx < minSpanWidth {
-						c = toColor(colorStateUnknown) // XXX use different color
-						// Collect enough spans until we've filled the minimum width
-						for {
-							i++
-							if i == len(spans) {
-								// We've run out of spans
+				func() {
+					defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
+					// OPT(dh): use binary search
+					first := -1
+					last := -1
+					for i, s := range spans {
+						visible := (s.Start >= tlStart && s.Start < tlEnd) ||
+							(s.End >= tlStart && s.End < tlEnd) ||
+							(s.Start <= tlStart && s.End >= tlEnd)
+						if first == -1 {
+							if visible {
+								first = i
+							}
+						} else {
+							if !visible {
+								last = i
 								break
 							}
-
-							if widthOfSpan(spans[i]) >= minSpanWidth {
-								// Don't merge spans that can stand on their own
-								i--
-								break
-							}
-
-							endPx = float64(spans[i].End-tlStart) / nsPerPx
 						}
 					}
 
-					// XXX .5 needs to be rounded up or down for the end or start
-					rect := clip.Rect{
-						Min: image.Point{int(math.Round(startPx)), 0},
-						Max: image.Point{int(math.Round(endPx)), int(stateBarHeight)},
+					if first == -1 {
+						log.Println("found no spans")
 					}
-					stack := rect.Push(gtx.Ops)
-					paint.ColorOp{Color: c}.Add(gtx.Ops)
-					paint.PaintOp{}.Add(gtx.Ops)
-					stack.Pop()
-				}
+					if last == -1 {
+						last = len(spans)
+					}
+					if first == last {
+						panic("first == last")
+					}
+
+					widthOfSpan := func(s Span) float64 {
+						return float64(s.End-s.Start) / nsPerPx
+					}
+
+					if first != -1 {
+						log.Printf("rendering %d spans", len(spans[first:last]))
+
+						spans := spans[first:last]
+						for i := 0; i < len(spans); i++ {
+							s := spans[i]
+							startPx := float64(s.Start-tlStart) / nsPerPx
+							endPx := float64(s.End-tlStart) / nsPerPx
+
+							var c color.NRGBA
+							if int(s.State) >= len(stateColors) {
+								c = toColor(colorStateUnknown)
+							} else {
+								c = stateColors[s.State]
+							}
+
+							const minSpanWidth = 5
+
+							if endPx-startPx < minSpanWidth {
+								c = toColor(colorStateUnknown) // XXX use different color
+								// Collect enough spans until we've filled the minimum width
+								for {
+									i++
+									if i == len(spans) {
+										// We've run out of spans
+										break
+									}
+
+									if widthOfSpan(spans[i]) >= minSpanWidth {
+										// Don't merge spans that can stand on their own
+										i--
+										break
+									}
+
+									endPx = float64(spans[i].End-tlStart) / nsPerPx
+								}
+							}
+
+							// XXX .5 needs to be rounded up or down for the end or start
+							rect := clip.Rect{
+								Min: image.Point{int(math.Round(startPx)), 0},
+								Max: image.Point{int(math.Round(endPx)), int(stateBarHeight)},
+							}
+							stack := rect.Push(gtx.Ops)
+							paint.ColorOp{Color: c}.Add(gtx.Ops)
+							paint.PaintOp{}.Add(gtx.Ops)
+							stack.Pop()
+						}
+					}
+				}()
 			}
 
 			e.Frame(&ops)
