@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/f32"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
@@ -19,6 +20,10 @@ import (
 	"gioui.org/unit"
 	"honnef.co/go/gotraceui/trace"
 )
+
+// TODO(dh): Support negative timeline. Right now, ts = 0 can only be displayed on the far left of the window, because
+// we cannot render negative timestamps. That's inconvenient, we want to be able to focus on a span in the middle of our
+// window.
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
@@ -181,6 +186,12 @@ func run(w *app.Window) error {
 
 	const stateBarHeight = unit.Dp(10)
 
+	// State for dragging the timeline
+	var tlDrag struct {
+		clickAt        f32.Point
+		tlStart, tlEnd time.Duration
+	}
+
 	// TODO(dh): handle window resize events and update nsPerPx
 	var ops op.Ops
 	for {
@@ -193,26 +204,49 @@ func run(w *app.Window) error {
 			gtx := layout.NewContext(&ops, e)
 			gtx.Metric.PxPerDp = 2 // XXX
 
+			paint.ColorOp{Color: color.NRGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF}}.Add(gtx.Ops)
+			paint.PaintOp{}.Add(gtx.Ops)
+
 			for _, ev := range gtx.Queue.Events(&tlStart) {
 				switch ev := ev.(type) {
 				case pointer.Event:
-					// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
-					// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
-					if ev.Scroll.Y < 0 {
-						// Scrolling up, into the screen, zooming in
-						ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
-						tlStart += time.Duration(nsPerPx * 100 * ratio)
-						tlEnd -= time.Duration(nsPerPx * 100 * (1 - ratio))
-						if tlEnd < 0 {
-							tlEnd = 0
+					switch ev.Type {
+					case pointer.Press:
+						if ev.Buttons&pointer.ButtonTertiary != 0 {
+							tlDrag.clickAt = ev.Position
+							tlDrag.tlStart = tlStart
+							tlDrag.tlEnd = tlEnd
 						}
-					} else if ev.Scroll.Y > 0 {
-						// Scrolling down, out of the screen, zooming out
-						ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
-						tlStart -= time.Duration(nsPerPx * 100 * ratio)
-						tlEnd += time.Duration(nsPerPx * 100 * (1 - ratio))
-						if tlStart < 0 {
-							tlStart = 0
+
+					case pointer.Scroll:
+						// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
+						// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
+						if ev.Scroll.Y < 0 {
+							// Scrolling up, into the screen, zooming in
+							ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
+							tlStart += time.Duration(nsPerPx * 100 * ratio)
+							tlEnd -= time.Duration(nsPerPx * 100 * (1 - ratio))
+							if tlEnd < 0 {
+								tlEnd = 0
+							}
+						} else if ev.Scroll.Y > 0 {
+							// Scrolling down, out of the screen, zooming out
+							ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
+							tlStart -= time.Duration(nsPerPx * 100 * ratio)
+							tlEnd += time.Duration(nsPerPx * 100 * (1 - ratio))
+							if tlStart < 0 {
+								tlStart = 0
+							}
+						}
+
+					case pointer.Drag:
+						if ev.Buttons&pointer.ButtonTertiary != 0 {
+							d := time.Duration(math.Round(nsPerPx * float64(tlDrag.clickAt.X-ev.Position.X)))
+							if tlDrag.tlStart+d < 0 {
+								d = -tlDrag.tlStart
+							}
+							tlStart = tlDrag.tlStart + d
+							tlEnd = tlDrag.tlEnd + d
 						}
 					}
 
@@ -247,7 +281,7 @@ func run(w *app.Window) error {
 				panic("XXX")
 			}
 
-			pointer.InputOp{Tag: &tlStart, Types: pointer.Scroll, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
+			pointer.InputOp{Tag: &tlStart, Types: pointer.Scroll | pointer.Drag | pointer.Press, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
 			key.InputOp{Tag: &tlStart, Keys: "←|→"}.Add(gtx.Ops)
 
 			// XXX make sure our rounding is stable and doesn't jitter
@@ -278,9 +312,6 @@ func run(w *app.Window) error {
 						}
 					}
 
-					if first == -1 {
-						log.Println("found no spans")
-					}
 					if last == -1 {
 						last = len(spans)
 					}
@@ -293,8 +324,6 @@ func run(w *app.Window) error {
 					}
 
 					if first != -1 {
-						log.Printf("rendering %d spans", len(spans[first:last]))
-
 						spans := spans[first:last]
 						for i := 0; i < len(spans); i++ {
 							s := spans[i]
