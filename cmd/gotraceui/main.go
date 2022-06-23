@@ -49,35 +49,57 @@ func main() {
 	}
 
 	for _, ev := range res.Events {
+		var g uint64
 		var state schedulingState
+
 		switch ev.Type {
 		case trace.EvGoCreate:
+			// ev.G creates ev.Args[0]
+			g = ev.Args[0]
 			state = stateInactive
 		case trace.EvGoStart:
+			// ev.G starts running
+			g = ev.G
 			state = stateActive
 		case trace.EvGoStop:
+			// ev.G is stopping
+			g = ev.G
 			state = stateStuck
 		case trace.EvGoEnd:
+			// ev.G is ending
+			g = ev.G
 			state = -1
-		case trace.EvGoSched, trace.EvGoSleep:
+		case trace.EvGoSched:
+			// ev.G calls Gosched
+			g = ev.G
+			state = stateInactive
+		case trace.EvGoSleep:
+			// ev.G calls Sleep
+			g = ev.G
+			state = stateInactive
+		case trace.EvGoPreempt:
+			// ev.G got preempted
+			g = ev.G
 			state = stateInactive
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
-			trace.EvGoSysBlock, trace.EvGoBlockGC, trace.EvGoPreempt, trace.EvGoBlock:
+			trace.EvGoBlockGC, trace.EvGoBlock:
+			// ev.G is blocking
+			g = ev.G
 			state = stateBlocked
-		case trace.EvGoInSyscall:
-			panic("unsupported")
-		case trace.EvGoUnblockLocal:
-			panic("unsupported")
 		case trace.EvGoWaiting:
+			// ev.G is blocked when tracing starts
+			g = ev.G
 			state = stateBlocked
 		case trace.EvGoUnblock:
+			// ev.G is unblocking ev.Args[0]
+			g = ev.Args[0]
 			state = stateWaiting
 		default:
 			continue
 		}
 
-		sspans[ev.G] = append(sspans[ev.G], Span{Start: time.Duration(ev.Ts), State: state})
+		sspans[g] = append(sspans[g], Span{Start: time.Duration(ev.Ts), State: state})
 	}
 
 	for gid, spans := range sspans {
