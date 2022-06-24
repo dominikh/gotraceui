@@ -50,6 +50,8 @@ type Timeline struct {
 
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float64
+
+	cursorPos f32.Point
 }
 
 func (tl *Timeline) startDrag(pos f32.Point) {
@@ -129,14 +131,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
 					tl.dragTo(gtx, ev.Position)
 				}
+
+			case pointer.Move:
+				tl.cursorPos = ev.Position
 			}
 		}
 	}
 
 	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
 	tl.updateTickInterval(gtx)
-
-	log.Printf("displaying %s–%s (%ens per px), one tick every %s", tl.Start, tl.End, tl.nsPerPx, tl.tickInterval)
 
 	if tl.Start < 0 {
 		panic("XXX")
@@ -152,7 +155,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	paint.Fill(gtx.Ops, toColor(0xAAAAAAFF))
 
 	// Set up event handlers
-	pointer.InputOp{Tag: tl, Types: pointer.Scroll | pointer.Drag | pointer.Press, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
+	pointer.InputOp{Tag: tl, Types: pointer.Scroll | pointer.Drag | pointer.Press | pointer.Move, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
 
 	// Draw axis
 
@@ -185,94 +188,103 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		stack.Pop()
 	}
 
-	op.Offset(image.Point{Y: tickHeight * 2}).Add(gtx.Ops)
+	func() {
+		defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
 
-	// XXX make sure our rounding is stable and doesn't jitter
-	// XXX handle spans that would be smaller than 1 unit
+		// XXX make sure our rounding is stable and doesn't jitter
+		// XXX handle spans that would be smaller than 1 unit
 
-	// Draw goroutine lifetimes
-	for gid, spans := range sspans {
-		if gid > 100 {
-			continue
-		}
-		func() {
-			defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
-			// OPT(dh): use binary search
-			first := -1
-			last := -1
-			for i, s := range spans {
-				visible := (s.Start >= tl.Start && s.Start < tl.End) ||
-					(s.End >= tl.Start && s.End < tl.End) ||
-					(s.Start <= tl.Start && s.End >= tl.End)
-				if first == -1 {
-					if visible {
-						first = i
-					}
-				} else {
-					if !visible {
-						last = i
-						break
-					}
-				}
+		// Draw goroutine lifetimes
+		for gid, spans := range sspans {
+			if gid > 100 {
+				continue
 			}
-
-			if last == -1 {
-				last = len(spans)
-			}
-			if first == last {
-				panic("first == last")
-			}
-
-			widthOfSpan := func(s Span) float64 {
-				return float64(s.End-s.Start) / tl.nsPerPx
-			}
-
-			if first != -1 {
-				spans := spans[first:last]
-				for i := 0; i < len(spans); i++ {
-					s := spans[i]
-					startPx := float64(tl.tsToPx(gtx, s.Start))
-					endPx := float64(tl.tsToPx(gtx, s.End))
-
-					var c color.NRGBA
-					if int(s.State) >= len(stateColors) {
-						c = toColor(colorStateUnknown)
+			func() {
+				defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
+				// OPT(dh): use binary search
+				first := -1
+				last := -1
+				for i, s := range spans {
+					visible := (s.Start >= tl.Start && s.Start < tl.End) ||
+						(s.End >= tl.Start && s.End < tl.End) ||
+						(s.Start <= tl.Start && s.End >= tl.End)
+					if first == -1 {
+						if visible {
+							first = i
+						}
 					} else {
-						c = stateColors[s.State]
-					}
-
-					const minSpanWidth = 5
-
-					if endPx-startPx < minSpanWidth {
-						c = toColor(colorStateUnknown) // XXX use different color
-						// Collect enough spans until we've filled the minimum width
-						for {
-							i++
-							if i == len(spans) {
-								// We've run out of spans
-								break
-							}
-
-							if widthOfSpan(spans[i]) >= minSpanWidth {
-								// Don't merge spans that can stand on their own
-								i--
-								break
-							}
-
-							endPx = tl.tsToPx(gtx, spans[i].End)
+						if !visible {
+							last = i
+							break
 						}
 					}
-
-					// XXX .5 needs to be rounded up or down for the end or start
-					rect := clip.Rect{
-						Min: image.Point{max(int(math.Round(startPx)), 0), 0},
-						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
-					}
-					paint.FillShape(gtx.Ops, c, rect.Op())
 				}
-			}
-		}()
+
+				if last == -1 {
+					last = len(spans)
+				}
+				if first == last {
+					panic("first == last")
+				}
+
+				widthOfSpan := func(s Span) float64 {
+					return float64(s.End-s.Start) / tl.nsPerPx
+				}
+
+				if first != -1 {
+					spans := spans[first:last]
+					for i := 0; i < len(spans); i++ {
+						s := spans[i]
+						startPx := float64(tl.tsToPx(gtx, s.Start))
+						endPx := float64(tl.tsToPx(gtx, s.End))
+
+						var c color.NRGBA
+						if int(s.State) >= len(stateColors) {
+							c = toColor(colorStateUnknown)
+						} else {
+							c = stateColors[s.State]
+						}
+
+						const minSpanWidth = 5
+
+						if endPx-startPx < minSpanWidth {
+							c = toColor(colorStateUnknown) // XXX use different color
+							// Collect enough spans until we've filled the minimum width
+							for {
+								i++
+								if i == len(spans) {
+									// We've run out of spans
+									break
+								}
+
+								if widthOfSpan(spans[i]) >= minSpanWidth {
+									// Don't merge spans that can stand on their own
+									i--
+									break
+								}
+
+								endPx = tl.tsToPx(gtx, spans[i].End)
+							}
+						}
+
+						// XXX .5 needs to be rounded up or down for the end or start
+						rect := clip.Rect{
+							Min: image.Point{max(int(math.Round(startPx)), 0), 0},
+							Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
+						}
+						paint.FillShape(gtx.Ops, c, rect.Op())
+					}
+				}
+			}()
+		}
+	}()
+
+	// Draw cursor
+	rect := clip.Rect{
+		Min: image.Point{X: int(math.Round(float64(tl.cursorPos.X))), Y: 0},
+		Max: image.Point{X: int(math.Round(float64(tl.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
 	}
+	paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -445,17 +457,17 @@ func run(w *app.Window) error {
 	var ops op.Ops
 	for {
 		e := <-w.Events()
-		switch e := e.(type) {
+		switch ev := e.(type) {
 		case system.DestroyEvent:
-			return e.Err
+			return ev.Err
 		case system.FrameEvent:
-			gtx := layout.NewContext(&ops, e)
+			gtx := layout.NewContext(&ops, ev)
 			gtx.Constraints.Min = image.Point{}
 			gtx.Metric.PxPerDp = 2 // XXX
 
 			tl.Layout(gtx)
 
-			e.Frame(&ops)
+			ev.Frame(&ops)
 		}
 	}
 }
