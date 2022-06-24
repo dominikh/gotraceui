@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"log"
@@ -10,13 +11,16 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
+	"gioui.org/font/gofont"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
+	"gioui.org/widget"
 	"honnef.co/go/gotraceui/trace"
 )
 
@@ -86,6 +90,9 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 }
 
 func (tl *Timeline) updateTickInterval(gtx layout.Context) {
+	// TODO(dh): align ticks so they're always nice multiples of 10 or 1 in the unit they're shown. 10ms, 20ms, ... 1s, 2s, ...
+	// Is that something we'd do here, or something we'd ensure when zooming in/out?
+
 	if tl.tickInterval == 0 {
 		// The tick interval has never been set or it has been reset, initialize to midTickDistance
 		tl.tickInterval = time.Duration(math.Round(midTickDistance * tl.nsPerPx))
@@ -148,17 +155,37 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	pointer.InputOp{Tag: tl, Types: pointer.Scroll | pointer.Drag | pointer.Press, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
 
 	// Draw axis
+
+	// TODO don't bother with tl.Start and tl.End, we just have to subtract them in some places again. Just compute how
+	// many ticks go in a line.
+	//
+	// TODO don't allow for labels to overlap
+	// TODO round labels to pleasing precision
 	for t := tl.Start; t < tl.End; t += tl.tickInterval {
-		start := tl.tsToPx(gtx, t) - tickWidth/2
-		end := tl.tsToPx(gtx, t) + tickWidth/2
+		start := int(math.Round(tl.tsToPx(gtx, t) - tickWidth/2))
+		end := int(math.Round(tl.tsToPx(gtx, t) + tickWidth/2))
 		rect := clip.Rect{
-			Min: image.Point{X: int(math.Round(start)), Y: 0},
-			Max: image.Point{X: int(math.Round(end)), Y: tickHeight},
+			Min: image.Point{X: start, Y: 0},
+			Max: image.Point{X: end, Y: tickHeight},
 		}
 		paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
+
+		macro := op.Record(gtx.Ops)
+		label := fmt.Sprintf("+%s", t-tl.Start)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+		call := macro.Stop()
+
+		// XXX leftmost and rightmost tick shouldn't be centered
+
+		stack := op.Offset(image.Point{
+			X: start - dims.Size.X/2,
+			Y: tickHeight,
+		}).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		stack.Pop()
 	}
 
-	op.Offset(image.Point{Y: tickHeight}).Add(gtx.Ops)
+	op.Offset(image.Point{Y: tickHeight * 2}).Add(gtx.Ops)
 
 	// XXX make sure our rounding is stable and doesn't jitter
 	// XXX handle spans that would be smaller than 1 unit
@@ -275,7 +302,12 @@ type Span struct {
 // representation. We're doing this only because it's easy to prototype with.
 var sspans = map[uint64][]Span{}
 
+// TODO(dh): avoid global state, bundle this in a Theme, much like gioui.org/widget/material does
+var shaper text.Shaper
+
 func main() {
+	shaper = text.NewCache(gofont.Collection())
+
 	r, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
@@ -417,8 +449,8 @@ func run(w *app.Window) error {
 		case system.DestroyEvent:
 			return e.Err
 		case system.FrameEvent:
-			ops.Reset()
 			gtx := layout.NewContext(&ops, e)
+			gtx.Constraints.Min = image.Point{}
 			gtx.Metric.PxPerDp = 2 // XXX
 
 			tl.Layout(gtx)
