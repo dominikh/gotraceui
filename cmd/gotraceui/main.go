@@ -21,9 +21,11 @@ import (
 )
 
 const (
-	minTickDistance = 48
+	minTickDistance = 24
 	maxTickDistance = 144
 	midTickDistance = (maxTickDistance - minTickDistance) / 2
+	tickHeight      = 50
+	tickWidth       = 3
 )
 
 const stateBarHeight = unit.Dp(10)
@@ -40,7 +42,10 @@ type Timeline struct {
 		End     time.Duration
 	}
 
-	TickInterval time.Duration
+	tickInterval time.Duration
+
+	// Frame-local state set by Layout and read by various helpers
+	nsPerPx float64
 }
 
 func (tl *Timeline) startDrag(pos f32.Point) {
@@ -50,8 +55,7 @@ func (tl *Timeline) startDrag(pos f32.Point) {
 }
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
-	nsPerPx := tl.nsPerPx(gtx)
-	d := time.Duration(math.Round(nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
+	d := time.Duration(math.Round(tl.nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
 	if tl.Drag.Start+d < 0 {
 		d = -tl.Drag.Start
 	}
@@ -60,32 +64,45 @@ func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
 }
 
 func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
-	nsPerPx := tl.nsPerPx(gtx)
-
 	// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
 	// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
 		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
-		tl.Start += time.Duration(nsPerPx * 100 * ratio)
-		tl.End -= time.Duration(nsPerPx * 100 * (1 - ratio))
+		tl.Start += time.Duration(tl.nsPerPx * 100 * ratio)
+		tl.End -= time.Duration(tl.nsPerPx * 100 * (1 - ratio))
 		if tl.End < 0 {
 			tl.End = 0
 		}
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
-		tl.Start -= time.Duration(nsPerPx * 100 * ratio)
-		tl.End += time.Duration(nsPerPx * 100 * (1 - ratio))
+		tl.Start -= time.Duration(tl.nsPerPx * 100 * ratio)
+		tl.End += time.Duration(tl.nsPerPx * 100 * (1 - ratio))
 		if tl.Start < 0 {
 			tl.Start = 0
 		}
 	}
 }
 
-// The number of nanoseconds a pixel represents.
-func (tl *Timeline) nsPerPx(gtx layout.Context) float64 {
-	return float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
+func (tl *Timeline) updateTickInterval(gtx layout.Context) {
+	if tl.tickInterval == 0 {
+		// The tick interval has never been set or it has been reset, initialize to midTickDistance
+		tl.tickInterval = time.Duration(math.Round(midTickDistance * tl.nsPerPx))
+	} else {
+		tickDistance := int(math.Round(float64(tl.tickInterval) / tl.nsPerPx))
+
+		if tickDistance < minTickDistance {
+			tl.tickInterval = time.Duration(math.Round(maxTickDistance * tl.nsPerPx))
+		} else if tickDistance > maxTickDistance {
+			tl.tickInterval = time.Duration(math.Round(minTickDistance * tl.nsPerPx))
+		}
+	}
+}
+
+//gcassert:inline
+func (tl *Timeline) tsToPx(gtx layout.Context, t time.Duration) float64 {
+	return float64(t-tl.Start) / tl.nsPerPx
 }
 
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
@@ -109,7 +126,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	log.Printf("displaying %s–%s (%ens per px)", tl.Start, tl.End, tl.nsPerPx(gtx))
+	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
+	tl.updateTickInterval(gtx)
+
+	log.Printf("displaying %s–%s (%ens per px), one tick every %s", tl.Start, tl.End, tl.nsPerPx, tl.tickInterval)
 
 	if tl.Start < 0 {
 		panic("XXX")
@@ -117,20 +137,33 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	if tl.End < tl.Start {
 		panic("XXX")
 	}
-	if tl.nsPerPx(gtx) <= 0 {
+	if tl.nsPerPx <= 0 {
 		panic("XXX")
 	}
 
-	paint.ColorOp{Color: color.NRGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF}}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
+	// Fill background
+	paint.Fill(gtx.Ops, toColor(0xAAAAAAFF))
 
+	// Set up event handlers
 	pointer.InputOp{Tag: tl, Types: pointer.Scroll | pointer.Drag | pointer.Press, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
+
+	// Draw axis
+	for t := tl.Start; t < tl.End; t += tl.tickInterval {
+		start := tl.tsToPx(gtx, t) - tickWidth/2
+		end := tl.tsToPx(gtx, t) + tickWidth/2
+		rect := clip.Rect{
+			Min: image.Point{X: int(math.Round(start)), Y: 0},
+			Max: image.Point{X: int(math.Round(end)), Y: tickHeight},
+		}
+		paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
+	}
+
+	op.Offset(image.Point{Y: tickHeight}).Add(gtx.Ops)
 
 	// XXX make sure our rounding is stable and doesn't jitter
 	// XXX handle spans that would be smaller than 1 unit
 
-	nsPerPx := tl.nsPerPx(gtx)
-
+	// Draw goroutine lifetimes
 	for gid, spans := range sspans {
 		if gid > 100 {
 			continue
@@ -164,15 +197,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			}
 
 			widthOfSpan := func(s Span) float64 {
-				return float64(s.End-s.Start) / nsPerPx
+				return float64(s.End-s.Start) / tl.nsPerPx
 			}
 
 			if first != -1 {
 				spans := spans[first:last]
 				for i := 0; i < len(spans); i++ {
 					s := spans[i]
-					startPx := float64(s.Start-tl.Start) / nsPerPx
-					endPx := float64(s.End-tl.Start) / nsPerPx
+					startPx := float64(tl.tsToPx(gtx, s.Start))
+					endPx := float64(tl.tsToPx(gtx, s.End))
 
 					var c color.NRGBA
 					if int(s.State) >= len(stateColors) {
@@ -199,7 +232,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 								break
 							}
 
-							endPx = float64(spans[i].End-tl.Start) / nsPerPx
+							endPx = tl.tsToPx(gtx, spans[i].End)
 						}
 					}
 
@@ -208,14 +241,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						Min: image.Point{max(int(math.Round(startPx)), 0), 0},
 						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
 					}
-					stack := rect.Push(gtx.Ops)
-					paint.ColorOp{Color: c}.Add(gtx.Ops)
-					paint.PaintOp{}.Add(gtx.Ops)
-					stack.Pop()
+					paint.FillShape(gtx.Ops, c, rect.Op())
 				}
 			}
 		}()
 	}
+
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
 	}
