@@ -10,7 +10,6 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
-	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/layout"
@@ -21,9 +20,211 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
+const (
+	minTickDistance = 48
+	maxTickDistance = 144
+	midTickDistance = (maxTickDistance - minTickDistance) / 2
+)
+
+const stateBarHeight = unit.Dp(10)
+
+type Timeline struct {
+	// The region of the timeline that we're displaying, measured in nanoseconds
+	Start time.Duration
+	End   time.Duration
+
+	// State for dragging the timeline
+	Drag struct {
+		ClickAt f32.Point
+		Start   time.Duration
+		End     time.Duration
+	}
+
+	TickInterval time.Duration
+}
+
+func (tl *Timeline) startDrag(pos f32.Point) {
+	tl.Drag.ClickAt = pos
+	tl.Drag.Start = tl.Start
+	tl.Drag.End = tl.End
+}
+
+func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
+	nsPerPx := tl.nsPerPx(gtx)
+	d := time.Duration(math.Round(nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
+	if tl.Drag.Start+d < 0 {
+		d = -tl.Drag.Start
+	}
+	tl.Start = tl.Drag.Start + d
+	tl.End = tl.Drag.End + d
+}
+
+func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
+	nsPerPx := tl.nsPerPx(gtx)
+
+	// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
+	// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
+	if ticks < 0 {
+		// Scrolling up, into the screen, zooming in
+		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
+		tl.Start += time.Duration(nsPerPx * 100 * ratio)
+		tl.End -= time.Duration(nsPerPx * 100 * (1 - ratio))
+		if tl.End < 0 {
+			tl.End = 0
+		}
+	} else if ticks > 0 {
+		// Scrolling down, out of the screen, zooming out
+		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
+		tl.Start -= time.Duration(nsPerPx * 100 * ratio)
+		tl.End += time.Duration(nsPerPx * 100 * (1 - ratio))
+		if tl.Start < 0 {
+			tl.Start = 0
+		}
+	}
+}
+
+// The number of nanoseconds a pixel represents.
+func (tl *Timeline) nsPerPx(gtx layout.Context) float64 {
+	return float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
+}
+
+func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
+	for _, ev := range gtx.Events(tl) {
+		switch ev := ev.(type) {
+		case pointer.Event:
+			switch ev.Type {
+			case pointer.Press:
+				if ev.Buttons&pointer.ButtonTertiary != 0 {
+					tl.startDrag(ev.Position)
+				}
+
+			case pointer.Scroll:
+				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
+
+			case pointer.Drag:
+				if ev.Buttons&pointer.ButtonTertiary != 0 {
+					tl.dragTo(gtx, ev.Position)
+				}
+			}
+		}
+	}
+
+	log.Printf("displaying %s–%s (%ens per px)", tl.Start, tl.End, tl.nsPerPx(gtx))
+
+	if tl.Start < 0 {
+		panic("XXX")
+	}
+	if tl.End < tl.Start {
+		panic("XXX")
+	}
+	if tl.nsPerPx(gtx) <= 0 {
+		panic("XXX")
+	}
+
+	paint.ColorOp{Color: color.NRGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF}}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+
+	pointer.InputOp{Tag: tl, Types: pointer.Scroll | pointer.Drag | pointer.Press, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
+
+	// XXX make sure our rounding is stable and doesn't jitter
+	// XXX handle spans that would be smaller than 1 unit
+
+	nsPerPx := tl.nsPerPx(gtx)
+
+	for gid, spans := range sspans {
+		if gid > 100 {
+			continue
+		}
+		func() {
+			defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
+			// OPT(dh): use binary search
+			first := -1
+			last := -1
+			for i, s := range spans {
+				visible := (s.Start >= tl.Start && s.Start < tl.End) ||
+					(s.End >= tl.Start && s.End < tl.End) ||
+					(s.Start <= tl.Start && s.End >= tl.End)
+				if first == -1 {
+					if visible {
+						first = i
+					}
+				} else {
+					if !visible {
+						last = i
+						break
+					}
+				}
+			}
+
+			if last == -1 {
+				last = len(spans)
+			}
+			if first == last {
+				panic("first == last")
+			}
+
+			widthOfSpan := func(s Span) float64 {
+				return float64(s.End-s.Start) / nsPerPx
+			}
+
+			if first != -1 {
+				spans := spans[first:last]
+				for i := 0; i < len(spans); i++ {
+					s := spans[i]
+					startPx := float64(s.Start-tl.Start) / nsPerPx
+					endPx := float64(s.End-tl.Start) / nsPerPx
+
+					var c color.NRGBA
+					if int(s.State) >= len(stateColors) {
+						c = toColor(colorStateUnknown)
+					} else {
+						c = stateColors[s.State]
+					}
+
+					const minSpanWidth = 5
+
+					if endPx-startPx < minSpanWidth {
+						c = toColor(colorStateUnknown) // XXX use different color
+						// Collect enough spans until we've filled the minimum width
+						for {
+							i++
+							if i == len(spans) {
+								// We've run out of spans
+								break
+							}
+
+							if widthOfSpan(spans[i]) >= minSpanWidth {
+								// Don't merge spans that can stand on their own
+								i--
+								break
+							}
+
+							endPx = float64(spans[i].End-tl.Start) / nsPerPx
+						}
+					}
+
+					// XXX .5 needs to be rounded up or down for the end or start
+					rect := clip.Rect{
+						Min: image.Point{max(int(math.Round(startPx)), 0), 0},
+						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
+					}
+					stack := rect.Push(gtx.Ops)
+					paint.ColorOp{Color: c}.Add(gtx.Ops)
+					paint.PaintOp{}.Add(gtx.Ops)
+					stack.Pop()
+				}
+			}
+		}()
+	}
+	return layout.Dimensions{
+		Size: gtx.Constraints.Max,
+	}
+}
+
 // TODO(dh): Support negative timeline. Right now, ts = 0 can only be displayed on the far left of the window, because
 // we cannot render negative timestamps. That's inconvenient, we want to be able to focus on a span in the middle of our
-// window.
+// window. It would also make zooming out more intuitive, as it wouldn't shift the center once we're displaying the
+// leftmost timestamp.
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
@@ -172,24 +373,9 @@ func toColor(c uint32) color.NRGBA {
 }
 
 func run(w *app.Window) error {
-	var (
-		// The region of the timeline that we're displaying, measured in nanoseconds
-		tlStart, tlEnd time.Duration
-		// The number of nanoseconds a pixel represents.
-		nsPerPx float64
-	)
-
-	tlStart = 0
-	// XXX find out how long the last span is
-	tlEnd = 30 * time.Millisecond
-	// tlEnd = spans[len(spans)-1].End
-
-	const stateBarHeight = unit.Dp(10)
-
-	// State for dragging the timeline
-	var tlDrag struct {
-		clickAt        f32.Point
-		tlStart, tlEnd time.Duration
+	tl := Timeline{
+		Start: 0,
+		End:   100 * time.Millisecond,
 	}
 
 	// TODO(dh): handle window resize events and update nsPerPx
@@ -204,174 +390,7 @@ func run(w *app.Window) error {
 			gtx := layout.NewContext(&ops, e)
 			gtx.Metric.PxPerDp = 2 // XXX
 
-			paint.ColorOp{Color: color.NRGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0xFF}}.Add(gtx.Ops)
-			paint.PaintOp{}.Add(gtx.Ops)
-
-			for _, ev := range gtx.Queue.Events(&tlStart) {
-				switch ev := ev.(type) {
-				case pointer.Event:
-					switch ev.Type {
-					case pointer.Press:
-						if ev.Buttons&pointer.ButtonTertiary != 0 {
-							tlDrag.clickAt = ev.Position
-							tlDrag.tlStart = tlStart
-							tlDrag.tlEnd = tlEnd
-						}
-
-					case pointer.Scroll:
-						// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
-						// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
-						if ev.Scroll.Y < 0 {
-							// Scrolling up, into the screen, zooming in
-							ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
-							tlStart += time.Duration(nsPerPx * 100 * ratio)
-							tlEnd -= time.Duration(nsPerPx * 100 * (1 - ratio))
-							if tlEnd < 0 {
-								tlEnd = 0
-							}
-						} else if ev.Scroll.Y > 0 {
-							// Scrolling down, out of the screen, zooming out
-							ratio := float64(ev.Position.X) / float64(gtx.Constraints.Max.X)
-							tlStart -= time.Duration(nsPerPx * 100 * ratio)
-							tlEnd += time.Duration(nsPerPx * 100 * (1 - ratio))
-							if tlStart < 0 {
-								tlStart = 0
-							}
-						}
-
-					case pointer.Drag:
-						if ev.Buttons&pointer.ButtonTertiary != 0 {
-							d := time.Duration(math.Round(nsPerPx * float64(tlDrag.clickAt.X-ev.Position.X)))
-							if tlDrag.tlStart+d < 0 {
-								d = -tlDrag.tlStart
-							}
-							tlStart = tlDrag.tlStart + d
-							tlEnd = tlDrag.tlEnd + d
-						}
-					}
-
-				case key.Event:
-					if ev.State == key.Press {
-						// TODO(dh): don't move if we're at the limit
-						switch ev.Name {
-						case "←":
-							tlStart -= time.Duration(10 * nsPerPx)
-							tlEnd -= time.Duration(10 * nsPerPx)
-							if tlStart < 0 {
-								tlStart = 0
-							}
-						case "→":
-							tlStart += time.Duration(10 * nsPerPx)
-							tlEnd += time.Duration(10 * nsPerPx)
-						}
-					}
-				}
-			}
-
-			nsPerPx = float64(tlEnd-tlStart) / float64(gtx.Constraints.Max.X)
-			log.Printf("displaying %s–%s (%ens per px)", tlStart, tlEnd, nsPerPx)
-
-			if tlStart < 0 {
-				panic("XXX")
-			}
-			if tlEnd < tlStart {
-				panic("XXX")
-			}
-			if nsPerPx <= 0 {
-				panic("XXX")
-			}
-
-			pointer.InputOp{Tag: &tlStart, Types: pointer.Scroll | pointer.Drag | pointer.Press, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
-			key.InputOp{Tag: &tlStart, Keys: "←|→"}.Add(gtx.Ops)
-
-			// XXX make sure our rounding is stable and doesn't jitter
-			// XXX handle spans that would be smaller than 1 unit
-
-			for gid, spans := range sspans {
-				if gid > 100 {
-					continue
-				}
-				func() {
-					defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
-					// OPT(dh): use binary search
-					first := -1
-					last := -1
-					for i, s := range spans {
-						visible := (s.Start >= tlStart && s.Start < tlEnd) ||
-							(s.End >= tlStart && s.End < tlEnd) ||
-							(s.Start <= tlStart && s.End >= tlEnd)
-						if first == -1 {
-							if visible {
-								first = i
-							}
-						} else {
-							if !visible {
-								last = i
-								break
-							}
-						}
-					}
-
-					if last == -1 {
-						last = len(spans)
-					}
-					if first == last {
-						panic("first == last")
-					}
-
-					widthOfSpan := func(s Span) float64 {
-						return float64(s.End-s.Start) / nsPerPx
-					}
-
-					if first != -1 {
-						spans := spans[first:last]
-						for i := 0; i < len(spans); i++ {
-							s := spans[i]
-							startPx := float64(s.Start-tlStart) / nsPerPx
-							endPx := float64(s.End-tlStart) / nsPerPx
-
-							var c color.NRGBA
-							if int(s.State) >= len(stateColors) {
-								c = toColor(colorStateUnknown)
-							} else {
-								c = stateColors[s.State]
-							}
-
-							const minSpanWidth = 5
-
-							if endPx-startPx < minSpanWidth {
-								c = toColor(colorStateUnknown) // XXX use different color
-								// Collect enough spans until we've filled the minimum width
-								for {
-									i++
-									if i == len(spans) {
-										// We've run out of spans
-										break
-									}
-
-									if widthOfSpan(spans[i]) >= minSpanWidth {
-										// Don't merge spans that can stand on their own
-										i--
-										break
-									}
-
-									endPx = float64(spans[i].End-tlStart) / nsPerPx
-								}
-							}
-
-							// XXX .5 needs to be rounded up or down for the end or start
-							rect := clip.Rect{
-								Min: image.Point{max(int(math.Round(startPx)), 0), 0},
-								Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
-							}
-							stack := rect.Push(gtx.Ops)
-							paint.ColorOp{Color: c}.Add(gtx.Ops)
-							paint.PaintOp{}.Add(gtx.Ops)
-							stack.Pop()
-						}
-					}
-				}()
-			}
+			tl.Layout(gtx)
 
 			e.Frame(&ops)
 		}
