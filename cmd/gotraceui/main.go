@@ -25,6 +25,8 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
+// TODO(dh): switch to float32
+
 const debug = true
 
 // XXX investigate if there can be gaps in goroutine IDs
@@ -328,6 +330,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		stack.Pop()
 	}
 
+	var tooltip struct {
+		call   op.CallOp
+		dims   layout.Dimensions
+		active bool
+	}
+
 	func() {
 		defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
 
@@ -351,8 +359,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 				for i := 0; i < len(spans); i++ {
 					s := spans[i]
-					startPx := float64(tl.tsToPx(gtx, s.Start))
-					endPx := float64(tl.tsToPx(gtx, s.End))
+					startPx := tl.tsToPx(gtx, s.Start)
+					endPx := tl.tsToPx(gtx, s.End)
 
 					var c color.NRGBA
 					if int(s.State) >= len(stateColors) {
@@ -386,8 +394,31 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
 					}
 					paint.FillShape(gtx.Ops, c, rect.Op())
+
+					// XXX Make sure this is the goroutine under point
+
+					if float64(tl.cursorPos.X) >= startPx && float64(tl.cursorPos.X) < endPx &&
+						// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
+						// XXX consider the padding between goroutines
+						// XXX make better use of offsets; repeating tickHeight*2 here is dirty
+						tl.cursorPos.Y >= float32(12*gid)+tickHeight*2 && tl.cursorPos.Y < float32(12*(gid+1))+tickHeight*2 {
+						// XXX handle tooltips for merged spans
+						macro := op.Record(gtx.Ops)
+						tooltip.dims = SpanTooltipSingle(s).Layout(gtx)
+						tooltip.call = macro.Stop()
+						tooltip.active = true
+					}
 				}
 			}()
+		}
+	}()
+
+	func() {
+		// TODO have a gap between the cursor and the tooltip
+		// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+		if tooltip.active {
+			defer op.Offset(tl.cursorPos.Round()).Push(gtx.Ops).Pop()
+			tooltip.call.Add(gtx.Ops)
 		}
 	}()
 
@@ -414,6 +445,60 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 }
 
+type SpanTooltip struct {
+	Spans []Span
+	// scratch space for the common case of having a single span
+	spans [1]Span
+}
+
+func SpanTooltipSingle(s Span) SpanTooltip {
+	tt := SpanTooltip{}
+	tt.Spans = tt.spans[:]
+	tt.spans[0] = s
+	return tt
+}
+
+func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	// XXX support tooltips covering multiple spans
+	label := "State: "
+	switch state := tt.Spans[0].State; state {
+	case stateInactive:
+		label += "inactive"
+	case stateActive:
+		label += "active"
+	case stateBlocked:
+		label += "blocked"
+	case stateBlockedSyscall:
+		label += "syscall (blocked)"
+	case stateStuck:
+		label += "stuck"
+	case stateWaiting:
+		label += "waiting"
+	default:
+		panic(fmt.Sprintf("unhandled state %d", state))
+	}
+	label += "\n"
+	label += fmt.Sprintf("Duration: %s", tt.Spans[0].Duration())
+
+	// TODO(dh): display span duration
+	// TODO(dh): display reason why we're in this state
+	// TODO(dh): make tooltip actually look good
+
+	macro := op.Record(gtx.Ops)
+	paint.ColorOp{Color: toColor(colorTooltipText)}.Add(gtx.Ops)
+	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
+	dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, 14, label)
+	call := macro.Stop()
+
+	rect := clip.Rect{
+		Max: dims.Size,
+	}
+	paint.FillShape(gtx.Ops, toColor(colorTooltipBackground), rect.Op())
+	call.Add(gtx.Ops)
+
+	return dims
+}
+
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
@@ -426,6 +511,11 @@ type Span struct {
 	Start time.Duration
 	End   time.Duration
 	State schedulingState
+}
+
+//gcassert:inline
+func (s Span) Duration() time.Duration {
+	return s.End - s.Start
 }
 
 // XXX in the real code we'll want to directly process the parsed events, not transform them to another
@@ -597,10 +687,12 @@ const (
 )
 
 const (
-	colorBackground    = 0xAAAAAAFF
-	colorZoomSelection = 0x0089B099
-	colorCursor        = 0x000000FF
-	colorTick          = 0x000000FF
+	colorBackground        = 0xAAAAAAFF
+	colorZoomSelection     = 0x0089B099
+	colorCursor            = 0x000000FF
+	colorTick              = 0x000000FF
+	colorTooltipText       = 0x000000FF
+	colorTooltipBackground = 0xFFFFFFFF
 )
 
 type schedulingState int
