@@ -36,6 +36,7 @@ const (
 	tickWidth       = 3
 )
 
+const minSpanWidth = 5
 const stateBarHeight = unit.Dp(10)
 
 type Timeline struct {
@@ -105,6 +106,7 @@ func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
 }
 
 func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
+	// FIXME(dh): repeatedly zooming in and out doesn't cancel each other out. Fix that.
 	// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
 	// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
 	if ticks < 0 {
@@ -120,6 +122,58 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
+func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
+	// XXX cleaner handling of offset of goroutines from axis, this is duplicated with the drawing code
+
+	// XXX avoid magic constants
+	// XXX don't allow clicking in the space between goroutines
+	gid := uint64((at.Y - tickHeight*2) / 12)
+	spans, ok := sspans[gid]
+	if !ok {
+		// Not a known goroutine
+		return
+	}
+
+	// XXX this code is partially duplicated with the drawing code
+	widthOfSpan := func(s Span) float64 {
+		return float64(s.End-s.Start) / tl.nsPerPx
+	}
+	spans = tl.visibleSpans(spans)
+	for i := 0; i < len(spans); i++ {
+		s := spans[i]
+		start := s.Start
+		end := s.End
+		startPx := float64(tl.tsToPx(gtx, start))
+		endPx := float64(tl.tsToPx(gtx, end))
+
+		if endPx-startPx < minSpanWidth {
+			// Collect enough spans until we've filled the minimum width
+			for {
+				i++
+				if i == len(spans) {
+					// We've run out of spans
+					break
+				}
+
+				if widthOfSpan(spans[i]) >= minSpanWidth {
+					// Don't merge spans that can stand on their own
+					i--
+					break
+				}
+
+				endPx = tl.tsToPx(gtx, spans[i].End)
+				end = spans[i].End
+			}
+		}
+
+		if float64(at.X) >= startPx && float64(at.X) < endPx {
+			tl.Start = start
+			tl.End = end
+			return
+		}
+	}
+}
+
 func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
 	for t := time.Duration(1); true; t *= 10 {
@@ -129,6 +183,38 @@ func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
 		}
 	}
 	panic("unreachable")
+}
+
+func (tl *Timeline) visibleSpans(spans []Span) []Span {
+	first := -1
+	last := -1
+	for i, s := range spans {
+		visible := (s.Start >= tl.Start && s.Start < tl.End) ||
+			(s.End >= tl.Start && s.End < tl.End) ||
+			(s.Start <= tl.Start && s.End >= tl.End)
+		if first == -1 {
+			if visible {
+				first = i
+			}
+		} else {
+			if !visible {
+				last = i
+				break
+			}
+		}
+	}
+
+	if last == -1 {
+		last = len(spans)
+	}
+	if debug && first == last {
+		panic("first == last")
+	}
+
+	if first == -1 {
+		return nil
+	}
+	return spans[first:last]
 }
 
 //gcassert:inline
@@ -150,6 +236,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
 					if ev.Modifiers&key.ModShift != 0 {
 						tl.startZoomSelection(ev.Position)
+					} else if ev.Modifiers&key.ModCtrl != 0 {
+						tl.zoomToClickedSpan(gtx, ev.Position)
 					} else {
 						tl.startDrag(ev.Position)
 					}
@@ -216,7 +304,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	// many ticks go in a line.
 	//
 	// TODO don't allow for labels to overlap
-	// TODO round labels to pleasing precision
 	tickInterval := tl.tickInterval(gtx)
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := int(math.Round(tl.tsToPx(gtx, t) - tickWidth/2))
@@ -233,7 +320,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		call := macro.Stop()
 
 		// XXX leftmost and rightmost tick shouldn't be centered
-
 		stack := op.Offset(image.Point{
 			X: start - dims.Size.X/2,
 			Y: tickHeight,
@@ -256,78 +342,50 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			func() {
 				defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
 				// OPT(dh): use binary search
-				first := -1
-				last := -1
-				for i, s := range spans {
-					visible := (s.Start >= tl.Start && s.Start < tl.End) ||
-						(s.End >= tl.Start && s.End < tl.End) ||
-						(s.Start <= tl.Start && s.End >= tl.End)
-					if first == -1 {
-						if visible {
-							first = i
-						}
-					} else {
-						if !visible {
-							last = i
-							break
-						}
-					}
-				}
-
-				if last == -1 {
-					last = len(spans)
-				}
-				if debug && first == last {
-					panic("first == last")
-				}
 
 				widthOfSpan := func(s Span) float64 {
 					return float64(s.End-s.Start) / tl.nsPerPx
 				}
 
-				if first != -1 {
-					spans := spans[first:last]
-					for i := 0; i < len(spans); i++ {
-						s := spans[i]
-						startPx := float64(tl.tsToPx(gtx, s.Start))
-						endPx := float64(tl.tsToPx(gtx, s.End))
+				spans = tl.visibleSpans(spans)
 
-						var c color.NRGBA
-						if int(s.State) >= len(stateColors) {
-							c = toColor(colorStateUnknown)
-						} else {
-							c = stateColors[s.State]
-						}
+				for i := 0; i < len(spans); i++ {
+					s := spans[i]
+					startPx := float64(tl.tsToPx(gtx, s.Start))
+					endPx := float64(tl.tsToPx(gtx, s.End))
 
-						const minSpanWidth = 5
-
-						if endPx-startPx < minSpanWidth {
-							c = toColor(colorStateUnknown) // XXX use different color
-							// Collect enough spans until we've filled the minimum width
-							for {
-								i++
-								if i == len(spans) {
-									// We've run out of spans
-									break
-								}
-
-								if widthOfSpan(spans[i]) >= minSpanWidth {
-									// Don't merge spans that can stand on their own
-									i--
-									break
-								}
-
-								endPx = tl.tsToPx(gtx, spans[i].End)
-							}
-						}
-
-						// XXX .5 needs to be rounded up or down for the end or start
-						rect := clip.Rect{
-							Min: image.Point{max(int(math.Round(startPx)), 0), 0},
-							Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
-						}
-						paint.FillShape(gtx.Ops, c, rect.Op())
+					var c color.NRGBA
+					if int(s.State) >= len(stateColors) {
+						c = toColor(colorStateUnknown)
+					} else {
+						c = stateColors[s.State]
 					}
+
+					if endPx-startPx < minSpanWidth {
+						c = toColor(colorStateUnknown) // XXX use different color
+						// Collect enough spans until we've filled the minimum width
+						for {
+							i++
+							if i == len(spans) {
+								// We've run out of spans
+								break
+							}
+
+							if widthOfSpan(spans[i]) >= minSpanWidth {
+								// Don't merge spans that can stand on their own
+								i--
+								break
+							}
+
+							endPx = tl.tsToPx(gtx, spans[i].End)
+						}
+					}
+
+					rect := clip.Rect{
+						Min: image.Point{max(int(math.Round(startPx)), 0), 0},
+						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
+					}
+					paint.FillShape(gtx.Ops, c, rect.Op())
 				}
 			}()
 		}
