@@ -63,9 +63,6 @@ func (tl *Timeline) startDrag(pos f32.Point) {
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
 	d := time.Duration(math.Round(tl.nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
-	if tl.Drag.Start+d < 0 {
-		d = -tl.Drag.Start
-	}
 	tl.Start = tl.Drag.Start + d
 	tl.End = tl.Drag.End + d
 }
@@ -78,17 +75,11 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
 		tl.Start += time.Duration(tl.nsPerPx * 100 * ratio)
 		tl.End -= time.Duration(tl.nsPerPx * 100 * (1 - ratio))
-		if tl.End < 0 {
-			tl.End = 0
-		}
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
 		tl.Start -= time.Duration(tl.nsPerPx * 100 * ratio)
 		tl.End += time.Duration(tl.nsPerPx * 100 * (1 - ratio))
-		if tl.Start < 0 {
-			tl.Start = 0
-		}
 	}
 }
 
@@ -136,9 +127,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
 
 	if debug {
-		if tl.Start < 0 {
-			panic("XXX")
-		}
 		if tl.End < tl.Start {
 			panic("XXX")
 		}
@@ -287,11 +275,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		Size: gtx.Constraints.Max,
 	}
 }
-
-// TODO(dh): Support negative timeline. Right now, ts = 0 can only be displayed on the far left of the window, because
-// we cannot render negative timestamps. That's inconvenient, we want to be able to focus on a span in the middle of our
-// window. It would also make zooming out more intuitive, as it wouldn't shift the center once we're displaying the
-// leftmost timestamp.
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
