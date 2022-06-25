@@ -24,6 +24,8 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
+// XXX investigate if there can be gaps in goroutine IDs
+
 const (
 	// TODO(dh): compute min tick distance based on font size
 	minTickDistance = 24
@@ -332,6 +334,11 @@ func main() {
 			// ev.G starts running
 			g = ev.G
 			state = stateActive
+		case trace.EvGoStartLabel:
+			// ev.G starts running
+			// TODO(dh): make use of the label
+			g = ev.G
+			state = stateActive
 		case trace.EvGoStop:
 			// ev.G is stopping
 			g = ev.G
@@ -366,8 +373,43 @@ func main() {
 			// ev.G is unblocking ev.Args[0]
 			g = ev.Args[0]
 			state = stateWaiting
+		case trace.EvGoSysCall:
+			// From the runtime's documentation:
+			//
+			// Syscall tracing:
+			// At the start of a syscall we emit traceGoSysCall to capture the stack trace.
+			// If the syscall does not block, that is it, we do not emit any other events.
+			// If the syscall blocks (that is, P is retaken), retaker emits traceGoSysBlock;
+			// when syscall returns we emit traceGoSysExit and when the goroutine starts running
+			// (potentially instantly, if exitsyscallfast returns true) we emit traceGoStart.
+
+			// TODO(dh): denote syscall somehow
+		case trace.EvGoSysBlock:
+			// TODO(dh): have a special state for this
+			g = ev.Args[0]
+			state = stateBlocked
+		case trace.EvGoSysExit:
+			// XXX will we see an EvGoWaiting event after the EvSysExit?
+			g = ev.G
+			state = stateWaiting
+
+		case trace.EvGCMarkAssistStart:
+			// TODO(dh): add a state for this
+		case trace.EvGCMarkAssistDone:
+			// TODO(dh): add a state for this
+
+		case trace.EvProcStart, trace.EvProcStop:
+			// TODO(dh): implement a per-proc timeline
+		case trace.EvGCStart, trace.EvGCDone, trace.EvGCSTWStart, trace.EvGCSTWDone,
+			trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvHeapAlloc, trace.EvHeapGoal:
+			// TODO(dh): implement a GC timeline
+		case trace.EvGomaxprocs:
+			// TODO(dh): graph GOMAXPROCS
+		case trace.EvUserTaskCreate, trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog:
+			// TODO(dh): implement a per-task timeline
+			// TODO(dh): incorporate regions and logs in per-goroutine timeline
 		default:
-			continue
+			panic(fmt.Sprintf("unhandled event %d", ev.Type))
 		}
 
 		sspans[g] = append(sspans[g], Span{Start: time.Duration(ev.Ts), State: state})
@@ -384,7 +426,7 @@ func main() {
 			sspans[gid] = spans[:len(spans)-1]
 		} else {
 			// XXX somehow encode open-ended traces
-			spans[len(spans)-1].End = time.Hour
+			spans[len(spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
 		}
 	}
 
@@ -400,12 +442,13 @@ func main() {
 }
 
 const (
-	colorStateInactive = 0x404040FF
-	colorStateActive   = 0x00FF00FF
-	colorStateBlocked  = 0xFF0000FF
-	colorStateWaiting  = 0x0000FFFF
-	colorStateStuck    = 0x000000FF
-	colorStateUnknown  = 0xFFFF00FF
+	colorStateInactive       = 0x404040FF
+	colorStateActive         = 0x00FF00FF
+	colorStateBlocked        = 0xFF0000FF
+	colorStateBlockedSyscall = 0x6F0000FF
+	colorStateWaiting        = 0x0000FFFF
+	colorStateStuck          = 0x000000FF
+	colorStateUnknown        = 0xFFFF00FF
 )
 
 type schedulingState int
@@ -414,16 +457,18 @@ const (
 	stateInactive = iota
 	stateActive
 	stateBlocked
+	stateBlockedSyscall
 	stateStuck
 	stateWaiting
 )
 
 var stateColors = [...]color.NRGBA{
-	stateInactive: toColor(colorStateInactive),
-	stateActive:   toColor(colorStateActive),
-	stateBlocked:  toColor(colorStateBlocked),
-	stateStuck:    toColor(colorStateStuck),
-	stateWaiting:  toColor(colorStateWaiting),
+	stateInactive:       toColor(colorStateInactive),
+	stateActive:         toColor(colorStateActive),
+	stateBlocked:        toColor(colorStateBlocked),
+	stateBlockedSyscall: toColor(colorStateBlockedSyscall),
+	stateStuck:          toColor(colorStateStuck),
+	stateWaiting:        toColor(colorStateWaiting),
 }
 
 //gcassert:inline
