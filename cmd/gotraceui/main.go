@@ -197,7 +197,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	// Fill background
-	paint.Fill(gtx.Ops, toColor(0xAAAAAAFF))
+	paint.Fill(gtx.Ops, toColor(colorBackground))
 
 	// Set up event handlers
 	pointer.InputOp{
@@ -225,7 +225,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			Min: image.Point{X: start, Y: 0},
 			Max: image.Point{X: end, Y: tickHeight},
 		}
-		paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
+		paint.FillShape(gtx.Ops, toColor(colorTick), rect.Op())
 
 		macro := op.Record(gtx.Ops)
 		label := fmt.Sprintf("+%s", t-tl.Start)
@@ -341,7 +341,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			Min: image.Point{X: min(one, two), Y: 0},
 			Max: image.Point{X: max(one, two), Y: gtx.Constraints.Max.Y},
 		}
-		paint.FillShape(gtx.Ops, toColor(0x0089B099), rect.Op())
+		paint.FillShape(gtx.Ops, toColor(colorZoomSelection), rect.Op())
 	}
 
 	// Draw cursor
@@ -349,7 +349,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		Min: image.Point{X: int(math.Round(float64(tl.cursorPos.X))), Y: 0},
 		Max: image.Point{X: int(math.Round(float64(tl.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
 	}
-	paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
+	paint.FillShape(gtx.Ops, toColor(colorCursor), rect.Op())
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -536,6 +536,13 @@ const (
 	colorStateWaiting        = 0x0000FFFF
 	colorStateStuck          = 0x000000FF
 	colorStateUnknown        = 0xFFFF00FF
+)
+
+const (
+	colorBackground    = 0xAAAAAAFF
+	colorZoomSelection = 0x0089B099
+	colorCursor        = 0x000000FF
+	colorTick          = 0x000000FF
 )
 
 type schedulingState int
