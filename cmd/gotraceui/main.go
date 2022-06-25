@@ -24,6 +24,8 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
+const debug = true
+
 // XXX investigate if there can be gaps in goroutine IDs
 
 const (
@@ -132,14 +134,16 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
 
-	if tl.Start < 0 {
-		panic("XXX")
-	}
-	if tl.End < tl.Start {
-		panic("XXX")
-	}
-	if tl.nsPerPx <= 0 {
-		panic("XXX")
+	if debug {
+		if tl.Start < 0 {
+			panic("XXX")
+		}
+		if tl.End < tl.Start {
+			panic("XXX")
+		}
+		if tl.nsPerPx <= 0 {
+			panic("XXX")
+		}
 	}
 
 	// Fill background
@@ -215,7 +219,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				if last == -1 {
 					last = len(spans)
 				}
-				if first == last {
+				if debug && first == last {
 					panic("first == last")
 				}
 
@@ -346,7 +350,7 @@ func main() {
 		case trace.EvGoEnd:
 			// ev.G is ending
 			g = ev.G
-			state = -1
+			state = stateDone
 		case trace.EvGoSched:
 			// ev.G calls Gosched
 			g = ev.G
@@ -384,32 +388,51 @@ func main() {
 			// (potentially instantly, if exitsyscallfast returns true) we emit traceGoStart.
 
 			// TODO(dh): denote syscall somehow
+			continue
 		case trace.EvGoSysBlock:
 			// TODO(dh): have a special state for this
-			g = ev.Args[0]
-			state = stateBlocked
+			g = ev.G
+			state = stateBlockedSyscall
 		case trace.EvGoSysExit:
-			// XXX will we see an EvGoWaiting event after the EvSysExit?
 			g = ev.G
 			state = stateWaiting
-
 		case trace.EvGCMarkAssistStart:
 			// TODO(dh): add a state for this
+			continue
 		case trace.EvGCMarkAssistDone:
 			// TODO(dh): add a state for this
-
+			continue
 		case trace.EvProcStart, trace.EvProcStop:
 			// TODO(dh): implement a per-proc timeline
+			continue
 		case trace.EvGCStart, trace.EvGCDone, trace.EvGCSTWStart, trace.EvGCSTWDone,
 			trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvHeapAlloc, trace.EvHeapGoal:
 			// TODO(dh): implement a GC timeline
+			continue
 		case trace.EvGomaxprocs:
 			// TODO(dh): graph GOMAXPROCS
+			continue
 		case trace.EvUserTaskCreate, trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog:
 			// TODO(dh): implement a per-task timeline
 			// TODO(dh): incorporate regions and logs in per-goroutine timeline
+			continue
 		default:
 			panic(fmt.Sprintf("unhandled event %d", ev.Type))
+		}
+
+		if debug {
+			if s := sspans[g]; len(s) > 0 {
+				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].State == stateInactive {
+					// The execution trace emits GoCreate + GoWaiting for goroutines that already exist at the start of
+					// tracing if they're in a blocked state. This causes a transition from inactive to blocked, which we
+					// wouldn't normally permit.
+				} else {
+					prevState := s[len(s)-1].State
+					if !legalStateTransitions[prevState][state] {
+						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, offset %d", prevState, state, g, ev.Off))
+					}
+				}
+			}
 		}
 
 		sspans[g] = append(sspans[g], Span{Start: time.Duration(ev.Ts), State: state})
@@ -420,7 +443,7 @@ func main() {
 			spans[i].End = spans[i+1].Start
 		}
 		last := spans[len(spans)-1]
-		if last.State == -1 {
+		if last.State == stateDone {
 			// The goroutine has ended
 			// XXX the event probably has a stack associated with it, which we shouldn't discard.
 			sspans[gid] = spans[:len(spans)-1]
@@ -454,12 +477,14 @@ const (
 type schedulingState int
 
 const (
-	stateInactive = iota
+	stateInactive schedulingState = iota
 	stateActive
 	stateBlocked
 	stateBlockedSyscall
 	stateStuck
 	stateWaiting
+	stateDone
+	stateLast
 )
 
 var stateColors = [...]color.NRGBA{
@@ -469,6 +494,29 @@ var stateColors = [...]color.NRGBA{
 	stateBlockedSyscall: toColor(colorStateBlockedSyscall),
 	stateStuck:          toColor(colorStateStuck),
 	stateWaiting:        toColor(colorStateWaiting),
+}
+
+var legalStateTransitions = [stateLast][stateLast]bool{
+	stateInactive: {
+		stateActive:  true,
+		stateWaiting: true,
+	},
+	stateActive: {
+		stateInactive:       true,
+		stateBlocked:        true,
+		stateBlockedSyscall: true,
+		stateStuck:          true,
+		stateDone:           true,
+	},
+	stateWaiting: {
+		stateActive: true,
+	},
+	stateBlocked: {
+		stateWaiting: true,
+	},
+	stateBlockedSyscall: {
+		stateWaiting: true,
+	},
 }
 
 //gcassert:inline
