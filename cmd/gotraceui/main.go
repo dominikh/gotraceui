@@ -122,6 +122,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
 			case pointer.Drag:
+				tl.cursorPos = ev.Position
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
 					tl.dragTo(gtx, ev.Position)
 				}
