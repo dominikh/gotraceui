@@ -25,9 +25,8 @@ import (
 )
 
 const (
+	// TODO(dh): compute min tick distance based on font size
 	minTickDistance = 24
-	maxTickDistance = 144
-	midTickDistance = (maxTickDistance - minTickDistance) / 2
 	tickHeight      = 50
 	tickWidth       = 3
 )
@@ -45,8 +44,6 @@ type Timeline struct {
 		Start   time.Duration
 		End     time.Duration
 	}
-
-	tickInterval time.Duration
 
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float64
@@ -91,22 +88,15 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (tl *Timeline) updateTickInterval(gtx layout.Context) {
-	// TODO(dh): align ticks so they're always nice multiples of 10 or 1 in the unit they're shown. 10ms, 20ms, ... 1s, 2s, ...
-	// Is that something we'd do here, or something we'd ensure when zooming in/out?
-
-	if tl.tickInterval == 0 {
-		// The tick interval has never been set or it has been reset, initialize to midTickDistance
-		tl.tickInterval = time.Duration(math.Round(midTickDistance * tl.nsPerPx))
-	} else {
-		tickDistance := int(math.Round(float64(tl.tickInterval) / tl.nsPerPx))
-
-		if tickDistance < minTickDistance {
-			tl.tickInterval = time.Duration(math.Round(maxTickDistance * tl.nsPerPx))
-		} else if tickDistance > maxTickDistance {
-			tl.tickInterval = time.Duration(math.Round(minTickDistance * tl.nsPerPx))
+func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
+	// Note that an analytical solution exists for this, but computing it is slower than the loop.
+	for t := time.Duration(1); true; t *= 10 {
+		tickDistance := int(math.Round(float64(t) / tl.nsPerPx))
+		if tickDistance >= minTickDistance {
+			return t
 		}
 	}
+	panic("unreachable")
 }
 
 //gcassert:inline
@@ -139,7 +129,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
-	tl.updateTickInterval(gtx)
 
 	if tl.Start < 0 {
 		panic("XXX")
@@ -164,7 +153,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	//
 	// TODO don't allow for labels to overlap
 	// TODO round labels to pleasing precision
-	for t := tl.Start; t < tl.End; t += tl.tickInterval {
+	tickInterval := tl.tickInterval(gtx)
+	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := int(math.Round(tl.tsToPx(gtx, t) - tickWidth/2))
 		end := int(math.Round(tl.tsToPx(gtx, t) + tickWidth/2))
 		rect := clip.Rect{
