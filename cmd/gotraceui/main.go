@@ -12,6 +12,7 @@ import (
 	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/font/gofont"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/layout"
@@ -45,8 +46,15 @@ type Timeline struct {
 	// State for dragging the timeline
 	Drag struct {
 		ClickAt f32.Point
+		Active  bool
 		Start   time.Duration
 		End     time.Duration
+	}
+
+	// State for zooming to a selection
+	ZoomSelection struct {
+		Active  bool
+		ClickAt f32.Point
 	}
 
 	// Frame-local state set by Layout and read by various helpers
@@ -55,10 +63,39 @@ type Timeline struct {
 	cursorPos f32.Point
 }
 
+func (tl *Timeline) startZoomSelection(pos f32.Point) {
+	tl.ZoomSelection.Active = true
+	tl.ZoomSelection.ClickAt = pos
+}
+
+func (tl *Timeline) abortZoomSelection() {
+	tl.ZoomSelection.Active = false
+}
+
+func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
+	tl.ZoomSelection.Active = false
+	one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
+	two := int(math.Round(float64(pos.X)))
+	start := tl.pxToTs(gtx, min(one, two))
+	end := tl.pxToTs(gtx, max(one, two))
+	if start == end {
+		// Cannot zoom to a zero width area
+		return
+	}
+
+	tl.Start = start
+	tl.End = end
+}
+
 func (tl *Timeline) startDrag(pos f32.Point) {
 	tl.Drag.ClickAt = pos
+	tl.Drag.Active = true
 	tl.Drag.Start = tl.Start
 	tl.Drag.End = tl.End
+}
+
+func (tl *Timeline) endDrag() {
+	tl.Drag.Active = false
 }
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
@@ -99,6 +136,11 @@ func (tl *Timeline) tsToPx(gtx layout.Context, t time.Duration) float64 {
 	return float64(t-tl.Start) / tl.nsPerPx
 }
 
+//gcassert:inline
+func (tl *Timeline) pxToTs(gtx layout.Context, px int) time.Duration {
+	return time.Duration(math.Round(float64(px)*tl.nsPerPx + float64(tl.Start)))
+}
+
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
@@ -106,16 +148,35 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			switch ev.Type {
 			case pointer.Press:
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
-					tl.startDrag(ev.Position)
+					if ev.Modifiers&key.ModShift != 0 {
+						tl.startZoomSelection(ev.Position)
+					} else {
+						tl.startDrag(ev.Position)
+					}
 				}
 
 			case pointer.Scroll:
+				tl.abortZoomSelection()
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
 			case pointer.Drag:
 				tl.cursorPos = ev.Position
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
-					tl.dragTo(gtx, ev.Position)
+					if tl.Drag.Active {
+						tl.dragTo(gtx, ev.Position)
+					}
+				}
+
+			case pointer.Release:
+				// For pointer.Release, ev.Buttons contains the buttons still being pressed, not the ones that have been
+				// released.
+				if ev.Buttons&pointer.ButtonTertiary == 0 {
+					if tl.Drag.Active {
+						tl.endDrag()
+					} else if tl.ZoomSelection.Active {
+						// XXX zoom to selection
+						tl.endZoomSelection(gtx, ev.Position)
+					}
 				}
 
 			case pointer.Move:
@@ -139,7 +200,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	paint.Fill(gtx.Ops, toColor(0xAAAAAAFF))
 
 	// Set up event handlers
-	pointer.InputOp{Tag: tl, Types: pointer.Scroll | pointer.Drag | pointer.Press | pointer.Move, ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}}}.Add(gtx.Ops)
+	pointer.InputOp{
+		Tag: tl,
+		Types: pointer.Scroll |
+			pointer.Drag |
+			pointer.Press |
+			pointer.Release |
+			pointer.Move,
+		ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}},
+	}.Add(gtx.Ops)
 
 	// Draw axis
 
@@ -263,6 +332,17 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			}()
 		}
 	}()
+
+	// Draw zoom selection
+	if tl.ZoomSelection.Active {
+		one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
+		two := int(math.Round(float64(tl.cursorPos.X)))
+		rect := clip.Rect{
+			Min: image.Point{X: min(one, two), Y: 0},
+			Max: image.Point{X: max(one, two), Y: gtx.Constraints.Max.Y},
+		}
+		paint.FillShape(gtx.Ops, toColor(0x0089B099), rect.Op())
+	}
 
 	// Draw cursor
 	rect := clip.Rect{
