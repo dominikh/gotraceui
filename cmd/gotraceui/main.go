@@ -531,8 +531,22 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "active"
 		case stateBlocked:
 			label += "blocked"
+		case stateBlockedSend:
+			label += "blocked on channel send"
+		case stateBlockedRecv:
+			label += "blocked on channel recv"
+		case stateBlockedSelect:
+			label += "blocked on select"
+		case stateBlockedSync:
+			label += "blocked on mutex"
+		case stateBlockedCond:
+			label += "blocked on condition variable"
+		case stateBlockedNet:
+			label += "blocked on network"
+		case stateBlockedGC:
+			label += "blocked on GC assist"
 		case stateBlockedSyscall:
-			label += "syscall (blocked)"
+			label += "blocked on syscall"
 		case stateStuck:
 			label += "stuck"
 		case stateWaiting:
@@ -605,6 +619,17 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var evTypeToState = [...]schedulingState{
+		trace.EvGoBlockSend:   stateBlockedSend,
+		trace.EvGoBlockRecv:   stateBlockedRecv,
+		trace.EvGoBlockSelect: stateBlockedSelect,
+		trace.EvGoBlockSync:   stateBlockedSync,
+		trace.EvGoBlockCond:   stateBlockedCond,
+		trace.EvGoBlockNet:    stateBlockedNet,
+		trace.EvGoBlockGC:     stateBlockedGC,
+		trace.EvGoBlock:       stateBlocked,
+	}
+
 	for _, ev := range res.Events {
 		var g uint64
 		var state schedulingState
@@ -648,7 +673,7 @@ func main() {
 			trace.EvGoBlockGC, trace.EvGoBlock:
 			// ev.G is blocking
 			g = ev.G
-			state = stateBlocked
+			state = evTypeToState[ev.Type]
 		case trace.EvGoWaiting:
 			// ev.G is blocked when tracing starts
 			g = ev.G
@@ -747,13 +772,18 @@ func main() {
 }
 
 const (
-	colorStateInactive       = 0x888888FF
-	colorStateActive         = 0x448844FF
-	colorStateBlocked        = 0xbb5d5dFF
-	colorStateBlockedSyscall = 0x6F0000FF
-	colorStateWaiting        = 0x4BACB8FF
-	colorStateStuck          = 0x000000FF
-	colorStateUnknown        = 0xFFFF00FF
+	colorStateInactive = 0x888888FF
+	colorStateActive   = 0x448844FF
+
+	colorStateBlocked              = 0xBA4141FF
+	colorStateBlockedHappensBefore = 0xBB6363FF
+	colorStateBlockedNet           = 0xBB5D5DFF
+	colorStateBlockedGC            = 0xBB554FFF
+	colorStateBlockedSyscall       = 0xBA4F41FF
+
+	colorStateWaiting = 0x4BACB8FF
+	colorStateStuck   = 0x000000FF
+	colorStateUnknown = 0xFFFF00FF
 )
 
 const (
@@ -771,6 +801,13 @@ const (
 	stateInactive schedulingState = iota
 	stateActive
 	stateBlocked
+	stateBlockedSend
+	stateBlockedRecv
+	stateBlockedSelect
+	stateBlockedSync
+	stateBlockedCond
+	stateBlockedNet
+	stateBlockedGC
 	stateBlockedSyscall
 	stateStuck
 	stateWaiting
@@ -782,6 +819,13 @@ var stateColors = [...]color.NRGBA{
 	stateInactive:       toColor(colorStateInactive),
 	stateActive:         toColor(colorStateActive),
 	stateBlocked:        toColor(colorStateBlocked),
+	stateBlockedSend:    toColor(colorStateBlockedHappensBefore),
+	stateBlockedRecv:    toColor(colorStateBlockedHappensBefore),
+	stateBlockedSelect:  toColor(colorStateBlockedHappensBefore),
+	stateBlockedSync:    toColor(colorStateBlockedHappensBefore),
+	stateBlockedCond:    toColor(colorStateBlockedHappensBefore),
+	stateBlockedNet:     toColor(colorStateBlockedNet),
+	stateBlockedGC:      toColor(colorStateBlockedGC),
 	stateBlockedSyscall: toColor(colorStateBlockedSyscall),
 	stateStuck:          toColor(colorStateStuck),
 	stateWaiting:        toColor(colorStateWaiting),
@@ -795,6 +839,13 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 	stateActive: {
 		stateInactive:       true,
 		stateBlocked:        true,
+		stateBlockedSend:    true,
+		stateBlockedRecv:    true,
+		stateBlockedSelect:  true,
+		stateBlockedSync:    true,
+		stateBlockedCond:    true,
+		stateBlockedNet:     true,
+		stateBlockedGC:      true,
 		stateBlockedSyscall: true,
 		stateStuck:          true,
 		stateDone:           true,
@@ -802,9 +853,14 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 	stateWaiting: {
 		stateActive: true,
 	},
-	stateBlocked: {
-		stateWaiting: true,
-	},
+	stateBlocked:       {stateWaiting: true},
+	stateBlockedSend:   {stateWaiting: true},
+	stateBlockedRecv:   {stateWaiting: true},
+	stateBlockedSelect: {stateWaiting: true},
+	stateBlockedSync:   {stateWaiting: true},
+	stateBlockedCond:   {stateWaiting: true},
+	stateBlockedNet:    {stateWaiting: true},
+	stateBlockedGC:     {stateWaiting: true},
 	stateBlockedSyscall: {
 		stateWaiting: true,
 	},
