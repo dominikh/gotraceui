@@ -26,6 +26,7 @@ import (
 )
 
 // TODO(dh): switch to float32
+// TODO(dh): use unit.Dp for all sizes
 
 const debug = true
 
@@ -677,18 +678,18 @@ func main() {
 }
 
 const (
-	colorStateInactive       = 0x404040FF
-	colorStateActive         = 0x00FF00FF
-	colorStateBlocked        = 0xFF0000FF
+	colorStateInactive       = 0x888888FF
+	colorStateActive         = 0x448844FF
+	colorStateBlocked        = 0xbb5d5dFF
 	colorStateBlockedSyscall = 0x6F0000FF
-	colorStateWaiting        = 0x0000FFFF
+	colorStateWaiting        = 0x4BACB8FF
 	colorStateStuck          = 0x000000FF
 	colorStateUnknown        = 0xFFFF00FF
 )
 
 const (
-	colorBackground        = 0xAAAAAAFF
-	colorZoomSelection     = 0x0089B099
+	colorBackground        = 0xffffeaFF
+	colorZoomSelection     = 0xeeee9e99
 	colorCursor            = 0x000000FF
 	colorTick              = 0x000000FF
 	colorTooltipText       = 0x000000FF
