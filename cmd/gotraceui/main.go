@@ -556,6 +556,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		switch state := tt.Spans[0].State; state {
 		case stateInactive:
 			label += "inactive"
+			label += "\nReason: " + tt.Spans[0].Reason
 		case stateActive:
 			label += "active"
 		case stateBlocked:
@@ -620,6 +621,8 @@ type Span struct {
 	Start time.Duration
 	End   time.Duration
 	State schedulingState
+	// TODO(dh): use an enum for Reason
+	Reason string
 }
 
 //gcassert:inline
@@ -662,12 +665,14 @@ func main() {
 	for _, ev := range res.Events {
 		var g uint64
 		var state schedulingState
+		var reason string
 
 		switch ev.Type {
 		case trace.EvGoCreate:
 			// ev.G creates ev.Args[0]
 			g = ev.Args[0]
 			state = stateInactive
+			reason = "newly created"
 		case trace.EvGoStart:
 			// ev.G starts running
 			g = ev.G
@@ -689,14 +694,17 @@ func main() {
 			// ev.G calls Gosched
 			g = ev.G
 			state = stateInactive
+			reason = "called runtime.Gosched"
 		case trace.EvGoSleep:
 			// ev.G calls Sleep
 			g = ev.G
 			state = stateInactive
+			reason = "called time.Sleep"
 		case trace.EvGoPreempt:
 			// ev.G got preempted
 			g = ev.G
 			state = stateInactive
+			reason = "got preempted"
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
 			trace.EvGoBlockGC, trace.EvGoBlock:
@@ -769,7 +777,7 @@ func main() {
 			}
 		}
 
-		sspans[g] = append(sspans[g], Span{Start: time.Duration(ev.Ts), State: state})
+		sspans[g] = append(sspans[g], Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
 	}
 
 	for gid, spans := range sspans {
