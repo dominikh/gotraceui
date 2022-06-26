@@ -388,7 +388,6 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 
 func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 	defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
-	// XXX why do we need to clip for the offset to take effect?
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	// Dragging doesn't produce Move events, even if we're not listening for dragging
 	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
@@ -406,11 +405,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 
 	// XXX make sure our rounding is stable and doesn't jitter
 
-	var tooltip struct {
-		call   op.CallOp
-		dims   layout.Dimensions
-		active bool
-	}
+	var tooltip []Span
 
 	// Draw goroutine lifetimes
 	for gid, spans := range sspans {
@@ -465,10 +460,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 					// XXX consider the padding between goroutines
 					tl.Goroutines.cursorPos.Y >= float32(stateBarHeight*2*gid) && tl.Goroutines.cursorPos.Y < float32(stateBarHeight*2*(gid+1)) {
 					// XXX handle tooltips for merged spans
-					macro := op.Record(gtx.Ops)
-					tooltip.dims = SpanTooltipSingle(dspSpans[0]).Layout(gtx)
-					tooltip.call = macro.Stop()
-					tooltip.active = true
+					tooltip = dspSpans[0:1]
 				}
 
 				first = false
@@ -476,25 +468,19 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 		}()
 	}
 
-	// TODO have a gap between the cursor and the tooltip
-	// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-	if tooltip.active {
+	if len(tooltip) != 0 {
+		// TODO have a gap between the cursor and the tooltip
+		// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+		macro := op.Record(gtx.Ops)
+		SpanTooltip{tooltip}.Layout(gtx)
+		call := macro.Stop()
 		defer op.Offset(tl.Goroutines.cursorPos.Round()).Push(gtx.Ops).Pop()
-		tooltip.call.Add(gtx.Ops)
+		call.Add(gtx.Ops)
 	}
 }
 
 type SpanTooltip struct {
 	Spans []Span
-	// scratch space for the common case of having a single span
-	spans [1]Span
-}
-
-func SpanTooltipSingle(s Span) SpanTooltip {
-	tt := SpanTooltip{}
-	tt.Spans = tt.spans[:]
-	tt.spans[0] = s
-	return tt
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
