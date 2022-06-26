@@ -389,14 +389,14 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 
 			if start-dims.Size.X/2 > prevLabelEnd+minTickLabelDistance {
 				prevLabelEnd = start + dims.Size.X/2
-
-				// XXX rightmost tick shouldn't be centered
-				stack := op.Offset(image.Point{
-					X: start - dims.Size.X/2,
-					Y: tickHeight,
-				}).Push(gtx.Ops)
-				call.Add(gtx.Ops)
-				stack.Pop()
+				if start+dims.Size.X/2 <= gtx.Constraints.Max.X {
+					stack := op.Offset(image.Point{
+						X: start - dims.Size.X/2,
+						Y: tickHeight,
+					}).Push(gtx.Ops)
+					call.Add(gtx.Ops)
+					stack.Pop()
+				}
 			}
 		}
 	}
