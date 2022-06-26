@@ -30,6 +30,14 @@ import (
 // TODO(dh): use unit.Dp for all sizes
 // TODO(dh): figure out what puts us in the generic "blocked" state
 
+// TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
+// GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
+// leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
+// goroutine. To avoid confusion, we should remove those stacks altogether.
+
+// TODO(dh): Go 1.19 adds CPU samples to the execution trace (if profiling is enabled). This adds the new event
+// EvCPUSample, and updates the trace's version to Go 1.19.
+
 const debug = true
 
 const (
@@ -96,8 +104,8 @@ func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 	tl.ZoomSelection.Active = false
 	one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
 	two := int(math.Round(float64(pos.X)))
-	start := tl.pxToTs(gtx, min(one, two))
-	end := tl.pxToTs(gtx, max(one, two))
+	start := tl.pxToTs(min(one, two))
+	end := tl.pxToTs(max(one, two))
 	if start == end {
 		// Cannot zoom to a zero width area
 		return
@@ -246,12 +254,12 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 }
 
 //gcassert:inline
-func (tl *Timeline) tsToPx(gtx layout.Context, t time.Duration) float64 {
+func (tl *Timeline) tsToPx(t time.Duration) float64 {
 	return float64(t-tl.Start) / tl.nsPerPx
 }
 
 //gcassert:inline
-func (tl *Timeline) pxToTs(gtx layout.Context, px int) time.Duration {
+func (tl *Timeline) pxToTs(px int) time.Duration {
 	return time.Duration(math.Round(float64(px)*tl.nsPerPx + float64(tl.Start)))
 }
 
@@ -261,42 +269,49 @@ type renderedSpansIterator struct {
 	spans  []Span
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spans []Span, startPx, endPx float64, ok bool) {
-	if it.offset >= len(it.spans) {
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float64, ok bool) {
+	offset := it.offset
+	spans := it.spans
+
+	if offset >= len(spans) {
 		return nil, 0, 0, false
 	}
 
-	startOffset := it.offset
+	minSpanWidthDp := gtx.Metric.Dp(minSpanWidth)
+	startOffset := offset
+	nsPerPx := it.tl.nsPerPx
+	tlStart := it.tl.Start
 
-	s := it.spans[it.offset]
-	it.offset++
-	startPx = it.tl.tsToPx(gtx, s.Start)
-	endPx = it.tl.tsToPx(gtx, s.End)
-	if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
+	s := it.spans[offset]
+	offset++
+	startPx = float64(s.Start-tlStart) / nsPerPx
+	endPx = float64(s.End-tlStart) / nsPerPx
+
+	if int(math.Round(endPx-startPx)) < minSpanWidthDp {
 		// Collect enough spans until we've filled the minimum width
 		for {
-			if it.offset == len(it.spans) {
+			if offset == len(it.spans) {
 				// We've run out of spans
 				break
 			}
 
-			widthOfSpan := func(s Span) float64 {
-				return float64(s.End-s.Start) / it.tl.nsPerPx
-			}
-			if int(math.Round(widthOfSpan(it.spans[it.offset]))) >= gtx.Metric.Dp(minSpanWidth) {
+			s := spans[offset]
+			widthOfSpan := int(math.Round(float64(s.End-s.Start) / nsPerPx))
+			if widthOfSpan >= minSpanWidthDp {
 				// Don't merge spans that can stand on their own
 				break
 			}
 
-			endPx = it.tl.tsToPx(gtx, it.spans[it.offset].End)
-			it.offset++
+			endPx = float64(s.End-tlStart) / nsPerPx
+			offset++
 		}
 	}
 
-	if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
-		endPx = startPx + float64(gtx.Metric.Dp(minSpanWidth))
+	if int(math.Round(endPx-startPx)) < minSpanWidthDp {
+		endPx = startPx + float64(minSpanWidthDp)
 	}
 
+	it.offset = offset
 	return it.spans[startOffset:it.offset], startPx, endPx, true
 }
 
@@ -401,8 +416,8 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	prevLabelEnd := -1
 	for t := tl.Start; t < tl.End; t += tickInterval {
-		start := int(math.Round(tl.tsToPx(gtx, t) - tickWidth/2))
-		end := int(math.Round(tl.tsToPx(gtx, t) + tickWidth/2))
+		start := int(math.Round(tl.tsToPx(t) - tickWidth/2))
+		end := int(math.Round(tl.tsToPx(t) + tickWidth/2))
 		rect := clip.Rect{
 			Min: image.Point{X: start, Y: 0},
 			Max: image.Point{X: end, Y: tickHeight},
