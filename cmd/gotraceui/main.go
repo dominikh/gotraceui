@@ -65,7 +65,12 @@ type Timeline struct {
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float64
 
-	cursorPos f32.Point
+	Global struct {
+		cursorPos f32.Point
+	}
+	Goroutines struct {
+		cursorPos f32.Point
+	}
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -127,11 +132,9 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 }
 
 func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
-	// XXX cleaner handling of offset of goroutines from axis, this is duplicated with the drawing code
-
 	// XXX avoid magic constants
 	// XXX don't allow clicking in the space between goroutines
-	gid := uint64((at.Y - tickHeight*2) / (stateBarHeight * 2))
+	gid := uint64(at.Y / (stateBarHeight * 2))
 	spans, ok := sspans[gid]
 	if !ok {
 		// Not a known goroutine
@@ -268,8 +271,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
 					if ev.Modifiers&key.ModShift != 0 {
 						tl.startZoomSelection(ev.Position)
-					} else if ev.Modifiers&key.ModCtrl != 0 {
-						tl.zoomToClickedSpan(gtx, ev.Position)
 					} else {
 						tl.startDrag(ev.Position)
 					}
@@ -280,7 +281,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
 			case pointer.Drag:
-				tl.cursorPos = ev.Position
+				tl.Global.cursorPos = ev.Position
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
 					if tl.Drag.Active {
 						tl.dragTo(gtx, ev.Position)
@@ -294,13 +295,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					if tl.Drag.Active {
 						tl.endDrag()
 					} else if tl.ZoomSelection.Active {
-						// XXX zoom to selection
 						tl.endZoomSelection(gtx, ev.Position)
 					}
 				}
 
 			case pointer.Move:
-				tl.cursorPos = ev.Position
+				tl.Global.cursorPos = ev.Position
 			}
 		}
 	}
@@ -368,6 +368,21 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	func() {
 		defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
+		// XXX why do we need to clip for the offset to take effect?
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		// Dragging doesn't produce Move events, even if we're not listening for dragging
+		pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
+		for _, e := range gtx.Events(&tl.Goroutines) {
+			ev := e.(pointer.Event)
+			switch ev.Type {
+			case pointer.Move, pointer.Drag:
+				tl.Goroutines.cursorPos = ev.Position
+			case pointer.Press:
+				if ev.Modifiers&key.ModCtrl != 0 {
+					tl.zoomToClickedSpan(gtx, ev.Position)
+				}
+			}
+		}
 
 		// XXX make sure our rounding is stable and doesn't jitter
 		// XXX handle spans that would be smaller than 1 unit
@@ -418,11 +433,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 					// XXX Make sure this is the goroutine under point
 
-					if len(dspSpans) == 1 && float64(tl.cursorPos.X) >= startPx && float64(tl.cursorPos.X) < endPx &&
+					if len(dspSpans) == 1 && float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
 						// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
 						// XXX consider the padding between goroutines
-						// XXX make better use of offsets; repeating tickHeight*2 here is dirty
-						tl.cursorPos.Y >= float32(stateBarHeight*2*gid)+tickHeight*2 && tl.cursorPos.Y < float32(stateBarHeight*2*(gid+1))+tickHeight*2 {
+						tl.Goroutines.cursorPos.Y >= float32(stateBarHeight*2*gid) && tl.Goroutines.cursorPos.Y < float32(stateBarHeight*2*(gid+1)) {
 						// XXX handle tooltips for merged spans
 						macro := op.Record(gtx.Ops)
 						tooltip.dims = SpanTooltipSingle(dspSpans[0]).Layout(gtx)
@@ -440,7 +454,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		// TODO have a gap between the cursor and the tooltip
 		// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 		if tooltip.active {
-			defer op.Offset(tl.cursorPos.Round()).Push(gtx.Ops).Pop()
+			defer op.Offset(tl.Global.cursorPos.Round()).Push(gtx.Ops).Pop()
 			tooltip.call.Add(gtx.Ops)
 		}
 	}()
@@ -448,7 +462,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	// Draw zoom selection
 	if tl.ZoomSelection.Active {
 		one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
-		two := int(math.Round(float64(tl.cursorPos.X)))
+		two := int(math.Round(float64(tl.Global.cursorPos.X)))
 		rect := clip.Rect{
 			Min: image.Point{X: min(one, two), Y: 0},
 			Max: image.Point{X: max(one, two), Y: gtx.Constraints.Max.Y},
@@ -458,8 +472,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	// Draw cursor
 	rect := clip.Rect{
-		Min: image.Point{X: int(math.Round(float64(tl.cursorPos.X))), Y: 0},
-		Max: image.Point{X: int(math.Round(float64(tl.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
+		Min: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X))), Y: 0},
+		Max: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
 	}
 	paint.FillShape(gtx.Ops, toColor(colorCursor), rect.Op())
 
