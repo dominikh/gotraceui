@@ -358,10 +358,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 func (tl *Timeline) layoutAxis(gtx layout.Context) {
-	// TODO don't bother with tl.Start and tl.End, we just have to subtract them in some places again. Just compute how
-	// many ticks go in a line.
-	//
 	// TODO don't allow for labels to overlap
+	// TODO draw smaller ticks between larger ticks
 	tickInterval := tl.tickInterval(gtx)
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := int(math.Round(tl.tsToPx(gtx, t) - tickWidth/2))
@@ -372,18 +370,27 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 		}
 		paint.FillShape(gtx.Ops, toColor(colorTick), rect.Op())
 
-		macro := op.Record(gtx.Ops)
-		label := fmt.Sprintf("+%s", t-tl.Start)
-		dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
-		call := macro.Stop()
+		if t == tl.Start {
+			// TODO print thousands separator
+			label := fmt.Sprintf("%d ns", t)
+			stack := op.Offset(image.Point{Y: tickHeight}).Push(gtx.Ops)
+			widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			stack.Pop()
+		} else {
+			macro := op.Record(gtx.Ops)
+			// TODO separate value and unit symbol with a space
+			label := fmt.Sprintf("+%s", t-tl.Start)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			call := macro.Stop()
 
-		// XXX leftmost and rightmost tick shouldn't be centered
-		stack := op.Offset(image.Point{
-			X: start - dims.Size.X/2,
-			Y: tickHeight,
-		}).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		stack.Pop()
+			// XXX rightmost tick shouldn't be centered
+			stack := op.Offset(image.Point{
+				X: start - dims.Size.X/2,
+				Y: tickHeight,
+			}).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			stack.Pop()
+		}
 	}
 }
 
