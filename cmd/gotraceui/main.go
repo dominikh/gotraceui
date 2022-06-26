@@ -28,10 +28,9 @@ import (
 
 // TODO(dh): switch to float32
 // TODO(dh): use unit.Dp for all sizes
+// TODO(dh): figure out what puts us in the generic "blocked" state
 
 const debug = true
-
-// XXX investigate if there can be gaps in goroutine IDs
 
 const (
 	// TODO(dh): compute min tick distance based on font size
@@ -54,6 +53,9 @@ type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
 	Start time.Duration
 	End   time.Duration
+	// Imagine we're drawing all goroutines onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
+	// canvas that the goroutine section's Y == 0 is displaying.
+	Y int
 
 	// State for dragging the timeline
 	Drag struct {
@@ -61,6 +63,7 @@ type Timeline struct {
 		Active  bool
 		Start   time.Duration
 		End     time.Duration
+		StartY  int
 	}
 
 	// State for zooming to a selection
@@ -109,6 +112,7 @@ func (tl *Timeline) startDrag(pos f32.Point) {
 	tl.Drag.Active = true
 	tl.Drag.Start = tl.Start
 	tl.Drag.End = tl.End
+	tl.Drag.StartY = tl.Y
 }
 
 func (tl *Timeline) endDrag() {
@@ -116,9 +120,16 @@ func (tl *Timeline) endDrag() {
 }
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
-	d := time.Duration(math.Round(tl.nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
-	tl.Start = tl.Drag.Start + d
-	tl.End = tl.Drag.End + d
+	td := time.Duration(math.Round(tl.nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
+	tl.Start = tl.Drag.Start + td
+	tl.End = tl.Drag.End + td
+
+	yd := int(math.Round(float64(tl.Drag.ClickAt.Y - pos.Y)))
+	tl.Y = tl.Drag.StartY + yd
+	if tl.Y < 0 {
+		tl.Y = 0
+	}
+	// XXX don't allow dragging tl.Y beyond the end
 }
 
 func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
@@ -144,13 +155,13 @@ func (tl *Timeline) gidAtPoint(at f32.Point) (uint64, bool) {
 	if !tl.isOnGoroutine(at) {
 		return 0, false
 	}
-	return uint64(at.Y / (goroutineHeight + goroutineGap)), true
+	return uint64((at.Y + float32(tl.Y)) / (goroutineHeight + goroutineGap)), true
 }
 
 // isOnGoroutine reports whether there's a goroutine under a point. The point should be relative to the goroutine
 // section of the timeline.
 func (tl *Timeline) isOnGoroutine(at f32.Point) bool {
-	rem := math.Mod(float64(at.Y), (goroutineHeight + goroutineGap))
+	rem := math.Mod(float64(at.Y)+float64(tl.Y), (goroutineHeight + goroutineGap))
 	return rem <= goroutineHeight
 }
 
@@ -449,14 +460,17 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 	var tooltip []Span
 
 	// Draw goroutine lifetimes
+	// TODO(dh): draw a scrollbar
 	for gid, spans := range sspans {
-		if gid > 100 {
+		y := (goroutineHeight+goroutineGap)*int(gid) - tl.Y
+		if y < -goroutineHeight || y > gtx.Constraints.Max.Y {
+			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
 			continue
 		}
 		func() {
 			// Our goroutines aren't sorted, causing our offsets to jump all over the place. That's why we calculate
 			// absolute offsets and pop them after each iteration.
-			defer op.Offset(image.Point{X: 0, Y: (goroutineHeight + goroutineGap) * int(gid)}).Push(gtx.Ops).Pop()
+			defer op.Offset(image.Point{X: 0, Y: y}).Push(gtx.Ops).Pop()
 
 			gidAtPoint, isOnGoroutine := tl.gidAtPoint(tl.Goroutines.cursorPos)
 
