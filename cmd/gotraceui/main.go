@@ -138,40 +138,19 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 		return
 	}
 
-	// XXX this code is partially duplicated with the drawing code
-	widthOfSpan := func(s Span) float64 {
-		return float64(s.End-s.Start) / tl.nsPerPx
-	}
 	spans = tl.visibleSpans(spans)
-	for i := 0; i < len(spans); i++ {
-		s := spans[i]
-		start := s.Start
-		end := s.End
-		startPx := tl.tsToPx(gtx, start)
-		endPx := tl.tsToPx(gtx, end)
-
-		if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
-			// Collect enough spans until we've filled the minimum width
-			for {
-				i++
-				if i == len(spans) {
-					// We've run out of spans
-					break
-				}
-
-				if int(math.Round(widthOfSpan(spans[i]))) >= gtx.Metric.Dp(minSpanWidth) {
-					// Don't merge spans that can stand on their own
-					i--
-					break
-				}
-
-				endPx = tl.tsToPx(gtx, spans[i].End)
-				end = spans[i].End
-			}
+	it := renderedSpansIterator{
+		tl:    tl,
+		spans: spans,
+	}
+	for {
+		dspSpans, startPx, endPx, ok := it.next(gtx)
+		if !ok {
+			break
 		}
-		if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
-			endPx = startPx + float64(gtx.Metric.Dp(minSpanWidth))
-		}
+
+		start := dspSpans[0].Start
+		end := dspSpans[len(dspSpans)-1].End
 
 		if float64(at.X) >= startPx && float64(at.X) < endPx {
 			tl.Start = start
@@ -193,6 +172,7 @@ func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
 }
 
 func (tl *Timeline) visibleSpans(spans []Span) []Span {
+	// OPT(dh): use binary search
 	first := -1
 	last := -1
 	for i, s := range spans {
@@ -232,6 +212,51 @@ func (tl *Timeline) tsToPx(gtx layout.Context, t time.Duration) float64 {
 //gcassert:inline
 func (tl *Timeline) pxToTs(gtx layout.Context, px int) time.Duration {
 	return time.Duration(math.Round(float64(px)*tl.nsPerPx + float64(tl.Start)))
+}
+
+type renderedSpansIterator struct {
+	offset int
+	tl     *Timeline
+	spans  []Span
+}
+
+func (it *renderedSpansIterator) next(gtx layout.Context) (spans []Span, startPx, endPx float64, ok bool) {
+	if it.offset >= len(it.spans) {
+		return nil, 0, 0, false
+	}
+
+	startOffset := it.offset
+
+	s := it.spans[it.offset]
+	it.offset++
+	startPx = it.tl.tsToPx(gtx, s.Start)
+	endPx = it.tl.tsToPx(gtx, s.End)
+	if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
+		// Collect enough spans until we've filled the minimum width
+		for {
+			if it.offset == len(it.spans) {
+				// We've run out of spans
+				break
+			}
+
+			widthOfSpan := func(s Span) float64 {
+				return float64(s.End-s.Start) / it.tl.nsPerPx
+			}
+			if int(math.Round(widthOfSpan(it.spans[it.offset]))) >= gtx.Metric.Dp(minSpanWidth) {
+				// Don't merge spans that can stand on their own
+				break
+			}
+
+			endPx = it.tl.tsToPx(gtx, it.spans[it.offset].End)
+			it.offset++
+		}
+	}
+
+	if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
+		endPx = startPx + float64(gtx.Metric.Dp(minSpanWidth))
+	}
+
+	return it.spans[startOffset:it.offset], startPx, endPx, true
 }
 
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
@@ -354,49 +379,27 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			}
 			func() {
 				defer op.Offset(image.Point{X: 0, Y: stateBarHeight * 2 * int(gid)}).Push(gtx.Ops).Pop()
-				// OPT(dh): use binary search
-
-				widthOfSpan := func(s Span) float64 {
-					return float64(s.End-s.Start) / tl.nsPerPx
+				it := renderedSpansIterator{
+					tl:    tl,
+					spans: tl.visibleSpans(spans),
 				}
-
-				spans = tl.visibleSpans(spans)
-
 				first := true
-				for i := 0; i < len(spans); i++ {
-					s := spans[i]
-					startPx := tl.tsToPx(gtx, s.Start)
-					endPx := tl.tsToPx(gtx, s.End)
+				for {
+					dspSpans, startPx, endPx, ok := it.next(gtx)
+					if !ok {
+						break
+					}
 
 					var c color.NRGBA
-					if int(s.State) >= len(stateColors) {
-						c = toColor(colorStateUnknown)
-					} else {
-						c = stateColors[s.State]
-					}
-
-					if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
-						c = toColor(colorStateUnknown) // XXX use different color
-						// Collect enough spans until we've filled the minimum width
-						for {
-							i++
-							if i == len(spans) {
-								// We've run out of spans
-								break
-							}
-
-							if int(math.Round(widthOfSpan(spans[i]))) >= gtx.Metric.Dp(minSpanWidth) {
-								// Don't merge spans that can stand on their own
-								i--
-								break
-							}
-
-							endPx = tl.tsToPx(gtx, spans[i].End)
+					if len(dspSpans) == 1 {
+						s := dspSpans[0]
+						if int(s.State) >= len(stateColors) {
+							c = toColor(colorStateUnknown)
+						} else {
+							c = stateColors[s.State]
 						}
-					}
-
-					if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
-						endPx = startPx + float64(gtx.Metric.Dp(minSpanWidth))
+					} else {
+						c = toColor(colorStateUnknown) // XXX use different color
 					}
 
 					rect := clip.Rect{
@@ -415,14 +418,14 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 					// XXX Make sure this is the goroutine under point
 
-					if float64(tl.cursorPos.X) >= startPx && float64(tl.cursorPos.X) < endPx &&
+					if len(dspSpans) == 1 && float64(tl.cursorPos.X) >= startPx && float64(tl.cursorPos.X) < endPx &&
 						// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
 						// XXX consider the padding between goroutines
 						// XXX make better use of offsets; repeating tickHeight*2 here is dirty
 						tl.cursorPos.Y >= float32(stateBarHeight*2*gid)+tickHeight*2 && tl.cursorPos.Y < float32(stateBarHeight*2*(gid+1))+tickHeight*2 {
 						// XXX handle tooltips for merged spans
 						macro := op.Record(gtx.Ops)
-						tooltip.dims = SpanTooltipSingle(s).Layout(gtx)
+						tooltip.dims = SpanTooltipSingle(dspSpans[0]).Layout(gtx)
 						tooltip.call = macro.Stop()
 						tooltip.active = true
 					}
