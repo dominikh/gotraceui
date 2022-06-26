@@ -455,12 +455,11 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 
 				// XXX Make sure this is the goroutine under point
 
-				if len(dspSpans) == 1 && float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
+				if float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
 					// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
 					// XXX consider the padding between goroutines
 					tl.Goroutines.cursorPos.Y >= float32(stateBarHeight*2*gid) && tl.Goroutines.cursorPos.Y < float32(stateBarHeight*2*(gid+1)) {
-					// XXX handle tooltips for merged spans
-					tooltip = dspSpans[0:1]
+					tooltip = dspSpans
 				}
 
 				first = false
@@ -486,26 +485,30 @@ type SpanTooltip struct {
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	// XXX support tooltips covering multiple spans
 	label := "State: "
-	switch state := tt.Spans[0].State; state {
-	case stateInactive:
-		label += "inactive"
-	case stateActive:
-		label += "active"
-	case stateBlocked:
-		label += "blocked"
-	case stateBlockedSyscall:
-		label += "syscall (blocked)"
-	case stateStuck:
-		label += "stuck"
-	case stateWaiting:
-		label += "waiting"
-	default:
-		panic(fmt.Sprintf("unhandled state %d", state))
+	if len(tt.Spans) == 1 {
+		switch state := tt.Spans[0].State; state {
+		case stateInactive:
+			label += "inactive"
+		case stateActive:
+			label += "active"
+		case stateBlocked:
+			label += "blocked"
+		case stateBlockedSyscall:
+			label += "syscall (blocked)"
+		case stateStuck:
+			label += "stuck"
+		case stateWaiting:
+			label += "waiting"
+		default:
+			panic(fmt.Sprintf("unhandled state %d", state))
+		}
+	} else {
+		label += "mixed"
 	}
 	label += "\n"
-	label += fmt.Sprintf("Duration: %s", tt.Spans[0].Duration())
+	d := tt.Spans[len(tt.Spans)-1].End - tt.Spans[0].Start
+	label += fmt.Sprintf("Duration: %s", d)
 
-	// TODO(dh): display span duration
 	// TODO(dh): display reason why we're in this state
 	// TODO(dh): make tooltip actually look good
 
