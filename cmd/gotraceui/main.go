@@ -39,8 +39,9 @@ const (
 	tickWidth       = 3
 )
 
-const minSpanWidth = 5
-const stateBarHeight = unit.Dp(10)
+const minSpanWidth = spanBorderWidth*2 + unit.Dp(1)
+const stateBarHeight = 20
+const spanBorderWidth = unit.Dp(1)
 
 type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
@@ -130,7 +131,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 
 	// XXX avoid magic constants
 	// XXX don't allow clicking in the space between goroutines
-	gid := uint64((at.Y - tickHeight*2) / 12)
+	gid := uint64((at.Y - tickHeight*2) / (stateBarHeight * 2))
 	spans, ok := sspans[gid]
 	if !ok {
 		// Not a known goroutine
@@ -146,10 +147,10 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 		s := spans[i]
 		start := s.Start
 		end := s.End
-		startPx := float64(tl.tsToPx(gtx, start))
-		endPx := float64(tl.tsToPx(gtx, end))
+		startPx := tl.tsToPx(gtx, start)
+		endPx := tl.tsToPx(gtx, end)
 
-		if endPx-startPx < minSpanWidth {
+		if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
 			// Collect enough spans until we've filled the minimum width
 			for {
 				i++
@@ -158,7 +159,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 					break
 				}
 
-				if widthOfSpan(spans[i]) >= minSpanWidth {
+				if int(math.Round(widthOfSpan(spans[i]))) >= gtx.Metric.Dp(minSpanWidth) {
 					// Don't merge spans that can stand on their own
 					i--
 					break
@@ -167,6 +168,9 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 				endPx = tl.tsToPx(gtx, spans[i].End)
 				end = spans[i].End
 			}
+		}
+		if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
+			endPx = startPx + float64(gtx.Metric.Dp(minSpanWidth))
 		}
 
 		if float64(at.X) >= startPx && float64(at.X) < endPx {
@@ -349,7 +353,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				continue
 			}
 			func() {
-				defer op.Offset(image.Point{X: 0, Y: 12 * int(gid)}).Push(gtx.Ops).Pop()
+				defer op.Offset(image.Point{X: 0, Y: stateBarHeight * 2 * int(gid)}).Push(gtx.Ops).Pop()
 				// OPT(dh): use binary search
 
 				widthOfSpan := func(s Span) float64 {
@@ -358,6 +362,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 				spans = tl.visibleSpans(spans)
 
+				first := true
 				for i := 0; i < len(spans); i++ {
 					s := spans[i]
 					startPx := tl.tsToPx(gtx, s.Start)
@@ -370,7 +375,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						c = stateColors[s.State]
 					}
 
-					if endPx-startPx < minSpanWidth {
+					if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
 						c = toColor(colorStateUnknown) // XXX use different color
 						// Collect enough spans until we've filled the minimum width
 						for {
@@ -380,7 +385,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 								break
 							}
 
-							if widthOfSpan(spans[i]) >= minSpanWidth {
+							if int(math.Round(widthOfSpan(spans[i]))) >= gtx.Metric.Dp(minSpanWidth) {
 								// Don't merge spans that can stand on their own
 								i--
 								break
@@ -390,10 +395,22 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						}
 					}
 
+					if int(math.Round(endPx-startPx)) < gtx.Metric.Dp(minSpanWidth) {
+						endPx = startPx + float64(gtx.Metric.Dp(minSpanWidth))
+					}
+
 					rect := clip.Rect{
 						Min: image.Point{max(int(math.Round(startPx)), 0), 0},
-						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), int(stateBarHeight)},
+						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), stateBarHeight},
 					}
+					paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
+					if first {
+						// We don't want two borders right next to each other
+						rect.Min.X += gtx.Metric.Dp(spanBorderWidth)
+					}
+					rect.Min.Y += gtx.Metric.Dp(spanBorderWidth)
+					rect.Max.X -= gtx.Metric.Dp(spanBorderWidth)
+					rect.Max.Y -= gtx.Metric.Dp(spanBorderWidth)
 					paint.FillShape(gtx.Ops, c, rect.Op())
 
 					// XXX Make sure this is the goroutine under point
@@ -402,13 +419,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
 						// XXX consider the padding between goroutines
 						// XXX make better use of offsets; repeating tickHeight*2 here is dirty
-						tl.cursorPos.Y >= float32(12*gid)+tickHeight*2 && tl.cursorPos.Y < float32(12*(gid+1))+tickHeight*2 {
+						tl.cursorPos.Y >= float32(stateBarHeight*2*gid)+tickHeight*2 && tl.cursorPos.Y < float32(stateBarHeight*2*(gid+1))+tickHeight*2 {
 						// XXX handle tooltips for merged spans
 						macro := op.Record(gtx.Ops)
 						tooltip.dims = SpanTooltipSingle(s).Layout(gtx)
 						tooltip.call = macro.Stop()
 						tooltip.active = true
 					}
+
+					first = false
 				}
 			}()
 		}
