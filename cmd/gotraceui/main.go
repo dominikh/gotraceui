@@ -43,6 +43,7 @@ const (
 const minSpanWidth = spanBorderWidth*2 + unit.Dp(1)
 const stateBarHeight = 20
 const spanBorderWidth = unit.Dp(1)
+const minTickLabelDistance = 15
 
 type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
@@ -361,6 +362,8 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 	// TODO don't allow for labels to overlap
 	// TODO draw smaller ticks between larger ticks
 	tickInterval := tl.tickInterval(gtx)
+	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
+	prevLabelEnd := -1
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := int(math.Round(tl.tsToPx(gtx, t) - tickWidth/2))
 		end := int(math.Round(tl.tsToPx(gtx, t) + tickWidth/2))
@@ -374,7 +377,8 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 			// TODO print thousands separator
 			label := fmt.Sprintf("%d ns", t)
 			stack := op.Offset(image.Point{Y: tickHeight}).Push(gtx.Ops)
-			widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			prevLabelEnd = dims.Size.X
 			stack.Pop()
 		} else {
 			macro := op.Record(gtx.Ops)
@@ -383,13 +387,17 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
 			call := macro.Stop()
 
-			// XXX rightmost tick shouldn't be centered
-			stack := op.Offset(image.Point{
-				X: start - dims.Size.X/2,
-				Y: tickHeight,
-			}).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			stack.Pop()
+			if start-dims.Size.X/2 > prevLabelEnd+minTickLabelDistance {
+				prevLabelEnd = start + dims.Size.X/2
+
+				// XXX rightmost tick shouldn't be centered
+				stack := op.Offset(image.Point{
+					X: start - dims.Size.X/2,
+					Y: tickHeight,
+				}).Push(gtx.Ops)
+				call.Add(gtx.Ops)
+				stack.Pop()
+			}
 		}
 	}
 }
