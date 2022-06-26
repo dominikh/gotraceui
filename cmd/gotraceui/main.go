@@ -822,12 +822,26 @@ func toColor(c uint32) color.NRGBA {
 }
 
 func run(w *app.Window) error {
-	tl := Timeline{
-		Start: 0,
-		End:   100 * time.Millisecond,
+	var end time.Duration
+	for _, spans := range sspans {
+		if len(spans) > 0 {
+			d := spans[len(spans)-1].End
+			if d > end {
+				end = d
+			}
+		}
 	}
 
-	// TODO(dh): handle window resize events and update nsPerPx
+	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
+	// entire trace.
+	slack := float64(end) * 0.05
+	start := time.Duration(-slack)
+	end = time.Duration(float64(end) + slack)
+	tl := Timeline{
+		Start: start,
+		End:   end,
+	}
+
 	var ops op.Ops
 	for {
 		e := <-w.Events()
