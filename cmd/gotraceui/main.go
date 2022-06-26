@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 
+	"honnef.co/go/gotraceui/trace"
+
 	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/font/gofont"
@@ -22,7 +24,6 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
-	"honnef.co/go/gotraceui/trace"
 )
 
 // TODO(dh): switch to float32
