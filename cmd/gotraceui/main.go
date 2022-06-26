@@ -469,8 +469,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 				rect.Max.Y -= gtx.Metric.Dp(spanBorderWidth)
 				paint.FillShape(gtx.Ops, c, rect.Op())
 
-				// XXX Make sure this is the goroutine under point
-
 				if float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
 					// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
 					// XXX consider the padding between goroutines
@@ -499,7 +497,6 @@ type SpanTooltip struct {
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
-	// XXX support tooltips covering multiple spans
 	label := "State: "
 	if len(tt.Spans) == 1 {
 		switch state := tt.Spans[0].State; state {
@@ -562,8 +559,7 @@ func (s Span) Duration() time.Duration {
 	return s.End - s.Start
 }
 
-// XXX in the real code we'll want to directly process the parsed events, not transform them to another
-// representation. We're doing this only because it's easy to prototype with.
+// TODO(dh): avoid global state
 var sspans = map[uint64][]Span{}
 
 // TODO(dh): avoid global state, bundle this in a Theme, much like gioui.org/widget/material does
@@ -811,7 +807,8 @@ func run(w *app.Window) error {
 		case system.FrameEvent:
 			gtx := layout.NewContext(&ops, ev)
 			gtx.Constraints.Min = image.Point{}
-			gtx.Metric.PxPerDp = 2 // XXX
+			// XXX detect HiDPI
+			gtx.Metric.PxPerDp = 2
 
 			tl.Layout(gtx)
 
