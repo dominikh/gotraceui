@@ -597,6 +597,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	fmt.Println("Loading trace...")
+
 	res, err := trace.Parse(r, "")
 	if err != nil {
 		log.Fatal(err)
@@ -729,6 +732,8 @@ func main() {
 			spans[len(spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
 		}
 	}
+
+	fmt.Println("Starting UI...")
 
 	go func() {
 		w := app.NewWindow()
