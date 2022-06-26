@@ -41,7 +41,12 @@ const (
 )
 
 const minSpanWidth = spanBorderWidth*2 + unit.Dp(1)
-const stateBarHeight = 20
+
+const (
+	goroutineHeight = 20
+	goroutineGap    = 10
+)
+
 const spanBorderWidth = unit.Dp(1)
 const minTickLabelDistance = 15
 
@@ -133,10 +138,30 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
+// gidAtPoint returns the goroutine ID at a point. The point should be relative to the
+// goroutine section of the timeline.
+func (tl *Timeline) gidAtPoint(at f32.Point) (uint64, bool) {
+	if !tl.isOnGoroutine(at) {
+		return 0, false
+	}
+	return uint64(at.Y / (goroutineHeight + goroutineGap)), true
+}
+
+// isOnGoroutine reports whether there's a goroutine under a point. The point should be relative to the goroutine
+// section of the timeline.
+func (tl *Timeline) isOnGoroutine(at f32.Point) bool {
+	rem := math.Mod(float64(at.Y), (goroutineHeight + goroutineGap))
+	return rem <= goroutineHeight
+}
+
+// zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
+// timeline.
 func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 	// XXX avoid magic constants
-	// XXX don't allow clicking in the space between goroutines
-	gid := uint64(at.Y / (stateBarHeight * 2))
+	gid, ok := tl.gidAtPoint(at)
+	if !ok {
+		return
+	}
 	spans, ok := sspans[gid]
 	if !ok {
 		// Not a known goroutine
@@ -431,7 +456,10 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 		func() {
 			// Our goroutines aren't sorted, causing our offsets to jump all over the place. That's why we calculate
 			// absolute offsets and pop them after each iteration.
-			defer op.Offset(image.Point{X: 0, Y: stateBarHeight * 2 * int(gid)}).Push(gtx.Ops).Pop()
+			defer op.Offset(image.Point{X: 0, Y: (goroutineHeight + goroutineGap) * int(gid)}).Push(gtx.Ops).Pop()
+
+			gidAtPoint, isOnGoroutine := tl.gidAtPoint(tl.Goroutines.cursorPos)
+
 			it := renderedSpansIterator{
 				tl:    tl,
 				spans: tl.visibleSpans(spans),
@@ -457,7 +485,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 
 				rect := clip.Rect{
 					Min: image.Point{max(int(math.Round(startPx)), 0), 0},
-					Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), stateBarHeight},
+					Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), goroutineHeight},
 				}
 				paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
 				if first {
@@ -469,10 +497,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 				rect.Max.Y -= gtx.Metric.Dp(spanBorderWidth)
 				paint.FillShape(gtx.Ops, c, rect.Op())
 
-				if float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
-					// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
-					// XXX consider the padding between goroutines
-					tl.Goroutines.cursorPos.Y >= float32(stateBarHeight*2*gid) && tl.Goroutines.cursorPos.Y < float32(stateBarHeight*2*(gid+1)) {
+				if float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
 					tooltip = dspSpans
 				}
 
