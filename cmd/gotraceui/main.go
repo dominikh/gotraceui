@@ -569,7 +569,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			panic(fmt.Sprintf("unhandled state %d", state))
 		}
 	} else {
-		label += "mixed"
+		label += fmt.Sprintf("mixed (%d spans)", len(tt.Spans))
 	}
 	label += "\n"
 	d := tt.Spans[len(tt.Spans)-1].End - tt.Spans[0].Start
