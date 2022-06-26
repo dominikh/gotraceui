@@ -494,7 +494,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 						c = stateColors[s.State]
 					}
 				} else {
-					c = toColor(colorStateUnknown) // XXX use different color
+					c = toColor(colorStateMerged)
 				}
 
 				rect := clip.Rect{
@@ -797,6 +797,7 @@ const (
 
 	colorStateWaiting = 0x4BACB8FF
 	colorStateStuck   = 0x000000FF
+	colorStateMerged  = 0xB9BB63FF
 	colorStateUnknown = 0xFFFF00FF
 )
 
