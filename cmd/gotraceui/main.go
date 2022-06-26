@@ -330,8 +330,33 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}},
 	}.Add(gtx.Ops)
 
-	// Draw axis
+	tl.layoutAxis(gtx)
+	tl.layoutGoroutines(gtx)
 
+	// Draw zoom selection
+	if tl.ZoomSelection.Active {
+		one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
+		two := int(math.Round(float64(tl.Global.cursorPos.X)))
+		rect := clip.Rect{
+			Min: image.Point{X: min(one, two), Y: 0},
+			Max: image.Point{X: max(one, two), Y: gtx.Constraints.Max.Y},
+		}
+		paint.FillShape(gtx.Ops, toColor(colorZoomSelection), rect.Op())
+	}
+
+	// Draw cursor
+	rect := clip.Rect{
+		Min: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X))), Y: 0},
+		Max: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
+	}
+	paint.FillShape(gtx.Ops, toColor(colorCursor), rect.Op())
+
+	return layout.Dimensions{
+		Size: gtx.Constraints.Max,
+	}
+}
+
+func (tl *Timeline) layoutAxis(gtx layout.Context) {
 	// TODO don't bother with tl.Start and tl.End, we just have to subtract them in some places again. Just compute how
 	// many ticks go in a line.
 	//
@@ -359,6 +384,27 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		call.Add(gtx.Ops)
 		stack.Pop()
 	}
+}
+
+func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
+	defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
+	// XXX why do we need to clip for the offset to take effect?
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	// Dragging doesn't produce Move events, even if we're not listening for dragging
+	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
+	for _, e := range gtx.Events(&tl.Goroutines) {
+		ev := e.(pointer.Event)
+		switch ev.Type {
+		case pointer.Move, pointer.Drag:
+			tl.Goroutines.cursorPos = ev.Position
+		case pointer.Press:
+			if ev.Modifiers&key.ModCtrl != 0 {
+				tl.zoomToClickedSpan(gtx, ev.Position)
+			}
+		}
+	}
+
+	// XXX make sure our rounding is stable and doesn't jitter
 
 	var tooltip struct {
 		call   op.CallOp
@@ -366,119 +412,75 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		active bool
 	}
 
-	func() {
-		defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
-		// XXX why do we need to clip for the offset to take effect?
-		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-		// Dragging doesn't produce Move events, even if we're not listening for dragging
-		pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
-		for _, e := range gtx.Events(&tl.Goroutines) {
-			ev := e.(pointer.Event)
-			switch ev.Type {
-			case pointer.Move, pointer.Drag:
-				tl.Goroutines.cursorPos = ev.Position
-			case pointer.Press:
-				if ev.Modifiers&key.ModCtrl != 0 {
-					tl.zoomToClickedSpan(gtx, ev.Position)
-				}
-			}
+	// Draw goroutine lifetimes
+	for gid, spans := range sspans {
+		if gid > 100 {
+			continue
 		}
-
-		// XXX make sure our rounding is stable and doesn't jitter
-		// XXX handle spans that would be smaller than 1 unit
-
-		// Draw goroutine lifetimes
-		for gid, spans := range sspans {
-			if gid > 100 {
-				continue
+		func() {
+			// Our goroutines aren't sorted, causing our offsets to jump all over the place. That's why we calculate
+			// absolute offsets and pop them after each iteration.
+			defer op.Offset(image.Point{X: 0, Y: stateBarHeight * 2 * int(gid)}).Push(gtx.Ops).Pop()
+			it := renderedSpansIterator{
+				tl:    tl,
+				spans: tl.visibleSpans(spans),
 			}
-			func() {
-				defer op.Offset(image.Point{X: 0, Y: stateBarHeight * 2 * int(gid)}).Push(gtx.Ops).Pop()
-				it := renderedSpansIterator{
-					tl:    tl,
-					spans: tl.visibleSpans(spans),
+			first := true
+			for {
+				dspSpans, startPx, endPx, ok := it.next(gtx)
+				if !ok {
+					break
 				}
-				first := true
-				for {
-					dspSpans, startPx, endPx, ok := it.next(gtx)
-					if !ok {
-						break
-					}
 
-					var c color.NRGBA
-					if len(dspSpans) == 1 {
-						s := dspSpans[0]
-						if int(s.State) >= len(stateColors) {
-							c = toColor(colorStateUnknown)
-						} else {
-							c = stateColors[s.State]
-						}
+				var c color.NRGBA
+				if len(dspSpans) == 1 {
+					s := dspSpans[0]
+					if int(s.State) >= len(stateColors) {
+						c = toColor(colorStateUnknown)
 					} else {
-						c = toColor(colorStateUnknown) // XXX use different color
+						c = stateColors[s.State]
 					}
-
-					rect := clip.Rect{
-						Min: image.Point{max(int(math.Round(startPx)), 0), 0},
-						Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), stateBarHeight},
-					}
-					paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
-					if first {
-						// We don't want two borders right next to each other
-						rect.Min.X += gtx.Metric.Dp(spanBorderWidth)
-					}
-					rect.Min.Y += gtx.Metric.Dp(spanBorderWidth)
-					rect.Max.X -= gtx.Metric.Dp(spanBorderWidth)
-					rect.Max.Y -= gtx.Metric.Dp(spanBorderWidth)
-					paint.FillShape(gtx.Ops, c, rect.Op())
-
-					// XXX Make sure this is the goroutine under point
-
-					if len(dspSpans) == 1 && float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
-						// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
-						// XXX consider the padding between goroutines
-						tl.Goroutines.cursorPos.Y >= float32(stateBarHeight*2*gid) && tl.Goroutines.cursorPos.Y < float32(stateBarHeight*2*(gid+1)) {
-						// XXX handle tooltips for merged spans
-						macro := op.Record(gtx.Ops)
-						tooltip.dims = SpanTooltipSingle(dspSpans[0]).Layout(gtx)
-						tooltip.call = macro.Stop()
-						tooltip.active = true
-					}
-
-					first = false
+				} else {
+					c = toColor(colorStateUnknown) // XXX use different color
 				}
-			}()
-		}
-	}()
 
-	func() {
-		// TODO have a gap between the cursor and the tooltip
-		// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-		if tooltip.active {
-			defer op.Offset(tl.Global.cursorPos.Round()).Push(gtx.Ops).Pop()
-			tooltip.call.Add(gtx.Ops)
-		}
-	}()
+				rect := clip.Rect{
+					Min: image.Point{max(int(math.Round(startPx)), 0), 0},
+					Max: image.Point{min(int(math.Round(endPx)), gtx.Constraints.Max.X), stateBarHeight},
+				}
+				paint.FillShape(gtx.Ops, toColor(0x000000FF), rect.Op())
+				if first {
+					// We don't want two borders right next to each other
+					rect.Min.X += gtx.Metric.Dp(spanBorderWidth)
+				}
+				rect.Min.Y += gtx.Metric.Dp(spanBorderWidth)
+				rect.Max.X -= gtx.Metric.Dp(spanBorderWidth)
+				rect.Max.Y -= gtx.Metric.Dp(spanBorderWidth)
+				paint.FillShape(gtx.Ops, c, rect.Op())
 
-	// Draw zoom selection
-	if tl.ZoomSelection.Active {
-		one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
-		two := int(math.Round(float64(tl.Global.cursorPos.X)))
-		rect := clip.Rect{
-			Min: image.Point{X: min(one, two), Y: 0},
-			Max: image.Point{X: max(one, two), Y: gtx.Constraints.Max.Y},
-		}
-		paint.FillShape(gtx.Ops, toColor(colorZoomSelection), rect.Op())
+				// XXX Make sure this is the goroutine under point
+
+				if len(dspSpans) == 1 && float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx &&
+					// XXX factor out the math for finding the goroutine from the Y position, the same is used for clicking spans
+					// XXX consider the padding between goroutines
+					tl.Goroutines.cursorPos.Y >= float32(stateBarHeight*2*gid) && tl.Goroutines.cursorPos.Y < float32(stateBarHeight*2*(gid+1)) {
+					// XXX handle tooltips for merged spans
+					macro := op.Record(gtx.Ops)
+					tooltip.dims = SpanTooltipSingle(dspSpans[0]).Layout(gtx)
+					tooltip.call = macro.Stop()
+					tooltip.active = true
+				}
+
+				first = false
+			}
+		}()
 	}
 
-	// Draw cursor
-	rect := clip.Rect{
-		Min: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X))), Y: 0},
-		Max: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
-	}
-	paint.FillShape(gtx.Ops, toColor(colorCursor), rect.Op())
-
-	return layout.Dimensions{
-		Size: gtx.Constraints.Max,
+	// TODO have a gap between the cursor and the tooltip
+	// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+	if tooltip.active {
+		defer op.Offset(tl.Goroutines.cursorPos.Round()).Push(gtx.Ops).Pop()
+		tooltip.call.Add(gtx.Ops)
 	}
 }
 
