@@ -626,6 +626,8 @@ type SpanTooltip struct {
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	var tooltipBorderWidth = gtx.Metric.Dp(2)
+
 	label := "State: "
 	if len(tt.Spans) == 1 {
 		switch state := tt.Spans[0].State; state {
@@ -676,12 +678,23 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	call := macro.Stop()
 
 	rect := clip.Rect{
-		Max: dims.Size,
+		Max: image.Pt(dims.Size.X+2*tooltipBorderWidth, dims.Size.Y+2*tooltipBorderWidth),
+	}
+	paint.FillShape(gtx.Ops, toColor(colorTooltipBorder), rect.Op())
+
+	rect = clip.Rect{
+		Min: image.Point{X: tooltipBorderWidth, Y: tooltipBorderWidth},
+		Max: image.Pt(dims.Size.X+tooltipBorderWidth, dims.Size.Y+tooltipBorderWidth),
 	}
 	paint.FillShape(gtx.Ops, toColor(colorTooltipBackground), rect.Op())
+	stack := op.Offset(image.Point{tooltipBorderWidth, tooltipBorderWidth}).Push(gtx.Ops)
 	call.Add(gtx.Ops)
+	stack.Pop()
 
-	return dims
+	return layout.Dimensions{
+		Baseline: dims.Baseline,
+		Size:     image.Pt(dims.Size.X+2*tooltipBorderWidth, dims.Size.Y+2*tooltipBorderWidth),
+	}
 }
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
@@ -905,7 +918,8 @@ const (
 	colorCursor            = 0x000000FF
 	colorTick              = 0x000000FF
 	colorTooltipText       = 0x000000FF
-	colorTooltipBackground = 0xFFFFFFFF
+	colorTooltipBackground = 0xEEFFEEFF
+	colorTooltipBorder     = 0x57A8A8FF
 )
 
 type schedulingState int
