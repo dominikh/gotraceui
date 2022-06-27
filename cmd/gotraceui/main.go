@@ -475,7 +475,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 		case pointer.Move, pointer.Drag:
 			tl.Goroutines.cursorPos = ev.Position
 		case pointer.Press:
-			if ev.Modifiers&key.ModCtrl != 0 {
+			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
 				tl.zoomToClickedSpan(gtx, ev.Position)
 			}
 		}
