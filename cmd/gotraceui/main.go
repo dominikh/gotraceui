@@ -53,8 +53,9 @@ const (
 const minSpanWidth = spanBorderWidth*2 + unit.Dp(2)
 
 const (
-	goroutineHeight = 20
-	goroutineGap    = 10
+	goroutineStateHeight = 20
+	goroutineGap         = 10
+	goroutineHeight      = goroutineStateHeight + goroutineGap
 )
 
 const spanBorderWidth = unit.Dp(1)
@@ -166,14 +167,14 @@ func (tl *Timeline) gidAtPoint(at f32.Point) (uint64, bool) {
 	if !tl.isOnGoroutine(at) {
 		return 0, false
 	}
-	return uint64((at.Y + float32(tl.Y)) / (goroutineHeight + goroutineGap)), true
+	return uint64((at.Y + float32(tl.Y)) / goroutineHeight), true
 }
 
 // isOnGoroutine reports whether there's a goroutine under a point. The point should be relative to the goroutine
 // section of the timeline.
 func (tl *Timeline) isOnGoroutine(at f32.Point) bool {
-	rem := math.Mod(float64(at.Y)+float64(tl.Y), (goroutineHeight + goroutineGap))
-	return rem <= goroutineHeight
+	rem := math.Mod(float64(at.Y)+float64(tl.Y), goroutineHeight)
+	return rem <= goroutineStateHeight
 }
 
 // zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
@@ -532,8 +533,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	}
 
 	for gid, spans := range sspans {
-		y := (goroutineHeight+goroutineGap)*int(gid) - tl.Y
-		if y < -goroutineHeight || y > gtx.Constraints.Max.Y {
+		y := goroutineHeight*int(gid) - tl.Y
+		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
 			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
 			continue
 		}
@@ -577,7 +578,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				var minP f32.Point
 				var maxP f32.Point
 				minP = f32.Point{X: float32(max(startPx, 0)), Y: float32(y)}
-				maxP = f32.Point{X: float32(min(endPx, gtx.Constraints.Max.X)), Y: float32(y + goroutineHeight)}
+				maxP = f32.Point{X: float32(min(endPx, gtx.Constraints.Max.X)), Y: float32(y + goroutineStateHeight)}
 				if first && startPx >= 0 {
 					// We don't want two borders right next to each other, nor do we want a border for truncated spans
 					minP.X += float32(gtx.Metric.Dp(spanBorderWidth))
@@ -608,8 +609,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				lastEnd = min(lastEnd, gtx.Constraints.Max.X)
 				outlinesPath.MoveTo(f32.Point{X: float32(firstStart), Y: float32(y)})
 				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y)})
-				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y) + goroutineHeight})
-				outlinesPath.LineTo(f32.Point{X: float32(firstStart), Y: float32(y) + goroutineHeight})
+				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y) + goroutineStateHeight})
+				outlinesPath.LineTo(f32.Point{X: float32(firstStart), Y: float32(y) + goroutineStateHeight})
 				outlinesPath.Close()
 			} else {
 				// No spans for this goroutine
