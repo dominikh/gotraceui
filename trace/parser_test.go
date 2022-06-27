@@ -68,6 +68,45 @@ func TestParseCanned(t *testing.T) {
 	}
 }
 
+func BenchmarkParse(b *testing.B) {
+	files, err := os.ReadDir("./testdata")
+	if err != nil {
+		b.Fatalf("failed to read ./testdata: %v", err)
+	}
+	var datas []struct {
+		name string
+		b    []byte
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Name(), "_good") {
+			continue
+		}
+		name := filepath.Join("./testdata", f.Name())
+		data, err := os.ReadFile(name)
+		if err != nil {
+			b.Fatal(err)
+		}
+		datas = append(datas, struct {
+			name string
+			b    []byte
+		}{f.Name(), data})
+	}
+	b.ResetTimer()
+
+	for _, data := range datas {
+		b.Run(data.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				// Instead of Parse that requires a proper binary name for old traces,
+				// we use 'parse' that omits symbol lookup if an empty string is given.
+				_, _, err = parse(bytes.NewReader(data.b), "")
+				if err != nil {
+					b.Errorf("failed to parse good trace %s: %v", data.name, err)
+				}
+			}
+		})
+	}
+}
+
 func TestParseVersion(t *testing.T) {
 	tests := map[string]int{
 		"go 1.5 trace\x00\x00\x00\x00": 1005,
