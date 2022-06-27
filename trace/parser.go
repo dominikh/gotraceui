@@ -85,9 +85,14 @@ type ParseResult struct {
 	Stacks map[uint64][]*Frame
 }
 
+type parser struct {
+	byte [1]byte
+}
+
 // Parse parses, post-processes and verifies the trace.
 func Parse(r io.Reader, bin string) (ParseResult, error) {
-	ver, res, err := parse(r, bin)
+	p := parser{}
+	ver, res, err := p.parse(r, bin)
 	if err != nil {
 		return ParseResult{}, err
 	}
@@ -99,8 +104,8 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 
 // parse parses, post-processes and verifies the trace. It returns the
 // trace version and the list of events.
-func parse(r io.Reader, bin string) (int, ParseResult, error) {
-	ver, rawEvents, strings, err := readTrace(r)
+func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
+	ver, rawEvents, strings, err := p.readTrace(r)
 	if err != nil {
 		return 0, ParseResult{}, err
 	}
@@ -137,7 +142,7 @@ type rawEvent struct {
 
 // readTrace does wire-format parsing and verification.
 // It does not care about specific event types and argument meaning.
-func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]string, err error) {
+func (p *parser) readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]string, err error) {
 	// Read and validate trace header.
 	var buf [16]byte
 	off, err := io.ReadFull(r, buf[:])
@@ -189,7 +194,7 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 		if typ == EvString {
 			// String dictionary entry [ID, length, string].
 			var id uint64
-			id, off, err = readVal(r, off)
+			id, off, err = p.readVal(r, off)
 			if err != nil {
 				return
 			}
@@ -202,7 +207,7 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 				return
 			}
 			var ln uint64
-			ln, off, err = readVal(r, off)
+			ln, off, err = p.readVal(r, off)
 			if err != nil {
 				return
 			}
@@ -229,7 +234,7 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 		if narg < inlineArgs {
 			for i := 0; i < int(narg); i++ {
 				var v uint64
-				v, off, err = readVal(r, off)
+				v, off, err = p.readVal(r, off)
 				if err != nil {
 					err = fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
 					return
@@ -239,7 +244,7 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 		} else {
 			// More than inlineArgs args, the first value is length of the event in bytes.
 			var v uint64
-			v, off, err = readVal(r, off)
+			v, off, err = p.readVal(r, off)
 			if err != nil {
 				err = fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
 				return
@@ -247,7 +252,7 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 			evLen := v
 			off1 := off
 			for evLen > uint64(off-off1) {
-				v, off, err = readVal(r, off)
+				v, off, err = p.readVal(r, off)
 				if err != nil {
 					err = fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
 					return
@@ -262,7 +267,7 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 		switch ev.typ {
 		case EvUserLog: // EvUserLog records are followed by a value string of length ev.args[len(ev.args)-1]
 			var s string
-			s, off, err = readStr(r, off)
+			s, off, err = p.readStr(r, off)
 			ev.sargs = append(ev.sargs, s)
 		}
 		events = append(events, ev)
@@ -270,9 +275,9 @@ func readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]stri
 	return
 }
 
-func readStr(r io.Reader, off0 int) (s string, off int, err error) {
+func (p *parser) readStr(r io.Reader, off0 int) (s string, off int, err error) {
 	var sz uint64
-	sz, off, err = readVal(r, off0)
+	sz, off, err = p.readVal(r, off0)
 	if err != nil || sz == 0 {
 		return "", off, err
 	}
@@ -921,18 +926,17 @@ func symbolize(events []*Event, bin string) error {
 }
 
 // readVal reads unsigned base-128 value from r.
-func readVal(r io.Reader, off0 int) (v uint64, off int, err error) {
+func (p *parser) readVal(r io.Reader, off0 int) (v uint64, off int, err error) {
 	off = off0
 	for i := 0; i < 10; i++ {
-		var buf [1]byte
 		var n int
-		n, err = r.Read(buf[:])
+		n, err = r.Read(p.byte[:])
 		if err != nil || n != 1 {
 			return 0, 0, fmt.Errorf("failed to read trace at offset %d: read %v, error %v", off0, n, err)
 		}
 		off++
-		v |= uint64(buf[0]&0x7f) << (uint(i) * 7)
-		if buf[0]&0x80 == 0 {
+		v |= uint64(p.byte[0]&0x7f) << (uint(i) * 7)
+		if p.byte[0]&0x80 == 0 {
 			return
 		}
 	}

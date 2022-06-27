@@ -52,7 +52,7 @@ func TestParseCanned(t *testing.T) {
 		}
 		// Instead of Parse that requires a proper binary name for old traces,
 		// we use 'parse' that omits symbol lookup if an empty string is given.
-		_, _, err = parse(bytes.NewReader(data), "")
+		_, _, err = (&parser{}).parse(bytes.NewReader(data), "")
 		switch {
 		case strings.HasSuffix(f.Name(), "_good"):
 			if err != nil {
@@ -98,7 +98,7 @@ func BenchmarkParse(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Instead of Parse that requires a proper binary name for old traces,
 				// we use 'parse' that omits symbol lookup if an empty string is given.
-				_, _, err = parse(bytes.NewReader(data.b), "")
+				_, _, err = (&parser{}).parse(bytes.NewReader(data.b), "")
 				if err != nil {
 					b.Errorf("failed to parse good trace %s: %v", data.name, err)
 				}
