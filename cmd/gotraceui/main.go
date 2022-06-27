@@ -522,7 +522,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	paths[toColor(colorStateBlockedNet)] = &path{}
 	paths[toColor(colorStateBlockedGC)] = &path{}
 	paths[toColor(colorStateBlockedSyscall)] = &path{}
-	paths[toColor(colorStateWaiting)] = &path{}
+	paths[toColor(colorStateReady)] = &path{}
 	paths[toColor(colorStateStuck)] = &path{}
 	paths[toColor(colorStateMerged)] = &path{}
 	paths[toColor(colorStateUnknown)] = &path{}
@@ -670,8 +670,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "blocked on syscall"
 		case stateStuck:
 			label += "stuck"
-		case stateWaiting:
-			label += "waiting"
+		case stateReady:
+			label += "ready"
 		default:
 			panic(fmt.Sprintf("unhandled state %d", state))
 		}
@@ -820,7 +820,7 @@ func main() {
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
 			g = ev.Args[0]
-			state = stateWaiting
+			state = stateReady
 		case trace.EvGoSysCall:
 			// From the runtime's documentation:
 			//
@@ -839,7 +839,7 @@ func main() {
 			state = stateBlockedSyscall
 		case trace.EvGoSysExit:
 			g = ev.G
-			state = stateWaiting
+			state = stateReady
 		case trace.EvGCMarkAssistStart:
 			// TODO(dh): add a state for this
 			continue
@@ -920,7 +920,7 @@ const (
 	colorStateBlockedGC            = 0xBB554FFF
 	colorStateBlockedSyscall       = 0xBA4F41FF
 
-	colorStateWaiting = 0x4BACB8FF
+	colorStateReady   = 0x4BACB8FF
 	colorStateStuck   = 0x000000FF
 	colorStateMerged  = 0xB9BB63FF
 	colorStateUnknown = 0xFFFF00FF
@@ -951,7 +951,7 @@ const (
 	stateBlockedGC
 	stateBlockedSyscall
 	stateStuck
-	stateWaiting
+	stateReady
 	stateDone
 	stateLast
 )
@@ -969,13 +969,13 @@ var stateColors = [...]color.NRGBA{
 	stateBlockedGC:      toColor(colorStateBlockedGC),
 	stateBlockedSyscall: toColor(colorStateBlockedSyscall),
 	stateStuck:          toColor(colorStateStuck),
-	stateWaiting:        toColor(colorStateWaiting),
+	stateReady:          toColor(colorStateReady),
 }
 
 var legalStateTransitions = [stateLast][stateLast]bool{
 	stateInactive: {
-		stateActive:  true,
-		stateWaiting: true,
+		stateActive: true,
+		stateReady:  true,
 	},
 	stateActive: {
 		stateInactive:       true,
@@ -991,19 +991,19 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateStuck:          true,
 		stateDone:           true,
 	},
-	stateWaiting: {
+	stateReady: {
 		stateActive: true,
 	},
-	stateBlocked:       {stateWaiting: true},
-	stateBlockedSend:   {stateWaiting: true},
-	stateBlockedRecv:   {stateWaiting: true},
-	stateBlockedSelect: {stateWaiting: true},
-	stateBlockedSync:   {stateWaiting: true},
-	stateBlockedCond:   {stateWaiting: true},
-	stateBlockedNet:    {stateWaiting: true},
-	stateBlockedGC:     {stateWaiting: true},
+	stateBlocked:       {stateReady: true},
+	stateBlockedSend:   {stateReady: true},
+	stateBlockedRecv:   {stateReady: true},
+	stateBlockedSelect: {stateReady: true},
+	stateBlockedSync:   {stateReady: true},
+	stateBlockedCond:   {stateReady: true},
+	stateBlockedNet:    {stateReady: true},
+	stateBlockedGC:     {stateReady: true},
 	stateBlockedSyscall: {
-		stateWaiting: true,
+		stateReady: true,
 	},
 }
 
