@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"image"
 	"image/color"
@@ -731,7 +732,7 @@ func main() {
 
 	fmt.Println("Loading trace...")
 
-	res, err := trace.Parse(r, "")
+	res, err := trace.Parse(bufio.NewReader(r), "")
 	if err != nil {
 		log.Fatal(err)
 	}
