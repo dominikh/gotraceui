@@ -566,12 +566,14 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 				var maxP f32.Point
 				minP = f32.Point{X: float32(max(startPx, 0)), Y: float32(y)}
 				maxP = f32.Point{X: float32(min(endPx, gtx.Constraints.Max.X)), Y: float32(y + goroutineHeight)}
-				if first {
-					// We don't want two borders right next to each other
+				if first && startPx >= 0 {
+					// We don't want two borders right next to each other, nor do we want a border for truncated spans
 					minP.X += float32(gtx.Metric.Dp(spanBorderWidth))
 				}
 				minP.Y += float32(gtx.Metric.Dp(spanBorderWidth))
-				maxP.X -= float32(gtx.Metric.Dp(spanBorderWidth))
+				if endPx <= gtx.Constraints.Max.X {
+					maxP.X -= float32(gtx.Metric.Dp(spanBorderWidth))
+				}
 				maxP.Y -= float32(gtx.Metric.Dp(spanBorderWidth))
 
 				p := paths[c]
