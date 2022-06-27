@@ -590,12 +590,18 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 				first = false
 			}
 
-			// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
-			outlinesPath.MoveTo(f32.Point{X: float32(firstStart), Y: float32(y)})
-			outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y)})
-			outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y) + goroutineHeight})
-			outlinesPath.LineTo(f32.Point{X: float32(firstStart), Y: float32(y) + goroutineHeight})
-			outlinesPath.Close()
+			if firstStart != -1 {
+				// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
+				firstStart = max(firstStart, 0)
+				lastEnd = min(lastEnd, gtx.Constraints.Max.X)
+				outlinesPath.MoveTo(f32.Point{X: float32(firstStart), Y: float32(y)})
+				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y)})
+				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y) + goroutineHeight})
+				outlinesPath.LineTo(f32.Point{X: float32(firstStart), Y: float32(y) + goroutineHeight})
+				outlinesPath.Close()
+			} else {
+				// No spans for this goroutine
+			}
 		}()
 	}
 
