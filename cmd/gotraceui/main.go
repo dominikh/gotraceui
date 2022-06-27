@@ -30,6 +30,7 @@ import (
 // TODO(dh): switch to float32
 // TODO(dh): use unit.Dp for all sizes
 // TODO(dh): figure out what puts us in the generic "blocked" state
+// TODO(dh): instead of using a single color for merged spans, use all the colors of the spans we merged, in a pattern.
 
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 // GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
@@ -48,7 +49,7 @@ const (
 	tickWidth       = 3
 )
 
-const minSpanWidth = spanBorderWidth*2 + unit.Dp(1)
+const minSpanWidth = spanBorderWidth*2 + unit.Dp(2)
 
 const (
 	goroutineHeight = 20
@@ -202,7 +203,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 		start := dspSpans[0].Start
 		end := dspSpans[len(dspSpans)-1].End
 
-		if float64(at.X) >= startPx && float64(at.X) < endPx {
+		if int(at.X) >= startPx && int(at.X) < endPx {
 			tl.Start = start
 			tl.End = end
 			return
@@ -265,12 +266,13 @@ func (tl *Timeline) pxToTs(px int) time.Duration {
 }
 
 type renderedSpansIterator struct {
-	offset int
-	tl     *Timeline
-	spans  []Span
+	offset         int
+	tl             *Timeline
+	spans          []Span
+	prevExtendedBy int
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float64, ok bool) {
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx int, ok bool) {
 	offset := it.offset
 	spans := it.spans
 
@@ -278,17 +280,17 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		return nil, 0, 0, false
 	}
 
-	minSpanWidthDp := gtx.Metric.Dp(minSpanWidth)
+	minSpanWidthPx := gtx.Metric.Dp(minSpanWidth)
 	startOffset := offset
 	nsPerPx := it.tl.nsPerPx
 	tlStart := it.tl.Start
 
 	s := it.spans[offset]
 	offset++
-	startPx = float64(s.Start-tlStart) / nsPerPx
-	endPx = float64(s.End-tlStart) / nsPerPx
+	startPx = int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + it.prevExtendedBy
+	endPx = int(math.Round(float64(s.End-tlStart) / nsPerPx))
 
-	if int(math.Round(endPx-startPx)) < minSpanWidthDp {
+	if endPx-startPx < minSpanWidthPx {
 		// Collect enough spans until we've filled the minimum width
 		for {
 			if offset == len(it.spans) {
@@ -296,20 +298,30 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 				break
 			}
 
+			// Assume that we stop at this span. Compute the final size and the future prevExtendedBy. Use that to see
+			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+			var extended int
+			if endPx-startPx < minSpanWidthPx {
+				extended = minSpanWidthPx - (endPx - startPx)
+			}
 			s := spans[offset]
-			widthOfSpan := int(math.Round(float64(s.End-s.Start) / nsPerPx))
-			if widthOfSpan >= minSpanWidthDp {
+			theirStartPx := int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + extended
+			theirEndPx := int(math.Round(float64(s.End-tlStart) / nsPerPx))
+			if theirEndPx-theirStartPx >= minSpanWidthPx {
 				// Don't merge spans that can stand on their own
 				break
 			}
 
-			endPx = float64(s.End-tlStart) / nsPerPx
+			endPx = int(math.Round(float64(s.End-tlStart) / nsPerPx))
 			offset++
 		}
 	}
 
-	if int(math.Round(endPx-startPx)) < minSpanWidthDp {
-		endPx = startPx + float64(minSpanWidthDp)
+	if endPx-startPx < minSpanWidthPx {
+		it.prevExtendedBy = minSpanWidthPx - (endPx - startPx)
+		endPx = startPx + minSpanWidthPx
+	} else {
+		it.prevExtendedBy = 0
 	}
 
 	it.offset = offset
@@ -524,9 +536,9 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 				tl:    tl,
 				spans: tl.visibleSpans(spans),
 			}
-			firstStart := float64(-1)
-			lastEnd := float64(-1)
-			var first bool
+			firstStart := -1
+			lastEnd := -1
+			first := true
 			for {
 				dspSpans, startPx, endPx, ok := it.next(gtx)
 				if !ok {
@@ -550,26 +562,26 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 					c = toColor(colorStateMerged)
 				}
 
-				var min f32.Point
-				var max f32.Point
-				min = f32.Point{X: float32(math.Max(startPx, 0)), Y: float32(y)}
-				max = f32.Point{X: float32(math.Min(endPx, float64(gtx.Constraints.Max.X))), Y: float32(y + goroutineHeight)}
+				var minP f32.Point
+				var maxP f32.Point
+				minP = f32.Point{X: float32(max(startPx, 0)), Y: float32(y)}
+				maxP = f32.Point{X: float32(min(endPx, gtx.Constraints.Max.X)), Y: float32(y + goroutineHeight)}
 				if first {
 					// We don't want two borders right next to each other
-					min.X += float32(gtx.Metric.Dp(spanBorderWidth))
+					minP.X += float32(gtx.Metric.Dp(spanBorderWidth))
 				}
-				min.Y += float32(gtx.Metric.Dp(spanBorderWidth))
-				max.X -= float32(gtx.Metric.Dp(spanBorderWidth))
-				max.Y -= float32(gtx.Metric.Dp(spanBorderWidth))
+				minP.Y += float32(gtx.Metric.Dp(spanBorderWidth))
+				maxP.X -= float32(gtx.Metric.Dp(spanBorderWidth))
+				maxP.Y -= float32(gtx.Metric.Dp(spanBorderWidth))
 
 				p := paths[c]
-				p.path.MoveTo(min)
-				p.path.LineTo(f32.Point{X: max.X, Y: min.Y})
-				p.path.LineTo(max)
-				p.path.LineTo(f32.Point{X: min.X, Y: max.Y})
+				p.path.MoveTo(minP)
+				p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+				p.path.LineTo(maxP)
+				p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 				p.path.Close()
 
-				if float64(tl.Goroutines.cursorPos.X) >= startPx && float64(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
+				if int(tl.Goroutines.cursorPos.X) >= startPx && int(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
 					tooltip = dspSpans
 				}
 
