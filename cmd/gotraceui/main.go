@@ -329,6 +329,14 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	return it.spans[startOffset:it.offset], startPx, endPx, true
 }
 
+func Stack(gtx layout.Context, widgets ...layout.Widget) {
+	for _, w := range widgets {
+		dims := w(gtx)
+		gtx.Constraints.Max.Y -= dims.Size.Y
+		defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
+	}
+}
+
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
@@ -397,8 +405,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
 
-	tl.layoutAxis(gtx)
-	tl.layoutGoroutines(gtx)
+	// Draw axis and goroutines
+	Stack(gtx, tl.layoutAxis, tl.layoutGoroutines)
 
 	// Draw zoom selection
 	if tl.ZoomSelection.Active {
@@ -423,12 +431,14 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 }
 
-func (tl *Timeline) layoutAxis(gtx layout.Context) {
-	// TODO don't allow for labels to overlap
+func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	// TODO draw smaller ticks between larger ticks
 	tickInterval := tl.tickInterval(gtx)
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	prevLabelEnd := -1
+	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
+	// goroutines to shift around as the axis section grows and shrinks.
+	labelHeight := 0
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := int(math.Round(tl.tsToPx(t) - tickWidth/2))
 		end := int(math.Round(tl.tsToPx(t) + tickWidth/2))
@@ -443,6 +453,9 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 			label := fmt.Sprintf("%d ns", t)
 			stack := op.Offset(image.Pt(0, tickHeight)).Push(gtx.Ops)
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			if dims.Size.Y > labelHeight {
+				labelHeight = dims.Size.Y
+			}
 			prevLabelEnd = dims.Size.X
 			stack.Pop()
 		} else {
@@ -462,10 +475,11 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 			}
 		}
 	}
+
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, tickHeight+labelHeight)}
 }
 
-func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
-	defer op.Offset(image.Pt(0, tickHeight*2)).Push(gtx.Ops).Pop()
+func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	// Dragging doesn't produce Move events, even if we're not listening for dragging
 	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
@@ -617,6 +631,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 		defer op.Offset(tl.Goroutines.cursorPos.Round()).Push(gtx.Ops).Pop()
 		call.Add(gtx.Ops)
 	}
+
+	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
 type SpanTooltip struct {
