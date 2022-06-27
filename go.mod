@@ -2,7 +2,7 @@ module honnef.co/go/gotraceui
 
 go 1.18
 
-require gioui.org v0.0.0-20220615093012-72669e19bc29
+require gioui.org v0.0.0-20220627090819-dab796808aca
 
 require (
 	gioui.org/cpu v0.0.0-20210817075930-8d6a761490d2 // indirect
