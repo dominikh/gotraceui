@@ -557,7 +557,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 					break
 				}
 
-				if firstStart == -1 {
+				if first {
 					firstStart = startPx
 				}
 				lastEnd = endPx
@@ -602,7 +602,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				first = false
 			}
 
-			if firstStart != -1 {
+			if !first {
 				// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
 				firstStart = max(firstStart, 0)
 				lastEnd = min(lastEnd, gtx.Constraints.Max.X)
