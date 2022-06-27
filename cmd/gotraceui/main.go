@@ -393,7 +393,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Press |
 			pointer.Release |
 			pointer.Move,
-		ScrollBounds: image.Rectangle{Min: image.Point{-1, -1}, Max: image.Point{1, 1}},
+		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
 
 	tl.layoutAxis(gtx)
@@ -404,16 +404,16 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
 		two := int(math.Round(float64(tl.Global.cursorPos.X)))
 		rect := clip.Rect{
-			Min: image.Point{X: min(one, two), Y: 0},
-			Max: image.Point{X: max(one, two), Y: gtx.Constraints.Max.Y},
+			Min: image.Pt(min(one, two), 0),
+			Max: image.Pt(max(one, two), gtx.Constraints.Max.Y),
 		}
 		paint.FillShape(gtx.Ops, toColor(colorZoomSelection), rect.Op())
 	}
 
 	// Draw cursor
 	rect := clip.Rect{
-		Min: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X))), Y: 0},
-		Max: image.Point{X: int(math.Round(float64(tl.Global.cursorPos.X + 1))), Y: gtx.Constraints.Max.Y},
+		Min: image.Pt(int(math.Round(float64(tl.Global.cursorPos.X))), 0),
+		Max: image.Pt(int(math.Round(float64(tl.Global.cursorPos.X+1))), gtx.Constraints.Max.Y),
 	}
 	paint.FillShape(gtx.Ops, toColor(colorCursor), rect.Op())
 
@@ -432,15 +432,15 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 		start := int(math.Round(tl.tsToPx(t) - tickWidth/2))
 		end := int(math.Round(tl.tsToPx(t) + tickWidth/2))
 		rect := clip.Rect{
-			Min: image.Point{X: start, Y: 0},
-			Max: image.Point{X: end, Y: tickHeight},
+			Min: image.Pt(start, 0),
+			Max: image.Pt(end, tickHeight),
 		}
 		paint.FillShape(gtx.Ops, toColor(colorTick), rect.Op())
 
 		if t == tl.Start {
 			// TODO print thousands separator
 			label := fmt.Sprintf("%d ns", t)
-			stack := op.Offset(image.Point{Y: tickHeight}).Push(gtx.Ops)
+			stack := op.Offset(image.Pt(0, tickHeight)).Push(gtx.Ops)
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
 			prevLabelEnd = dims.Size.X
 			stack.Pop()
@@ -454,10 +454,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 			if start-dims.Size.X/2 > prevLabelEnd+minTickLabelDistance {
 				prevLabelEnd = start + dims.Size.X/2
 				if start+dims.Size.X/2 <= gtx.Constraints.Max.X {
-					stack := op.Offset(image.Point{
-						X: start - dims.Size.X/2,
-						Y: tickHeight,
-					}).Push(gtx.Ops)
+					stack := op.Offset(image.Pt(start-dims.Size.X/2, tickHeight)).Push(gtx.Ops)
 					call.Add(gtx.Ops)
 					stack.Pop()
 				}
@@ -467,7 +464,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) {
 }
 
 func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
-	defer op.Offset(image.Point{Y: tickHeight * 2}).Push(gtx.Ops).Pop()
+	defer op.Offset(image.Pt(0, tickHeight*2)).Push(gtx.Ops).Pop()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	// Dragging doesn't produce Move events, even if we're not listening for dragging
 	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
@@ -528,7 +525,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) {
 		func() {
 			// Our goroutines aren't sorted, causing our offsets to jump all over the place. That's why we calculate
 			// absolute offsets and pop them after each iteration.
-			defer op.Offset(image.Point{X: 0, Y: y}).Push(gtx.Ops).Pop()
+			defer op.Offset(image.Pt(0, y)).Push(gtx.Ops).Pop()
 
 			gidAtPoint, isOnGoroutine := tl.gidAtPoint(tl.Goroutines.cursorPos)
 
@@ -683,11 +680,11 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, toColor(colorTooltipBorder), rect.Op())
 
 	rect = clip.Rect{
-		Min: image.Point{X: tooltipBorderWidth, Y: tooltipBorderWidth},
+		Min: image.Pt(tooltipBorderWidth, tooltipBorderWidth),
 		Max: image.Pt(dims.Size.X+tooltipBorderWidth, dims.Size.Y+tooltipBorderWidth),
 	}
 	paint.FillShape(gtx.Ops, toColor(colorTooltipBackground), rect.Op())
-	stack := op.Offset(image.Point{tooltipBorderWidth, tooltipBorderWidth}).Push(gtx.Ops)
+	stack := op.Offset(image.Pt(tooltipBorderWidth, tooltipBorderWidth)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	stack.Pop()
 
