@@ -16,6 +16,7 @@ import (
 	"gioui.org/font/gofont"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
+	"gioui.org/io/profile"
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -936,6 +937,7 @@ func run(w *app.Window) error {
 		End:   end,
 	}
 
+	profileTag := new(int)
 	var ops op.Ops
 	for {
 		e := <-w.Events()
@@ -947,6 +949,11 @@ func run(w *app.Window) error {
 			gtx.Constraints.Min = image.Point{}
 			// XXX detect HiDPI
 			gtx.Metric.PxPerDp = 2
+
+			for _, ev := range gtx.Events(profileTag) {
+				fmt.Println(ev)
+			}
+			profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 			tl.Layout(gtx)
 
