@@ -200,7 +200,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 	if !ok {
 		return
 	}
-	spans, ok := gSpans[gid]
+	g, ok := gs[gid]
 	if !ok {
 		// Not a known goroutine
 		return
@@ -226,7 +226,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 			}
 		}
 	} else {
-		spans = tl.visibleSpans(spans)
+		spans := tl.visibleSpans(g.Spans)
 		it := renderedSpansIterator{
 			tl:    tl,
 			spans: spans,
@@ -593,7 +593,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
-	for gid, spans := range gSpans {
+	for gid, g := range gs {
 		y := goroutineHeight*int(gid) - tl.Y
 		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
 			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
@@ -649,7 +649,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 				p.path.Close()
 
-				if spanHasEvents(gEvents[gid], dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
+				if spanHasEvents(g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
 					p := eventsPath
 					minP := minP
 					maxP := maxP
@@ -678,7 +678,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				allDspSpans := tl.prevFrame.dspSpans[gid][:0]
 				it := renderedSpansIterator{
 					tl:    tl,
-					spans: tl.visibleSpans(spans),
+					spans: tl.visibleSpans(g.Spans),
 				}
 				for {
 					dspSpans, startPx, endPx, ok := it.next(gtx)
@@ -813,6 +813,11 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 // NOTE: how Tracy deals with spans that are too small to see at a zoom level: there's a minimum width for the first
 // span, and consecutive spans that would fall into that span get merged into it
 
+type Goroutine struct {
+	Spans  []Span
+	Events []*trace.Event
+}
+
 type Span struct {
 	Start time.Duration
 	End   time.Duration
@@ -828,8 +833,7 @@ func (s Span) Duration() time.Duration {
 }
 
 // TODO(dh): avoid global state
-var gSpans = map[uint64][]Span{}
-var gEvents = map[uint64][]*trace.Event{}
+var gs = map[uint64]*Goroutine{}
 
 func spanHasEvents(events []*trace.Event, start, end time.Duration) bool {
 	// OPT(dh): use at least binary search. Ideally we'd just store events with spans and avoid the computation
@@ -898,64 +902,74 @@ func main() {
 		trace.EvGoBlock:       stateBlocked,
 	}
 
+	getG := func(gid uint64) *Goroutine {
+		g, ok := gs[gid]
+		if ok {
+			return g
+		}
+		g = &Goroutine{}
+		gs[gid] = g
+		return g
+	}
+
 	for _, ev := range res.Events {
-		var g uint64
+		var gid uint64
 		var state schedulingState
 		var reason string
 
 		switch ev.Type {
 		case trace.EvGoCreate:
 			// ev.G creates ev.Args[0]
-			gEvents[ev.G] = append(gEvents[ev.G], ev)
-			g = ev.Args[0]
+			getG(ev.G).Events = append(getG(ev.G).Events, ev)
+			gid = ev.Args[0]
 			state = stateInactive
 			reason = "newly created"
 		case trace.EvGoStart:
 			// ev.G starts running
-			g = ev.G
+			gid = ev.G
 			state = stateActive
 		case trace.EvGoStartLabel:
 			// ev.G starts running
 			// TODO(dh): make use of the label
-			g = ev.G
+			gid = ev.G
 			state = stateActive
 		case trace.EvGoStop:
 			// ev.G is stopping
-			g = ev.G
+			gid = ev.G
 			state = stateStuck
 		case trace.EvGoEnd:
 			// ev.G is ending
-			g = ev.G
+			gid = ev.G
 			state = stateDone
 		case trace.EvGoSched:
 			// ev.G calls Gosched
-			g = ev.G
+			gid = ev.G
 			state = stateInactive
 			reason = "called runtime.Gosched"
 		case trace.EvGoSleep:
 			// ev.G calls Sleep
-			g = ev.G
+			gid = ev.G
 			state = stateInactive
 			reason = "called time.Sleep"
 		case trace.EvGoPreempt:
 			// ev.G got preempted
-			g = ev.G
+			gid = ev.G
 			state = stateInactive
 			reason = "got preempted"
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
 			trace.EvGoBlockGC, trace.EvGoBlock:
 			// ev.G is blocking
-			g = ev.G
+			gid = ev.G
 			state = evTypeToState[ev.Type]
 		case trace.EvGoWaiting:
 			// ev.G is blocked when tracing starts
-			g = ev.G
+			gid = ev.G
 			state = stateBlocked
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
-			gEvents[ev.G] = append(gEvents[ev.G], ev)
-			g = ev.Args[0]
+			getG(ev.G).Events = append(getG(ev.G).Events, ev)
+			gid = ev.Args[0]
 			state = stateReady
 		case trace.EvGoSysCall:
 			// From the runtime's documentation:
@@ -971,10 +985,10 @@ func main() {
 			continue
 		case trace.EvGoSysBlock:
 			// TODO(dh): have a special state for this
-			g = ev.G
+			gid = ev.G
 			state = stateBlockedSyscall
 		case trace.EvGoSysExit:
-			g = ev.G
+			gid = ev.G
 			state = stateReady
 		case trace.EvGCMarkAssistStart:
 			// TODO(dh): add a state for this
@@ -1001,7 +1015,7 @@ func main() {
 		}
 
 		if debug {
-			if s := gSpans[g]; len(s) > 0 {
+			if s := getG(gid).Spans; len(s) > 0 {
 				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].State == stateInactive {
 					// The execution trace emits GoCreate + GoWaiting for goroutines that already exist at the start of
 					// tracing if they're in a blocked state. This causes a transition from inactive to blocked, which we
@@ -1009,27 +1023,30 @@ func main() {
 				} else {
 					prevState := s[len(s)-1].State
 					if !legalStateTransitions[prevState][state] {
-						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, offset %d", prevState, state, g, ev.Off))
+						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, offset %d", prevState, state, gid, ev.Off))
 					}
 				}
 			}
 		}
 
-		gSpans[g] = append(gSpans[g], Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
+		getG(gid).Spans = append(getG(gid).Spans, Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
 	}
 
-	for gid, spans := range gSpans {
-		for i := range spans[:len(spans)-1] {
-			spans[i].End = spans[i+1].Start
+	for _, g := range gs {
+		if len(g.Spans) == 0 {
+			continue
 		}
-		last := spans[len(spans)-1]
+		for i := range g.Spans[:len(g.Spans)-1] {
+			g.Spans[i].End = g.Spans[i+1].Start
+		}
+		last := g.Spans[len(g.Spans)-1]
 		if last.State == stateDone {
 			// The goroutine has ended
 			// XXX the event probably has a stack associated with it, which we shouldn't discard.
-			gSpans[gid] = spans[:len(spans)-1]
+			g.Spans = g.Spans[:len(g.Spans)-1]
 		} else {
 			// XXX somehow encode open-ended traces
-			spans[len(spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
+			g.Spans[len(g.Spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
 		}
 	}
 
@@ -1179,9 +1196,9 @@ func toColor(c uint32) color.NRGBA {
 
 func run(w *app.Window) error {
 	var end time.Duration
-	for _, spans := range gSpans {
-		if len(spans) > 0 {
-			d := spans[len(spans)-1].End
+	for _, g := range gs {
+		if len(g.Spans) > 0 {
+			d := g.Spans[len(g.Spans)-1].End
 			if d > end {
 				end = d
 			}
