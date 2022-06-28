@@ -414,7 +414,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	// Fill background
-	paint.Fill(gtx.Ops, toColor(colorBackground))
+	paint.Fill(gtx.Ops, colors[colorBackground])
 
 	// Set up event handlers
 	pointer.InputOp{
@@ -438,7 +438,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			Min: image.Pt(min(one, two), 0),
 			Max: image.Pt(max(one, two), gtx.Constraints.Max.Y),
 		}
-		paint.FillShape(gtx.Ops, toColor(colorZoomSelection), rect.Op())
+		paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op())
 	}
 
 	// Draw cursor
@@ -446,7 +446,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		Min: image.Pt(int(math.Round(float64(tl.Global.cursorPos.X))), 0),
 		Max: image.Pt(int(math.Round(float64(tl.Global.cursorPos.X+1))), gtx.Constraints.Max.Y),
 	}
-	paint.FillShape(gtx.Ops, toColor(colorCursor), rect.Op())
+	paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -471,7 +471,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			Min: image.Pt(start, 0),
 			Max: image.Pt(end, tickHeight),
 		}
-		paint.FillShape(gtx.Ops, toColor(colorTick), rect.Op())
+		paint.FillShape(gtx.Ops, colors[colorTick], rect.Op())
 
 		if t == tl.Start {
 			// TODO print thousands separator
@@ -538,24 +538,26 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		path clip.Path
 	}
 
-	// OPT(dh): don't allocate a map for each frame.
-	paths := map[color.NRGBA]*path{}
-	paths[toColor(colorStateInactive)] = &path{}
-	paths[toColor(colorStateActive)] = &path{}
-	paths[toColor(colorStateBlocked)] = &path{}
-	paths[toColor(colorStateBlockedHappensBefore)] = &path{}
-	paths[toColor(colorStateBlockedNet)] = &path{}
-	paths[toColor(colorStateBlockedGC)] = &path{}
-	paths[toColor(colorStateBlockedSyscall)] = &path{}
-	paths[toColor(colorStateReady)] = &path{}
-	paths[toColor(colorStateStuck)] = &path{}
-	paths[toColor(colorStateMerged)] = &path{}
-	paths[toColor(colorStateUnknown)] = &path{}
+	//gcassert:noescape
+	paths := [...]path{
+		colorStateInactive:             {},
+		colorStateActive:               {},
+		colorStateBlocked:              {},
+		colorStateBlockedHappensBefore: {},
+		colorStateBlockedNet:           {},
+		colorStateBlockedGC:            {},
+		colorStateBlockedSyscall:       {},
+		colorStateReady:                {},
+		colorStateStuck:                {},
+		colorStateMerged:               {},
+		colorStateUnknown:              {},
+	}
 
 	eventsPath := &path{}
 	eventsPath.path.Begin(&eventsPath.ops)
 
-	for _, p := range paths {
+	for i := range paths {
+		p := &paths[i]
 		p.path.Begin(&p.ops)
 	}
 
@@ -586,16 +588,16 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				}
 				lastEnd = endPx
 
-				var c color.NRGBA
+				var c colorIndex
 				if len(dspSpans) == 1 {
 					s := dspSpans[0]
 					if int(s.State) >= len(stateColors) {
-						c = toColor(colorStateUnknown)
+						c = colorStateUnknown
 					} else {
 						c = stateColors[s.State]
 					}
 				} else {
-					c = toColor(colorStateMerged)
+					c = colorStateMerged
 				}
 
 				var minP f32.Point
@@ -612,7 +614,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				}
 				maxP.Y -= float32(spanBorderWidth)
 
-				p := paths[c]
+				p := &paths[c]
 				p.path.MoveTo(minP)
 				p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
 				p.path.LineTo(maxP)
@@ -680,8 +682,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	}
 
 	paint.FillShape(gtx.Ops, color.NRGBA{A: 0xFF}, clip.Outline{Path: outlinesPath.End()}.Op())
-	for c, p := range paths {
-		paint.FillShape(gtx.Ops, c, clip.Outline{Path: p.path.End()}.Op())
+	for cIdx, p := range paths {
+		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.path.End()}.Op())
 	}
 	// TODO(dh): find a nice color for this
 	paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
@@ -750,7 +752,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	// TODO(dh): make tooltip actually look good
 
 	macro := op.Record(gtx.Ops)
-	paint.ColorOp{Color: toColor(colorTooltipText)}.Add(gtx.Ops)
+	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
 	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
 	dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, 14, label)
 	call := macro.Stop()
@@ -758,13 +760,13 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	rect := clip.Rect{
 		Max: image.Pt(dims.Size.X+2*tooltipBorderWidth, dims.Size.Y+2*tooltipBorderWidth),
 	}
-	paint.FillShape(gtx.Ops, toColor(colorTooltipBorder), rect.Op())
+	paint.FillShape(gtx.Ops, colors[colorTooltipBorder], rect.Op())
 
 	rect = clip.Rect{
 		Min: image.Pt(tooltipBorderWidth, tooltipBorderWidth),
 		Max: image.Pt(dims.Size.X+tooltipBorderWidth, dims.Size.Y+tooltipBorderWidth),
 	}
-	paint.FillShape(gtx.Ops, toColor(colorTooltipBackground), rect.Op())
+	paint.FillShape(gtx.Ops, colors[colorTooltipBackground], rect.Op())
 	stack := op.Offset(image.Pt(tooltipBorderWidth, tooltipBorderWidth)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	stack.Pop()
@@ -1016,30 +1018,54 @@ func main() {
 	app.Main()
 }
 
+var colors = [...]color.NRGBA{
+	colorStateInactive: toColor(0x888888FF),
+	colorStateActive:   toColor(0x448844FF),
+
+	colorStateBlocked:              toColor(0xBA4141FF),
+	colorStateBlockedHappensBefore: toColor(0xBB6363FF),
+	colorStateBlockedNet:           toColor(0xBB5D5DFF),
+	colorStateBlockedGC:            toColor(0xBB554FFF),
+	colorStateBlockedSyscall:       toColor(0xBA4F41FF),
+
+	colorStateReady:   toColor(0x4BACB8FF),
+	colorStateStuck:   toColor(0x000000FF),
+	colorStateMerged:  toColor(0xB9BB63FF),
+	colorStateUnknown: toColor(0xFFFF00FF),
+
+	colorBackground:        toColor(0xffffeaFF),
+	colorZoomSelection:     toColor(0xeeee9e99),
+	colorCursor:            toColor(0x000000FF),
+	colorTick:              toColor(0x000000FF),
+	colorTooltipText:       toColor(0x000000FF),
+	colorTooltipBackground: toColor(0xEEFFEEFF),
+	colorTooltipBorder:     toColor(0x57A8A8FF),
+}
+
+type colorIndex int
+
 const (
-	colorStateInactive = 0x888888FF
-	colorStateActive   = 0x448844FF
+	colorStateInactive colorIndex = iota
+	colorStateActive
 
-	colorStateBlocked              = 0xBA4141FF
-	colorStateBlockedHappensBefore = 0xBB6363FF
-	colorStateBlockedNet           = 0xBB5D5DFF
-	colorStateBlockedGC            = 0xBB554FFF
-	colorStateBlockedSyscall       = 0xBA4F41FF
+	colorStateBlocked
+	colorStateBlockedHappensBefore
+	colorStateBlockedNet
+	colorStateBlockedGC
+	colorStateBlockedSyscall
 
-	colorStateReady   = 0x4BACB8FF
-	colorStateStuck   = 0x000000FF
-	colorStateMerged  = 0xB9BB63FF
-	colorStateUnknown = 0xFFFF00FF
-)
+	colorStateReady
+	colorStateStuck
+	colorStateMerged
+	colorStateUnknown
 
-const (
-	colorBackground        = 0xffffeaFF
-	colorZoomSelection     = 0xeeee9e99
-	colorCursor            = 0x000000FF
-	colorTick              = 0x000000FF
-	colorTooltipText       = 0x000000FF
-	colorTooltipBackground = 0xEEFFEEFF
-	colorTooltipBorder     = 0x57A8A8FF
+	colorBackground
+	colorZoomSelection
+	colorCursor
+	colorTick
+	colorTooltipText
+	colorTooltipBackground
+	colorTooltipBorder
 )
 
 type schedulingState int
@@ -1062,20 +1088,20 @@ const (
 	stateLast
 )
 
-var stateColors = [...]color.NRGBA{
-	stateInactive:       toColor(colorStateInactive),
-	stateActive:         toColor(colorStateActive),
-	stateBlocked:        toColor(colorStateBlocked),
-	stateBlockedSend:    toColor(colorStateBlockedHappensBefore),
-	stateBlockedRecv:    toColor(colorStateBlockedHappensBefore),
-	stateBlockedSelect:  toColor(colorStateBlockedHappensBefore),
-	stateBlockedSync:    toColor(colorStateBlockedHappensBefore),
-	stateBlockedCond:    toColor(colorStateBlockedHappensBefore),
-	stateBlockedNet:     toColor(colorStateBlockedNet),
-	stateBlockedGC:      toColor(colorStateBlockedGC),
-	stateBlockedSyscall: toColor(colorStateBlockedSyscall),
-	stateStuck:          toColor(colorStateStuck),
-	stateReady:          toColor(colorStateReady),
+var stateColors = [...]colorIndex{
+	stateInactive:       colorStateInactive,
+	stateActive:         colorStateActive,
+	stateBlocked:        colorStateBlocked,
+	stateBlockedSend:    colorStateBlockedHappensBefore,
+	stateBlockedRecv:    colorStateBlockedHappensBefore,
+	stateBlockedSelect:  colorStateBlockedHappensBefore,
+	stateBlockedSync:    colorStateBlockedHappensBefore,
+	stateBlockedCond:    colorStateBlockedHappensBefore,
+	stateBlockedNet:     colorStateBlockedNet,
+	stateBlockedGC:      colorStateBlockedGC,
+	stateBlockedSyscall: colorStateBlockedSyscall,
+	stateStuck:          colorStateStuck,
+	stateReady:          colorStateReady,
 }
 
 var legalStateTransitions = [stateLast][stateLast]bool{
@@ -1113,7 +1139,6 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 	},
 }
 
-//gcassert:inline
 func toColor(c uint32) color.NRGBA {
 	// XXX does endianness matter?
 	return color.NRGBA{
