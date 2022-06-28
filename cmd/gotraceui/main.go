@@ -277,24 +277,34 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 
 	if endPx-startPx < minSpanWidth {
 		// Collect enough spans until we've filled the minimum width
+
+		// Compute the minimum duration for a span to stand on its own. We subtract 1 from minSpanWidth to account for
+		// lucky rounding to pixel boundaries.
+		minStandaloneDuration := float64(minSpanWidth-1) * nsPerPx
+
 		for {
 			if offset == len(it.spans) {
 				// We've run out of spans
 				break
 			}
 
-			// Assume that we stop at this span. Compute the final size and the future prevExtendedBy. Use that to see
-			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			var extended int
-			if endPx-startPx < minSpanWidth {
-				extended = minSpanWidth - (endPx - startPx)
-			}
 			s := spans[offset]
-			theirStartPx := int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + extended
-			theirEndPx := int(math.Round(float64(s.End-tlStart) / nsPerPx))
-			if theirEndPx-theirStartPx >= minSpanWidth {
-				// Don't merge spans that can stand on their own
-				break
+			if float64(s.End-s.Start) < minStandaloneDuration {
+				// Even under ideal conditions - no extension and no truncation - this span wouldn't be able to stand on
+				// its own. Avoid doing expensive math.
+			} else {
+				// Assume that we stop at this span. Compute the final size and the future prevExtendedBy. Use that to see
+				// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+				var extended int
+				if endPx-startPx < minSpanWidth {
+					extended = minSpanWidth - (endPx - startPx)
+				}
+				theirStartPx := int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + extended
+				theirEndPx := int(math.Round(float64(s.End-tlStart) / nsPerPx))
+				if theirEndPx-theirStartPx >= minSpanWidth {
+					// Don't merge spans that can stand on their own
+					break
+				}
 			}
 
 			endPx = int(math.Round(float64(s.End-tlStart) / nsPerPx))
