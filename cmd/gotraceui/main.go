@@ -549,8 +549,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	var tooltip []Span
-
 	// Draw goroutine lifetimes
 	// TODO(dh): draw a scrollbar
 	//
@@ -664,8 +662,16 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				}
 
 				if int(tl.Goroutines.cursorPos.X) >= startPx && int(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
-					// TODO9dh): can we use op.Defer for this?
-					tooltip = dspSpans
+					// TODO have a gap between the cursor and the tooltip
+					// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+					macro := op.Record(gtx.Ops)
+					ttX := int(math.Round(float64(tl.Goroutines.cursorPos.X)))
+					ttY := int(math.Round(float64(tl.Goroutines.cursorPos.Y))) - y
+					stack := op.Offset(image.Pt(ttX, ttY)).Push(gtx.Ops)
+					SpanTooltip{dspSpans}.Layout(gtx)
+					stack.Pop()
+					call := macro.Stop()
+					op.Defer(gtx.Ops, call)
 				}
 
 				first = false
@@ -716,16 +722,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	}
 	// TODO(dh): find a nice color for this
 	paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
-
-	if len(tooltip) != 0 {
-		// TODO have a gap between the cursor and the tooltip
-		// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-		macro := op.Record(gtx.Ops)
-		SpanTooltip{tooltip}.Layout(gtx)
-		call := macro.Stop()
-		defer op.Offset(tl.Goroutines.cursorPos.Round()).Push(gtx.Ops).Pop()
-		call.Add(gtx.Ops)
-	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
