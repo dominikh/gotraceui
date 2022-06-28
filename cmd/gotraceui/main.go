@@ -44,9 +44,11 @@ const debug = true
 
 const (
 	// TODO(dh): compute min tick distance based on font size
-	minTickDistanceDp unit.Dp = 20
-	tickHeightDp      unit.Dp = 12
-	tickWidthDp       unit.Dp = 1
+	minTickDistanceDp      unit.Dp = 20
+	tickHeightDp           unit.Dp = 12
+	tickWidthDp            unit.Dp = 1
+	minTickLabelDistanceDp unit.Dp = 8
+	tickLabelFontSizeSp    unit.Sp = 14
 
 	goroutineStateHeightDp unit.Dp = 10
 	goroutineGapDp         unit.Dp = 5
@@ -56,7 +58,7 @@ const (
 
 	spanBorderWidthDp unit.Dp = 1
 
-	minTickLabelDistanceDp unit.Dp = 8
+	tooltipFontSizeSp unit.Sp = 14
 )
 
 type Timeline struct {
@@ -521,7 +523,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		if t == tl.Start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -531,7 +533,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			macro := op.Record(gtx.Ops)
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -799,7 +801,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
 	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
-	dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, 14, label)
+	dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, tooltipFontSizeSp, label)
 	call := macro.Stop()
 
 	rect := clip.Rect{
