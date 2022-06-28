@@ -189,8 +189,9 @@ func (tl *Timeline) gidAtPoint(gtx layout.Context, at f32.Point) (uint64, bool) 
 // section of the timeline.
 func (tl *Timeline) isOnGoroutine(gtx layout.Context, at f32.Point) bool {
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	rem := math.Mod(float64(at.Y)+float64(tl.Y), float64(goroutineHeight))
-	return rem <= float64(goroutineHeight)
+	return rem <= float64(goroutineStateHeight)
 }
 
 // zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
