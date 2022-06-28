@@ -185,7 +185,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 	if !ok {
 		return
 	}
-	spans, ok := sspans[gid]
+	spans, ok := gSpans[gid]
 	if !ok {
 		// Not a known goroutine
 		return
@@ -505,6 +505,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	//
 	// We batch draw operations by color to avoid making thousands of draw calls. See
 	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
+	//
+	// TODO(dh): use path type for outlines, too
 	var outlines op.Ops
 	var outlinesPath clip.Path
 	outlinesPath.Begin(&outlines)
@@ -528,11 +530,14 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	paths[toColor(colorStateMerged)] = &path{}
 	paths[toColor(colorStateUnknown)] = &path{}
 
+	eventsPath := &path{}
+	eventsPath.path.Begin(&eventsPath.ops)
+
 	for _, p := range paths {
 		p.path.Begin(&p.ops)
 	}
 
-	for gid, spans := range sspans {
+	for gid, spans := range gSpans {
 		y := goroutineHeight*int(gid) - tl.Y
 		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
 			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
@@ -596,7 +601,21 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 				p.path.Close()
 
+				if spanHasEvents(gEvents[gid], dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
+					p := eventsPath
+					minP := minP
+					maxP := maxP
+					minP.Y += float32((goroutineStateHeight - gtx.Metric.Dp(spanBorderWidth)*2) / 2)
+
+					p.path.MoveTo(minP)
+					p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+					p.path.LineTo(maxP)
+					p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+					p.path.Close()
+				}
+
 				if int(tl.Goroutines.cursorPos.X) >= startPx && int(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
+					// TODO9dh): can we use op.Defer for this?
 					tooltip = dspSpans
 				}
 
@@ -622,6 +641,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	for c, p := range paths {
 		paint.FillShape(gtx.Ops, c, clip.Outline{Path: p.path.End()}.Op())
 	}
+	// TODO(dh): find a nice color for this
+	paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
 
 	if len(tooltip) != 0 {
 		// TODO have a gap between the cursor and the tooltip
@@ -726,6 +747,7 @@ type Span struct {
 	State schedulingState
 	// TODO(dh): use an enum for Reason
 	Reason string
+	Events []*trace.Event
 }
 
 //gcassert:inline
@@ -734,7 +756,46 @@ func (s Span) Duration() time.Duration {
 }
 
 // TODO(dh): avoid global state
-var sspans = map[uint64][]Span{}
+var gSpans = map[uint64][]Span{}
+var gEvents = map[uint64][]*trace.Event{}
+
+func spanHasEvents(events []*trace.Event, start, end time.Duration) bool {
+	// OPT(dh): use at least binary search. Ideally we'd just store events with spans and avoid the computation
+	for _, ev := range events {
+		if time.Duration(ev.Ts) >= end {
+			return false
+		}
+		if time.Duration(ev.Ts) >= start {
+			return true
+		}
+	}
+	return false
+}
+
+func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Event {
+	// OPT(dh): use at least binary search. Ideally we'd just store events with spans and avoid the computation
+	first := -1
+	last := -1
+	for i, ev := range events {
+		if time.Duration(ev.Ts) >= start && time.Duration(ev.Ts) < end {
+			if first == -1 {
+				first = i
+			}
+		} else {
+			if first != -1 {
+				last = i
+				break
+			}
+		}
+	}
+	if first == -1 {
+		return nil
+	}
+	if last == -1 {
+		last = len(events)
+	}
+	return events[first:last]
+}
 
 // TODO(dh): avoid global state, bundle this in a Theme, much like gioui.org/widget/material does
 var shaper text.Shaper
@@ -773,6 +834,7 @@ func main() {
 		switch ev.Type {
 		case trace.EvGoCreate:
 			// ev.G creates ev.Args[0]
+			gEvents[ev.G] = append(gEvents[ev.G], ev)
 			g = ev.Args[0]
 			state = stateInactive
 			reason = "newly created"
@@ -820,6 +882,7 @@ func main() {
 			state = stateBlocked
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
+			gEvents[ev.G] = append(gEvents[ev.G], ev)
 			g = ev.Args[0]
 			state = stateReady
 		case trace.EvGoSysCall:
@@ -866,7 +929,7 @@ func main() {
 		}
 
 		if debug {
-			if s := sspans[g]; len(s) > 0 {
+			if s := gSpans[g]; len(s) > 0 {
 				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].State == stateInactive {
 					// The execution trace emits GoCreate + GoWaiting for goroutines that already exist at the start of
 					// tracing if they're in a blocked state. This causes a transition from inactive to blocked, which we
@@ -880,10 +943,10 @@ func main() {
 			}
 		}
 
-		sspans[g] = append(sspans[g], Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
+		gSpans[g] = append(gSpans[g], Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
 	}
 
-	for gid, spans := range sspans {
+	for gid, spans := range gSpans {
 		for i := range spans[:len(spans)-1] {
 			spans[i].End = spans[i+1].Start
 		}
@@ -891,7 +954,7 @@ func main() {
 		if last.State == stateDone {
 			// The goroutine has ended
 			// XXX the event probably has a stack associated with it, which we shouldn't discard.
-			sspans[gid] = spans[:len(spans)-1]
+			gSpans[gid] = spans[:len(spans)-1]
 		} else {
 			// XXX somehow encode open-ended traces
 			spans[len(spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
@@ -1021,7 +1084,7 @@ func toColor(c uint32) color.NRGBA {
 
 func run(w *app.Window) error {
 	var end time.Duration
-	for _, spans := range sspans {
+	for _, spans := range gSpans {
 		if len(spans) > 0 {
 			d := spans[len(spans)-1].End
 			if d > end {
