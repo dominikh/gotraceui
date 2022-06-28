@@ -29,9 +29,7 @@ import (
 )
 
 // TODO(dh): switch to float32
-// TODO(dh): use unit.Dp for all sizes
 // TODO(dh): figure out what puts us in the generic "blocked" state
-// TODO(dh): instead of using a single color for merged spans, use all the colors of the spans we merged, in a pattern.
 
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 // GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
@@ -45,21 +43,20 @@ const debug = true
 
 const (
 	// TODO(dh): compute min tick distance based on font size
-	minTickDistance = 24
-	tickHeight      = 50
-	tickWidth       = 3
+	minTickDistanceDp unit.Dp = 12
+	tickHeightDp      unit.Dp = 25
+	tickWidthDp       unit.Dp = 1
+
+	goroutineStateHeightDp unit.Dp = 10
+	goroutineGapDp         unit.Dp = 5
+	goroutineHeightDp      unit.Dp = goroutineStateHeightDp + goroutineGapDp
+
+	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 2
+
+	spanBorderWidthDp unit.Dp = 1
+
+	minTickLabelDistanceDp unit.Dp = 8
 )
-
-const minSpanWidth = spanBorderWidth*2 + unit.Dp(2)
-
-const (
-	goroutineStateHeight = 20
-	goroutineGap         = 10
-	goroutineHeight      = goroutineStateHeight + goroutineGap
-)
-
-const spanBorderWidth = unit.Dp(1)
-const minTickLabelDistance = 15
 
 type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
@@ -163,25 +160,25 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 
 // gidAtPoint returns the goroutine ID at a point. The point should be relative to the
 // goroutine section of the timeline.
-func (tl *Timeline) gidAtPoint(at f32.Point) (uint64, bool) {
-	if !tl.isOnGoroutine(at) {
+func (tl *Timeline) gidAtPoint(gtx layout.Context, at f32.Point) (uint64, bool) {
+	if !tl.isOnGoroutine(gtx, at) {
 		return 0, false
 	}
-	return uint64((at.Y + float32(tl.Y)) / goroutineHeight), true
+	return uint64((at.Y + float32(tl.Y)) / float32(gtx.Metric.Dp(goroutineHeightDp))), true
 }
 
 // isOnGoroutine reports whether there's a goroutine under a point. The point should be relative to the goroutine
 // section of the timeline.
-func (tl *Timeline) isOnGoroutine(at f32.Point) bool {
-	rem := math.Mod(float64(at.Y)+float64(tl.Y), goroutineHeight)
-	return rem <= goroutineStateHeight
+func (tl *Timeline) isOnGoroutine(gtx layout.Context, at f32.Point) bool {
+	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	rem := math.Mod(float64(at.Y)+float64(tl.Y), float64(goroutineHeight))
+	return rem <= float64(goroutineHeight)
 }
 
 // zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
 // timeline.
 func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
-	// XXX avoid magic constants
-	gid, ok := tl.gidAtPoint(at)
+	gid, ok := tl.gidAtPoint(gtx, at)
 	if !ok {
 		return
 	}
@@ -215,6 +212,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 
 func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
+	minTickDistance := gtx.Metric.Dp(minTickDistanceDp)
 	for t := time.Duration(1); true; t *= 10 {
 		tickDistance := int(math.Round(float64(t) / tl.nsPerPx))
 		if tickDistance >= minTickDistance {
@@ -282,7 +280,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		return nil, 0, 0, false
 	}
 
-	minSpanWidthPx := gtx.Metric.Dp(minSpanWidth)
+	minSpanWidth := gtx.Metric.Dp(minSpanWidthDp)
 	startOffset := offset
 	nsPerPx := it.tl.nsPerPx
 	tlStart := it.tl.Start
@@ -292,7 +290,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	startPx = int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + it.prevExtendedBy
 	endPx = int(math.Round(float64(s.End-tlStart) / nsPerPx))
 
-	if endPx-startPx < minSpanWidthPx {
+	if endPx-startPx < minSpanWidth {
 		// Collect enough spans until we've filled the minimum width
 		for {
 			if offset == len(it.spans) {
@@ -303,13 +301,13 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			// Assume that we stop at this span. Compute the final size and the future prevExtendedBy. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
 			var extended int
-			if endPx-startPx < minSpanWidthPx {
-				extended = minSpanWidthPx - (endPx - startPx)
+			if endPx-startPx < minSpanWidth {
+				extended = minSpanWidth - (endPx - startPx)
 			}
 			s := spans[offset]
 			theirStartPx := int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + extended
 			theirEndPx := int(math.Round(float64(s.End-tlStart) / nsPerPx))
-			if theirEndPx-theirStartPx >= minSpanWidthPx {
+			if theirEndPx-theirStartPx >= minSpanWidth {
 				// Don't merge spans that can stand on their own
 				break
 			}
@@ -319,9 +317,9 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		}
 	}
 
-	if endPx-startPx < minSpanWidthPx {
-		it.prevExtendedBy = minSpanWidthPx - (endPx - startPx)
-		endPx = startPx + minSpanWidthPx
+	if endPx-startPx < minSpanWidth {
+		it.prevExtendedBy = minSpanWidth - (endPx - startPx)
+		endPx = startPx + minSpanWidth
 	} else {
 		it.prevExtendedBy = 0
 	}
@@ -440,9 +438,12 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
 	// goroutines to shift around as the axis section grows and shrinks.
 	labelHeight := 0
+	tickWidth := gtx.Metric.Dp(tickWidthDp)
+	tickHeight := gtx.Metric.Dp(tickHeightDp)
+	minTickLabelDistance := gtx.Metric.Dp(minTickLabelDistanceDp)
 	for t := tl.Start; t < tl.End; t += tickInterval {
-		start := int(math.Round(tl.tsToPx(t) - tickWidth/2))
-		end := int(math.Round(tl.tsToPx(t) + tickWidth/2))
+		start := int(math.Round(tl.tsToPx(t) - float64(tickWidth/2)))
+		end := int(math.Round(tl.tsToPx(t) + float64(tickWidth/2)))
 		rect := clip.Rect{
 			Min: image.Pt(start, 0),
 			Max: image.Pt(end, tickHeight),
@@ -496,8 +497,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	// XXX make sure our rounding is stable and doesn't jitter
-
 	var tooltip []Span
 
 	// Draw goroutine lifetimes
@@ -537,6 +536,10 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		p.path.Begin(&p.ops)
 	}
 
+	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
+	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
+
 	for gid, spans := range gSpans {
 		y := goroutineHeight*int(gid) - tl.Y
 		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
@@ -548,7 +551,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 			// absolute offsets and pop them after each iteration.
 			defer op.Offset(image.Pt(0, y)).Push(gtx.Ops).Pop()
 
-			gidAtPoint, isOnGoroutine := tl.gidAtPoint(tl.Goroutines.cursorPos)
+			gidAtPoint, isOnGoroutine := tl.gidAtPoint(gtx, tl.Goroutines.cursorPos)
 
 			it := renderedSpansIterator{
 				tl:    tl,
@@ -586,13 +589,13 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				maxP = f32.Point{X: float32(min(endPx, gtx.Constraints.Max.X)), Y: float32(y + goroutineStateHeight)}
 				if first && startPx >= 0 {
 					// We don't want two borders right next to each other, nor do we want a border for truncated spans
-					minP.X += float32(gtx.Metric.Dp(spanBorderWidth))
+					minP.X += float32(spanBorderWidth)
 				}
-				minP.Y += float32(gtx.Metric.Dp(spanBorderWidth))
+				minP.Y += float32(spanBorderWidth)
 				if endPx <= gtx.Constraints.Max.X {
-					maxP.X -= float32(gtx.Metric.Dp(spanBorderWidth))
+					maxP.X -= float32(spanBorderWidth)
 				}
-				maxP.Y -= float32(gtx.Metric.Dp(spanBorderWidth))
+				maxP.Y -= float32(spanBorderWidth)
 
 				p := paths[c]
 				p.path.MoveTo(minP)
@@ -605,7 +608,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 					p := eventsPath
 					minP := minP
 					maxP := maxP
-					minP.Y += float32((goroutineStateHeight - gtx.Metric.Dp(spanBorderWidth)*2) / 2)
+					minP.Y += float32((goroutineStateHeight - spanBorderWidth*2) / 2)
 
 					p.path.MoveTo(minP)
 					p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
@@ -628,8 +631,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				lastEnd = min(lastEnd, gtx.Constraints.Max.X)
 				outlinesPath.MoveTo(f32.Point{X: float32(firstStart), Y: float32(y)})
 				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y)})
-				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y) + goroutineStateHeight})
-				outlinesPath.LineTo(f32.Point{X: float32(firstStart), Y: float32(y) + goroutineStateHeight})
+				outlinesPath.LineTo(f32.Point{X: float32(lastEnd), Y: float32(y) + float32(goroutineStateHeight)})
+				outlinesPath.LineTo(f32.Point{X: float32(firstStart), Y: float32(y) + float32(goroutineStateHeight)})
 				outlinesPath.Close()
 			} else {
 				// No spans for this goroutine
