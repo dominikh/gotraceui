@@ -97,6 +97,7 @@ type Timeline struct {
 	prevFrame struct {
 		Start    time.Duration
 		End      time.Duration
+		Y        int
 		nsPerPx  float64
 		dspSpans map[uint64][]struct {
 			dspSpans       []Span
@@ -107,7 +108,7 @@ type Timeline struct {
 }
 
 func (tl *Timeline) unchanged() bool {
-	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx
+	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx && tl.prevFrame.Y == tl.Y
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -1239,6 +1240,7 @@ func run(w *app.Window) error {
 			tl.prevFrame.Start = tl.Start
 			tl.prevFrame.End = tl.End
 			tl.prevFrame.nsPerPx = tl.nsPerPx
+			tl.prevFrame.Y = tl.Y
 
 			ev.Frame(&ops)
 		}
