@@ -201,24 +201,40 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 		return
 	}
 
-	spans = tl.visibleSpans(spans)
-	it := renderedSpansIterator{
-		tl:    tl,
-		spans: spans,
-	}
-	for {
-		dspSpans, startPx, endPx, ok := it.next(gtx)
-		if !ok {
-			break
-		}
-
+	do := func(dspSpans []Span, startPx, endPx int) bool {
 		start := dspSpans[0].Start
 		end := dspSpans[len(dspSpans)-1].End
 
 		if int(at.X) >= startPx && int(at.X) < endPx {
 			tl.Start = start
 			tl.End = end
-			return
+			return true
+		}
+
+		return false
+	}
+
+	if tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx {
+		for _, prevSpans := range tl.prevFrame.dspSpans[gid] {
+			if do(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx) {
+				return
+			}
+		}
+	} else {
+		spans = tl.visibleSpans(spans)
+		it := renderedSpansIterator{
+			tl:    tl,
+			spans: spans,
+		}
+		for {
+			dspSpans, startPx, endPx, ok := it.next(gtx)
+			if !ok {
+				break
+			}
+
+			if do(dspSpans, startPx, endPx) {
+				return
+			}
 		}
 	}
 }
