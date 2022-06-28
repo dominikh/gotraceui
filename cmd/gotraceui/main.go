@@ -102,7 +102,12 @@ type Timeline struct {
 			dspSpans       []Span
 			startPx, endPx int
 		}
+		tickLabels []string
 	}
+}
+
+func (tl *Timeline) unchanged() bool {
+	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -214,7 +219,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 		return false
 	}
 
-	if tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx {
+	if tl.unchanged() {
 		for _, prevSpans := range tl.prevFrame.dspSpans[gid] {
 			if do(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx) {
 				return
@@ -464,6 +469,29 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	tickWidth := gtx.Metric.Dp(tickWidthDp)
 	tickHeight := gtx.Metric.Dp(tickHeightDp)
 	minTickLabelDistance := gtx.Metric.Dp(minTickLabelDistanceDp)
+
+	var labels []string
+	if tl.unchanged() {
+		labels = tl.prevFrame.tickLabels
+	} else if tl.prevFrame.nsPerPx == tl.nsPerPx {
+		// Panning only changes the first label
+		labels = tl.prevFrame.tickLabels
+		// TODO print thousands separator
+		labels[0] = fmt.Sprintf("%d ns", tl.Start)
+	} else {
+		for t := tl.Start; t < tl.End; t += tickInterval {
+			if t == tl.Start {
+				// TODO print thousands separator
+				labels = append(labels, fmt.Sprintf("%d ns", t))
+			} else {
+				// TODO separate value and unit symbol with a space
+				labels = append(labels, fmt.Sprintf("+%s", t-tl.Start))
+			}
+		}
+		tl.prevFrame.tickLabels = labels
+	}
+
+	i := 0
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := int(math.Round(tl.tsToPx(t) - float64(tickWidth/2)))
 		end := int(math.Round(tl.tsToPx(t) + float64(tickWidth/2)))
@@ -474,8 +502,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		paint.FillShape(gtx.Ops, colors[colorTick], rect.Op())
 
 		if t == tl.Start {
-			// TODO print thousands separator
-			label := fmt.Sprintf("%d ns", t)
+			label := labels[i]
 			stack := op.Offset(image.Pt(0, tickHeight)).Push(gtx.Ops)
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
 			if dims.Size.Y > labelHeight {
@@ -486,7 +513,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		} else {
 			macro := op.Record(gtx.Ops)
 			// TODO separate value and unit symbol with a space
-			label := fmt.Sprintf("+%s", t-tl.Start)
+			label := labels[i]
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
 			call := macro.Stop()
 
@@ -499,6 +526,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 				}
 			}
 		}
+		i++
 	}
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, tickHeight+labelHeight)}
@@ -642,7 +670,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				first = false
 			}
 
-			if tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx {
+			if tl.unchanged() {
 				for _, prevSpans := range tl.prevFrame.dspSpans[gid] {
 					doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 				}
