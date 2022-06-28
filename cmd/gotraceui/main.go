@@ -91,6 +91,18 @@ type Timeline struct {
 	Goroutines struct {
 		cursorPos f32.Point
 	}
+
+	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
+	// between frames if the timeline hasn't changed.
+	prevFrame struct {
+		Start    time.Duration
+		End      time.Duration
+		nsPerPx  float64
+		dspSpans map[uint64][]struct {
+			dspSpans       []Span
+			startPx, endPx int
+		}
+	}
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -548,19 +560,11 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 
 			gidAtPoint, isOnGoroutine := tl.gidAtPoint(gtx, tl.Goroutines.cursorPos)
 
-			it := renderedSpansIterator{
-				tl:    tl,
-				spans: tl.visibleSpans(spans),
-			}
 			firstStart := -1
 			lastEnd := -1
 			first := true
-			for {
-				dspSpans, startPx, endPx, ok := it.next(gtx)
-				if !ok {
-					break
-				}
 
+			doSpans := func(dspSpans []Span, startPx, endPx int) {
 				if first {
 					firstStart = startPx
 				}
@@ -618,6 +622,33 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				}
 
 				first = false
+			}
+
+			if tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx {
+				for _, prevSpans := range tl.prevFrame.dspSpans[gid] {
+					doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
+				}
+			} else {
+				var allDspSpans []struct {
+					dspSpans       []Span
+					startPx, endPx int
+				}
+				it := renderedSpansIterator{
+					tl:    tl,
+					spans: tl.visibleSpans(spans),
+				}
+				for {
+					dspSpans, startPx, endPx, ok := it.next(gtx)
+					if !ok {
+						break
+					}
+					allDspSpans = append(allDspSpans, struct {
+						dspSpans       []Span
+						startPx, endPx int
+					}{dspSpans, startPx, endPx})
+					doSpans(dspSpans, startPx, endPx)
+				}
+				tl.prevFrame.dspSpans[gid] = allDspSpans
 			}
 
 			if !first {
@@ -1100,6 +1131,11 @@ func run(w *app.Window) error {
 		Start: start,
 		End:   end,
 	}
+	tl.prevFrame.dspSpans = map[uint64][]struct {
+		dspSpans []Span
+		startPx  int
+		endPx    int
+	}{}
 
 	profileTag := new(int)
 	var ops op.Ops
@@ -1120,6 +1156,9 @@ func run(w *app.Window) error {
 			profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 			tl.Layout(gtx)
+			tl.prevFrame.Start = tl.Start
+			tl.prevFrame.End = tl.End
+			tl.prevFrame.nsPerPx = tl.nsPerPx
 
 			ev.Frame(&ops)
 		}
