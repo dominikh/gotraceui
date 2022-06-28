@@ -90,6 +90,7 @@ type Timeline struct {
 	}
 	Goroutines struct {
 		cursorPos f32.Point
+		hovered   bool
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -551,12 +552,16 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	// Dragging doesn't produce Move events, even if we're not listening for dragging
-	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press}.Add(gtx.Ops)
+	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press | pointer.Leave | pointer.Enter}.Add(gtx.Ops)
 	for _, e := range gtx.Events(&tl.Goroutines) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Move, pointer.Drag:
 			tl.Goroutines.cursorPos = ev.Position
+		case pointer.Leave:
+			tl.Goroutines.hovered = false
+		case pointer.Enter:
+			tl.Goroutines.hovered = true
 		case pointer.Press:
 			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
 				tl.zoomToClickedSpan(gtx, ev.Position)
@@ -676,7 +681,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 					p.path.Close()
 				}
 
-				if int(tl.Goroutines.cursorPos.X) >= startPx && int(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
+				if tl.Goroutines.hovered && int(tl.Goroutines.cursorPos.X) >= startPx && int(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
 					// TODO have a gap between the cursor and the tooltip
 					// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 					macro := op.Record(gtx.Ops)
