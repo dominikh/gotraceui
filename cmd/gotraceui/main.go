@@ -645,10 +645,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 					doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 				}
 			} else {
-				var allDspSpans []struct {
-					dspSpans       []Span
-					startPx, endPx int
-				}
+				allDspSpans := tl.prevFrame.dspSpans[gid][:0]
 				it := renderedSpansIterator{
 					tl:    tl,
 					spans: tl.visibleSpans(spans),
