@@ -44,8 +44,8 @@ const debug = true
 
 const (
 	// TODO(dh): compute min tick distance based on font size
-	minTickDistanceDp unit.Dp = 12
-	tickHeightDp      unit.Dp = 25
+	minTickDistanceDp unit.Dp = 20
+	tickHeightDp      unit.Dp = 12
 	tickWidthDp       unit.Dp = 1
 
 	goroutineStateHeightDp unit.Dp = 10
@@ -464,13 +464,13 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	// TODO draw smaller ticks between larger ticks
 	tickInterval := tl.tickInterval(gtx)
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
-	prevLabelEnd := -1
+	prevLabelEnd := float32(-1)
 	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
 	// goroutines to shift around as the axis section grows and shrinks.
 	labelHeight := 0
-	tickWidth := gtx.Metric.Dp(tickWidthDp)
-	tickHeight := gtx.Metric.Dp(tickHeightDp)
-	minTickLabelDistance := gtx.Metric.Dp(minTickLabelDistanceDp)
+	tickWidth := float32(gtx.Metric.Dp(tickWidthDp))
+	tickHeight := float32(gtx.Metric.Dp(tickHeightDp))
+	minTickLabelDistance := float32(gtx.Metric.Dp(minTickLabelDistanceDp))
 
 	var labels []string
 	if tl.unchanged() {
@@ -495,22 +495,36 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 
 	i := 0
 	for t := tl.Start; t < tl.End; t += tickInterval {
-		start := int(math.Round(tl.tsToPx(t) - float64(tickWidth/2)))
-		end := int(math.Round(tl.tsToPx(t) + float64(tickWidth/2)))
-		rect := clip.Rect{
-			Min: image.Pt(start, 0),
-			Max: image.Pt(end, tickHeight),
+		start := float32(tl.tsToPx(t) - float64(tickWidth/2))
+		end := float32(tl.tsToPx(t) + float64(tickWidth/2))
+		rect := Rectf{
+			Min: f32.Pt(start, 0),
+			Max: f32.Pt(end, tickHeight),
 		}
-		paint.FillShape(gtx.Ops, colors[colorTick], rect.Op())
+		paint.FillShape(gtx.Ops, colors[colorTick], rect.Op(gtx.Ops))
+
+		for j := 1; j <= 9; j++ {
+			smallStart := float32(tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) - tickWidth/2
+			smallEnd := float32(tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) + tickWidth/2
+			smallTickHeight := tickHeight / 3
+			if j == 5 {
+				smallTickHeight = tickHeight / 2
+			}
+			rect := Rectf{
+				Min: f32.Pt(smallStart, 0),
+				Max: f32.Pt(smallEnd, smallTickHeight),
+			}
+			paint.FillShape(gtx.Ops, colors[colorTick], rect.Op(gtx.Ops))
+		}
 
 		if t == tl.Start {
 			label := labels[i]
-			stack := op.Offset(image.Pt(0, tickHeight)).Push(gtx.Ops)
+			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
-			prevLabelEnd = dims.Size.X
+			prevLabelEnd = float32(dims.Size.X)
 			stack.Pop()
 		} else {
 			macro := op.Record(gtx.Ops)
@@ -519,10 +533,10 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, 14, label)
 			call := macro.Stop()
 
-			if start-dims.Size.X/2 > prevLabelEnd+minTickLabelDistance {
-				prevLabelEnd = start + dims.Size.X/2
-				if start+dims.Size.X/2 <= gtx.Constraints.Max.X {
-					stack := op.Offset(image.Pt(start-dims.Size.X/2, tickHeight)).Push(gtx.Ops)
+			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
+				prevLabelEnd = start + float32(dims.Size.X/2)
+				if start+float32(dims.Size.X/2) <= float32(gtx.Constraints.Max.X) {
+					stack := op.Offset(image.Pt(int(math.Round(float64(start-float32(dims.Size.X/2)))), int(tickHeight))).Push(gtx.Ops)
 					call.Add(gtx.Ops)
 					stack.Pop()
 				}
@@ -531,7 +545,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		i++
 	}
 
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, tickHeight+labelHeight)}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
 
 func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
@@ -1261,4 +1275,26 @@ func max(a, b int) int {
 	} else {
 		return b
 	}
+}
+
+type Rectf struct {
+	Min f32.Point
+	Max f32.Point
+}
+
+func (r Rectf) Path(ops *op.Ops) clip.PathSpec {
+	var p clip.Path
+	p.Begin(ops)
+
+	p.MoveTo(r.Min)
+	p.LineTo(f32.Pt(r.Max.X, r.Min.Y))
+	p.LineTo(r.Max)
+	p.LineTo(f32.Pt(r.Min.X, r.Max.Y))
+	p.LineTo(r.Min)
+
+	return p.End()
+}
+
+func (r Rectf) Op(ops *op.Ops) clip.Op {
+	return clip.Outline{r.Path(ops)}.Op()
 }
