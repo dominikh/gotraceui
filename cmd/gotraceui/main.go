@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"time"
 
 	"honnef.co/go/gotraceui/trace"
@@ -223,36 +224,20 @@ func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
 }
 
 func (tl *Timeline) visibleSpans(spans []Span) []Span {
-	// OPT(dh): use binary search
-	first := -1
-	last := -1
-	for i, s := range spans {
-		visible := (s.Start >= tl.Start && s.Start < tl.End) ||
-			(s.End >= tl.Start && s.End < tl.End) ||
-			(s.Start <= tl.Start && s.End >= tl.End)
-		if first == -1 {
-			if visible {
-				first = i
-			}
-		} else {
-			if !visible {
-				last = i
-				break
-			}
-		}
-	}
-
-	if last == -1 {
-		last = len(spans)
-	}
-	if debug && first == last {
-		panic("first == last")
-	}
-
-	if first == -1 {
+	// Visible spans have to end after tl.Start and begin before tl.End
+	start := sort.Search(len(spans), func(i int) bool {
+		s := spans[i]
+		return s.End >= tl.Start
+	})
+	if start == len(spans) {
 		return nil
 	}
-	return spans[first:last]
+	end := sort.Search(len(spans), func(i int) bool {
+		s := spans[i]
+		return s.Start >= tl.End
+	})
+
+	return spans[start:end]
 }
 
 //gcassert:inline
