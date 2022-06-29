@@ -553,7 +553,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		i++
 	}
 
-	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{ticksPath.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{Path: ticksPath.End()}.Op())
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
@@ -1314,5 +1314,5 @@ func (r Rectf) IntoPath(p *clip.Path) {
 }
 
 func (r Rectf) Op(ops *op.Ops) clip.Op {
-	return clip.Outline{r.Path(ops)}.Op()
+	return clip.Outline{Path: r.Path(ops)}.Op()
 }
