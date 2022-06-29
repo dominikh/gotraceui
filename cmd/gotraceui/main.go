@@ -496,6 +496,9 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		tl.prevFrame.tickLabels = labels
 	}
 
+	var ticksPath clip.Path
+	var ticksOps op.Ops
+	ticksPath.Begin(&ticksOps)
 	i := 0
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := float32(tl.tsToPx(t) - float64(tickWidth/2))
@@ -504,7 +507,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
 		}
-		paint.FillShape(gtx.Ops, colors[colorTick], rect.Op(gtx.Ops))
+		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
 			smallStart := float32(tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) - tickWidth/2
@@ -517,12 +520,13 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 				Min: f32.Pt(smallStart, 0),
 				Max: f32.Pt(smallEnd, smallTickHeight),
 			}
-			paint.FillShape(gtx.Ops, colors[colorTick], rect.Op(gtx.Ops))
+			rect.IntoPath(&ticksPath)
 		}
 
 		if t == tl.Start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
+			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
@@ -533,6 +537,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			macro := op.Record(gtx.Ops)
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
+			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
 			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
@@ -547,6 +552,8 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		}
 		i++
 	}
+
+	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{ticksPath.End()}.Op())
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
@@ -1101,6 +1108,7 @@ var colors = [...]color.NRGBA{
 	colorZoomSelection:     toColor(0xeeee9e99),
 	colorCursor:            toColor(0x000000FF),
 	colorTick:              toColor(0x000000FF),
+	colorTickLabel:         toColor(0x000000FF),
 	colorTooltipText:       toColor(0x000000FF),
 	colorTooltipBackground: toColor(0xEEFFEEFF),
 	colorTooltipBorder:     toColor(0x57A8A8FF),
@@ -1127,6 +1135,7 @@ const (
 	colorZoomSelection
 	colorCursor
 	colorTick
+	colorTickLabel
 	colorTooltipText
 	colorTooltipBackground
 	colorTooltipBorder
@@ -1292,14 +1301,16 @@ type Rectf struct {
 func (r Rectf) Path(ops *op.Ops) clip.PathSpec {
 	var p clip.Path
 	p.Begin(ops)
+	r.IntoPath(&p)
+	return p.End()
+}
 
+func (r Rectf) IntoPath(p *clip.Path) {
 	p.MoveTo(r.Min)
 	p.LineTo(f32.Pt(r.Max.X, r.Min.Y))
 	p.LineTo(r.Max)
 	p.LineTo(f32.Pt(r.Min.X, r.Max.Y))
 	p.LineTo(r.Min)
-
-	return p.End()
 }
 
 func (r Rectf) Op(ops *op.Ops) clip.Op {
