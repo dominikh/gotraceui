@@ -95,6 +95,8 @@ type Timeline struct {
 		hovered   bool
 	}
 
+	shaper text.Shaper
+
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
@@ -527,7 +529,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -538,7 +540,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -697,7 +699,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 					ttX := int(math.Round(float64(tl.Goroutines.cursorPos.X)))
 					ttY := int(math.Round(float64(tl.Goroutines.cursorPos.Y))) - y
 					stack := op.Offset(image.Pt(ttX, ttY)).Push(gtx.Ops)
-					SpanTooltip{dspSpans}.Layout(gtx)
+					SpanTooltip{dspSpans, tl.shaper}.Layout(gtx)
 					stack.Pop()
 					call := macro.Stop()
 					op.Defer(gtx.Ops, call)
@@ -756,7 +758,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 }
 
 type SpanTooltip struct {
-	Spans []Span
+	Spans  []Span
+	shaper text.Shaper
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
@@ -808,7 +811,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
 	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
-	dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, tooltipFontSizeSp, label)
+	dims := widget.Label{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, label)
 	call := macro.Stop()
 
 	rect := clip.Rect{
@@ -899,12 +902,7 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 	return events[first:last]
 }
 
-// TODO(dh): avoid global state, bundle this in a Theme, much like gioui.org/widget/material does
-var shaper text.Shaper
-
 func main() {
-	shaper = text.NewCache(gofont.Collection())
-
 	r, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
@@ -1239,8 +1237,9 @@ func run(w *app.Window) error {
 	start := time.Duration(-slack)
 	end = time.Duration(float64(end) + slack)
 	tl := Timeline{
-		Start: start,
-		End:   end,
+		Start:  start,
+		End:    end,
+		shaper: text.NewCache(gofont.Collection()),
 	}
 	tl.prevFrame.dspSpans = map[uint64][]struct {
 		dspSpans []Span
