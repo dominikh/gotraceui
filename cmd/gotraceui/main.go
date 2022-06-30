@@ -70,6 +70,8 @@ type Timeline struct {
 	// canvas that the goroutine section's Y == 0 is displaying.
 	Y int
 
+	Gs map[uint64]*GoroutineWidget
+
 	Theme *material.Theme
 
 	Scrollbar widget.Scrollbar
@@ -96,8 +98,7 @@ type Timeline struct {
 		cursorPos f32.Point
 	}
 	Goroutines struct {
-		cursorPos f32.Point
-		hovered   bool
+		_ [0]int
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -206,6 +207,7 @@ func (tl *Timeline) isOnGoroutine(gtx layout.Context, at f32.Point) bool {
 // zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
 // timeline.
 func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
+	// TODO(dh): make it the goroutine widget's task to find the clicked span
 	gid, ok := tl.gidAtPoint(gtx, at)
 	if !ok {
 		return
@@ -581,6 +583,200 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
 
+type GoroutineWidget struct {
+	Theme *material.Theme
+
+	tl        *Timeline
+	g         *Goroutine
+	pointerAt f32.Point
+	hovered   bool
+}
+
+func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
+	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
+	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
+
+	// Draw goroutine lifetimes
+	//
+	// We batch draw operations by color to avoid making thousands of draw calls. See
+	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
+	//
+	ops := [...]op.Ops{
+		colorStateInactive:             {},
+		colorStateActive:               {},
+		colorStateBlocked:              {},
+		colorStateBlockedHappensBefore: {},
+		colorStateBlockedNet:           {},
+		colorStateBlockedGC:            {},
+		colorStateBlockedSyscall:       {},
+		colorStateReady:                {},
+		colorStateStuck:                {},
+		colorStateMerged:               {},
+		colorStateUnknown:              {},
+	}
+	//gcassert:noescape
+	paths := [...]clip.Path{
+		colorStateInactive:             {},
+		colorStateActive:               {},
+		colorStateBlocked:              {},
+		colorStateBlockedHappensBefore: {},
+		colorStateBlockedNet:           {},
+		colorStateBlockedGC:            {},
+		colorStateBlockedSyscall:       {},
+		colorStateReady:                {},
+		colorStateStuck:                {},
+		colorStateMerged:               {},
+		colorStateUnknown:              {},
+	}
+
+	type path struct {
+		ops  op.Ops
+		path clip.Path
+	}
+	eventsPath := &path{}
+	eventsPath.path.Begin(&eventsPath.ops)
+
+	for i := range paths {
+		paths[i].Begin(&ops[i])
+	}
+
+	firstStart := -1
+	lastEnd := -1
+	first := true
+
+	for _, ev := range gtx.Events(gw) {
+		switch ev.(pointer.Event).Type {
+		case pointer.Enter, pointer.Move:
+			gw.hovered = true
+			gw.pointerAt = ev.(pointer.Event).Position
+		case pointer.Leave:
+			gw.hovered = false
+		}
+	}
+
+	func() {
+		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineStateHeight)}.Push(gtx.Ops).Pop()
+		pointer.InputOp{Tag: gw, Types: pointer.Enter | pointer.Leave | pointer.Move}.Add(gtx.Ops)
+	}()
+
+	doSpans := func(dspSpans []Span, startPx, endPx int) {
+		if first {
+			firstStart = startPx
+		}
+		lastEnd = endPx
+
+		var c colorIndex
+		if len(dspSpans) == 1 {
+			s := dspSpans[0]
+			if int(s.State) >= len(stateColors) {
+				c = colorStateUnknown
+			} else {
+				c = stateColors[s.State]
+			}
+		} else {
+			c = colorStateMerged
+		}
+
+		var minP f32.Point
+		var maxP f32.Point
+		minP = f32.Pt(float32(max(startPx, 0)), 0)
+		maxP = f32.Pt(float32(min(endPx, gtx.Constraints.Max.X)), float32(goroutineStateHeight))
+		if first && startPx >= 0 {
+			// We don't want two borders right next to each other, nor do we want a border for truncated spans
+			minP.X += float32(spanBorderWidth)
+		}
+		minP.Y += float32(spanBorderWidth)
+		if endPx <= gtx.Constraints.Max.X {
+			maxP.X -= float32(spanBorderWidth)
+		}
+		maxP.Y -= float32(spanBorderWidth)
+
+		p := &paths[c]
+		p.MoveTo(minP)
+		p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		p.LineTo(maxP)
+		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		p.Close()
+
+		if spanHasEvents(gw.g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
+			p := eventsPath
+			minP := minP
+			maxP := maxP
+			minP.Y += float32((goroutineStateHeight - spanBorderWidth*2) / 2)
+
+			p.path.MoveTo(minP)
+			p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			p.path.LineTo(maxP)
+			p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			p.path.Close()
+		}
+
+		if gw.hovered && int(gw.pointerAt.X) >= startPx && int(gw.pointerAt.X) < endPx {
+			// TODO have a gap between the cursor and the tooltip
+			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+			macro := op.Record(gtx.Ops)
+			stack := op.Offset(gw.pointerAt.Round()).Push(gtx.Ops)
+			SpanTooltip{dspSpans, gw.Theme.Shaper}.Layout(gtx)
+			stack.Pop()
+			call := macro.Stop()
+			op.Defer(gtx.Ops, call)
+		}
+
+		first = false
+	}
+
+	if gw.tl.unchanged() {
+		for _, prevSpans := range gw.tl.prevFrame.dspSpans[gw.g.ID] {
+			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
+		}
+	} else {
+		allDspSpans := gw.tl.prevFrame.dspSpans[gw.g.ID][:0]
+		it := renderedSpansIterator{
+			tl:    gw.tl,
+			spans: gw.tl.visibleSpans(gw.g.Spans),
+		}
+		for {
+			dspSpans, startPx, endPx, ok := it.next(gtx)
+			if !ok {
+				break
+			}
+			allDspSpans = append(allDspSpans, struct {
+				dspSpans       []Span
+				startPx, endPx int
+			}{dspSpans, startPx, endPx})
+			doSpans(dspSpans, startPx, endPx)
+		}
+		gw.tl.prevFrame.dspSpans[gw.g.ID] = allDspSpans
+	}
+
+	if !first {
+		// TODO(dh): use path type for outlines, too
+		var outlinesPath clip.Path
+		outlinesPath.Begin(gtx.Ops)
+		// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
+		firstStart = max(firstStart, 0)
+		lastEnd = min(lastEnd, gtx.Constraints.Max.X)
+		outlinesPath.MoveTo(f32.Pt(float32(firstStart), 0))
+		outlinesPath.LineTo(f32.Pt(float32(lastEnd), 0))
+		outlinesPath.LineTo(f32.Pt(float32(lastEnd), float32(goroutineStateHeight)))
+		outlinesPath.LineTo(f32.Pt(float32(firstStart), float32(goroutineStateHeight)))
+		outlinesPath.Close()
+		paint.FillShape(gtx.Ops, color.NRGBA{A: 0xFF}, clip.Outline{Path: outlinesPath.End()}.Op())
+	} else {
+		// No spans for this goroutine
+	}
+
+	for cIdx := range paths {
+		p := &paths[cIdx]
+		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
+	}
+	// TODO(dh): find a nice color for this
+	paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
+
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}
+}
+
 func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	// Dragging doesn't produce Move events, even if we're not listening for dragging
@@ -588,12 +784,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	for _, e := range gtx.Events(&tl.Goroutines) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
-		case pointer.Move, pointer.Drag:
-			tl.Goroutines.cursorPos = ev.Position
-		case pointer.Leave:
-			tl.Goroutines.hovered = false
-		case pointer.Enter:
-			tl.Goroutines.hovered = true
 		case pointer.Press:
 			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
 				tl.zoomToClickedSpan(gtx, ev.Position)
@@ -603,7 +793,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
-	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
 	// not bring us out of alignment with the axis.
@@ -627,170 +816,18 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	}
 
-	for gid, g := range gs {
+	for gid, gw := range tl.Gs {
 		y := goroutineHeight*int(gid) - tl.Y
 		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
 			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
 			continue
 		}
+
 		func() {
 			// Our goroutines aren't sorted, causing our offsets to jump all over the place. That's why we calculate
 			// absolute offsets and pop them after each iteration.
 			defer op.Offset(image.Pt(0, y)).Push(gtx.Ops).Pop()
-
-			// Draw goroutine lifetimes
-			//
-			// We batch draw operations by color to avoid making thousands of draw calls. See
-			// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
-			//
-
-			type path struct {
-				ops  op.Ops
-				path clip.Path
-			}
-
-			paths := [...]path{
-				colorStateInactive:             {},
-				colorStateActive:               {},
-				colorStateBlocked:              {},
-				colorStateBlockedHappensBefore: {},
-				colorStateBlockedNet:           {},
-				colorStateBlockedGC:            {},
-				colorStateBlockedSyscall:       {},
-				colorStateReady:                {},
-				colorStateStuck:                {},
-				colorStateMerged:               {},
-				colorStateUnknown:              {},
-			}
-
-			eventsPath := &path{}
-			eventsPath.path.Begin(&eventsPath.ops)
-
-			for i := range paths {
-				p := &paths[i]
-				p.path.Begin(&p.ops)
-			}
-
-			firstStart := -1
-			lastEnd := -1
-			first := true
-
-			doSpans := func(dspSpans []Span, startPx, endPx int) {
-				if first {
-					firstStart = startPx
-				}
-				lastEnd = endPx
-
-				var c colorIndex
-				if len(dspSpans) == 1 {
-					s := dspSpans[0]
-					if int(s.State) >= len(stateColors) {
-						c = colorStateUnknown
-					} else {
-						c = stateColors[s.State]
-					}
-				} else {
-					c = colorStateMerged
-				}
-
-				var minP f32.Point
-				var maxP f32.Point
-				minP = f32.Pt(float32(max(startPx, 0)), 0)
-				maxP = f32.Pt(float32(min(endPx, gtx.Constraints.Max.X)), float32(goroutineStateHeight))
-				if first && startPx >= 0 {
-					// We don't want two borders right next to each other, nor do we want a border for truncated spans
-					minP.X += float32(spanBorderWidth)
-				}
-				minP.Y += float32(spanBorderWidth)
-				if endPx <= gtx.Constraints.Max.X {
-					maxP.X -= float32(spanBorderWidth)
-				}
-				maxP.Y -= float32(spanBorderWidth)
-
-				p := &paths[c]
-				p.path.MoveTo(minP)
-				p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-				p.path.LineTo(maxP)
-				p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-				p.path.Close()
-
-				if spanHasEvents(g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
-					p := eventsPath
-					minP := minP
-					maxP := maxP
-					minP.Y += float32((goroutineStateHeight - spanBorderWidth*2) / 2)
-
-					p.path.MoveTo(minP)
-					p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-					p.path.LineTo(maxP)
-					p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-					p.path.Close()
-				}
-
-				gidAtPoint, isOnGoroutine := tl.gidAtPoint(gtx, tl.Goroutines.cursorPos)
-				if tl.Goroutines.hovered && int(tl.Goroutines.cursorPos.X) >= startPx && int(tl.Goroutines.cursorPos.X) < endPx && isOnGoroutine && gidAtPoint == gid {
-					// TODO have a gap between the cursor and the tooltip
-					// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-					macro := op.Record(gtx.Ops)
-					ttX := int(math.Round(float64(tl.Goroutines.cursorPos.X)))
-					ttY := int(math.Round(float64(tl.Goroutines.cursorPos.Y) - float64(y)))
-					stack := op.Offset(image.Pt(ttX, ttY)).Push(gtx.Ops)
-					SpanTooltip{dspSpans, tl.Theme.Shaper}.Layout(gtx)
-					stack.Pop()
-					call := macro.Stop()
-					op.Defer(gtx.Ops, call)
-				}
-
-				first = false
-			}
-
-			if tl.unchanged() {
-				for _, prevSpans := range tl.prevFrame.dspSpans[gid] {
-					doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
-				}
-			} else {
-				allDspSpans := tl.prevFrame.dspSpans[gid][:0]
-				it := renderedSpansIterator{
-					tl:    tl,
-					spans: tl.visibleSpans(g.Spans),
-				}
-				for {
-					dspSpans, startPx, endPx, ok := it.next(gtx)
-					if !ok {
-						break
-					}
-					allDspSpans = append(allDspSpans, struct {
-						dspSpans       []Span
-						startPx, endPx int
-					}{dspSpans, startPx, endPx})
-					doSpans(dspSpans, startPx, endPx)
-				}
-				tl.prevFrame.dspSpans[gid] = allDspSpans
-			}
-
-			if !first {
-				// TODO(dh): use path type for outlines, too
-				var outlinesPath clip.Path
-				outlinesPath.Begin(gtx.Ops)
-				// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
-				firstStart = max(firstStart, 0)
-				lastEnd = min(lastEnd, gtx.Constraints.Max.X)
-				outlinesPath.MoveTo(f32.Pt(float32(firstStart), 0))
-				outlinesPath.LineTo(f32.Pt(float32(lastEnd), 0))
-				outlinesPath.LineTo(f32.Pt(float32(lastEnd), float32(goroutineStateHeight)))
-				outlinesPath.LineTo(f32.Pt(float32(firstStart), float32(goroutineStateHeight)))
-				outlinesPath.Close()
-				paint.FillShape(gtx.Ops, color.NRGBA{A: 0xFF}, clip.Outline{Path: outlinesPath.End()}.Op())
-			} else {
-				// No spans for this goroutine
-			}
-
-			for cIdx, p := range paths {
-				paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.path.End()}.Op())
-			}
-			// TODO(dh): find a nice color for this
-			paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
-
+			gw.Layout(gtx)
 		}()
 	}
 
@@ -883,6 +920,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 // span, and consecutive spans that would fall into that span get merged into it
 
 type Goroutine struct {
+	ID       uint64
 	Function *trace.Frame
 	Spans    []Span
 	Events   []*trace.Event
@@ -972,7 +1010,7 @@ func main() {
 		if ok {
 			return g
 		}
-		g = &Goroutine{}
+		g = &Goroutine{ID: gid}
 		gs[gid] = g
 		return g
 	}
@@ -1287,6 +1325,14 @@ func run(w *app.Window) error {
 		Start: start,
 		End:   end,
 		Theme: material.NewTheme(gofont.Collection()),
+	}
+	tl.Gs = map[uint64]*GoroutineWidget{}
+	for gid, g := range gs {
+		tl.Gs[gid] = &GoroutineWidget{
+			Theme: tl.Theme,
+			tl:    &tl,
+			g:     g,
+		}
 	}
 	tl.prevFrame.dspSpans = map[uint64][]struct {
 		dspSpans []Span
