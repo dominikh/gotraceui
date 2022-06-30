@@ -27,6 +27,7 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
+	"gioui.org/widget/material"
 )
 
 // TODO(dh): switch to float32
@@ -69,6 +70,10 @@ type Timeline struct {
 	// canvas that the goroutine section's Y == 0 is displaying.
 	Y int
 
+	Theme *material.Theme
+
+	Scrollbar widget.Scrollbar
+
 	// State for dragging the timeline
 	Drag struct {
 		ClickAt f32.Point
@@ -94,8 +99,6 @@ type Timeline struct {
 		cursorPos f32.Point
 		hovered   bool
 	}
-
-	shaper text.Shaper
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
@@ -414,6 +417,23 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	{
+		goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+		var maxGid uint64
+		for gid := range gs {
+			if gid > maxGid {
+				maxGid = gid
+			}
+		}
+
+		d := tl.Scrollbar.ScrollDistance()
+		totalHeight := float32(maxGid * uint64(goroutineHeight))
+		tl.Y += int(math.Round(float64(d * totalHeight)))
+		if tl.Y < 0 {
+			tl.Y = 0
+		}
+	}
+
 	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
 
 	if debug {
@@ -529,7 +549,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -540,7 +560,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -623,6 +643,27 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
+	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
+	// not bring us out of alignment with the axis.
+	{
+		var maxGid uint64
+		for gid := range gs {
+			if gid > maxGid {
+				maxGid = gid
+			}
+		}
+		totalHeight := float32((maxGid + 1) * uint64(goroutineHeight))
+		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
+		offset := float32(tl.Y) / totalHeight
+		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
+		stack := op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Metric.Dp(sb.Width()), 0)).Push(gtx.Ops)
+		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
+		stack.Pop()
+
+		gtx.Constraints.Max.X -= gtx.Metric.Dp(sb.Width())
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	}
+
 	for gid, g := range gs {
 		y := goroutineHeight*int(gid) - tl.Y
 		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
@@ -699,7 +740,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 					ttX := int(math.Round(float64(tl.Goroutines.cursorPos.X)))
 					ttY := int(math.Round(float64(tl.Goroutines.cursorPos.Y))) - y
 					stack := op.Offset(image.Pt(ttX, ttY)).Push(gtx.Ops)
-					SpanTooltip{dspSpans, tl.shaper}.Layout(gtx)
+					SpanTooltip{dspSpans, tl.Theme.Shaper}.Layout(gtx)
 					stack.Pop()
 					call := macro.Stop()
 					op.Defer(gtx.Ops, call)
@@ -1237,9 +1278,9 @@ func run(w *app.Window) error {
 	start := time.Duration(-slack)
 	end = time.Duration(float64(end) + slack)
 	tl := Timeline{
-		Start:  start,
-		End:    end,
-		shaper: text.NewCache(gofont.Collection()),
+		Start: start,
+		End:   end,
+		Theme: material.NewTheme(gofont.Collection()),
 	}
 	tl.prevFrame.dspSpans = map[uint64][]struct {
 		dspSpans []Span
