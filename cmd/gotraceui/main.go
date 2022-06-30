@@ -419,6 +419,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	{
 		goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		var maxGid uint64
 		for gid := range gs {
 			if gid > maxGid {
@@ -525,7 +526,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	for t := tl.Start; t < tl.End; t += tickInterval {
 		start := float32(tl.tsToPx(t) - float64(tickWidth/2))
 		end := float32(tl.tsToPx(t) + float64(tickWidth/2))
-		rect := Rectf{
+		rect := FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
 		}
@@ -538,7 +539,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
 			}
-			rect := Rectf{
+			rect := FRect{
 				Min: f32.Pt(smallStart, 0),
 				Max: f32.Pt(smallEnd, smallTickHeight),
 			}
@@ -646,6 +647,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
 	// not bring us out of alignment with the axis.
 	{
+		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		var maxGid uint64
 		for gid := range gs {
 			if gid > maxGid {
@@ -1333,19 +1335,19 @@ func max(a, b int) int {
 	}
 }
 
-type Rectf struct {
+type FRect struct {
 	Min f32.Point
 	Max f32.Point
 }
 
-func (r Rectf) Path(ops *op.Ops) clip.PathSpec {
+func (r FRect) Path(ops *op.Ops) clip.PathSpec {
 	var p clip.Path
 	p.Begin(ops)
 	r.IntoPath(&p)
 	return p.End()
 }
 
-func (r Rectf) IntoPath(p *clip.Path) {
+func (r FRect) IntoPath(p *clip.Path) {
 	p.MoveTo(r.Min)
 	p.LineTo(f32.Pt(r.Max.X, r.Min.Y))
 	p.LineTo(r.Max)
@@ -1353,6 +1355,6 @@ func (r Rectf) IntoPath(p *clip.Path) {
 	p.LineTo(r.Min)
 }
 
-func (r Rectf) Op(ops *op.Ops) clip.Op {
+func (r FRect) Op(ops *op.Ops) clip.Op {
 	return clip.Outline{Path: r.Path(ops)}.Op()
 }
