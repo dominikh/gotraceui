@@ -886,8 +886,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 // span, and consecutive spans that would fall into that span get merged into it
 
 type Goroutine struct {
-	Spans  []Span
-	Events []*trace.Event
+	Function *trace.Frame
+	Spans    []Span
+	Events   []*trace.Event
 }
 
 type Span struct {
@@ -989,6 +990,12 @@ func main() {
 			// ev.G creates ev.Args[0]
 			getG(ev.G).Events = append(getG(ev.G).Events, ev)
 			gid = ev.Args[0]
+			if ev.Args[1] != 0 {
+				stack := res.Stacks[ev.Args[1]]
+				if len(stack) != 0 {
+					getG(gid).Function = stack[0]
+				}
+			}
 			state = stateInactive
 			reason = "newly created"
 		case trace.EvGoStart:
