@@ -30,7 +30,6 @@ import (
 	"gioui.org/widget/material"
 )
 
-// TODO(dh): switch to float32
 // TODO(dh): figure out what puts us in the generic "blocked" state
 
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
@@ -104,7 +103,7 @@ type Timeline struct {
 	}
 
 	// Frame-local state set by Layout and read by various helpers
-	nsPerPx float64
+	nsPerPx float32
 
 	Global struct {
 		cursorPos f32.Point
@@ -119,10 +118,10 @@ type Timeline struct {
 		Start    time.Duration
 		End      time.Duration
 		Y        int
-		nsPerPx  float64
+		nsPerPx  float32
 		dspSpans map[uint64][]struct {
 			dspSpans       []Span
-			startPx, endPx int
+			startPx, endPx float32
 		}
 	}
 }
@@ -142,8 +141,8 @@ func (tl *Timeline) abortZoomSelection() {
 
 func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 	tl.ZoomSelection.Active = false
-	one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
-	two := int(math.Round(float64(pos.X)))
+	one := tl.ZoomSelection.ClickAt.X
+	two := pos.X
 	start := tl.pxToTs(min(one, two))
 	end := tl.pxToTs(max(one, two))
 	if start == end {
@@ -168,11 +167,11 @@ func (tl *Timeline) endDrag() {
 }
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
-	td := time.Duration(math.Round(tl.nsPerPx * float64(tl.Drag.ClickAt.X-pos.X)))
+	td := time.Duration(round32(tl.nsPerPx * (tl.Drag.ClickAt.X - pos.X)))
 	tl.Start = tl.Drag.Start + td
 	tl.End = tl.Drag.End + td
 
-	yd := int(math.Round(float64(tl.Drag.ClickAt.Y - pos.Y)))
+	yd := int(round32(tl.Drag.ClickAt.Y - pos.Y))
 	tl.Y = tl.Drag.StartY + yd
 	if tl.Y < 0 {
 		tl.Y = 0
@@ -186,12 +185,12 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
-		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
+		ratio := at.X / float32(gtx.Constraints.Max.X)
 		tl.Start += time.Duration(tl.nsPerPx * 100 * ratio)
 		tl.End -= time.Duration(tl.nsPerPx * 100 * (1 - ratio))
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
-		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
+		ratio := at.X / float32(gtx.Constraints.Max.X)
 		tl.Start -= time.Duration(tl.nsPerPx * 100 * ratio)
 		tl.End += time.Duration(tl.nsPerPx * 100 * (1 - ratio))
 	}
@@ -218,11 +217,11 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 		return
 	}
 
-	do := func(dspSpans []Span, startPx, endPx int) bool {
+	do := func(dspSpans []Span, startPx, endPx float32) bool {
 		start := dspSpans[0].Start
 		end := dspSpans[len(dspSpans)-1].End
 
-		if int(at.X) >= startPx && int(at.X) < endPx {
+		if at.X >= startPx && at.X < endPx {
 			tl.Start = start
 			tl.End = end
 			return true
@@ -274,23 +273,23 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 }
 
 //gcassert:inline
-func (tl *Timeline) tsToPx(t time.Duration) float64 {
-	return float64(t-tl.Start) / tl.nsPerPx
+func (tl *Timeline) tsToPx(t time.Duration) float32 {
+	return float32(t-tl.Start) / tl.nsPerPx
 }
 
 //gcassert:inline
-func (tl *Timeline) pxToTs(px int) time.Duration {
-	return time.Duration(math.Round(float64(px)*tl.nsPerPx + float64(tl.Start)))
+func (tl *Timeline) pxToTs(px float32) time.Duration {
+	return time.Duration(round32(px*tl.nsPerPx + float32(tl.Start)))
 }
 
 type renderedSpansIterator struct {
 	offset         int
 	tl             *Timeline
 	spans          []Span
-	prevExtendedBy int
+	prevExtendedBy float32
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx int, ok bool) {
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float32, ok bool) {
 	offset := it.offset
 	spans := it.spans
 
@@ -298,22 +297,22 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		return nil, 0, 0, false
 	}
 
-	minSpanWidth := gtx.Metric.Dp(minSpanWidthDp)
+	minSpanWidth := float32(gtx.Metric.Dp(minSpanWidthDp))
 	startOffset := offset
-	nsPerPx := it.tl.nsPerPx
+	nsPerPx := float32(it.tl.nsPerPx)
 	tlStart := it.tl.Start
 
 	s := it.spans[offset]
 	offset++
-	startPx = int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + it.prevExtendedBy
-	endPx = int(math.Round(float64(s.End-tlStart) / nsPerPx))
+	startPx = float32(s.Start-tlStart)/nsPerPx + it.prevExtendedBy
+	endPx = float32(s.End-tlStart) / nsPerPx
 
 	if endPx-startPx < minSpanWidth {
 		// Collect enough spans until we've filled the minimum width
 
 		// Compute the minimum duration for a span to stand on its own. We subtract 1 from minSpanWidth to account for
 		// lucky rounding to pixel boundaries.
-		minStandaloneDuration := float64(minSpanWidth-1) * nsPerPx
+		minStandaloneDuration := (minSpanWidth - 1) * nsPerPx
 
 		for {
 			if offset == len(it.spans) {
@@ -322,25 +321,25 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			}
 
 			s := spans[offset]
-			if float64(s.End-s.Start) < minStandaloneDuration {
+			if float32(s.End-s.Start) < minStandaloneDuration {
 				// Even under ideal conditions - no extension and no truncation - this span wouldn't be able to stand on
 				// its own. Avoid doing expensive math.
 			} else {
 				// Assume that we stop at this span. Compute the final size and the future prevExtendedBy. Use that to see
 				// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-				var extended int
+				var extended float32
 				if endPx-startPx < minSpanWidth {
 					extended = minSpanWidth - (endPx - startPx)
 				}
-				theirStartPx := int(math.Round(float64(s.Start-tlStart)/nsPerPx)) + extended
-				theirEndPx := int(math.Round(float64(s.End-tlStart) / nsPerPx))
+				theirStartPx := float32(s.Start-tlStart)/nsPerPx + extended
+				theirEndPx := float32(s.End-tlStart) / nsPerPx
 				if theirEndPx-theirStartPx >= minSpanWidth {
 					// Don't merge spans that can stand on their own
 					break
 				}
 			}
 
-			endPx = int(math.Round(float64(s.End-tlStart) / nsPerPx))
+			endPx = float32(s.End-tlStart) / nsPerPx
 			offset++
 		}
 	}
@@ -413,13 +412,13 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		d := tl.Scrollbar.ScrollDistance()
 		totalHeight := float32(len(gs) * (goroutineHeight + goroutineGap))
-		tl.Y += int(math.Round(float64(d * totalHeight)))
+		tl.Y += int(round32(d * totalHeight))
 		if tl.Y < 0 {
 			tl.Y = 0
 		}
 	}
 
-	tl.nsPerPx = float64(tl.End-tl.Start) / float64(gtx.Constraints.Max.X)
+	tl.nsPerPx = float32(tl.End-tl.Start) / float32(gtx.Constraints.Max.X)
 
 	if debug {
 		if tl.End < tl.Start {
@@ -449,19 +448,19 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	// Draw zoom selection
 	if tl.ZoomSelection.Active {
-		one := int(math.Round(float64(tl.ZoomSelection.ClickAt.X)))
-		two := int(math.Round(float64(tl.Global.cursorPos.X)))
-		rect := clip.Rect{
-			Min: image.Pt(min(one, two), 0),
-			Max: image.Pt(max(one, two), gtx.Constraints.Max.Y),
+		one := tl.ZoomSelection.ClickAt.X
+		two := tl.Global.cursorPos.X
+		rect := FRect{
+			Min: f32.Pt(min(one, two), 0),
+			Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
 		}
-		paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op())
+		paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
 	}
 
 	// Draw cursor
 	rect := clip.Rect{
-		Min: image.Pt(int(math.Round(float64(tl.Global.cursorPos.X))), 0),
-		Max: image.Pt(int(math.Round(float64(tl.Global.cursorPos.X+1))), gtx.Constraints.Max.Y),
+		Min: image.Pt(int(round32(tl.Global.cursorPos.X)), 0),
+		Max: image.Pt(int(round32(tl.Global.cursorPos.X+1)), gtx.Constraints.Max.Y),
 	}
 	paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
@@ -474,7 +473,7 @@ func (a *Axis) tickInterval(gtx layout.Context) time.Duration {
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
 	minTickDistance := gtx.Metric.Dp(minTickDistanceDp)
 	for t := time.Duration(1); true; t *= 10 {
-		tickDistance := int(math.Round(float64(t) / a.tl.nsPerPx))
+		tickDistance := int(round32(float32(t) / a.tl.nsPerPx))
 		if tickDistance >= minTickDistance {
 			return t
 		}
@@ -531,8 +530,8 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	ticksPath.Begin(&ticksOps)
 	i := 0
 	for t := a.tl.Start; t < a.tl.End; t += tickInterval {
-		start := float32(a.tl.tsToPx(t) - float64(tickWidth/2))
-		end := float32(a.tl.tsToPx(t) + float64(tickWidth/2))
+		start := a.tl.tsToPx(t) - tickWidth/2
+		end := a.tl.tsToPx(t) + tickWidth/2
 		rect := FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
@@ -540,8 +539,8 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := float32(a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) - tickWidth/2
-			smallEnd := float32(a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) + tickWidth/2
+			smallStart := a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) - tickWidth/2
+			smallEnd := a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -574,7 +573,7 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
 				prevLabelEnd = start + float32(dims.Size.X/2)
 				if start+float32(dims.Size.X/2) <= float32(gtx.Constraints.Max.X) {
-					stack := op.Offset(image.Pt(int(math.Round(float64(start-float32(dims.Size.X/2)))), int(tickHeight))).Push(gtx.Ops)
+					stack := op.Offset(image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
 					call.Add(gtx.Ops)
 					stack.Pop()
 				}
@@ -686,8 +685,8 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 		paths[i].Begin(&ops[i])
 	}
 
-	firstStart := -1
-	lastEnd := -1
+	firstStart := float32(-1)
+	lastEnd := float32(-1)
 	first := true
 
 	func() {
@@ -695,7 +694,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 		pointer.InputOp{Tag: gw, Types: pointer.Enter | pointer.Leave | pointer.Move}.Add(gtx.Ops)
 	}()
 
-	doSpans := func(dspSpans []Span, startPx, endPx int) {
+	doSpans := func(dspSpans []Span, startPx, endPx float32) {
 		if first {
 			firstStart = startPx
 		}
@@ -715,14 +714,14 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 
 		var minP f32.Point
 		var maxP f32.Point
-		minP = f32.Pt(float32(max(startPx, 0)), 0)
-		maxP = f32.Pt(float32(min(endPx, gtx.Constraints.Max.X)), float32(goroutineStateHeight))
+		minP = f32.Pt((max(startPx, 0)), 0)
+		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(goroutineStateHeight))
 		if first && startPx >= 0 {
 			// We don't want two borders right next to each other, nor do we want a border for truncated spans
 			minP.X += float32(spanBorderWidth)
 		}
 		minP.Y += float32(spanBorderWidth)
-		if endPx <= gtx.Constraints.Max.X {
+		if endPx <= float32(gtx.Constraints.Max.X) {
 			maxP.X -= float32(spanBorderWidth)
 		}
 		maxP.Y -= float32(spanBorderWidth)
@@ -747,7 +746,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 			p.path.Close()
 		}
 
-		if gw.hovered && int(gw.pointerAt.X) >= startPx && int(gw.pointerAt.X) < endPx {
+		if gw.hovered && gw.pointerAt.X >= startPx && gw.pointerAt.X < endPx {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
@@ -778,7 +777,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 			}
 			allDspSpans = append(allDspSpans, struct {
 				dspSpans       []Span
-				startPx, endPx int
+				startPx, endPx float32
 			}{dspSpans, startPx, endPx})
 			doSpans(dspSpans, startPx, endPx)
 		}
@@ -791,11 +790,11 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 		outlinesPath.Begin(gtx.Ops)
 		// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
 		firstStart = max(firstStart, 0)
-		lastEnd = min(lastEnd, gtx.Constraints.Max.X)
-		outlinesPath.MoveTo(f32.Pt(float32(firstStart), 0))
-		outlinesPath.LineTo(f32.Pt(float32(lastEnd), 0))
-		outlinesPath.LineTo(f32.Pt(float32(lastEnd), float32(goroutineStateHeight)))
-		outlinesPath.LineTo(f32.Pt(float32(firstStart), float32(goroutineStateHeight)))
+		lastEnd = min(lastEnd, float32(gtx.Constraints.Max.X))
+		outlinesPath.MoveTo(f32.Pt(firstStart, 0))
+		outlinesPath.LineTo(f32.Pt(lastEnd, 0))
+		outlinesPath.LineTo(f32.Pt(lastEnd, float32(goroutineStateHeight)))
+		outlinesPath.LineTo(f32.Pt(firstStart, float32(goroutineStateHeight)))
 		outlinesPath.Close()
 		paint.FillShape(gtx.Ops, color.NRGBA{A: 0xFF}, clip.Outline{Path: outlinesPath.End()}.Op())
 	} else {
@@ -1375,8 +1374,8 @@ func run(w *app.Window) error {
 	}
 	tl.prevFrame.dspSpans = map[uint64][]struct {
 		dspSpans []Span
-		startPx  int
-		endPx    int
+		startPx  float32
+		endPx    float32
 	}{}
 
 	profileTag := new(int)
@@ -1408,7 +1407,7 @@ func run(w *app.Window) error {
 	}
 }
 
-func min(a, b int) int {
+func min(a, b float32) float32 {
 	if a <= b {
 		return a
 	} else {
@@ -1416,7 +1415,7 @@ func min(a, b int) int {
 	}
 }
 
-func max(a, b int) int {
+func max(a, b float32) float32 {
 	if a >= b {
 		return a
 	} else {
@@ -1446,4 +1445,8 @@ func (r FRect) IntoPath(p *clip.Path) {
 
 func (r FRect) Op(ops *op.Ops) clip.Op {
 	return clip.Outline{Path: r.Path(ops)}.Op()
+}
+
+func round32(f float32) float32 {
+	return float32(math.Round(float64(f)))
 }
