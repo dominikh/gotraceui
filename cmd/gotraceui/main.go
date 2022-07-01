@@ -573,15 +573,52 @@ type GoroutineWidget struct {
 	g         *Goroutine
 	pointerAt f32.Point
 	hovered   bool
+
+	prevFrame struct {
+		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
+		hovered bool
+		ops     op.Ops
+		call    op.CallOp
+	}
 }
 
 func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
-	// TODO(dh): track click events per goroutine, then use that to implement zooming to a span. it's less efficient but
-	// more decoupled.
-
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
+
+	// FIXME(dh): update tooltip position when dragging
+	for _, ev := range gtx.Events(gw) {
+		switch ev.(pointer.Event).Type {
+		case pointer.Enter, pointer.Move:
+			gw.hovered = true
+			gw.pointerAt = ev.(pointer.Event).Position
+		case pointer.Leave:
+			gw.hovered = false
+		}
+	}
+
+	if gw.tl.unchanged() && !gw.hovered && !gw.prevFrame.hovered {
+		// OPT(dh): instead of avoiding cached ops completely when the goroutine is hovered, draw the tooltip
+		// separately.
+		gw.prevFrame.call.Add(gtx.Ops)
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}
+	}
+
+	gw.prevFrame.hovered = gw.hovered
+
+	origOps := gtx.Ops
+	gtx.Ops = &gw.prevFrame.ops
+	gtx.Ops.Reset()
+	macro := op.Record(gtx.Ops)
+	defer func() {
+		call := macro.Stop()
+		call.Add(origOps)
+		gw.prevFrame.call = call
+	}()
+
+	// TODO(dh): track click events per goroutine, then use that to implement zooming to a span. it's less efficient but
+	// more decoupled.
 
 	// Draw goroutine lifetimes
 	//
@@ -630,17 +667,6 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 	firstStart := -1
 	lastEnd := -1
 	first := true
-
-	// FIXME(dh): update tooltip position when dragging
-	for _, ev := range gtx.Events(gw) {
-		switch ev.(pointer.Event).Type {
-		case pointer.Enter, pointer.Move:
-			gw.hovered = true
-			gw.pointerAt = ev.(pointer.Event).Position
-		case pointer.Leave:
-			gw.hovered = false
-		}
-	}
 
 	func() {
 		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineStateHeight)}.Push(gtx.Ops).Pop()
