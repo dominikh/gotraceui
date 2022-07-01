@@ -53,7 +53,7 @@ const (
 
 	goroutineStateHeightDp unit.Dp = 10
 	goroutineGapDp         unit.Dp = 5
-	goroutineHeightDp      unit.Dp = goroutineStateHeightDp + goroutineGapDp
+	goroutineHeightDp      unit.Dp = goroutineStateHeightDp
 
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 2
 
@@ -410,6 +410,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	{
 		goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+		goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		var maxGid uint64
 		for gid := range gs {
@@ -419,7 +420,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 
 		d := tl.Scrollbar.ScrollDistance()
-		totalHeight := float32(maxGid * uint64(goroutineHeight))
+		totalHeight := float32(maxGid * uint64(goroutineHeight+goroutineGap))
 		tl.Y += int(math.Round(float64(d * totalHeight)))
 		if tl.Y < 0 {
 			tl.Y = 0
@@ -781,6 +782,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	}
 
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
@@ -793,7 +795,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 				maxGid = gid
 			}
 		}
-		totalHeight := float32((maxGid + 1) * uint64(goroutineHeight))
+		totalHeight := float32((maxGid + 1) * uint64(goroutineHeight+goroutineGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
 		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
@@ -806,7 +808,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	}
 
 	for gid, gw := range tl.Gs {
-		y := goroutineHeight*int(gid) - tl.Y
+		y := (goroutineHeight+goroutineGap)*int(gid) - tl.Y
 		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
 			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
 			continue
