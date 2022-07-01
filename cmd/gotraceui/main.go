@@ -70,7 +70,7 @@ type Timeline struct {
 	// canvas that the goroutine section's Y == 0 is displaying.
 	Y int
 
-	Gs map[uint64]*GoroutineWidget
+	Gs []*GoroutineWidget
 
 	Theme *material.Theme
 
@@ -412,15 +412,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 		goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		var maxGid uint64
-		for gid := range gs {
-			if gid > maxGid {
-				maxGid = gid
-			}
-		}
-
 		d := tl.Scrollbar.ScrollDistance()
-		totalHeight := float32(maxGid * uint64(goroutineHeight+goroutineGap))
+		totalHeight := float32(len(gs) * (goroutineHeight + goroutineGap))
 		tl.Y += int(math.Round(float64(d * totalHeight)))
 		if tl.Y < 0 {
 			tl.Y = 0
@@ -583,6 +576,9 @@ type GoroutineWidget struct {
 }
 
 func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
+	// TODO(dh): track click events per goroutine, then use that to implement zooming to a span. it's less efficient but
+	// more decoupled.
+
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
@@ -635,6 +631,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 	lastEnd := -1
 	first := true
 
+	// FIXME(dh): update tooltip position when dragging
 	for _, ev := range gtx.Events(gw) {
 		switch ev.(pointer.Event).Type {
 		case pointer.Enter, pointer.Move:
@@ -789,13 +786,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	// not bring us out of alignment with the axis.
 	{
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		var maxGid uint64
-		for gid := range gs {
-			if gid > maxGid {
-				maxGid = gid
-			}
-		}
-		totalHeight := float32((maxGid + 1) * uint64(goroutineHeight+goroutineGap))
+		totalHeight := float32((len(gs) + 1) * (goroutineHeight + goroutineGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
 		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
@@ -807,19 +798,20 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	}
 
-	for gid, gw := range tl.Gs {
-		y := (goroutineHeight+goroutineGap)*int(gid) - tl.Y
-		if y < -goroutineStateHeight || y > gtx.Constraints.Max.Y {
-			// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
+	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
+	for i, gw := range tl.Gs {
+		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
+		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
+		if y < -goroutineStateHeight {
 			continue
 		}
+		if y > gtx.Constraints.Max.Y {
+			break
+		}
 
-		func() {
-			// Our goroutines aren't sorted, causing our offsets to jump all over the place. That's why we calculate
-			// absolute offsets and pop them after each iteration.
-			defer op.Offset(image.Pt(0, y)).Push(gtx.Ops).Pop()
-			gw.Layout(gtx)
-		}()
+		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+		gw.Layout(gtx)
+		stack.Pop()
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}
@@ -932,7 +924,7 @@ func (s Span) Duration() time.Duration {
 }
 
 // TODO(dh): avoid global state
-var gs = map[uint64]*Goroutine{}
+var gs []*Goroutine
 
 func spanHasEvents(events []*trace.Event, start, end time.Duration) bool {
 	// OPT(dh): use at least binary search. Ideally we'd just store events with spans and avoid the computation
@@ -996,13 +988,14 @@ func main() {
 		trace.EvGoBlock:       stateBlocked,
 	}
 
+	gsByID := map[uint64]*Goroutine{}
 	getG := func(gid uint64) *Goroutine {
-		g, ok := gs[gid]
+		g, ok := gsByID[gid]
 		if ok {
 			return g
 		}
 		g = &Goroutine{ID: gid}
-		gs[gid] = g
+		gsByID[gid] = g
 		return g
 	}
 
@@ -1132,7 +1125,7 @@ func main() {
 		getG(gid).Spans = append(getG(gid).Spans, Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
 	}
 
-	for _, g := range gs {
+	for _, g := range gsByID {
 		if len(g.Spans) == 0 {
 			continue
 		}
@@ -1148,7 +1141,13 @@ func main() {
 			// XXX somehow encode open-ended traces
 			g.Spans[len(g.Spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
 		}
+
+		gs = append(gs, g)
 	}
+
+	sort.Slice(gs, func(i, j int) bool {
+		return gs[i].ID < gs[j].ID
+	})
 
 	fmt.Println("Starting UI...")
 
@@ -1317,9 +1316,9 @@ func run(w *app.Window) error {
 		End:   end,
 		Theme: material.NewTheme(gofont.Collection()),
 	}
-	tl.Gs = map[uint64]*GoroutineWidget{}
-	for gid, g := range gs {
-		tl.Gs[gid] = &GoroutineWidget{
+	tl.Gs = make([]*GoroutineWidget, len(gs))
+	for i, g := range gs {
+		tl.Gs[i] = &GoroutineWidget{
 			Theme: tl.Theme,
 			tl:    &tl,
 			g:     g,
