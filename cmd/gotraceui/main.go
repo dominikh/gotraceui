@@ -186,35 +186,24 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-// gidAtPoint returns the goroutine ID at a point. The point should be relative to the
+// gAtPoint returns the goroutine ID at a point. The point should be relative to the
 // goroutine section of the timeline.
-func (tl *Timeline) gidAtPoint(gtx layout.Context, at f32.Point) (uint64, bool) {
-	if !tl.isOnGoroutine(gtx, at) {
-		return 0, false
+func (tl *Timeline) gAtPoint(gtx layout.Context, at f32.Point) (*Goroutine, bool) {
+	// OPT(dh): don't iterate over all goroutines, only those that are visible
+	for _, gw := range tl.Gs {
+		if gw.hovered {
+			return gw.g, true
+		}
 	}
-	return uint64((at.Y + float32(tl.Y)) / float32(gtx.Metric.Dp(goroutineHeightDp))), true
-}
-
-// isOnGoroutine reports whether there's a goroutine under a point. The point should be relative to the goroutine
-// section of the timeline.
-func (tl *Timeline) isOnGoroutine(gtx layout.Context, at f32.Point) bool {
-	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
-	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
-	rem := math.Mod(float64(at.Y)+float64(tl.Y), float64(goroutineHeight))
-	return rem <= float64(goroutineStateHeight)
+	return nil, false
 }
 
 // zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
 // timeline.
 func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 	// TODO(dh): make it the goroutine widget's task to find the clicked span
-	gid, ok := tl.gidAtPoint(gtx, at)
+	g, ok := tl.gAtPoint(gtx, at)
 	if !ok {
-		return
-	}
-	g, ok := gs[gid]
-	if !ok {
-		// Not a known goroutine
 		return
 	}
 
@@ -232,7 +221,7 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 	}
 
 	if tl.unchanged() {
-		for _, prevSpans := range tl.prevFrame.dspSpans[gid] {
+		for _, prevSpans := range tl.prevFrame.dspSpans[g.ID] {
 			if do(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx) {
 				return
 			}
