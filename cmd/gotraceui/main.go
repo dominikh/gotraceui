@@ -62,6 +62,17 @@ const (
 	tooltipFontSizeSp unit.Sp = 14
 )
 
+type Axis struct {
+	tl *Timeline
+
+	prevFrame struct {
+		ops    op.Ops
+		call   op.CallOp
+		labels []string
+		dims   layout.Dimensions
+	}
+}
+
 type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
 	Start time.Duration
@@ -75,6 +86,7 @@ type Timeline struct {
 	Theme *material.Theme
 
 	Scrollbar widget.Scrollbar
+	Axis      Axis
 
 	// State for dragging the timeline
 	Drag struct {
@@ -112,7 +124,6 @@ type Timeline struct {
 			dspSpans       []Span
 			startPx, endPx int
 		}
-		tickLabels []string
 	}
 }
 
@@ -243,18 +254,6 @@ func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 			}
 		}
 	}
-}
-
-func (tl *Timeline) tickInterval(gtx layout.Context) time.Duration {
-	// Note that an analytical solution exists for this, but computing it is slower than the loop.
-	minTickDistance := gtx.Metric.Dp(minTickDistanceDp)
-	for t := time.Duration(1); true; t *= 10 {
-		tickDistance := int(math.Round(float64(t) / tl.nsPerPx))
-		if tickDistance >= minTickDistance {
-			return t
-		}
-	}
-	panic("unreachable")
 }
 
 func (tl *Timeline) visibleSpans(spans []Span) []Span {
@@ -446,7 +445,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
-	Stack(gtx, tl.layoutAxis, tl.layoutGoroutines)
+	Stack(gtx, tl.Axis.Layout, tl.layoutGoroutines)
 
 	// Draw zoom selection
 	if tl.ZoomSelection.Active {
@@ -471,9 +470,21 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 }
 
-func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
+func (a *Axis) tickInterval(gtx layout.Context) time.Duration {
+	// Note that an analytical solution exists for this, but computing it is slower than the loop.
+	minTickDistance := gtx.Metric.Dp(minTickDistanceDp)
+	for t := time.Duration(1); true; t *= 10 {
+		tickDistance := int(math.Round(float64(t) / a.tl.nsPerPx))
+		if tickDistance >= minTickDistance {
+			return t
+		}
+	}
+	panic("unreachable")
+}
+
+func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	// TODO draw smaller ticks between larger ticks
-	tickInterval := tl.tickInterval(gtx)
+	tickInterval := a.tickInterval(gtx)
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	prevLabelEnd := float32(-1)
 	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
@@ -484,33 +495,44 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 	minTickLabelDistance := float32(gtx.Metric.Dp(minTickLabelDistanceDp))
 
 	var labels []string
-	if tl.unchanged() {
-		labels = tl.prevFrame.tickLabels
-	} else if tl.prevFrame.nsPerPx == tl.nsPerPx {
+	if a.tl.unchanged() {
+		a.prevFrame.call.Add(gtx.Ops)
+		return a.prevFrame.dims
+	} else if a.tl.prevFrame.nsPerPx == a.tl.nsPerPx {
 		// Panning only changes the first label
-		labels = tl.prevFrame.tickLabels
+		labels = a.prevFrame.labels
 		// TODO print thousands separator
-		labels[0] = fmt.Sprintf("%d ns", tl.Start)
+		labels[0] = fmt.Sprintf("%d ns", a.tl.Start)
 	} else {
-		for t := tl.Start; t < tl.End; t += tickInterval {
-			if t == tl.Start {
+		for t := a.tl.Start; t < a.tl.End; t += tickInterval {
+			if t == a.tl.Start {
 				// TODO print thousands separator
 				labels = append(labels, fmt.Sprintf("%d ns", t))
 			} else {
 				// TODO separate value and unit symbol with a space
-				labels = append(labels, fmt.Sprintf("+%s", t-tl.Start))
+				labels = append(labels, fmt.Sprintf("+%s", t-a.tl.Start))
 			}
 		}
-		tl.prevFrame.tickLabels = labels
+		a.prevFrame.labels = labels
 	}
+
+	origOps := gtx.Ops
+	gtx.Ops = &a.prevFrame.ops
+	macro := op.Record(gtx.Ops)
+	defer func() {
+		call := macro.Stop()
+		call.Add(origOps)
+		a.prevFrame.call = call
+		a.prevFrame.dims = dims
+	}()
 
 	var ticksPath clip.Path
 	var ticksOps op.Ops
 	ticksPath.Begin(&ticksOps)
 	i := 0
-	for t := tl.Start; t < tl.End; t += tickInterval {
-		start := float32(tl.tsToPx(t) - float64(tickWidth/2))
-		end := float32(tl.tsToPx(t) + float64(tickWidth/2))
+	for t := a.tl.Start; t < a.tl.End; t += tickInterval {
+		start := float32(a.tl.tsToPx(t) - float64(tickWidth/2))
+		end := float32(a.tl.tsToPx(t) + float64(tickWidth/2))
 		rect := FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
@@ -518,8 +540,8 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := float32(tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) - tickWidth/2
-			smallEnd := float32(tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) + tickWidth/2
+			smallStart := float32(a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) - tickWidth/2
+			smallEnd := float32(a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j))) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -531,11 +553,11 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			rect.IntoPath(&ticksPath)
 		}
 
-		if t == tl.Start {
+		if t == a.tl.Start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, a.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -546,7 +568,7 @@ func (tl *Timeline) layoutAxis(gtx layout.Context) layout.Dimensions {
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, a.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -1337,16 +1359,17 @@ func run(w *app.Window) error {
 	slack := float64(end) * 0.05
 	start := time.Duration(-slack)
 	end = time.Duration(float64(end) + slack)
-	tl := Timeline{
+	tl := &Timeline{
 		Start: start,
 		End:   end,
 		Theme: material.NewTheme(gofont.Collection()),
 	}
+	tl.Axis = Axis{tl: tl}
 	tl.Gs = make([]*GoroutineWidget, len(gs))
 	for i, g := range gs {
 		tl.Gs[i] = &GoroutineWidget{
 			Theme: tl.Theme,
-			tl:    &tl,
+			tl:    tl,
 			g:     g,
 		}
 	}
