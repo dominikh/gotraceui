@@ -53,11 +53,11 @@ const (
 
 	// XXX the label height depends on the font used
 	goroutineLabelHeightDp unit.Dp = 20
-	goroutineStateHeightDp unit.Dp = 10
+	goroutineStateHeightDp unit.Dp = 12
 	goroutineGapDp         unit.Dp = 5
 	goroutineHeightDp      unit.Dp = goroutineStateHeightDp + goroutineLabelHeightDp
 
-	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 2
+	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
 	spanBorderWidthDp unit.Dp = 1
 
