@@ -363,9 +363,33 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 	}
 }
 
+func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
+	var first, last time.Duration = -1, -1
+	for _, gw := range tl.visibleGoroutines(gtx) {
+		if len(gw.g.Spans) == 0 {
+			continue
+		}
+		if t := gw.g.Spans[0].Start; t < first || first == -1 {
+			first = t
+		}
+		if t := gw.g.Spans[len(gw.g.Spans)-1].End; t > last {
+			last = t
+		}
+	}
+	if first != -1 && last == -1 {
+		panic("unreachable")
+	}
+	tl.Start = first
+	tl.End = last
+}
+
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
+		case key.Event:
+			if ev.Name == key.NameHome && ev.State == key.Press {
+				tl.zoomToFitCurrentView(gtx)
+			}
 		case pointer.Event:
 			switch ev.Type {
 			case pointer.Press:
@@ -442,6 +466,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: key.NameHome}.Add(gtx.Ops)
+	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
 	Stack(gtx, tl.Axis.Layout, tl.layoutGoroutines)
@@ -809,6 +835,33 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}
+}
+
+func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
+	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
+	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
+
+	start := -1
+	end := -1
+	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
+	// OPT(dh): we can probably compute the indices directly
+	for i := range tl.Gs {
+		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
+		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
+		if y < -goroutineStateHeight {
+			continue
+		}
+		if start == -1 {
+			start = i
+		}
+		if y > gtx.Constraints.Max.Y {
+			end = i
+			break
+		}
+	}
+
+	return tl.Gs[start:end]
 }
 
 func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
