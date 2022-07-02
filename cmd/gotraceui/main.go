@@ -115,6 +115,7 @@ type Timeline struct {
 	}
 	Goroutines struct {
 		DisplayAllLabels bool
+		Compact          bool
 		_                [0]int
 	}
 
@@ -125,6 +126,7 @@ type Timeline struct {
 		End      time.Duration
 		Y        int
 		nsPerPx  float32
+		compact  bool
 		dspSpans map[uint64][]struct {
 			dspSpans       []Span
 			startPx, endPx float32
@@ -133,7 +135,7 @@ type Timeline struct {
 }
 
 func (tl *Timeline) unchanged() bool {
-	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx && tl.prevFrame.Y == tl.Y
+	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx && tl.prevFrame.Y == tl.Y && tl.prevFrame.compact == tl.Goroutines.Compact
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -202,10 +204,18 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
+func (tl *Timeline) goroutineHeight(gtx layout.Context) int {
+	if tl.Goroutines.Compact {
+		return gtx.Metric.Dp(goroutineHeightDp) - gtx.Metric.Dp(goroutineLabelHeightDp)
+	} else {
+		return gtx.Metric.Dp(goroutineHeightDp)
+	}
+}
+
 // gAtPoint returns the goroutine ID at a point. The point should be relative to the
 // goroutine section of the timeline.
 func (tl *Timeline) gAtPoint(gtx layout.Context) (*Goroutine, bool) {
-	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineHeight := tl.goroutineHeight(gtx)
 	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 
@@ -428,6 +438,9 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 				case "X":
 					tl.Goroutines.DisplayAllLabels = !tl.Goroutines.DisplayAllLabels
+
+				case "C":
+					tl.Goroutines.Compact = !tl.Goroutines.Compact
 				}
 			}
 		case pointer.Event:
@@ -471,7 +484,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	{
-		goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+		goroutineHeight := tl.goroutineHeight(gtx)
 		goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		d := tl.Scrollbar.ScrollDistance()
@@ -506,7 +519,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: "X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: "C|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
@@ -667,13 +680,14 @@ type GoroutineWidget struct {
 		hovered         bool
 		hoveredActivity bool
 		forceLabel      bool
+		compact         bool
 		ops             op.Ops
 		call            op.CallOp
 	}
 }
 
-func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Dimensions {
-	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact bool) layout.Dimensions {
+	goroutineHeight := gw.tl.goroutineHeight(gtx)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
@@ -696,7 +710,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 		}
 	}
 
-	if gw.tl.unchanged() && !gw.hoveredActivity && !gw.prevFrame.hoveredActivity && !gw.hovered && !gw.prevFrame.hovered && forceLabel == gw.prevFrame.forceLabel {
+	if gw.tl.unchanged() && !gw.hoveredActivity && !gw.prevFrame.hoveredActivity && !gw.hovered && !gw.prevFrame.hovered && forceLabel == gw.prevFrame.forceLabel && compact == gw.prevFrame.compact {
 		// OPT(dh): instead of avoiding cached ops completely when the goroutine is hovered, draw the tooltip
 		// separately.
 		gw.prevFrame.call.Add(gtx.Ops)
@@ -706,6 +720,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 	gw.prevFrame.hovered = gw.hovered
 	gw.prevFrame.hoveredActivity = gw.hoveredActivity
 	gw.prevFrame.forceLabel = forceLabel
+	gw.prevFrame.compact = compact
 
 	origOps := gtx.Ops
 	gtx.Ops = &gw.prevFrame.ops
@@ -722,7 +737,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 		pointer.InputOp{Tag: &gw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 	}()
 
-	{
+	if !compact {
 		c := colors[colorGoroutineLabel]
 		paint.ColorOp{Color: c}.Add(gtx.Ops)
 		var l string
@@ -921,7 +936,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 }
 
 func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
-	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineHeight := tl.goroutineHeight(gtx)
 	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 
 	start := -1
@@ -960,7 +975,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineHeight := tl.goroutineHeight(gtx)
 	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
@@ -991,7 +1006,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		gw.Layout(gtx, tl.Goroutines.DisplayAllLabels)
+		gw.Layout(gtx, tl.Goroutines.DisplayAllLabels, tl.Goroutines.Compact)
 		stack.Pop()
 	}
 
@@ -1628,6 +1643,7 @@ func run(w *app.Window) error {
 			tl.prevFrame.End = tl.End
 			tl.prevFrame.nsPerPx = tl.nsPerPx
 			tl.prevFrame.Y = tl.Y
+			tl.prevFrame.compact = tl.Goroutines.Compact
 
 			ev.Frame(&ops)
 		}
