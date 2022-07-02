@@ -198,7 +198,7 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 
 // gAtPoint returns the goroutine ID at a point. The point should be relative to the
 // goroutine section of the timeline.
-func (tl *Timeline) gAtPoint(gtx layout.Context, at f32.Point) (*Goroutine, bool) {
+func (tl *Timeline) gAtPoint(gtx layout.Context) (*Goroutine, bool) {
 	// OPT(dh): don't iterate over all goroutines, only those that are visible
 	for _, gw := range tl.Gs {
 		if gw.hovered {
@@ -212,7 +212,7 @@ func (tl *Timeline) gAtPoint(gtx layout.Context, at f32.Point) (*Goroutine, bool
 // timeline.
 func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
 	// TODO(dh): make it the goroutine widget's task to find the clicked span
-	g, ok := tl.gAtPoint(gtx, at)
+	g, ok := tl.gAtPoint(gtx)
 	if !ok {
 		return
 	}
