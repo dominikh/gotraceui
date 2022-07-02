@@ -388,7 +388,16 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		switch ev := ev.(type) {
 		case key.Event:
 			if ev.Name == key.NameHome && ev.State == key.Press {
-				tl.zoomToFitCurrentView(gtx)
+				switch {
+				case ev.Modifiers&key.ModShift != 0:
+					tl.zoomToFitCurrentView(gtx)
+				case ev.Modifiers&key.ModCtrl != 0:
+					d := tl.End - tl.Start
+					tl.Start = 0
+					tl.End = tl.Start + d
+				case ev.Modifiers == 0:
+					tl.Y = 0
+				}
 			}
 		case pointer.Event:
 			switch ev.Type {
@@ -466,7 +475,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: key.NameHome}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: "(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
