@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"honnef.co/go/gotraceui/trace"
@@ -934,14 +935,6 @@ type SpanTooltip struct {
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var tooltipBorderWidth = gtx.Metric.Dp(2)
 
-	pickFrame := func(frames []*trace.Frame, idx int) *trace.Frame {
-		if len(frames) > idx {
-			return frames[idx]
-		} else {
-			return nil
-		}
-	}
-
 	// For debugging
 	dumpFrames := func(frames []*trace.Frame) {
 		if len(frames) == 0 {
@@ -957,6 +950,10 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var at *trace.Frame
 	if len(tt.Spans) == 1 {
 		s := tt.Spans[0]
+		at = s.At
+		if at == nil && len(s.Stack) > 0 {
+			at = s.Stack[0]
+		}
 		switch state := s.State; state {
 		case stateInactive:
 			label += "inactive"
@@ -964,89 +961,28 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateActive:
 			label += "active"
 		case stateBlocked:
-			if len(s.Stack) != 0 {
-				if s.Stack[len(s.Stack)-1].Fn == "runtime.runfinq" {
-					// Based on Go 1.18
-					label += "runfinq: waiting for finalizer to run"
-				} else if s.Stack[0].Fn == "runtime.ReadTrace" {
-					// Based on Go 1.11, 1.18
-					label += "waiting for trace data"
-				} else {
-					label += "blocked"
-				}
-			} else {
-				label += "blocked"
-			}
+			label += "blocked"
 		case stateBlockedSend:
 			label += "blocked on channel send"
+		case stateBlockedWaitingForTraceData:
+			label += "waiting for trace data"
+		case stateBlockedRunfinqWaiting:
+			label += "runfinq: waiting for finalizer to run"
 		case stateBlockedRecv:
 			label += "blocked on channel recv"
-			at = pickFrame(s.Stack, 0)
-			if len(s.Stack) >= 2 {
-				if s.Stack[0].Fn == "runtime.chanrecv1" || s.Stack[0].Fn == "runtime.chanrecv2" {
-					// Based on Go 1.18
-					at = s.Stack[1]
-				}
-			}
 		case stateBlockedSelect:
 			label += "blocked on select"
-			at = pickFrame(s.Stack, 1)
 		case stateBlockedSync:
-			at = pickFrame(s.Stack, 0)
-			if len(s.Stack) >= 1 && s.Stack[0].Fn == "runtime.gcStart" {
-				// Based on Go 1.18
-				label += "blocked triggering GC"
-			} else if len(s.Stack) >= 3 && s.Stack[0].Fn == "sync.(*Mutex).Lock" && s.Stack[1].Fn == "sync.(*Once).doSlow" && s.Stack[2].Fn == "sync.(*Once).Do" {
-				// Based on Go 1.18
-				label += "blocked on sync.Once"
-				at = pickFrame(s.Stack, 3)
-			} else {
-				label += "blocked on mutex"
-			}
-
+			label += "blocked on mutex"
+		case stateBlockedSyncOnce:
+			label += "blocked on sync.Once"
+		case stateBlockedSyncTriggeringGC:
+			label += "blocked triggering GC"
 		case stateBlockedCond:
 			label += "blocked on condition variable"
-			at = pickFrame(s.Stack, 0)
-			if len(s.Stack) >= 2 {
-				if s.Stack[0].Fn == "sync.(*Cond).Wait" {
-					// Based on Go 1.18
-					at = pickFrame(s.Stack, 1)
-				}
-			}
 		case stateBlockedNet:
 			label += "blocked on polled I/O"
-			at = pickFrame(s.Stack, 0)
-
-			if len(s.Stack) >= 2 {
-				switch s.Stack[0].Fn {
-				case "internal/poll.(*FD).Read":
-					// Based on Go 1.18
-					label += " (read"
-					at = s.Stack[1]
-					if len(s.Stack) >= 3 && s.Stack[1].Fn == "net.(*netFD).Read" {
-						// Based on Go 1.18
-						label += ", network"
-						at = s.Stack[2]
-					}
-					label += ")"
-				case "internal/poll.(*FD).Accept":
-					// Based on Go 1.18
-					label += " (accept"
-					at = s.Stack[1]
-					if len(s.Stack) >= 3 && s.Stack[1].Fn == "net.(*netFD).accept" {
-						// Based on Go 1.18
-						label += ", network"
-						at = s.Stack[2]
-					}
-					if len(s.Stack) >= 5 && s.Stack[2].Fn == "net.(*TCPListener).accept" && s.Stack[3].Fn == "net.(*TCPListener).Accept" {
-						// Based on Go 1.18
-						label += ", TCP"
-						at = s.Stack[4]
-					}
-					label += ")"
-				}
-			}
-
+			dumpFrames(s.Stack)
 		case stateBlockedGC:
 			label += "blocked on GC assist"
 		case stateBlockedSyscall:
@@ -1057,6 +993,32 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "ready"
 		default:
 			panic(fmt.Sprintf("unhandled state %d", state))
+		}
+
+		tags := make([]string, 0, 4)
+		if s.Tags&spanTagRead != 0 {
+			tags = append(tags, "read")
+		}
+		if s.Tags&spanTagAccept != 0 {
+			tags = append(tags, "accept")
+		}
+		if s.Tags&spanTagDial != 0 {
+			tags = append(tags, "dial")
+		}
+		if s.Tags&spanTagNetwork != 0 {
+			tags = append(tags, "network")
+		}
+		if s.Tags&spanTagTCP != 0 {
+			tags = append(tags, "TCP")
+		}
+		if s.Tags&spanTagTLS != 0 {
+			tags = append(tags, "TLS")
+		}
+		if s.Tags&spanTagHTTP != 0 {
+			tags = append(tags, "HTTP")
+		}
+		if len(tags) != 0 {
+			label += " (" + strings.Join(tags, ", ") + ")"
 		}
 	} else {
 		label += fmt.Sprintf("mixed (%d spans)", len(tt.Spans))
@@ -1122,6 +1084,8 @@ type Span struct {
 	Reason string
 	Events []*trace.Event
 	Stack  []*trace.Frame
+	Tags   spanTags
+	At     *trace.Frame
 }
 
 //gcassert:inline
@@ -1331,7 +1295,9 @@ func main() {
 			}
 		}
 
-		getG(gid).Spans = append(getG(gid).Spans, Span{Start: time.Duration(ev.Ts), State: state, Reason: reason, Stack: ev.Stk})
+		s := Span{Start: time.Duration(ev.Ts), State: state, Reason: reason, Stack: ev.Stk}
+		s = applyPatterns(s)
+		getG(gid).Spans = append(getG(gid).Spans, s)
 	}
 
 	for _, g := range gsByID {
@@ -1399,7 +1365,9 @@ var colors = [...]color.NRGBA{
 type colorIndex int
 
 const (
-	colorStateInactive colorIndex = iota
+	colorStateUnknown colorIndex = iota
+
+	colorStateInactive
 	colorStateActive
 
 	colorStateBlocked
@@ -1411,7 +1379,6 @@ const (
 	colorStateReady
 	colorStateStuck
 	colorStateMerged
-	colorStateUnknown
 
 	colorBackground
 	colorZoomSelection
@@ -1426,19 +1393,24 @@ const (
 type schedulingState int
 
 const (
-	stateInactive schedulingState = iota
+	stateNone schedulingState = iota
+	stateInactive
 	stateActive
 	stateBlocked
+	stateBlockedRunfinqWaiting
+	stateBlockedWaitingForTraceData // 5
 	stateBlockedSend
 	stateBlockedRecv
 	stateBlockedSelect
 	stateBlockedSync
+	stateBlockedSyncOnce
+	stateBlockedSyncTriggeringGC // 11
 	stateBlockedCond
 	stateBlockedNet
 	stateBlockedGC
 	stateBlockedSyscall
 	stateStuck
-	stateReady
+	stateReady // 17
 	stateDone
 	stateLast
 )
@@ -1466,30 +1438,38 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateBlockedSyscall: true,
 	},
 	stateActive: {
-		stateInactive:       true,
-		stateBlocked:        true,
-		stateBlockedSend:    true,
-		stateBlockedRecv:    true,
-		stateBlockedSelect:  true,
-		stateBlockedSync:    true,
-		stateBlockedCond:    true,
-		stateBlockedNet:     true,
-		stateBlockedGC:      true,
-		stateBlockedSyscall: true,
-		stateStuck:          true,
-		stateDone:           true,
+		stateInactive:                   true,
+		stateBlocked:                    true,
+		stateBlockedSend:                true,
+		stateBlockedRecv:                true,
+		stateBlockedSelect:              true,
+		stateBlockedSync:                true,
+		stateBlockedSyncOnce:            true,
+		stateBlockedSyncTriggeringGC:    true,
+		stateBlockedRunfinqWaiting:      true,
+		stateBlockedWaitingForTraceData: true,
+		stateBlockedCond:                true,
+		stateBlockedNet:                 true,
+		stateBlockedGC:                  true,
+		stateBlockedSyscall:             true,
+		stateStuck:                      true,
+		stateDone:                       true,
 	},
 	stateReady: {
 		stateActive: true,
 	},
-	stateBlocked:       {stateReady: true},
-	stateBlockedSend:   {stateReady: true},
-	stateBlockedRecv:   {stateReady: true},
-	stateBlockedSelect: {stateReady: true},
-	stateBlockedSync:   {stateReady: true},
-	stateBlockedCond:   {stateReady: true},
-	stateBlockedNet:    {stateReady: true},
-	stateBlockedGC:     {stateReady: true},
+	stateBlocked:                    {stateReady: true},
+	stateBlockedSend:                {stateReady: true},
+	stateBlockedRecv:                {stateReady: true},
+	stateBlockedSelect:              {stateReady: true},
+	stateBlockedSync:                {stateReady: true},
+	stateBlockedSyncOnce:            {stateReady: true},
+	stateBlockedSyncTriggeringGC:    {stateReady: true},
+	stateBlockedRunfinqWaiting:      {stateReady: true},
+	stateBlockedWaitingForTraceData: {stateReady: true},
+	stateBlockedCond:                {stateReady: true},
+	stateBlockedNet:                 {stateReady: true},
+	stateBlockedGC:                  {stateReady: true},
 	stateBlockedSyscall: {
 		stateReady: true,
 	},
