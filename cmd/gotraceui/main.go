@@ -1609,9 +1609,6 @@ func run(w *app.Window) error {
 		case system.FrameEvent:
 			gtx := layout.NewContext(&ops, ev)
 			gtx.Constraints.Min = image.Point{}
-			// XXX detect HiDPI
-			gtx.Metric.PxPerDp = 2
-			// TODO(dh): set PxPerSp
 
 			for _, ev := range gtx.Events(profileTag) {
 				fmt.Println(ev)
