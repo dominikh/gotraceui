@@ -932,19 +932,18 @@ type SpanTooltip struct {
 	shaper text.Shaper
 }
 
+// For debugging
+func dumpFrames(frames []*trace.Frame) {
+	if len(frames) == 0 {
+		fmt.Println("no frames")
+	}
+	for _, f := range frames {
+		fmt.Println(f)
+	}
+}
+
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var tooltipBorderWidth = gtx.Metric.Dp(2)
-
-	// For debugging
-	dumpFrames := func(frames []*trace.Frame) {
-		if len(frames) == 0 {
-			fmt.Println("no frames")
-		}
-		for _, f := range frames {
-			fmt.Println(f)
-		}
-	}
-	_ = dumpFrames
 
 	label := "State: "
 	var at *trace.Frame
@@ -986,6 +985,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateBlockedGC:
 			label += "blocked on GC assist"
 		case stateBlockedSyscall:
+			dumpFrames(s.Stack)
 			label += "blocked on syscall"
 		case stateStuck:
 			label += "stuck"
@@ -1029,7 +1029,13 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 
 	if at != nil {
 		// TODO(dh): abbreviate long paths
-		label += fmt.Sprintf("\nAt: %s:%d", at.File, at.Line)
+		if tt.Spans[0].State == stateBlockedSyscall {
+			// The function name tends to reflect the syscall's name, whereas the file and line number is largely
+			// useless to the user
+			label += fmt.Sprintf("\nAt: %s", at.Fn)
+		} else {
+			label += fmt.Sprintf("\nAt: %s:%d", at.File, at.Line)
+		}
 	}
 
 	// TODO(dh): display reason why we're in this state
@@ -1169,6 +1175,8 @@ func main() {
 		return g
 	}
 
+	lastSyscall := map[uint64][]*trace.Frame{}
+
 	for _, ev := range res.Events {
 		var gid uint64
 		var state schedulingState
@@ -1245,6 +1253,7 @@ func main() {
 			// (potentially instantly, if exitsyscallfast returns true) we emit traceGoStart.
 
 			// TODO(dh): denote syscall somehow
+			lastSyscall[ev.G] = ev.Stk
 			continue
 		case trace.EvGoSysBlock:
 			// TODO(dh): have a special state for this
@@ -1296,6 +1305,9 @@ func main() {
 		}
 
 		s := Span{Start: time.Duration(ev.Ts), State: state, Reason: reason, Stack: ev.Stk}
+		if ev.Type == trace.EvGoSysBlock {
+			s.Stack = lastSyscall[ev.G]
+		}
 		s = applyPatterns(s)
 		getG(gid).Spans = append(getG(gid).Spans, s)
 	}
