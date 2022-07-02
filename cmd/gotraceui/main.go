@@ -51,9 +51,11 @@ const (
 	minTickLabelDistanceDp unit.Dp = 8
 	tickLabelFontSizeSp    unit.Sp = 14
 
+	// XXX the label height depends on the font used
+	goroutineLabelHeightDp unit.Dp = 20
 	goroutineStateHeightDp unit.Dp = 10
 	goroutineGapDp         unit.Dp = 5
-	goroutineHeightDp      unit.Dp = goroutineStateHeightDp
+	goroutineHeightDp      unit.Dp = goroutineStateHeightDp + goroutineLabelHeightDp
 
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 2
 
@@ -110,7 +112,8 @@ type Timeline struct {
 		cursorPos f32.Point
 	}
 	Goroutines struct {
-		_ [0]int
+		DisplayAllLabels bool
+		_                [0]int
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -200,12 +203,31 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 // gAtPoint returns the goroutine ID at a point. The point should be relative to the
 // goroutine section of the timeline.
 func (tl *Timeline) gAtPoint(gtx layout.Context) (*Goroutine, bool) {
-	// OPT(dh): don't iterate over all goroutines, only those that are visible
-	for _, gw := range tl.Gs {
-		if gw.hovered {
+	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
+	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
+	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
+
+	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
+	// OPT(dh): we can probably compute the indices directly
+	//
+	// We can't ask invisible goroutines if they're being hovered because if they're invisible they're not getting laid
+	// out, which means they're not processing events, which means they don't know they aren't being hovered anymore.
+	//
+	// TODO(dh): we should just track the currently hovered goroutine in Timeline.
+	for i, gw := range tl.Gs {
+		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
+		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
+		if y < -goroutineStateHeight {
+			continue
+		}
+		if y > gtx.Constraints.Max.Y {
+			break
+		}
+		if gw.hoveredActivity {
 			return gw.g, true
 		}
 	}
+
 	return nil, false
 }
 
@@ -388,16 +410,22 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
 		case key.Event:
-			if ev.Name == key.NameHome && ev.State == key.Press {
-				switch {
-				case ev.Modifiers&key.ModShift != 0:
-					tl.zoomToFitCurrentView(gtx)
-				case ev.Modifiers&key.ModCtrl != 0:
-					d := tl.End - tl.Start
-					tl.Start = 0
-					tl.End = tl.Start + d
-				case ev.Modifiers == 0:
-					tl.Y = 0
+			if ev.State == key.Press {
+				switch ev.Name {
+				case key.NameHome:
+					switch {
+					case ev.Modifiers&key.ModShift != 0:
+						tl.zoomToFitCurrentView(gtx)
+					case ev.Modifiers&key.ModCtrl != 0:
+						d := tl.End - tl.Start
+						tl.Start = 0
+						tl.End = tl.Start + d
+					case ev.Modifiers == 0:
+						tl.Y = 0
+					}
+
+				case "X":
+					tl.Goroutines.DisplayAllLabels = !tl.Goroutines.DisplayAllLabels
 				}
 			}
 		case pointer.Event:
@@ -476,7 +504,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: "(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: "X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
@@ -626,36 +654,47 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 type GoroutineWidget struct {
 	Theme *material.Theme
 
-	tl        *Timeline
-	g         *Goroutine
-	pointerAt f32.Point
-	hovered   bool
+	tl              *Timeline
+	g               *Goroutine
+	pointerAt       f32.Point
+	hovered         bool
+	hoveredActivity bool
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
-		hovered bool
-		ops     op.Ops
-		call    op.CallOp
+		hovered         bool
+		hoveredActivity bool
+		forceLabel      bool
+		ops             op.Ops
+		call            op.CallOp
 	}
 }
 
-func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
+func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Dimensions {
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
 	// FIXME(dh): update tooltip position when dragging
-	for _, ev := range gtx.Events(gw) {
+	for _, ev := range gtx.Events(&gw.hoveredActivity) {
+		switch ev.(pointer.Event).Type {
+		case pointer.Enter, pointer.Move:
+			gw.hoveredActivity = true
+			gw.pointerAt = ev.(pointer.Event).Position
+		case pointer.Leave, pointer.Cancel:
+			gw.hoveredActivity = false
+		}
+	}
+	for _, ev := range gtx.Events(&gw.hovered) {
 		switch ev.(pointer.Event).Type {
 		case pointer.Enter, pointer.Move:
 			gw.hovered = true
-			gw.pointerAt = ev.(pointer.Event).Position
-		case pointer.Leave:
+		case pointer.Leave, pointer.Cancel:
 			gw.hovered = false
 		}
 	}
 
-	if gw.tl.unchanged() && !gw.hovered && !gw.prevFrame.hovered {
+	if gw.tl.unchanged() && !gw.hoveredActivity && !gw.prevFrame.hoveredActivity && !gw.hovered && !gw.prevFrame.hovered && forceLabel == gw.prevFrame.forceLabel {
 		// OPT(dh): instead of avoiding cached ops completely when the goroutine is hovered, draw the tooltip
 		// separately.
 		gw.prevFrame.call.Add(gtx.Ops)
@@ -663,6 +702,8 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	gw.prevFrame.hovered = gw.hovered
+	gw.prevFrame.hoveredActivity = gw.hoveredActivity
+	gw.prevFrame.forceLabel = forceLabel
 
 	origOps := gtx.Ops
 	gtx.Ops = &gw.prevFrame.ops
@@ -672,6 +713,42 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 		call := macro.Stop()
 		call.Add(origOps)
 		gw.prevFrame.call = call
+	}()
+
+	func() {
+		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}.Push(gtx.Ops).Pop()
+		pointer.InputOp{Tag: &gw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
+	}()
+
+	{
+		c := colors[colorGoroutineLabel]
+		paint.ColorOp{Color: c}.Add(gtx.Ops)
+		var l string
+		if gw.g.Function != nil {
+			l = fmt.Sprintf("goroutine %d: %s", gw.g.ID, gw.g.Function.Fn)
+		} else {
+			l = fmt.Sprintf("goroutine %d", gw.g.ID)
+		}
+
+		macro := op.Record(gtx.Ops)
+		dims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, 14, l)
+		call := macro.Stop()
+
+		if gw.hovered || forceLabel {
+			call.Add(gtx.Ops)
+		}
+
+		defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
+		if gw.hovered || forceLabel {
+			paint.FillShape(gtx.Ops, c, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
+		}
+		defer op.Offset(image.Pt(0, gtx.Metric.Dp(1)*2)).Push(gtx.Ops).Pop()
+	}
+
+	func() {
+		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineStateHeight)}.Push(gtx.Ops).Pop()
+		defer pointer.PassOp{}.Push(gtx.Ops).Pop()
+		pointer.InputOp{Tag: &gw.hoveredActivity, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 	}()
 
 	// TODO(dh): track click events per goroutine, then use that to implement zooming to a span. it's less efficient but
@@ -725,11 +802,6 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 	lastEnd := float32(-1)
 	first := true
 
-	func() {
-		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineStateHeight)}.Push(gtx.Ops).Pop()
-		pointer.InputOp{Tag: gw, Types: pointer.Enter | pointer.Leave | pointer.Move}.Add(gtx.Ops)
-	}()
-
 	doSpans := func(dspSpans []Span, startPx, endPx float32) {
 		if first {
 			firstStart = startPx
@@ -782,7 +854,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 			p.path.Close()
 		}
 
-		if gw.hovered && gw.pointerAt.X >= startPx && gw.pointerAt.X < endPx {
+		if gw.hoveredActivity && gw.pointerAt.X >= startPx && gw.pointerAt.X < endPx {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
@@ -850,7 +922,6 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context) layout.Dimensions {
 func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
-	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 
 	start := -1
 	end := -1
@@ -859,7 +930,7 @@ func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
 	for i := range tl.Gs {
 		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
 		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
-		if y < -goroutineStateHeight {
+		if y < -goroutineHeight {
 			continue
 		}
 		if start == -1 {
@@ -890,7 +961,6 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 
 	goroutineHeight := gtx.Metric.Dp(goroutineHeightDp)
 	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
-	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
 	// not bring us out of alignment with the axis.
@@ -912,7 +982,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	for i, gw := range tl.Gs {
 		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
 		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
-		if y < -goroutineStateHeight {
+		if y < -goroutineHeight {
 			continue
 		}
 		if y > gtx.Constraints.Max.Y {
@@ -920,7 +990,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		gw.Layout(gtx)
+		gw.Layout(gtx, tl.Goroutines.DisplayAllLabels)
 		stack.Pop()
 	}
 
@@ -1364,6 +1434,8 @@ var colors = [...]color.NRGBA{
 	colorTooltipText:       toColor(0x000000FF),
 	colorTooltipBackground: toColor(0xEEFFEEFF),
 	colorTooltipBorder:     toColor(0x57A8A8FF),
+
+	colorGoroutineLabel: toColor(0x888888FF),
 }
 
 type colorIndex int
@@ -1392,6 +1464,8 @@ const (
 	colorTooltipText
 	colorTooltipBackground
 	colorTooltipBorder
+
+	colorGoroutineLabel
 )
 
 type schedulingState int
@@ -1537,6 +1611,7 @@ func run(w *app.Window) error {
 			gtx.Constraints.Min = image.Point{}
 			// XXX detect HiDPI
 			gtx.Metric.PxPerDp = 2
+			// TODO(dh): set PxPerSp
 
 			for _, ev := range gtx.Events(profileTag) {
 				fmt.Println(ev)
