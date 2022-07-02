@@ -217,7 +217,7 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 	// Visible spans have to end after tl.Start and begin before tl.End
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.End >= tl.Start
+		return s.End > tl.Start
 	})
 	if start == len(spans) {
 		return nil
@@ -428,6 +428,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			break
 		}
 	}
+
+	// FIXME(dh): the axis is wider than the canvas because of a scrollbar. this means that tl.End is slightly outside
+	// the visible area. that's generally fine, but means that zooming to a span, or to fit the visible goroutines, is
+	// off by a couple pixels.
 
 	tl.nsPerPx = float32(tl.End-tl.Start) / float32(gtx.Constraints.Max.X)
 
