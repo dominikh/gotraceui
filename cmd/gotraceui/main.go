@@ -934,28 +934,119 @@ type SpanTooltip struct {
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var tooltipBorderWidth = gtx.Metric.Dp(2)
 
+	pickFrame := func(frames []*trace.Frame, idx int) *trace.Frame {
+		if len(frames) > idx {
+			return frames[idx]
+		} else {
+			return nil
+		}
+	}
+
+	// For debugging
+	dumpFrames := func(frames []*trace.Frame) {
+		if len(frames) == 0 {
+			fmt.Println("no frames")
+		}
+		for _, f := range frames {
+			fmt.Println(f)
+		}
+	}
+	_ = dumpFrames
+
 	label := "State: "
+	var at *trace.Frame
 	if len(tt.Spans) == 1 {
-		switch state := tt.Spans[0].State; state {
+		s := tt.Spans[0]
+		switch state := s.State; state {
 		case stateInactive:
 			label += "inactive"
-			label += "\nReason: " + tt.Spans[0].Reason
+			label += "\nReason: " + s.Reason
 		case stateActive:
 			label += "active"
 		case stateBlocked:
-			label += "blocked"
+			if len(s.Stack) != 0 {
+				if s.Stack[len(s.Stack)-1].Fn == "runtime.runfinq" {
+					// Based on Go 1.18
+					label += "runfinq: waiting for finalizer to run"
+				} else if s.Stack[0].Fn == "runtime.ReadTrace" {
+					// Based on Go 1.11, 1.18
+					label += "waiting for trace data"
+				} else {
+					label += "blocked"
+				}
+			} else {
+				label += "blocked"
+			}
 		case stateBlockedSend:
 			label += "blocked on channel send"
 		case stateBlockedRecv:
 			label += "blocked on channel recv"
+			at = pickFrame(s.Stack, 0)
+			if len(s.Stack) >= 2 {
+				if s.Stack[0].Fn == "runtime.chanrecv1" || s.Stack[0].Fn == "runtime.chanrecv2" {
+					// Based on Go 1.18
+					at = s.Stack[1]
+				}
+			}
 		case stateBlockedSelect:
 			label += "blocked on select"
+			at = pickFrame(s.Stack, 1)
 		case stateBlockedSync:
-			label += "blocked on mutex"
+			at = pickFrame(s.Stack, 0)
+			if len(s.Stack) >= 1 && s.Stack[0].Fn == "runtime.gcStart" {
+				// Based on Go 1.18
+				label += "blocked triggering GC"
+			} else if len(s.Stack) >= 3 && s.Stack[0].Fn == "sync.(*Mutex).Lock" && s.Stack[1].Fn == "sync.(*Once).doSlow" && s.Stack[2].Fn == "sync.(*Once).Do" {
+				// Based on Go 1.18
+				label += "blocked on sync.Once"
+				at = pickFrame(s.Stack, 3)
+			} else {
+				label += "blocked on mutex"
+			}
+
 		case stateBlockedCond:
 			label += "blocked on condition variable"
+			at = pickFrame(s.Stack, 0)
+			if len(s.Stack) >= 2 {
+				if s.Stack[0].Fn == "sync.(*Cond).Wait" {
+					// Based on Go 1.18
+					at = pickFrame(s.Stack, 1)
+				}
+			}
 		case stateBlockedNet:
-			label += "blocked on network"
+			label += "blocked on polled I/O"
+			at = pickFrame(s.Stack, 0)
+
+			if len(s.Stack) >= 2 {
+				switch s.Stack[0].Fn {
+				case "internal/poll.(*FD).Read":
+					// Based on Go 1.18
+					label += " (read"
+					at = s.Stack[1]
+					if len(s.Stack) >= 3 && s.Stack[1].Fn == "net.(*netFD).Read" {
+						// Based on Go 1.18
+						label += ", network"
+						at = s.Stack[2]
+					}
+					label += ")"
+				case "internal/poll.(*FD).Accept":
+					// Based on Go 1.18
+					label += " (accept"
+					at = s.Stack[1]
+					if len(s.Stack) >= 3 && s.Stack[1].Fn == "net.(*netFD).accept" {
+						// Based on Go 1.18
+						label += ", network"
+						at = s.Stack[2]
+					}
+					if len(s.Stack) >= 5 && s.Stack[2].Fn == "net.(*TCPListener).accept" && s.Stack[3].Fn == "net.(*TCPListener).Accept" {
+						// Based on Go 1.18
+						label += ", TCP"
+						at = s.Stack[4]
+					}
+					label += ")"
+				}
+			}
+
 		case stateBlockedGC:
 			label += "blocked on GC assist"
 		case stateBlockedSyscall:
@@ -973,6 +1064,11 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	label += "\n"
 	d := tt.Spans[len(tt.Spans)-1].End - tt.Spans[0].Start
 	label += fmt.Sprintf("Duration: %s", d)
+
+	if at != nil {
+		// TODO(dh): abbreviate long paths
+		label += fmt.Sprintf("\nAt: %s:%d", at.File, at.Line)
+	}
 
 	// TODO(dh): display reason why we're in this state
 	// TODO(dh): make tooltip actually look good
@@ -1025,6 +1121,7 @@ type Span struct {
 	// TODO(dh): use an enum for Reason
 	Reason string
 	Events []*trace.Event
+	Stack  []*trace.Frame
 }
 
 //gcassert:inline
@@ -1189,6 +1286,9 @@ func main() {
 			// TODO(dh): have a special state for this
 			gid = ev.G
 			state = stateBlockedSyscall
+		case trace.EvGoInSyscall:
+			gid = ev.G
+			state = stateBlockedSyscall
 		case trace.EvGoSysExit:
 			gid = ev.G
 			state = stateReady
@@ -1231,7 +1331,7 @@ func main() {
 			}
 		}
 
-		getG(gid).Spans = append(getG(gid).Spans, Span{Start: time.Duration(ev.Ts), State: state, Reason: reason})
+		getG(gid).Spans = append(getG(gid).Spans, Span{Start: time.Duration(ev.Ts), State: state, Reason: reason, Stack: ev.Stk})
 	}
 
 	for _, g := range gsByID {
@@ -1361,8 +1461,9 @@ var stateColors = [...]colorIndex{
 
 var legalStateTransitions = [stateLast][stateLast]bool{
 	stateInactive: {
-		stateActive: true,
-		stateReady:  true,
+		stateActive:         true,
+		stateReady:          true,
+		stateBlockedSyscall: true,
 	},
 	stateActive: {
 		stateInactive:       true,
