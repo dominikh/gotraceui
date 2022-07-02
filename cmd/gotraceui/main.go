@@ -62,6 +62,8 @@ const (
 	spanBorderWidthDp unit.Dp = 1
 
 	tooltipFontSizeSp unit.Sp = 14
+
+	goroutineLabelFontSizeSp unit.Sp = 14
 )
 
 type Axis struct {
@@ -731,7 +733,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 		}
 
 		macro := op.Record(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, 14, l)
+		dims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, goroutineLabelFontSizeSp, l)
 		call := macro.Stop()
 
 		if gw.hovered || forceLabel {
@@ -904,7 +906,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 		outlinesPath.LineTo(f32.Pt(lastEnd, float32(goroutineStateHeight)))
 		outlinesPath.LineTo(f32.Pt(firstStart, float32(goroutineStateHeight)))
 		outlinesPath.Close()
-		paint.FillShape(gtx.Ops, color.NRGBA{A: 0xFF}, clip.Outline{Path: outlinesPath.End()}.Op())
+		paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
 	} else {
 		// No spans for this goroutine
 	}
@@ -913,8 +915,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool) layout.Di
 		p := &paths[cIdx]
 		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
 	}
-	// TODO(dh): find a nice color for this
-	paint.FillShape(gtx.Ops, toColor(0xFF00FFFF), clip.Outline{Path: eventsPath.path.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: eventsPath.path.End()}.Op())
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}
 }
@@ -1436,6 +1437,10 @@ var colors = [...]color.NRGBA{
 	colorTooltipBorder:     toColor(0x57A8A8FF),
 
 	colorGoroutineLabel: toColor(0x888888FF),
+
+	// TODO(dh): find a nice color for this
+	colorSpanWithEvents: toColor(0xFF00FFFF),
+	colorSpanOutline:    toColor(0x000000FF),
 }
 
 type colorIndex int
@@ -1466,6 +1471,9 @@ const (
 	colorTooltipBorder
 
 	colorGoroutineLabel
+
+	colorSpanWithEvents
+	colorSpanOutline
 )
 
 type schedulingState int
