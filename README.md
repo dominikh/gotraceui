@@ -23,3 +23,7 @@ None of these controls are final. Users without a middle mouse button will have 
 | X                           | Toggle display of all goroutine labels |
 | C                           | Toggle compact display                 |
 
+## Notes
+
+No aspect of gotraceui is final yet, but do note that bright pink and bright yellow are debug colors and I never thought
+they were a good idea. The rest of the color scheme is actually meant to be pleasant.
