@@ -122,12 +122,13 @@ type Timeline struct {
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
-		Start    time.Duration
-		End      time.Duration
-		Y        int
-		nsPerPx  float32
-		compact  bool
-		dspSpans map[uint64][]struct {
+		Start        time.Duration
+		End          time.Duration
+		Y            int
+		nsPerPx      float32
+		compact      bool
+		displayedGws []*GoroutineWidget
+		dspSpans     map[uint64][]struct {
 			dspSpans       []Span
 			startPx, endPx float32
 		}
@@ -209,84 +210,6 @@ func (tl *Timeline) goroutineHeight(gtx layout.Context) int {
 		return gtx.Metric.Dp(goroutineHeightDp) - gtx.Metric.Dp(goroutineLabelHeightDp)
 	} else {
 		return gtx.Metric.Dp(goroutineHeightDp)
-	}
-}
-
-// gAtPoint returns the goroutine ID at a point. The point should be relative to the
-// goroutine section of the timeline.
-func (tl *Timeline) gAtPoint(gtx layout.Context) (*Goroutine, bool) {
-	goroutineHeight := tl.goroutineHeight(gtx)
-	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
-	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
-
-	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
-	// OPT(dh): we can probably compute the indices directly
-	//
-	// We can't ask invisible goroutines if they're being hovered because if they're invisible they're not getting laid
-	// out, which means they're not processing events, which means they don't know they aren't being hovered anymore.
-	//
-	// TODO(dh): we should just track the currently hovered goroutine in Timeline.
-	for i, gw := range tl.Gs {
-		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
-		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
-		if y < -goroutineStateHeight {
-			continue
-		}
-		if y > gtx.Constraints.Max.Y {
-			break
-		}
-		if gw.hoveredActivity {
-			return gw.g, true
-		}
-	}
-
-	return nil, false
-}
-
-// zoomToCLickedSpan zooms to the span at a point, if any. The point should be relative to the goroutine section of the
-// timeline.
-func (tl *Timeline) zoomToClickedSpan(gtx layout.Context, at f32.Point) {
-	// TODO(dh): make it the goroutine widget's task to find the clicked span
-	g, ok := tl.gAtPoint(gtx)
-	if !ok {
-		return
-	}
-
-	do := func(dspSpans []Span, startPx, endPx float32) bool {
-		start := dspSpans[0].Start
-		end := dspSpans[len(dspSpans)-1].End
-
-		if at.X >= startPx && at.X < endPx {
-			tl.Start = start
-			tl.End = end
-			return true
-		}
-
-		return false
-	}
-
-	if tl.unchanged() {
-		for _, prevSpans := range tl.prevFrame.dspSpans[g.ID] {
-			if do(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx) {
-				return
-			}
-		}
-	} else {
-		spans := tl.visibleSpans(g.Spans)
-		it := renderedSpansIterator{
-			tl:    tl,
-			spans: spans,
-		}
-		for {
-			dspSpans, startPx, endPx, ok := it.next(gtx)
-			if !ok {
-				break
-			}
-
-			if do(dspSpans, startPx, endPx) {
-				return
-			}
-		}
 	}
 }
 
@@ -440,6 +363,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					tl.Goroutines.DisplayAllLabels = !tl.Goroutines.DisplayAllLabels
 
 				case "C":
+					// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
 					tl.Goroutines.Compact = !tl.Goroutines.Compact
 				}
 			}
@@ -495,6 +419,16 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	for _, gw := range tl.prevFrame.displayedGws {
+		if spans := gw.ClickedSpans; len(spans) > 0 {
+			start := spans[0].Start
+			end := spans[len(spans)-1].End
+			tl.Start = start
+			tl.End = end
+			break
+		}
+	}
+
 	tl.nsPerPx = float32(tl.End-tl.Start) / float32(gtx.Constraints.Max.X)
 
 	if debug {
@@ -523,7 +457,11 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
-	Stack(gtx, tl.Axis.Layout, tl.layoutGoroutines)
+	Stack(gtx, tl.Axis.Layout, func(gtx layout.Context) layout.Dimensions {
+		dims, gws := tl.layoutGoroutines(gtx)
+		tl.prevFrame.displayedGws = gws
+		return dims
+	})
 
 	// Draw zoom selection
 	if tl.ZoomSelection.Active {
@@ -675,6 +613,8 @@ type GoroutineWidget struct {
 	hovered         bool
 	hoveredActivity bool
 
+	ClickedSpans []Span
+
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
 		hovered         bool
@@ -691,14 +631,25 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
+	gw.ClickedSpans = nil
+
+	var trackPos f32.Point
+	var trackClick bool
+
 	// FIXME(dh): update tooltip position when dragging
-	for _, ev := range gtx.Events(&gw.hoveredActivity) {
-		switch ev.(pointer.Event).Type {
+	for _, e := range gtx.Events(&gw.hoveredActivity) {
+		ev := e.(pointer.Event)
+		switch ev.Type {
 		case pointer.Enter, pointer.Move:
 			gw.hoveredActivity = true
-			gw.pointerAt = ev.(pointer.Event).Position
+			gw.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
 			gw.hoveredActivity = false
+		case pointer.Press:
+			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
+				trackPos = ev.Position
+				trackClick = true
+			}
 		}
 	}
 	for _, ev := range gtx.Events(&gw.hovered) {
@@ -710,7 +661,15 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		}
 	}
 
-	if gw.tl.unchanged() && !gw.hoveredActivity && !gw.prevFrame.hoveredActivity && !gw.hovered && !gw.prevFrame.hovered && forceLabel == gw.prevFrame.forceLabel && compact == gw.prevFrame.compact {
+	if !trackClick &&
+		gw.tl.unchanged() &&
+		!gw.hoveredActivity &&
+		!gw.prevFrame.hoveredActivity &&
+		!gw.hovered &&
+		!gw.prevFrame.hovered &&
+		forceLabel == gw.prevFrame.forceLabel &&
+		compact == gw.prevFrame.compact {
+
 		// OPT(dh): instead of avoiding cached ops completely when the goroutine is hovered, draw the tooltip
 		// separately.
 		gw.prevFrame.call.Add(gtx.Ops)
@@ -765,7 +724,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	func() {
 		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineStateHeight)}.Push(gtx.Ops).Pop()
 		defer pointer.PassOp{}.Push(gtx.Ops).Pop()
-		pointer.InputOp{Tag: &gw.hoveredActivity, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
+		pointer.InputOp{Tag: &gw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 	}()
 
 	// TODO(dh): track click events per goroutine, then use that to implement zooming to a span. it's less efficient but
@@ -820,6 +779,11 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	first := true
 
 	doSpans := func(dspSpans []Span, startPx, endPx float32) {
+		if trackClick && trackPos.X >= startPx && trackPos.X < endPx {
+			gw.ClickedSpans = dspSpans
+			trackClick = false
+		}
+
 		if first {
 			firstStart = startPx
 		}
@@ -961,19 +925,8 @@ func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
 	return tl.Gs[start:end]
 }
 
-func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
+func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*GoroutineWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	// Dragging doesn't produce Move events, even if we're not listening for dragging
-	pointer.InputOp{Tag: &tl.Goroutines, Types: pointer.Move | pointer.Drag | pointer.Press | pointer.Leave | pointer.Enter}.Add(gtx.Ops)
-	for _, e := range gtx.Events(&tl.Goroutines) {
-		ev := e.(pointer.Event)
-		switch ev.Type {
-		case pointer.Press:
-			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-				tl.zoomToClickedSpan(gtx, ev.Position)
-			}
-		}
-	}
 
 	goroutineHeight := tl.goroutineHeight(gtx)
 	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
@@ -995,14 +948,20 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 	}
 
 	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
+	start := -1
+	end := -1
 	for i, gw := range tl.Gs {
 		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
 		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
 		if y < -goroutineHeight {
 			continue
 		}
+		end = i
 		if y > gtx.Constraints.Max.Y {
 			break
+		}
+		if start == -1 {
+			start = i
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
@@ -1010,7 +969,12 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) layout.Dimensions {
 		stack.Pop()
 	}
 
-	return layout.Dimensions{Size: gtx.Constraints.Max}
+	var out []*GoroutineWidget
+	if start != -1 {
+		out = tl.Gs[start:end]
+	}
+
+	return layout.Dimensions{Size: gtx.Constraints.Max}, out
 }
 
 type SpanTooltip struct {
