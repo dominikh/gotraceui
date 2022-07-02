@@ -57,6 +57,13 @@ var patterns = []pattern{
 		},
 		at: 1,
 	},
+	{
+		state: stateBlockedRecv,
+		fns: []string{
+			0: "runtime.chansend1",
+		},
+		at: 1,
+	},
 
 	{
 		state: stateBlockedSync,
