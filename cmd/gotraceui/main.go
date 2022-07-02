@@ -985,7 +985,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateBlockedGC:
 			label += "blocked on GC assist"
 		case stateBlockedSyscall:
-			dumpFrames(s.Stack)
 			label += "blocked on syscall"
 		case stateStuck:
 			label += "stuck"
@@ -1028,14 +1027,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != nil {
-		// TODO(dh): abbreviate long paths
-		if tt.Spans[0].State == stateBlockedSyscall {
-			// The function name tends to reflect the syscall's name, whereas the file and line number is largely
-			// useless to the user
-			label += fmt.Sprintf("\nAt: %s", at.Fn)
-		} else {
-			label += fmt.Sprintf("\nAt: %s:%d", at.File, at.Line)
-		}
+		label += fmt.Sprintf("\nIn: %s", at.Fn)
 	}
 
 	// TODO(dh): display reason why we're in this state
