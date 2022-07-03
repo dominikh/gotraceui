@@ -31,8 +31,6 @@ import (
 	"gioui.org/widget/material"
 )
 
-// TODO(dh): figure out what puts us in the generic "blocked" state
-
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 // GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
 // leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
@@ -503,7 +501,6 @@ func (a *Axis) tickInterval(gtx layout.Context) time.Duration {
 }
 
 func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
-	// TODO draw smaller ticks between larger ticks
 	tickInterval := a.tickInterval(gtx)
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	prevLabelEnd := float32(-1)
@@ -731,9 +728,6 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		pointer.InputOp{Tag: &gw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 	}()
 
-	// TODO(dh): track click events per goroutine, then use that to implement zooming to a span. it's less efficient but
-	// more decoupled.
-
 	// Draw goroutine lifetimes
 	//
 	// We batch draw operations by color to avoid making thousands of draw calls. See
@@ -878,7 +872,6 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	}
 
 	if !first {
-		// TODO(dh): use path type for outlines, too
 		var outlinesPath clip.Path
 		outlinesPath.Begin(gtx.Ops)
 		// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
@@ -1084,9 +1077,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += fmt.Sprintf("\nIn: %s", at.Fn)
 	}
 
-	// TODO(dh): display reason why we're in this state
-	// TODO(dh): make tooltip actually look good
-
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
 	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
@@ -1117,9 +1107,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
 // time or should it display the same time, stretched to fill the new space? Tracy does the latter.
-
-// NOTE: how Tracy deals with spans that are too small to see at a zoom level: there's a minimum width for the first
-// span, and consecutive spans that would fall into that span get merged into it
 
 type Goroutine struct {
 	ID       uint64
@@ -1302,7 +1289,6 @@ func main() {
 			lastSyscall[ev.G] = ev.Stk
 			continue
 		case trace.EvGoSysBlock:
-			// TODO(dh): have a special state for this
 			gid = ev.G
 			state = stateBlockedSyscall
 		case trace.EvGoInSyscall:
