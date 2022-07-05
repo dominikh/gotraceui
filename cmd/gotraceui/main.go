@@ -631,6 +631,8 @@ type GoroutineWidget struct {
 
 	ClickedSpans []Span
 
+	tagLabel uint8
+
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
 		hovered         bool
@@ -676,6 +678,14 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			gw.hovered = false
 		}
 	}
+	for _, ev := range gtx.Events(&gw.tagLabel) {
+		switch ev := ev.(type) {
+		case pointer.Event:
+			if ev.Type == pointer.Press && ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
+				gw.ClickedSpans = gw.g.Spans
+			}
+		}
+	}
 
 	if !trackClick &&
 		gw.tl.unchanged() &&
@@ -707,10 +717,8 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		gw.prevFrame.call = call
 	}()
 
-	func() {
-		defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}.Push(gtx.Ops).Pop()
-		pointer.InputOp{Tag: &gw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
-	}()
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: &gw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 
 	if !compact {
 		c := colors[colorGoroutineLabel]
@@ -728,6 +736,10 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 
 		if gw.hovered || forceLabel {
 			call.Add(gtx.Ops)
+
+			stack := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
+			pointer.InputOp{Tag: &gw.tagLabel, Types: pointer.Press}.Add(gtx.Ops)
+			stack.Pop()
 		}
 
 		defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
