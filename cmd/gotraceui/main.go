@@ -628,15 +628,15 @@ type GoroutineWidget struct {
 	pointerAt       f32.Point
 	hovered         bool
 	hoveredActivity bool
+	hoveredLabel    bool
 
 	ClickedSpans []Span
-
-	tagLabel uint8
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
 		hovered         bool
 		hoveredActivity bool
+		hoveredLabel    bool
 		forceLabel      bool
 		compact         bool
 		ops             op.Ops
@@ -678,11 +678,19 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			gw.hovered = false
 		}
 	}
-	for _, ev := range gtx.Events(&gw.tagLabel) {
+	for _, ev := range gtx.Events(&gw.hoveredLabel) {
 		switch ev := ev.(type) {
 		case pointer.Event:
-			if ev.Type == pointer.Press && ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-				gw.ClickedSpans = gw.g.Spans
+			switch ev.Type {
+			case pointer.Enter, pointer.Move:
+				gw.hoveredLabel = true
+				gw.pointerAt = ev.Position
+			case pointer.Leave, pointer.Cancel:
+				gw.hoveredLabel = false
+			case pointer.Press:
+				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
+					gw.ClickedSpans = gw.g.Spans
+				}
 			}
 		}
 	}
@@ -691,6 +699,8 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		gw.tl.unchanged() &&
 		!gw.hoveredActivity &&
 		!gw.prevFrame.hoveredActivity &&
+		!gw.hoveredLabel &&
+		!gw.prevFrame.hoveredLabel &&
 		!gw.hovered &&
 		!gw.prevFrame.hovered &&
 		forceLabel == gw.prevFrame.forceLabel &&
@@ -704,6 +714,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 
 	gw.prevFrame.hovered = gw.hovered
 	gw.prevFrame.hoveredActivity = gw.hoveredActivity
+	gw.prevFrame.hoveredLabel = gw.hoveredLabel
 	gw.prevFrame.forceLabel = forceLabel
 	gw.prevFrame.compact = compact
 
@@ -738,8 +749,19 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			call.Add(gtx.Ops)
 
 			stack := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &gw.tagLabel, Types: pointer.Press}.Add(gtx.Ops)
+			pointer.InputOp{Tag: &gw.hoveredLabel, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
 			stack.Pop()
+		}
+
+		if gw.hoveredLabel {
+			// TODO have a gap between the cursor and the tooltip
+			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+			macro := op.Record(gtx.Ops)
+			stack := op.Offset(gw.pointerAt.Round()).Push(gtx.Ops)
+			GoroutineTooltip{gw.g, gw.Theme.Shaper}.Layout(gtx)
+			stack.Pop()
+			call := macro.Stop()
+			op.Defer(gtx.Ops, call)
 		}
 
 		defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
@@ -747,6 +769,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			paint.FillShape(gtx.Ops, c, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
 		}
 		defer op.Offset(image.Pt(0, gtx.Metric.Dp(1)*2)).Push(gtx.Ops).Pop()
+
 	}
 
 	func() {
@@ -1010,6 +1033,80 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
 }
 
+type GoroutineTooltip struct {
+	G      *Goroutine
+	shaper text.Shaper
+}
+
+func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	start := tt.G.Spans[0].Start
+	end := tt.G.Spans[len(tt.G.Spans)-1].End
+	d := end - start
+
+	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
+	var blockedD, inactiveD, runningD time.Duration
+	for _, s := range tt.G.Spans {
+		switch s.State {
+		case stateInactive:
+			inactiveD += s.Duration()
+		case stateActive:
+			runningD += s.Duration()
+		case stateBlocked:
+			blockedD += s.Duration()
+		case stateBlockedRunfinqWaiting:
+			inactiveD += s.Duration()
+		case stateBlockedWaitingForTraceData:
+			inactiveD += s.Duration()
+		case stateBlockedSend:
+			blockedD += s.Duration()
+		case stateBlockedRecv:
+			blockedD += s.Duration()
+		case stateBlockedSelect:
+			blockedD += s.Duration()
+		case stateBlockedSync:
+			blockedD += s.Duration()
+		case stateBlockedSyncOnce:
+			blockedD += s.Duration()
+		case stateBlockedSyncTriggeringGC:
+			blockedD += s.Duration()
+		case stateBlockedCond:
+			blockedD += s.Duration()
+		case stateBlockedNet:
+			blockedD += s.Duration()
+		case stateBlockedGC:
+			blockedD += s.Duration()
+		case stateBlockedSyscall:
+			blockedD += s.Duration()
+		case stateStuck:
+			blockedD += s.Duration()
+		case stateReady:
+			inactiveD += s.Duration()
+		case stateDone:
+		default:
+			panic(fmt.Sprintf("unknown state %d", s.State))
+		}
+	}
+	blockedPct := float32(blockedD) / float32(d) * 100
+	inactivePct := float32(inactiveD) / float32(d) * 100
+	runningPct := float32(runningD) / float32(d) * 100
+	l := fmt.Sprintf("Goroutine %d: %s\n\n"+
+		"Appeared at: %s\n"+
+		"Disappeared at: %s\n"+
+		"Lifetime: %s\n"+
+		"Time in blocked states: %s (%.2f%%)\n"+
+		"Time in inactive states: %s (%.2f%%)\n"+
+		"Time in running states: %s (%.2f%%)",
+		tt.G.ID, tt.G.Function.Fn,
+		start,
+		end,
+		d,
+		blockedD, blockedPct,
+		inactiveD, inactivePct,
+		runningD, runningPct)
+
+	return Tooltip{shaper: tt.shaper}.Layout(gtx, l)
+}
+
 type SpanTooltip struct {
 	Spans  []Span
 	shaper text.Shaper
@@ -1026,8 +1123,6 @@ func dumpFrames(frames []*trace.Frame) {
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
-	var tooltipBorderWidth = gtx.Metric.Dp(2)
-
 	label := "State: "
 	var at *trace.Frame
 	if len(tt.Spans) == 1 {
@@ -1113,10 +1208,20 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += fmt.Sprintf("\nIn: %s", at.Fn)
 	}
 
+	return Tooltip{shaper: tt.shaper}.Layout(gtx, label)
+}
+
+type Tooltip struct {
+	shaper text.Shaper
+}
+
+func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
+	var tooltipBorderWidth = gtx.Metric.Dp(2)
+
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
 	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
-	dims := widget.Label{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, label)
+	dims := widget.Label{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, l)
 	call := macro.Stop()
 
 	rect := clip.Rect{
@@ -1493,19 +1598,19 @@ const (
 	stateActive
 	stateBlocked
 	stateBlockedRunfinqWaiting
-	stateBlockedWaitingForTraceData // 5
+	stateBlockedWaitingForTraceData
 	stateBlockedSend
 	stateBlockedRecv
 	stateBlockedSelect
 	stateBlockedSync
 	stateBlockedSyncOnce
-	stateBlockedSyncTriggeringGC // 11
+	stateBlockedSyncTriggeringGC
 	stateBlockedCond
 	stateBlockedNet
 	stateBlockedGC
 	stateBlockedSyscall
 	stateStuck
-	stateReady // 17
+	stateReady
 	stateDone
 	stateLast
 )
