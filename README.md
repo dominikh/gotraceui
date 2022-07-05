@@ -26,6 +26,7 @@ None of these controls are final. Users without a middle mouse button will have 
 | Ctrl + Home                 | Jump to timestamp 0                    |
 | X                           | Toggle display of all goroutine labels |
 | C                           | Toggle compact display                 |
+| G                           | Open a goroutine selector              |
 
 ## Notes
 
