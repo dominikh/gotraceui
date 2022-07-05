@@ -362,9 +362,9 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				switch ev.Name {
 				case key.NameHome:
 					switch {
-					case ev.Modifiers&key.ModShift != 0:
-						tl.zoomToFitCurrentView(gtx)
 					case ev.Modifiers&key.ModCtrl != 0:
+						tl.zoomToFitCurrentView(gtx)
+					case ev.Modifiers&key.ModShift != 0:
 						d := tl.End - tl.Start
 						tl.Start = 0
 						tl.End = tl.Start + d

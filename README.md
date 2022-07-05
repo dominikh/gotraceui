@@ -22,8 +22,8 @@ None of these controls are final. Users without a middle mouse button will have 
 | Ctrl + middle mouse button  | Zoom to clicked span or goroutine      |
 | Scroll wheel                | Zoom in and out                        |
 | Home                        | Scroll to top of goroutine list        |
-| Shift + Home                | Zooms to fit current goroutines        |
-| Ctrl + Home                 | Jump to timestamp 0                    |
+| Ctrl + Home                 | Zooms to fit current goroutines        |
+| Shift + Home                | Jump to timestamp 0                    |
 | X                           | Toggle display of all goroutine labels |
 | C                           | Toggle compact display                 |
 | G                           | Open a goroutine selector              |
