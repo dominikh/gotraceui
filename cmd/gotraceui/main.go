@@ -32,6 +32,9 @@ import (
 	"gioui.org/x/eventx"
 )
 
+// XXX parsing failures and other format violations shouldn't cause panics, but instead return errors that we can
+// present in the UI.
+
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 // GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
 // leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
@@ -1105,6 +1108,8 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			blockedD += s.Duration()
 		case stateReady:
 			inactiveD += s.Duration()
+		case stateCreated:
+			inactiveD += s.Duration()
 		case stateDone:
 		default:
 			panic(fmt.Sprintf("unknown state %d", s.State))
@@ -1191,6 +1196,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateStuck:
 			label += "stuck"
 		case stateReady:
+			label += "ready"
+		case stateCreated:
 			label += "ready"
 		default:
 			panic(fmt.Sprintf("unhandled state %d", state))
@@ -1399,7 +1406,17 @@ func main() {
 					getG(gid).Function = stack[0]
 				}
 			}
-			state = stateInactive
+			// FIXME(dh): when tracing starts after goroutines have already been created then we receive an EvGoCreate
+			// for them. But those goroutines may not necessarily be in a non-running state. We do receive EvGoWaiting
+			// and EvGoInSyscall for goroutines that are blocked or in a syscall when tracing starts; does that mean
+			// that any goroutine that doesn't receive this event is currently running? If so we'd have to detect which
+			// goroutines receive neither EvGoWaiting or EvGoInSyscall, and which were already running.
+			//
+			// EvGoWaiting is emitted when we're in _Gwaiting, and EvGoInSyscall when we're in _Gsyscall. Critically
+			// this doesn't cover _Gidle and _Grunnable, which means we don't know if it's running or waiting to run. If
+			// there's another event then we can deduce it (we can't go from _Grunnable to _Gblocked, for example), but
+			// if there are no more events, then we cannot tell if the goroutine was always running or always runnable.
+			state = stateCreated
 			reason = "newly created"
 		case trace.EvGoStart:
 			// ev.G starts running
@@ -1639,6 +1656,7 @@ const (
 	stateBlockedSyscall
 	stateStuck
 	stateReady
+	stateCreated
 	stateDone
 	stateLast
 )
@@ -1657,6 +1675,7 @@ var stateColors = [...]colorIndex{
 	stateBlockedSyscall: colorStateBlockedSyscall,
 	stateStuck:          colorStateStuck,
 	stateReady:          colorStateReady,
+	stateCreated:        colorStateReady,
 }
 
 var legalStateTransitions = [stateLast][stateLast]bool{
@@ -1682,6 +1701,15 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateBlockedSyscall:             true,
 		stateStuck:                      true,
 		stateDone:                       true,
+	},
+	stateCreated: {
+		stateActive: true,
+
+		// FIXME(dh): These two transitions are only valid for goroutines that already existed when tracing started.
+		// eventually we'll make it so those goroutines don't end up in stateReady, at which point we should remove
+		// these entries.
+		stateBlocked:        true,
+		stateBlockedSyscall: true,
 	},
 	stateReady: {
 		stateActive: true,
