@@ -60,7 +60,9 @@ const (
 
 	spanBorderWidthDp unit.Dp = 1
 
-	tooltipFontSizeSp unit.Sp = 14
+	tooltipFontSizeSp    unit.Sp = 14
+	tooltipPaddingDp     unit.Dp = 2
+	tooltipBorderWidthDp unit.Dp = 2
 
 	goroutineLabelFontSizeSp unit.Sp = 14
 )
@@ -1216,7 +1218,8 @@ type Tooltip struct {
 }
 
 func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
-	var tooltipBorderWidth = gtx.Metric.Dp(2)
+	var padding = gtx.Metric.Dp(tooltipPaddingDp)
+	var tooltipBorderWidth = gtx.Metric.Dp(tooltipBorderWidthDp)
 
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
@@ -1224,23 +1227,26 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 	dims := widget.Label{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, l)
 	call := macro.Stop()
 
-	rect := clip.Rect{
-		Max: image.Pt(dims.Size.X+2*tooltipBorderWidth, dims.Size.Y+2*tooltipBorderWidth),
+	total := clip.Rect{
+		Min: image.Pt(0, 0),
+		Max: image.Pt(dims.Size.X+2*tooltipBorderWidth+2*padding, dims.Size.Y+2*tooltipBorderWidth+2*padding),
 	}
-	paint.FillShape(gtx.Ops, colors[colorTooltipBorder], rect.Op())
+	paint.FillShape(gtx.Ops, colors[colorTooltipBorder], total.Op())
 
-	rect = clip.Rect{
-		Min: image.Pt(tooltipBorderWidth, tooltipBorderWidth),
-		Max: image.Pt(dims.Size.X+tooltipBorderWidth, dims.Size.Y+tooltipBorderWidth),
-	}
-	paint.FillShape(gtx.Ops, colors[colorTooltipBackground], rect.Op())
-	stack := op.Offset(image.Pt(tooltipBorderWidth, tooltipBorderWidth)).Push(gtx.Ops)
+	content := total
+	content.Min.X += tooltipBorderWidth
+	content.Min.Y += tooltipBorderWidth
+	content.Max.X -= tooltipBorderWidth
+	content.Max.Y -= tooltipBorderWidth
+	paint.FillShape(gtx.Ops, colors[colorTooltipBackground], content.Op())
+
+	stack := op.Offset(image.Pt(tooltipBorderWidth+padding, tooltipBorderWidth+padding)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	stack.Pop()
 
 	return layout.Dimensions{
 		Baseline: dims.Baseline,
-		Size:     image.Pt(dims.Size.X+2*tooltipBorderWidth, dims.Size.Y+2*tooltipBorderWidth),
+		Size:     total.Max,
 	}
 }
 
