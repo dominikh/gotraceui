@@ -452,7 +452,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		goroutineGap := gtx.Metric.Dp(goroutineGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		d := tl.Scrollbar.ScrollDistance()
-		totalHeight := float32(len(gs) * (goroutineHeight + goroutineGap))
+		totalHeight := float32(len(tl.Gs) * (goroutineHeight + goroutineGap))
 		tl.Y += int(round32(d * totalHeight))
 		if tl.Y < 0 {
 			tl.Y = 0
@@ -1018,7 +1018,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 	// not bring us out of alignment with the axis.
 	{
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		totalHeight := float32((len(gs) + 1) * (goroutineHeight + goroutineGap))
+		totalHeight := float32((len(tl.Gs) + 1) * (goroutineHeight + goroutineGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
 		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
@@ -1312,9 +1312,6 @@ func (s Span) Duration() time.Duration {
 	return s.End - s.Start
 }
 
-// TODO(dh): avoid global state
-var gs []*Goroutine
-
 func spanHasEvents(events []*trace.Event, start, end time.Duration) bool {
 	// OPT(dh): use at least binary search. Ideally we'd just store events with spans and avoid the computation
 	for _, ev := range events {
@@ -1354,6 +1351,8 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 }
 
 func main() {
+	var gs []*Goroutine
+
 	r, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
@@ -1562,7 +1561,7 @@ func main() {
 
 	go func() {
 		w := app.NewWindow()
-		err := run(w)
+		err := run(w, gs)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -1741,7 +1740,7 @@ func toColor(c uint32) color.NRGBA {
 	}
 }
 
-func run(w *app.Window) error {
+func run(w *app.Window, gs []*Goroutine) error {
 	var end time.Duration
 	for _, g := range gs {
 		if len(g.Spans) > 0 {
