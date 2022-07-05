@@ -58,7 +58,7 @@ var patterns = []pattern{
 		at: 1,
 	},
 	{
-		state: stateBlockedRecv,
+		state: stateBlockedSend,
 		fns: []string{
 			0: "runtime.chansend1",
 		},
