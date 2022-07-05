@@ -1762,7 +1762,6 @@ type ListWindow[T fmt.Stringer] struct {
 	theme *material.Theme
 	input widget.Editor
 	list  widget.List
-	cb    layout.ListElement
 }
 
 func NewListWindow[T fmt.Stringer](th *material.Theme) *ListWindow[T] {
