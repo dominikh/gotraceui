@@ -191,18 +191,40 @@ func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
 
 func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	// FIXME(dh): repeatedly zooming in and out doesn't cancel each other out. Fix that.
-	// TODO(dh): scale scroll amount by current zoom and by value of ev.Scroll.Y
-	// XXX stop scrolling at some extreme point, so that nsperPx * our scroll multiplier is >=1
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
 		ratio := at.X / float32(gtx.Constraints.Max.X)
-		tl.Start += time.Duration(tl.nsPerPx * 100 * ratio)
-		tl.End -= time.Duration(tl.nsPerPx * 100 * (1 - ratio))
+		ds := time.Duration(tl.nsPerPx * 100 * ratio)
+		de := time.Duration(tl.nsPerPx * 100 * (1 - ratio))
+		tl.Start += ds
+		tl.End -= de
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := at.X / float32(gtx.Constraints.Max.X)
-		tl.Start -= time.Duration(tl.nsPerPx * 100 * ratio)
-		tl.End += time.Duration(tl.nsPerPx * 100 * (1 - ratio))
+		ds := time.Duration(tl.nsPerPx * 100 * ratio)
+		de := time.Duration(tl.nsPerPx * 100 * (1 - ratio))
+
+		// Make sure the user can always zoom out
+		if ds < 1 {
+			ds = 1
+		}
+		if de < 1 {
+			de = 1
+		}
+
+		start := tl.Start - time.Duration(ds)
+		end := tl.End + time.Duration(de)
+
+		// Limit timeline to roughly one day. There's rno reason to zoom out this far, and zooming out further will lead
+		// to edge cases and eventually overflow.
+		if end-start < 24*time.Hour {
+			tl.Start = start
+			tl.End = end
+		}
+	}
+
+	if tl.Start > tl.End {
+		tl.Start = tl.End - 1
 	}
 }
 
