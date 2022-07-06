@@ -15,18 +15,19 @@ See https://gioui.org/doc/install to find the per-OS build requirements. Good lu
 
 None of these controls are final. Users without a middle mouse button will have a bad experience right now.
 
-| Key                         | Function                               |
-|-----------------------------|----------------------------------------|
-| Middle mouse button (hold)  | Pan the view                           |
-| Shift + middle mouse button | Draw a zoom selection                  |
-| Ctrl + middle mouse button  | Zoom to clicked span or goroutine      |
-| Scroll wheel                | Zoom in and out                        |
-| Home                        | Scroll to top of goroutine list        |
-| Ctrl + Home                 | Zooms to fit current goroutines        |
-| Shift + Home                | Jump to timestamp 0                    |
-| X                           | Toggle display of all goroutine labels |
-| C                           | Toggle compact display                 |
-| G                           | Open a goroutine selector              |
+| Key                         | Function                                                                    |
+|-----------------------------|-----------------------------------------------------------------------------|
+| Middle mouse button (hold)  | Pan the view                                                                |
+| Shift + middle mouse button | Draw a zoom selection                                                       |
+| Ctrl + middle mouse button  | Zoom to clicked span or goroutine                                           |
+| Scroll wheel                | Zoom in and out                                                             |
+| Home                        | Scroll to top of goroutine list                                             |
+| Ctrl + Home                 | Zooms to fit current goroutines                                             |
+| Shift + Home                | Jump to timestamp 0                                                         |
+| X                           | Toggle display of all goroutine labels                                      |
+| C                           | Toggle compact display                                                      |
+| G                           | Open a goroutine selector                                                   |
+| T                           | Toggle displaying tooltips; only spans -> none -> both spans and goroutines |
 
 ## Notes
 

@@ -81,20 +81,28 @@ type Axis struct {
 	}
 }
 
+type showTooltips uint8
+
+const (
+	showTooltipsBoth = iota
+	showTooltipsSpans
+	showTooltipsNone
+)
+
 type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
 	Start time.Duration
 	End   time.Duration
 	// Imagine we're drawing all goroutines onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
 	// canvas that the goroutine section's Y == 0 is displaying.
-	Y int
-
-	Gs []*GoroutineWidget
-
-	Theme *material.Theme
-
+	Y         int
+	Gs        []*GoroutineWidget
+	Theme     *material.Theme
 	Scrollbar widget.Scrollbar
 	Axis      Axis
+
+	// Should tooltips be shown?
+	showTooltips showTooltips
 
 	// State for dragging the timeline
 	Drag struct {
@@ -405,6 +413,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				case "C":
 					// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
 					tl.Goroutines.Compact = !tl.Goroutines.Compact
+
+				case "T":
+					// TODO(dh): show an onscreen hint what setting we changed to
+					tl.showTooltips = (tl.showTooltips + 1) % (showTooltipsNone + 1)
 				}
 			}
 		case pointer.Event:
@@ -497,7 +509,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: "C|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
@@ -783,7 +795,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			stack.Pop()
 		}
 
-		if gw.hoveredLabel {
+		if gw.tl.showTooltips == showTooltipsBoth && gw.hoveredLabel {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
@@ -913,7 +925,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			p.path.Close()
 		}
 
-		if gw.hoveredActivity && gw.pointerAt.X >= startPx && gw.pointerAt.X < endPx {
+		if gw.tl.showTooltips < showTooltipsNone && gw.hoveredActivity && gw.pointerAt.X >= startPx && gw.pointerAt.X < endPx {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
