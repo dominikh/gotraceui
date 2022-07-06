@@ -664,10 +664,10 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 }
 
 type GoroutineWidget struct {
-	Theme *material.Theme
+	tl    *Timeline
+	g     *Goroutine
+	label string
 
-	tl              *Timeline
-	g               *Goroutine
 	pointerAt       f32.Point
 	hovered         bool
 	hoveredActivity bool
@@ -685,6 +685,20 @@ type GoroutineWidget struct {
 		topBorder       bool
 		ops             op.Ops
 		call            op.CallOp
+	}
+}
+
+func NewGoroutineWidget(tl *Timeline, g *Goroutine) *GoroutineWidget {
+	var l string
+	if g.Function != nil {
+		l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
+	} else {
+		l = fmt.Sprintf("goroutine %d", g.ID)
+	}
+	return &GoroutineWidget{
+		tl:    tl,
+		g:     g,
+		label: l,
 	}
 }
 
@@ -780,15 +794,9 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	if !compact {
 		c := colors[colorGoroutineLabel]
 		paint.ColorOp{Color: c}.Add(gtx.Ops)
-		var l string
-		if gw.g.Function != nil {
-			l = fmt.Sprintf("goroutine %d: %s", gw.g.ID, gw.g.Function.Fn)
-		} else {
-			l = fmt.Sprintf("goroutine %d", gw.g.ID)
-		}
 
 		macro := op.Record(gtx.Ops)
-		labelDims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, goroutineLabelFontSizeSp, l)
+		labelDims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, goroutineLabelFontSizeSp, gw.label)
 		call := macro.Stop()
 
 		if gw.hovered || forceLabel {
@@ -804,7 +812,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
 			stack := op.Offset(gw.pointerAt.Round()).Push(gtx.Ops)
-			GoroutineTooltip{gw.g, gw.Theme.Shaper}.Layout(gtx)
+			GoroutineTooltip{gw.g, gw.tl.Theme.Shaper}.Layout(gtx)
 			stack.Pop()
 			call := macro.Stop()
 			op.Defer(gtx.Ops, call)
@@ -934,7 +942,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
 			stack := op.Offset(gw.pointerAt.Round()).Push(gtx.Ops)
-			SpanTooltip{dspSpans, gw.Theme.Shaper}.Layout(gtx)
+			SpanTooltip{dspSpans, gw.tl.Theme.Shaper}.Layout(gtx)
 			stack.Pop()
 			call := macro.Stop()
 			op.Defer(gtx.Ops, call)
@@ -1887,11 +1895,7 @@ func run(w *app.Window, gs []*Goroutine) error {
 	tl.Axis = Axis{tl: tl}
 	tl.Gs = make([]*GoroutineWidget, len(gs))
 	for i, g := range gs {
-		tl.Gs[i] = &GoroutineWidget{
-			Theme: tl.Theme,
-			tl:    tl,
-			g:     g,
-		}
+		tl.Gs[i] = NewGoroutineWidget(tl, g)
 	}
 	tl.prevFrame.dspSpans = map[uint64][]struct {
 		dspSpans []Span
