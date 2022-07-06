@@ -666,12 +666,13 @@ type GoroutineWidget struct {
 		hoveredLabel    bool
 		forceLabel      bool
 		compact         bool
+		topBorder       bool
 		ops             op.Ops
 		call            op.CallOp
 	}
 }
 
-func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact bool) layout.Dimensions {
+func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	goroutineHeight := gw.tl.goroutineHeight(gtx)
 	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
@@ -731,7 +732,8 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		!gw.hovered &&
 		!gw.prevFrame.hovered &&
 		forceLabel == gw.prevFrame.forceLabel &&
-		compact == gw.prevFrame.compact {
+		compact == gw.prevFrame.compact &&
+		topBorder == gw.prevFrame.topBorder {
 
 		// OPT(dh): instead of avoiding cached ops completely when the goroutine is hovered, draw the tooltip
 		// separately.
@@ -744,6 +746,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	gw.prevFrame.hoveredLabel = gw.hoveredLabel
 	gw.prevFrame.forceLabel = forceLabel
 	gw.prevFrame.compact = compact
+	gw.prevFrame.topBorder = topBorder
 
 	origOps := gtx.Ops
 	gtx.Ops = &gw.prevFrame.ops
@@ -769,13 +772,13 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		}
 
 		macro := op.Record(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, goroutineLabelFontSizeSp, l)
+		labelDims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, goroutineLabelFontSizeSp, l)
 		call := macro.Stop()
 
 		if gw.hovered || forceLabel {
 			call.Add(gtx.Ops)
 
-			stack := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
+			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &gw.hoveredLabel, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
 			stack.Pop()
 		}
@@ -791,10 +794,10 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			op.Defer(gtx.Ops, call)
 		}
 
-		defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
-		if gw.hovered || forceLabel {
+		if gw.hovered || forceLabel || topBorder {
 			paint.FillShape(gtx.Ops, c, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
 		}
+		defer op.Offset(image.Pt(0, labelDims.Size.Y)).Push(gtx.Ops).Pop()
 		defer op.Offset(image.Pt(0, gtx.Metric.Dp(1)*2)).Push(gtx.Ops).Pop()
 
 	}
@@ -1048,7 +1051,8 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		gw.Layout(gtx, tl.Goroutines.DisplayAllLabels, tl.Goroutines.Compact)
+		topBorder := i > 0 && tl.Gs[i-1].hovered
+		gw.Layout(gtx, tl.Goroutines.DisplayAllLabels, tl.Goroutines.Compact, topBorder)
 		stack.Pop()
 	}
 
