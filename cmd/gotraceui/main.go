@@ -1667,7 +1667,7 @@ func main() {
 	fmt.Println("Starting UI...")
 
 	go func() {
-		w := app.NewWindow()
+		w := app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", os.Args[1])))
 		err := run(w, gs)
 		if err != nil {
 			log.Fatal(err)
