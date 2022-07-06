@@ -1123,15 +1123,21 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	inactivePct := float32(inactiveD) / float32(d) * 100
 	runningPct := float32(runningD) / float32(d) * 100
 	gcAssistPct := float32(gcAssistD) / float32(d) * 100
-	l := fmt.Sprintf("Goroutine %d: %s\n\n"+
-		"Appeared at: %s\n"+
-		"Disappeared at: %s\n"+
-		"Lifetime: %s\n"+
-		"Time in blocked states: %s (%.2f%%)\n"+
-		"Time in inactive states: %s (%.2f%%)\n"+
-		"Time in GC assist: %s (%.2f%%)\n"+
-		"Time in running states: %s (%.2f%%)",
-		tt.G.ID, tt.G.Function.Fn,
+	var fnName string
+	line1 := "Goroutine %[1]d\n\n"
+	if tt.G.Function != nil {
+		fnName = tt.G.Function.Fn
+		line1 = "Goroutine %[1]d: %[2]s\n\n"
+	}
+	l := fmt.Sprintf(line1+
+		"Appeared at: %[3]s\n"+
+		"Disappeared at: %[4]s\n"+
+		"Lifetime: %[5]s\n"+
+		"Time in blocked states: %[6]s (%.2[7]f%%)\n"+
+		"Time in inactive states: %[8]s (%.2[9]f%%)\n"+
+		"Time in GC assist: %[10]s (%.2[11]f%%)\n"+
+		"Time in running states: %[12]s (%.2[13]f%%)",
+		tt.G.ID, fnName,
 		start,
 		end,
 		d,
