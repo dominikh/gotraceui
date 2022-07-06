@@ -1070,10 +1070,10 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 		if y < -goroutineHeight {
 			continue
 		}
-		end = i
 		if y > gtx.Constraints.Max.Y {
 			break
 		}
+		end = i
 		if start == -1 {
 			start = i
 		}
@@ -1086,7 +1086,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 
 	var out []*GoroutineWidget
 	if start != -1 {
-		out = tl.Gs[start:end]
+		out = tl.Gs[start : end+1]
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
