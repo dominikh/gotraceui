@@ -32,6 +32,14 @@ import (
 	"gioui.org/x/eventx"
 )
 
+/*
+   GC notes:
+   - The only use of p=1000004 is for GCStart
+   - GCDone happens on other procs, probably whichever proc was running the background worker that determined that we're done
+   - A similar thing applies to GCSTWStart and GCSTWDone
+   - The second GCSTWDone can happen after GCDone
+*/
+
 // XXX parsing failures and other format violations shouldn't cause panics, but instead return errors that we can
 // present in the UI.
 
