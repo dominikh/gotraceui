@@ -795,7 +795,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		}
 
 		if gw.hovered || forceLabel || topBorder {
-			paint.FillShape(gtx.Ops, c, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
+			paint.FillShape(gtx.Ops, colors[colorGoroutineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
 		}
 		defer op.Offset(image.Pt(0, labelDims.Size.Y)).Push(gtx.Ops).Pop()
 		defer op.Offset(image.Pt(0, gtx.Metric.Dp(1)*2)).Push(gtx.Ops).Pop()
@@ -1675,7 +1675,8 @@ var colors = [...]color.NRGBA{
 	colorTooltipBackground: toColor(0xEEFFEEFF),
 	colorTooltipBorder:     toColor(0x57A8A8FF),
 
-	colorGoroutineLabel: toColor(0x888888FF),
+	colorGoroutineLabel:  toColor(0x888888FF),
+	colorGoroutineBorder: toColor(0xDDDDDDFF),
 
 	// TODO(dh): find a nice color for this
 	colorSpanWithEvents: toColor(0xFF00FFFF),
@@ -1712,6 +1713,7 @@ const (
 	colorTooltipBorder
 
 	colorGoroutineLabel
+	colorGoroutineBorder
 
 	colorSpanWithEvents
 	colorSpanOutline
