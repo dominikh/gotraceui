@@ -126,21 +126,22 @@ type Timeline struct {
 		cursorPos f32.Point
 	}
 	Goroutines struct {
-		DisplayAllLabels bool
-		Compact          bool
-		_                [0]int
+		DisplayAllLabels         bool
+		Compact                  bool
+		HighlightSpansWithEvents bool
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
-		Start        time.Duration
-		End          time.Duration
-		Y            int
-		nsPerPx      float32
-		compact      bool
-		displayedGws []*GoroutineWidget
-		dspSpans     map[uint64][]struct {
+		Start                    time.Duration
+		End                      time.Duration
+		Y                        int
+		nsPerPx                  float32
+		compact                  bool
+		displayedGws             []*GoroutineWidget
+		highlightSpansWithEvents bool
+		dspSpans                 map[uint64][]struct {
 			dspSpans       []Span
 			startPx, endPx float32
 		}
@@ -148,7 +149,7 @@ type Timeline struct {
 }
 
 func (tl *Timeline) unchanged() bool {
-	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx && tl.prevFrame.Y == tl.Y && tl.prevFrame.compact == tl.Goroutines.Compact
+	return tl.prevFrame.Start == tl.Start && tl.prevFrame.End == tl.End && tl.prevFrame.nsPerPx == tl.nsPerPx && tl.prevFrame.Y == tl.Y && tl.prevFrame.compact == tl.Goroutines.Compact && tl.prevFrame.highlightSpansWithEvents == tl.Goroutines.HighlightSpansWithEvents
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -417,6 +418,9 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				case "T":
 					// TODO(dh): show an onscreen hint what setting we changed to
 					tl.showTooltips = (tl.showTooltips + 1) % (showTooltipsNone + 1)
+
+				case "E":
+					tl.Goroutines.HighlightSpansWithEvents = !tl.Goroutines.HighlightSpansWithEvents
 				}
 			}
 		case pointer.Event:
@@ -509,7 +513,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: "C|E|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
@@ -912,7 +916,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 		p.Close()
 
-		if spanHasEvents(gw.g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
+		if gw.tl.Goroutines.HighlightSpansWithEvents && spanHasEvents(gw.g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
 			p := eventsPath
 			minP := minP
 			maxP := maxP
@@ -1970,6 +1974,7 @@ func run(w *app.Window, gs []*Goroutine) error {
 			tl.prevFrame.nsPerPx = tl.nsPerPx
 			tl.prevFrame.Y = tl.Y
 			tl.prevFrame.compact = tl.Goroutines.Compact
+			tl.prevFrame.highlightSpansWithEvents = tl.Goroutines.HighlightSpansWithEvents
 
 			ev.Frame(&ops)
 		}
