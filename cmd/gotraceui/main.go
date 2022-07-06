@@ -253,9 +253,9 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 
 func (tl *Timeline) activityHeight(gtx layout.Context) int {
 	if tl.Activity.Compact {
-		return gtx.Metric.Dp(activityHeightDp) - gtx.Metric.Dp(activityLabelHeightDp)
+		return gtx.Dp(activityHeightDp) - gtx.Dp(activityLabelHeightDp)
 	} else {
-		return gtx.Metric.Dp(activityHeightDp)
+		return gtx.Dp(activityHeightDp)
 	}
 }
 
@@ -301,7 +301,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		return nil, 0, 0, false
 	}
 
-	minSpanWidth := float32(gtx.Metric.Dp(minSpanWidthDp))
+	minSpanWidth := float32(gtx.Dp(minSpanWidthDp))
 	startOffset := offset
 	nsPerPx := float32(it.tl.nsPerPx)
 	tlStart := it.tl.Start
@@ -396,7 +396,7 @@ func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 			tl.Y = off
 			return
 		}
-		off += tl.activityHeight(gtx) + gtx.Metric.Dp(activityGapDp)
+		off += tl.activityHeight(gtx) + gtx.Dp(activityGapDp)
 	}
 	panic("unreachable")
 }
@@ -476,7 +476,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	{
 		activityHeight := tl.activityHeight(gtx)
-		activityGap := gtx.Metric.Dp(activityGapDp)
+		activityGap := gtx.Dp(activityGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		d := tl.Scrollbar.ScrollDistance()
 		totalHeight := float32(len(tl.Gs) * (activityHeight + activityGap))
@@ -556,7 +556,7 @@ func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
 		return 0, false
 	}
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
-	minTickDistance := gtx.Metric.Dp(minTickDistanceDp)
+	minTickDistance := gtx.Dp(minTickDistanceDp)
 	for t := time.Duration(1); true; t *= 10 {
 		tickDistance := int(round32(float32(t) / axis.tl.nsPerPx))
 		if tickDistance >= minTickDistance {
@@ -572,9 +572,9 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
 	// goroutines to shift around as the axis section grows and shrinks.
 	labelHeight := 0
-	tickWidth := float32(gtx.Metric.Dp(tickWidthDp))
-	tickHeight := float32(gtx.Metric.Dp(tickHeightDp))
-	minTickLabelDistance := float32(gtx.Metric.Dp(minTickLabelDistanceDp))
+	tickWidth := float32(gtx.Dp(tickWidthDp))
+	tickHeight := float32(gtx.Dp(tickHeightDp))
+	minTickLabelDistance := float32(gtx.Dp(minTickLabelDistanceDp))
 
 	tickInterval, ok := axis.tickInterval(gtx)
 	if !ok {
@@ -734,9 +734,9 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget[*Goroutine] 
 
 func (aw *ActivityWidget[T]) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	activityHeight := aw.tl.activityHeight(gtx)
-	activityStateHeight := gtx.Metric.Dp(activityStateHeightDp)
-	activityLabelHeight := gtx.Metric.Dp(activityLabelHeightDp)
-	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
+	activityStateHeight := gtx.Dp(activityStateHeightDp)
+	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
+	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 
 	aw.ClickedSpans = nil
 
@@ -825,7 +825,7 @@ func (aw *ActivityWidget[T]) Layout(gtx layout.Context, forceLabel bool, compact
 	if !compact {
 		if aw.hovered || forceLabel || topBorder {
 			// Draw border at top of the activity
-			paint.FillShape(gtx.Ops, colors[colorActivityBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
+			paint.FillShape(gtx.Ops, colors[colorActivityBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
 		if aw.hovered || forceLabel {
@@ -1020,7 +1020,7 @@ func (aw *ActivityWidget[T]) Layout(gtx layout.Context, forceLabel bool, compact
 
 func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*ActivityWidget[*Goroutine] {
 	activityHeight := tl.activityHeight(gtx)
-	activityGap := gtx.Metric.Dp(activityGapDp)
+	activityGap := gtx.Dp(activityGapDp)
 
 	start := -1
 	end := -1
@@ -1057,7 +1057,7 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	activityHeight := tl.activityHeight(gtx)
-	activityGap := gtx.Metric.Dp(activityGapDp)
+	activityGap := gtx.Dp(activityGapDp)
 
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
 	// not bring us out of alignment with the axis.
@@ -1067,11 +1067,11 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
 		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
-		stack := op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Metric.Dp(sb.Width()), 0)).Push(gtx.Ops)
+		stack := op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(sb.Width()), 0)).Push(gtx.Ops)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 		stack.Pop()
 
-		gtx.Constraints.Max.X -= gtx.Metric.Dp(sb.Width())
+		gtx.Constraints.Max.X -= gtx.Dp(sb.Width())
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	}
 
@@ -1313,8 +1313,8 @@ type Tooltip struct {
 }
 
 func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
-	var padding = gtx.Metric.Dp(tooltipPaddingDp)
-	var tooltipBorderWidth = gtx.Metric.Dp(tooltipBorderWidthDp)
+	var padding = gtx.Dp(tooltipPaddingDp)
+	var tooltipBorderWidth = gtx.Dp(tooltipBorderWidthDp)
 
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
