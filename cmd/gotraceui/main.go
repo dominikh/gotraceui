@@ -62,10 +62,11 @@ const (
 	tickLabelFontSizeSp    unit.Sp = 14
 
 	// XXX the label height depends on the font used
-	goroutineLabelHeightDp unit.Dp = 20
-	goroutineStateHeightDp unit.Dp = 12
-	goroutineGapDp         unit.Dp = 5
-	goroutineHeightDp      unit.Dp = goroutineStateHeightDp + goroutineLabelHeightDp
+	activityLabelHeightDp   unit.Dp = 20
+	activityStateHeightDp   unit.Dp = 12
+	activityGapDp           unit.Dp = 5
+	activityHeightDp        unit.Dp = activityStateHeightDp + activityLabelHeightDp
+	activityLabelFontSizeSp unit.Sp = 14
 
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
@@ -74,8 +75,6 @@ const (
 	tooltipFontSizeSp    unit.Sp = 14
 	tooltipPaddingDp     unit.Dp = 2
 	tooltipBorderWidthDp unit.Dp = 2
-
-	goroutineLabelFontSizeSp unit.Sp = 14
 )
 
 type Axis struct {
@@ -104,7 +103,7 @@ type Timeline struct {
 	// Imagine we're drawing all goroutines onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
 	// canvas that the goroutine section's Y == 0 is displaying.
 	Y         int
-	Gs        []*GoroutineWidget
+	Gs        []*ActivityWidget[*Goroutine]
 	Theme     *material.Theme
 	Scrollbar widget.Scrollbar
 	Axis      Axis
@@ -130,7 +129,7 @@ type Timeline struct {
 	Global struct {
 		cursorPos f32.Point
 	}
-	Goroutines struct {
+	Activity struct {
 		DisplayAllLabels         bool
 		Compact                  bool
 		HighlightSpansWithEvents bool
@@ -146,9 +145,9 @@ type Timeline struct {
 		Y                        int
 		nsPerPx                  float32
 		compact                  bool
-		displayedGws             []*GoroutineWidget
+		displayedGws             []*ActivityWidget[*Goroutine]
 		highlightSpansWithEvents bool
-		dspSpans                 map[uint64][]struct {
+		dspSpans                 map[any][]struct {
 			dspSpans       []Span
 			startPx, endPx float32
 		}
@@ -160,8 +159,8 @@ func (tl *Timeline) unchanged() bool {
 		tl.prevFrame.End == tl.End &&
 		tl.prevFrame.nsPerPx == tl.nsPerPx &&
 		tl.prevFrame.Y == tl.Y &&
-		tl.prevFrame.compact == tl.Goroutines.Compact &&
-		tl.prevFrame.highlightSpansWithEvents == tl.Goroutines.HighlightSpansWithEvents
+		tl.prevFrame.compact == tl.Activity.Compact &&
+		tl.prevFrame.highlightSpansWithEvents == tl.Activity.HighlightSpansWithEvents
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -252,11 +251,11 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (tl *Timeline) goroutineHeight(gtx layout.Context) int {
-	if tl.Goroutines.Compact {
-		return gtx.Metric.Dp(goroutineHeightDp) - gtx.Metric.Dp(goroutineLabelHeightDp)
+func (tl *Timeline) activityHeight(gtx layout.Context) int {
+	if tl.Activity.Compact {
+		return gtx.Metric.Dp(activityHeightDp) - gtx.Metric.Dp(activityLabelHeightDp)
 	} else {
-		return gtx.Metric.Dp(goroutineHeightDp)
+		return gtx.Metric.Dp(activityHeightDp)
 	}
 }
 
@@ -371,13 +370,13 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	var first, last time.Duration = -1, -1
 	for _, gw := range tl.visibleGoroutines(gtx) {
-		if len(gw.g.Spans) == 0 {
+		if len(gw.item.Spans) == 0 {
 			continue
 		}
-		if t := gw.g.Spans[0].Start; t < first || first == -1 {
+		if t := gw.item.Spans[0].Start; t < first || first == -1 {
 			first = t
 		}
-		if t := gw.g.Spans[len(gw.g.Spans)-1].End; t > last {
+		if t := gw.item.Spans[len(gw.item.Spans)-1].End; t > last {
 			last = t
 		}
 	}
@@ -392,12 +391,12 @@ func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	// OPT(dh): don't be O(n)
 	off := 0
 	for _, og := range tl.Gs {
-		if g == og.g {
+		if g == og.item {
 			// TODO(dh): show goroutine at center of window, not the top
 			tl.Y = off
 			return
 		}
-		off += tl.goroutineHeight(gtx) + gtx.Metric.Dp(goroutineGapDp)
+		off += tl.activityHeight(gtx) + gtx.Metric.Dp(activityGapDp)
 	}
 	panic("unreachable")
 }
@@ -421,18 +420,18 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					}
 
 				case "X":
-					tl.Goroutines.DisplayAllLabels = !tl.Goroutines.DisplayAllLabels
+					tl.Activity.DisplayAllLabels = !tl.Activity.DisplayAllLabels
 
 				case "C":
 					// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
-					tl.Goroutines.Compact = !tl.Goroutines.Compact
+					tl.Activity.Compact = !tl.Activity.Compact
 
 				case "T":
 					// TODO(dh): show an onscreen hint what setting we changed to
-					tl.Goroutines.ShowTooltips = (tl.Goroutines.ShowTooltips + 1) % (showTooltipsNone + 1)
+					tl.Activity.ShowTooltips = (tl.Activity.ShowTooltips + 1) % (showTooltipsNone + 1)
 
 				case "E":
-					tl.Goroutines.HighlightSpansWithEvents = !tl.Goroutines.HighlightSpansWithEvents
+					tl.Activity.HighlightSpansWithEvents = !tl.Activity.HighlightSpansWithEvents
 				}
 			}
 		case pointer.Event:
@@ -476,11 +475,11 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	{
-		goroutineHeight := tl.goroutineHeight(gtx)
-		goroutineGap := gtx.Metric.Dp(goroutineGapDp)
+		activityHeight := tl.activityHeight(gtx)
+		activityGap := gtx.Metric.Dp(activityGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		d := tl.Scrollbar.ScrollDistance()
-		totalHeight := float32(len(tl.Gs) * (goroutineHeight + goroutineGap))
+		totalHeight := float32(len(tl.Gs) * (activityHeight + activityGap))
 		tl.Y += int(round32(d * totalHeight))
 		if tl.Y < 0 {
 			tl.Y = 0
@@ -676,9 +675,14 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
 
-type GoroutineWidget struct {
+type ActivityWidget[T any] struct {
+	// Inputs
+	AllSpans      []Span
+	WidgetTooltip func(gtx layout.Context, aw *ActivityWidget[T])
+	HighlightSpan func(aw *ActivityWidget[T], spans []Span) bool
+
 	tl    *Timeline
-	g     *Goroutine
+	item  T
 	label string
 
 	pointerAt       f32.Point
@@ -701,40 +705,53 @@ type GoroutineWidget struct {
 	}
 }
 
-func NewGoroutineWidget(tl *Timeline, g *Goroutine) *GoroutineWidget {
+type clipPath struct {
+	ops  op.Ops
+	path clip.Path
+}
+
+func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget[*Goroutine] {
 	var l string
 	if g.Function != nil {
 		l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
 	} else {
 		l = fmt.Sprintf("goroutine %d", g.ID)
 	}
-	return &GoroutineWidget{
+	return &ActivityWidget[*Goroutine]{
+		AllSpans: g.Spans,
+		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget[*Goroutine]) {
+			GoroutineTooltip{aw.item, aw.tl.Theme.Shaper}.Layout(gtx)
+		},
+		HighlightSpan: func(aw *ActivityWidget[*Goroutine], dspSpans []Span) bool {
+			return spanHasEvents(aw.item.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End)
+
+		},
 		tl:    tl,
-		g:     g,
+		item:  g,
 		label: l,
 	}
 }
 
-func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
-	goroutineHeight := gw.tl.goroutineHeight(gtx)
-	goroutineStateHeight := gtx.Metric.Dp(goroutineStateHeightDp)
-	goroutineLabelHeight := gtx.Metric.Dp(goroutineLabelHeightDp)
+func (aw *ActivityWidget[T]) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+	activityHeight := aw.tl.activityHeight(gtx)
+	activityStateHeight := gtx.Metric.Dp(activityStateHeightDp)
+	activityLabelHeight := gtx.Metric.Dp(activityLabelHeightDp)
 	spanBorderWidth := gtx.Metric.Dp(spanBorderWidthDp)
 
-	gw.ClickedSpans = nil
+	aw.ClickedSpans = nil
 
 	var trackPos f32.Point
 	var trackClick bool
 
 	// FIXME(dh): update tooltip position when dragging
-	for _, e := range gtx.Events(&gw.hoveredActivity) {
+	for _, e := range gtx.Events(&aw.hoveredActivity) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Enter, pointer.Move:
-			gw.hoveredActivity = true
-			gw.pointerAt = ev.Position
+			aw.hoveredActivity = true
+			aw.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
-			gw.hoveredActivity = false
+			aw.hoveredActivity = false
 		case pointer.Press:
 			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
 				trackPos = ev.Position
@@ -742,102 +759,102 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			}
 		}
 	}
-	for _, ev := range gtx.Events(&gw.hovered) {
+	for _, ev := range gtx.Events(&aw.hovered) {
 		switch ev.(pointer.Event).Type {
 		case pointer.Enter, pointer.Move:
-			gw.hovered = true
+			aw.hovered = true
 		case pointer.Leave, pointer.Cancel:
-			gw.hovered = false
+			aw.hovered = false
 		}
 	}
-	for _, ev := range gtx.Events(&gw.hoveredLabel) {
+	for _, ev := range gtx.Events(&aw.hoveredLabel) {
 		switch ev := ev.(type) {
 		case pointer.Event:
 			switch ev.Type {
 			case pointer.Enter, pointer.Move:
-				gw.hoveredLabel = true
-				gw.pointerAt = ev.Position
+				aw.hoveredLabel = true
+				aw.pointerAt = ev.Position
 			case pointer.Leave, pointer.Cancel:
-				gw.hoveredLabel = false
+				aw.hoveredLabel = false
 			case pointer.Press:
 				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-					gw.ClickedSpans = gw.g.Spans
+					aw.ClickedSpans = aw.AllSpans
 				}
 			}
 		}
 	}
 
 	if !trackClick &&
-		gw.tl.unchanged() &&
-		!gw.hoveredActivity &&
-		!gw.prevFrame.hoveredActivity &&
-		!gw.hoveredLabel &&
-		!gw.prevFrame.hoveredLabel &&
-		!gw.hovered &&
-		!gw.prevFrame.hovered &&
-		forceLabel == gw.prevFrame.forceLabel &&
-		compact == gw.prevFrame.compact &&
-		topBorder == gw.prevFrame.topBorder {
+		aw.tl.unchanged() &&
+		!aw.hoveredActivity &&
+		!aw.prevFrame.hoveredActivity &&
+		!aw.hoveredLabel &&
+		!aw.prevFrame.hoveredLabel &&
+		!aw.hovered &&
+		!aw.prevFrame.hovered &&
+		forceLabel == aw.prevFrame.forceLabel &&
+		compact == aw.prevFrame.compact &&
+		topBorder == aw.prevFrame.topBorder {
 
-		// OPT(dh): instead of avoiding cached ops completely when the goroutine is hovered, draw the tooltip
+		// OPT(dh): instead of avoiding cached ops completely when the activity is hovered, draw the tooltip
 		// separately.
-		gw.prevFrame.call.Add(gtx.Ops)
-		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}
+		aw.prevFrame.call.Add(gtx.Ops)
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
 	}
 
-	gw.prevFrame.hovered = gw.hovered
-	gw.prevFrame.hoveredActivity = gw.hoveredActivity
-	gw.prevFrame.hoveredLabel = gw.hoveredLabel
-	gw.prevFrame.forceLabel = forceLabel
-	gw.prevFrame.compact = compact
-	gw.prevFrame.topBorder = topBorder
+	aw.prevFrame.hovered = aw.hovered
+	aw.prevFrame.hoveredActivity = aw.hoveredActivity
+	aw.prevFrame.hoveredLabel = aw.hoveredLabel
+	aw.prevFrame.forceLabel = forceLabel
+	aw.prevFrame.compact = compact
+	aw.prevFrame.topBorder = topBorder
 
 	origOps := gtx.Ops
-	gtx.Ops = &gw.prevFrame.ops
+	gtx.Ops = &aw.prevFrame.ops
 	gtx.Ops.Reset()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
 		call.Add(origOps)
-		gw.prevFrame.call = call
+		aw.prevFrame.call = call
 	}()
 
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: &gw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, activityHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: &aw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 
 	if !compact {
-		if gw.hovered || forceLabel || topBorder {
-			// Draw border at top of goroutine
-			paint.FillShape(gtx.Ops, colors[colorGoroutineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
+		if aw.hovered || forceLabel || topBorder {
+			// Draw border at top of the activity
+			paint.FillShape(gtx.Ops, colors[colorActivityBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Metric.Dp(1))}.Op())
 		}
 
-		if gw.hovered || forceLabel {
-			paint.ColorOp{Color: colors[colorGoroutineLabel]}.Add(gtx.Ops)
-			labelDims := widget.Label{}.Layout(gtx, gw.tl.Theme.Shaper, text.Font{}, goroutineLabelFontSizeSp, gw.label)
+		if aw.hovered || forceLabel {
+			paint.ColorOp{Color: colors[colorActivityLabel]}.Add(gtx.Ops)
+			labelDims := widget.Label{}.Layout(gtx, aw.tl.Theme.Shaper, text.Font{}, activityLabelFontSizeSp, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &gw.hoveredLabel, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			pointer.InputOp{Tag: &aw.hoveredLabel, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
 			stack.Pop()
 		}
 
-		if gw.tl.Goroutines.ShowTooltips == showTooltipsBoth && gw.hoveredLabel {
+		if aw.WidgetTooltip != nil && aw.tl.Activity.ShowTooltips == showTooltipsBoth && aw.hoveredLabel {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
-			stack := op.Offset(gw.pointerAt.Round()).Push(gtx.Ops)
-			GoroutineTooltip{gw.g, gw.tl.Theme.Shaper}.Layout(gtx)
+			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
+			aw.WidgetTooltip(gtx, aw)
 			stack.Pop()
 			call := macro.Stop()
 			op.Defer(gtx.Ops, call)
 		}
 
-		defer op.Offset(image.Pt(0, goroutineLabelHeight)).Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(0, activityLabelHeight)).Push(gtx.Ops).Pop()
 	}
 
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, goroutineStateHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: &gw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, activityStateHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: &aw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
 
-	// Draw goroutine lifetimes
+	// Draw activity lifetimes
 	//
 	// We batch draw operations by color to avoid making thousands of draw calls. See
 	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
@@ -870,11 +887,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		colorStateUnknown:              {},
 	}
 
-	type path struct {
-		ops  op.Ops
-		path clip.Path
-	}
-	eventsPath := &path{}
+	eventsPath := &clipPath{}
 	eventsPath.path.Begin(&eventsPath.ops)
 
 	for i := range paths {
@@ -887,7 +900,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 
 	doSpans := func(dspSpans []Span, startPx, endPx float32) {
 		if trackClick && trackPos.X >= startPx && trackPos.X < endPx {
-			gw.ClickedSpans = dspSpans
+			aw.ClickedSpans = dspSpans
 			trackClick = false
 		}
 
@@ -911,7 +924,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		var minP f32.Point
 		var maxP f32.Point
 		minP = f32.Pt((max(startPx, 0)), 0)
-		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(goroutineStateHeight))
+		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(activityStateHeight))
 		if first && startPx >= 0 {
 			// We don't want two borders right next to each other, nor do we want a border for truncated spans
 			minP.X += float32(spanBorderWidth)
@@ -929,11 +942,11 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 		p.Close()
 
-		if gw.tl.Goroutines.HighlightSpansWithEvents && spanHasEvents(gw.g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End) {
+		if aw.tl.Activity.HighlightSpansWithEvents && aw.HighlightSpan(aw, dspSpans) {
 			p := eventsPath
 			minP := minP
 			maxP := maxP
-			minP.Y += float32((goroutineStateHeight - spanBorderWidth*2) / 2)
+			minP.Y += float32((activityStateHeight - spanBorderWidth*2) / 2)
 
 			p.path.MoveTo(minP)
 			p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
@@ -942,12 +955,12 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			p.path.Close()
 		}
 
-		if gw.tl.Goroutines.ShowTooltips < showTooltipsNone && gw.hoveredActivity && gw.pointerAt.X >= startPx && gw.pointerAt.X < endPx {
+		if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
-			stack := op.Offset(gw.pointerAt.Round()).Push(gtx.Ops)
-			SpanTooltip{dspSpans, gw.tl.Theme.Shaper}.Layout(gtx)
+			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
+			SpanTooltip{dspSpans, aw.tl.Theme.Shaper}.Layout(gtx)
 			stack.Pop()
 			call := macro.Stop()
 			op.Defer(gtx.Ops, call)
@@ -956,15 +969,15 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		first = false
 	}
 
-	if gw.tl.unchanged() {
-		for _, prevSpans := range gw.tl.prevFrame.dspSpans[gw.g.ID] {
+	if aw.tl.unchanged() {
+		for _, prevSpans := range aw.tl.prevFrame.dspSpans[aw.item] {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
 	} else {
-		allDspSpans := gw.tl.prevFrame.dspSpans[gw.g.ID][:0]
+		allDspSpans := aw.tl.prevFrame.dspSpans[aw.item][:0]
 		it := renderedSpansIterator{
-			tl:    gw.tl,
-			spans: gw.tl.visibleSpans(gw.g.Spans),
+			tl:    aw.tl,
+			spans: aw.tl.visibleSpans(aw.AllSpans),
 		}
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
@@ -977,7 +990,7 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 			}{dspSpans, startPx, endPx})
 			doSpans(dspSpans, startPx, endPx)
 		}
-		gw.tl.prevFrame.dspSpans[gw.g.ID] = allDspSpans
+		aw.tl.prevFrame.dspSpans[aw.item] = allDspSpans
 	}
 
 	if !first {
@@ -988,12 +1001,12 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 		lastEnd = min(lastEnd, float32(gtx.Constraints.Max.X))
 		outlinesPath.MoveTo(f32.Pt(firstStart, 0))
 		outlinesPath.LineTo(f32.Pt(lastEnd, 0))
-		outlinesPath.LineTo(f32.Pt(lastEnd, float32(goroutineStateHeight)))
-		outlinesPath.LineTo(f32.Pt(firstStart, float32(goroutineStateHeight)))
+		outlinesPath.LineTo(f32.Pt(lastEnd, float32(activityStateHeight)))
+		outlinesPath.LineTo(f32.Pt(firstStart, float32(activityStateHeight)))
 		outlinesPath.Close()
 		paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
 	} else {
-		// No spans for this goroutine
+		// No spans for this activity
 	}
 
 	for cIdx := range paths {
@@ -1002,21 +1015,21 @@ func (gw *GoroutineWidget) Layout(gtx layout.Context, forceLabel bool, compact b
 	}
 	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: eventsPath.path.End()}.Op())
 
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, goroutineHeight)}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
 }
 
-func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
-	goroutineHeight := tl.goroutineHeight(gtx)
-	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
+func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*ActivityWidget[*Goroutine] {
+	activityHeight := tl.activityHeight(gtx)
+	activityGap := gtx.Metric.Dp(activityGapDp)
 
 	start := -1
 	end := -1
 	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
 	// OPT(dh): we can probably compute the indices directly
 	for i := range tl.Gs {
-		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
+		y := (activityHeight+activityGap)*int(i) - tl.Y
 		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
-		if y < -goroutineHeight {
+		if y < -activityHeight {
 			continue
 		}
 		if start == -1 {
@@ -1040,17 +1053,17 @@ func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*GoroutineWidget {
 	return tl.Gs[start:end]
 }
 
-func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*GoroutineWidget) {
+func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*ActivityWidget[*Goroutine]) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	goroutineHeight := tl.goroutineHeight(gtx)
-	goroutineGap := gtx.Metric.Dp(goroutineGapDp)
+	activityHeight := tl.activityHeight(gtx)
+	activityGap := gtx.Metric.Dp(activityGapDp)
 
 	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
 	// not bring us out of alignment with the axis.
 	{
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		totalHeight := float32((len(tl.Gs) + 1) * (goroutineHeight + goroutineGap))
+		totalHeight := float32((len(tl.Gs) + 1) * (activityHeight + activityGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
 		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
@@ -1066,9 +1079,9 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 	start := -1
 	end := -1
 	for i, gw := range tl.Gs {
-		y := (goroutineHeight+goroutineGap)*int(i) - tl.Y
+		y := (activityHeight+activityGap)*int(i) - tl.Y
 		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
-		if y < -goroutineHeight {
+		if y < -activityHeight {
 			continue
 		}
 		if y > gtx.Constraints.Max.Y {
@@ -1081,11 +1094,11 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		topBorder := i > 0 && tl.Gs[i-1].hovered
-		gw.Layout(gtx, tl.Goroutines.DisplayAllLabels, tl.Goroutines.Compact, topBorder)
+		gw.Layout(gtx, tl.Activity.DisplayAllLabels, tl.Activity.Compact, topBorder)
 		stack.Pop()
 	}
 
-	var out []*GoroutineWidget
+	var out []*ActivityWidget[*Goroutine]
 	if start != -1 {
 		out = tl.Gs[start : end+1]
 	}
@@ -1741,8 +1754,8 @@ var colors = [...]color.NRGBA{
 	colorTooltipBackground: toColor(0xEEFFEEFF),
 	colorTooltipBorder:     toColor(0x57A8A8FF),
 
-	colorGoroutineLabel:  toColor(0x888888FF),
-	colorGoroutineBorder: toColor(0xDDDDDDFF),
+	colorActivityLabel:  toColor(0x888888FF),
+	colorActivityBorder: toColor(0xDDDDDDFF),
 
 	// TODO(dh): find a nice color for this
 	colorSpanWithEvents: toColor(0xFF00FFFF),
@@ -1779,8 +1792,8 @@ const (
 	colorTooltipBackground
 	colorTooltipBorder
 
-	colorGoroutineLabel
-	colorGoroutineBorder
+	colorActivityLabel
+	colorActivityBorder
 
 	colorSpanWithEvents
 	colorSpanOutline
@@ -1939,11 +1952,11 @@ func (a *Application) loadTrace(gs []*Goroutine) {
 		Theme: a.theme,
 	}
 	a.tl.Axis = Axis{tl: &a.tl}
-	a.tl.Gs = make([]*GoroutineWidget, len(gs))
+	a.tl.Gs = make([]*ActivityWidget[*Goroutine], len(gs))
 	for i, g := range gs {
 		a.tl.Gs[i] = NewGoroutineWidget(&a.tl, g)
 	}
-	a.tl.prevFrame.dspSpans = map[uint64][]struct {
+	a.tl.prevFrame.dspSpans = map[any][]struct {
 		dspSpans []Span
 		startPx  float32
 		endPx    float32
@@ -2070,8 +2083,8 @@ func (a *Application) run() error {
 					a.tl.prevFrame.End = a.tl.End
 					a.tl.prevFrame.nsPerPx = a.tl.nsPerPx
 					a.tl.prevFrame.Y = a.tl.Y
-					a.tl.prevFrame.compact = a.tl.Goroutines.Compact
-					a.tl.prevFrame.highlightSpansWithEvents = a.tl.Goroutines.HighlightSpansWithEvents
+					a.tl.prevFrame.compact = a.tl.Activity.Compact
+					a.tl.prevFrame.highlightSpansWithEvents = a.tl.Activity.HighlightSpansWithEvents
 				}
 
 				ev.Frame(&ops)
