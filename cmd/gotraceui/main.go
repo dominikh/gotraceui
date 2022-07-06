@@ -1071,7 +1071,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	d := end - start
 
 	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
-	var blockedD, inactiveD, runningD time.Duration
+	var blockedD, inactiveD, runningD, gcAssistD time.Duration
 	for _, s := range tt.G.Spans {
 		switch s.State {
 		case stateInactive:
@@ -1110,6 +1110,10 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			inactiveD += s.Duration()
 		case stateCreated:
 			inactiveD += s.Duration()
+		case stateGCMarkAssist:
+			gcAssistD += s.Duration()
+		case stateGCSweep:
+			gcAssistD += s.Duration()
 		case stateDone:
 		default:
 			panic(fmt.Sprintf("unknown state %d", s.State))
@@ -1118,12 +1122,14 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	blockedPct := float32(blockedD) / float32(d) * 100
 	inactivePct := float32(inactiveD) / float32(d) * 100
 	runningPct := float32(runningD) / float32(d) * 100
+	gcAssistPct := float32(gcAssistD) / float32(d) * 100
 	l := fmt.Sprintf("Goroutine %d: %s\n\n"+
 		"Appeared at: %s\n"+
 		"Disappeared at: %s\n"+
 		"Lifetime: %s\n"+
 		"Time in blocked states: %s (%.2f%%)\n"+
 		"Time in inactive states: %s (%.2f%%)\n"+
+		"Time in GC assist: %s (%.2f%%)\n"+
 		"Time in running states: %s (%.2f%%)",
 		tt.G.ID, tt.G.Function.Fn,
 		start,
@@ -1131,6 +1137,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		d,
 		blockedD, blockedPct,
 		inactiveD, inactivePct,
+		gcAssistD, gcAssistPct,
 		runningD, runningPct)
 
 	return Tooltip{shaper: tt.shaper}.Layout(gtx, l)
@@ -1156,9 +1163,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var at *trace.Frame
 	if len(tt.Spans) == 1 {
 		s := tt.Spans[0]
-		at = s.At
 		if at == nil && len(s.Stack) > 0 {
-			at = s.Stack[0]
+			at = s.Stack[s.At]
 		}
 		switch state := s.State; state {
 		case stateInactive:
@@ -1188,7 +1194,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "blocked on condition variable"
 		case stateBlockedNet:
 			label += "blocked on polled I/O"
-			dumpFrames(s.Stack)
 		case stateBlockedGC:
 			label += "blocked on GC assist"
 		case stateBlockedSyscall:
@@ -1199,6 +1204,10 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "ready"
 		case stateCreated:
 			label += "ready"
+		case stateGCMarkAssist:
+			label += "GC mark assist"
+		case stateGCSweep:
+			label += "GC sweep"
 		default:
 			panic(fmt.Sprintf("unhandled state %d", state))
 		}
@@ -1236,6 +1245,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != nil {
+		// TODO(dh): document what In represents. If possible, it is the last frame in user space that triggered this
+		// state. We try to pattern match away the runtime when it makes sense.
 		label += fmt.Sprintf("\nIn: %s", at.Fn)
 	}
 
@@ -1292,7 +1303,12 @@ type Goroutine struct {
 }
 
 func (g *Goroutine) String() string {
-	return fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
+	if g.Function == nil {
+		// At least GCSweepStart can happen on g0
+		return fmt.Sprintf("goroutine %d", g.ID)
+	} else {
+		return fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
+	}
 }
 
 type Span struct {
@@ -1304,7 +1320,7 @@ type Span struct {
 	Events []*trace.Event
 	Stack  []*trace.Frame
 	Tags   spanTags
-	At     *trace.Frame
+	At     int
 }
 
 //gcassert:inline
@@ -1388,6 +1404,7 @@ func main() {
 	}
 
 	lastSyscall := map[uint64][]*trace.Frame{}
+	inMarkAssist := map[uint64]struct{}{}
 
 	for _, ev := range res.Events {
 		var gid uint64
@@ -1420,7 +1437,12 @@ func main() {
 		case trace.EvGoStart:
 			// ev.G starts running
 			gid = ev.G
-			state = stateActive
+
+			if _, ok := inMarkAssist[gid]; ok {
+				state = stateGCMarkAssist
+			} else {
+				state = stateActive
+			}
 		case trace.EvGoStartLabel:
 			// ev.G starts running
 			// TODO(dh): make use of the label
@@ -1486,19 +1508,60 @@ func main() {
 		case trace.EvGoSysExit:
 			gid = ev.G
 			state = stateReady
-		case trace.EvGCMarkAssistStart:
-			// TODO(dh): add a state for this
-			continue
-		case trace.EvGCMarkAssistDone:
-			// TODO(dh): add a state for this
-			continue
 		case trace.EvProcStart, trace.EvProcStop:
 			// TODO(dh): implement a per-proc timeline
 			continue
-		case trace.EvGCStart, trace.EvGCDone, trace.EvGCSTWStart, trace.EvGCSTWDone,
-			trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvHeapAlloc, trace.EvHeapGoal:
+
+		case trace.EvGCMarkAssistStart:
+			// User goroutines may be asked to assist the GC's mark phase. This happens when the goroutine allocates
+			// memory and some condition is true. When that happens, the tracer emits EvGCMarkAssistStart for that
+			// goroutine.
+			//
+			// Note that this event is not preceeded by an EvGoBlock or similar. Similarly, EvGCMarkAssistDone is not
+			// succeeded by an EvGoStart or similar. The mark assist events are laid over the normal goroutine
+			// scheduling events.
+			//
+			// We instead turn these into proper goroutine states and split the current span in two to make room for
+			// mark assist. This needs special care because mark assist can be preempted, so we might GoStart into mark
+			// assist.
+
+			gid = ev.G
+			state = stateGCMarkAssist
+			inMarkAssist[gid] = struct{}{}
+		case trace.EvGCMarkAssistDone:
+			// The counterpart to EvGCMarkAssistStop.
+
+			gid = ev.G
+			state = stateActive
+			delete(inMarkAssist, gid)
+		case trace.EvGCSweepStart:
+			// This is similar to mark assist, but for sweeping spans. When a goroutine would need to allocate a new
+			// span, it first sweeps other spans of the same size to find a free one.
+			//
+			// Unlike mark assist, sweeping cannot be preempted, simplifying our state tracking.
+
+			gid = ev.G
+			state = stateGCSweep
+		case trace.EvGCSweepDone:
+			// The counterpart to EvGcSweepStart.
+
+			// XXX apparently this can happen on g0, in which case going to stateActive is probably wrong.
+			gid = ev.G
+			state = stateActive
+		case trace.EvGCStart, trace.EvGCDone, trace.EvGCSTWStart, trace.EvGCSTWDone:
 			// TODO(dh): implement a GC timeline
+			//
+			// These seem to always happen on g0
 			continue
+		case trace.EvHeapAlloc:
+			// Instant measurement of currently allocated memory
+			continue
+		case trace.EvHeapGoal:
+			// Instant measurement of new heap goal
+
+			// TODO(dh): implement
+			continue
+
 		case trace.EvGomaxprocs:
 			// TODO(dh): graph GOMAXPROCS
 			continue
@@ -1579,6 +1642,8 @@ var colors = [...]color.NRGBA{
 	colorStateBlockedNet:           toColor(0xBB5D5DFF),
 	colorStateBlockedGC:            toColor(0xBB554FFF),
 	colorStateBlockedSyscall:       toColor(0xBA4F41FF),
+	colorStateGCMarkAssist:         toColor(0x9C6FD6FF),
+	colorStateGCSweep:              toColor(0x9C6FD6FF),
 
 	colorStateReady:   toColor(0x4BACB8FF),
 	colorStateStuck:   toColor(0x000000FF),
@@ -1614,6 +1679,8 @@ const (
 	colorStateBlockedNet
 	colorStateBlockedGC
 	colorStateBlockedSyscall
+	colorStateGCMarkAssist
+	colorStateGCSweep
 
 	colorStateReady
 	colorStateStuck
@@ -1657,6 +1724,8 @@ const (
 	stateReady
 	stateCreated
 	stateDone
+	stateGCMarkAssist
+	stateGCSweep
 	stateLast
 )
 
@@ -1675,6 +1744,8 @@ var stateColors = [...]colorIndex{
 	stateStuck:          colorStateStuck,
 	stateReady:          colorStateReady,
 	stateCreated:        colorStateReady,
+	stateGCMarkAssist:   colorStateGCMarkAssist,
+	stateGCSweep:        colorStateGCSweep,
 }
 
 var legalStateTransitions = [stateLast][stateLast]bool{
@@ -1682,6 +1753,9 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateActive:         true,
 		stateReady:          true,
 		stateBlockedSyscall: true,
+
+		// Starting back into preempted mark assist
+		stateGCMarkAssist: true,
 	},
 	stateActive: {
 		stateInactive:                   true,
@@ -1700,6 +1774,8 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateBlockedSyscall:             true,
 		stateStuck:                      true,
 		stateDone:                       true,
+		stateGCMarkAssist:               true,
+		stateGCSweep:                    true,
 	},
 	stateCreated: {
 		stateActive: true,
@@ -1711,7 +1787,8 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateBlockedSyscall: true,
 	},
 	stateReady: {
-		stateActive: true,
+		stateActive:       true,
+		stateGCMarkAssist: true,
 	},
 	stateBlocked:                    {stateReady: true},
 	stateBlockedSend:                {stateReady: true},
@@ -1727,6 +1804,18 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 	stateBlockedGC:                  {stateReady: true},
 	stateBlockedSyscall: {
 		stateReady: true,
+	},
+
+	stateGCMarkAssist: {
+		stateActive:      true, // back to the goroutine's previous state
+		stateInactive:    true, // mark assist can be preempted
+		stateBlocked:     true,
+		stateBlockedSync: true,
+		stateBlockedGC:   true, // XXX what does this transition mean?
+	},
+
+	stateGCSweep: {
+		stateActive: true, // back to the goroutine's previous state
 	},
 }
 

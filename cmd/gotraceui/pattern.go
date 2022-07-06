@@ -255,7 +255,11 @@ patternLoop:
 		}
 
 		if p.at != 0 {
-			s.At = s.Stack[p.at]
+			if p.at < len(s.Stack) {
+				s.At = p.at
+			} else {
+				continue
+			}
 		}
 
 		if p.newState != stateNone {
