@@ -1593,6 +1593,12 @@ func main() {
 			s.Stack = lastSyscall[ev.G]
 		}
 		s = applyPatterns(s)
+
+		// move s.At out of the runtime
+		for s.At+1 < len(s.Stack) && strings.HasPrefix(s.Stack[s.At].Fn, "runtime.") {
+			s.At++
+		}
+
 		getG(gid).Spans = append(getG(gid).Spans, s)
 	}
 
