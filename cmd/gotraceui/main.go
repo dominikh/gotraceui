@@ -2239,3 +2239,24 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 
 	return dims
 }
+
+/*
+   Goroutine window, things to display:
+
+   - ID, function name
+   - stack of where it was created
+   - Link to span that created it
+   - First, last timestamp, duration
+   - Per-state statistics (how long blocked, waiting, etc, number of state transitions)
+   - List of all spans
+   - List of all events of all spans
+     - Syscalls
+     - Outgoing unblocks
+     - Incoming unblocks
+   - List of other goroutines of the same function
+   - Link to function window
+   - List of procs it ran on
+   - List of user regions
+   - How much memory we sweeped/reclaimed
+   - Maybe something about MMU?
+*/
