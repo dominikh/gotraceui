@@ -507,13 +507,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		if tl.End < tl.Start {
 			panic("XXX")
 		}
-		if tl.nsPerPx <= 0 {
-			panic("XXX")
-		}
 	}
-
-	// Fill background
-	paint.Fill(gtx.Ops, colors[colorBackground])
 
 	// Set up event handlers
 	pointer.InputOp{
@@ -558,20 +552,22 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 }
 
-func (a *Axis) tickInterval(gtx layout.Context) time.Duration {
+func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
+	if axis.tl.nsPerPx == 0 {
+		return 0, false
+	}
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
 	minTickDistance := gtx.Metric.Dp(minTickDistanceDp)
 	for t := time.Duration(1); true; t *= 10 {
-		tickDistance := int(round32(float32(t) / a.tl.nsPerPx))
+		tickDistance := int(round32(float32(t) / axis.tl.nsPerPx))
 		if tickDistance >= minTickDistance {
-			return t
+			return t, true
 		}
 	}
 	panic("unreachable")
 }
 
-func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
-	tickInterval := a.tickInterval(gtx)
+func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	prevLabelEnd := float32(-1)
 	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
@@ -581,45 +577,50 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	tickHeight := float32(gtx.Metric.Dp(tickHeightDp))
 	minTickLabelDistance := float32(gtx.Metric.Dp(minTickLabelDistanceDp))
 
+	tickInterval, ok := axis.tickInterval(gtx)
+	if !ok {
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight))}
+	}
+
 	var labels []string
-	if a.tl.unchanged() {
-		a.prevFrame.call.Add(gtx.Ops)
-		return a.prevFrame.dims
-	} else if a.tl.prevFrame.nsPerPx == a.tl.nsPerPx {
+	if axis.tl.unchanged() {
+		axis.prevFrame.call.Add(gtx.Ops)
+		return axis.prevFrame.dims
+	} else if axis.tl.prevFrame.nsPerPx == axis.tl.nsPerPx {
 		// Panning only changes the first label
-		labels = a.prevFrame.labels
+		labels = axis.prevFrame.labels
 		// TODO print thousands separator
-		labels[0] = fmt.Sprintf("%d ns", a.tl.Start)
+		labels[0] = fmt.Sprintf("%d ns", axis.tl.Start)
 	} else {
-		for t := a.tl.Start; t < a.tl.End; t += tickInterval {
-			if t == a.tl.Start {
+		for t := axis.tl.Start; t < axis.tl.End; t += tickInterval {
+			if t == axis.tl.Start {
 				// TODO print thousands separator
 				labels = append(labels, fmt.Sprintf("%d ns", t))
 			} else {
 				// TODO separate value and unit symbol with a space
-				labels = append(labels, fmt.Sprintf("+%s", t-a.tl.Start))
+				labels = append(labels, fmt.Sprintf("+%s", t-axis.tl.Start))
 			}
 		}
-		a.prevFrame.labels = labels
+		axis.prevFrame.labels = labels
 	}
 
 	origOps := gtx.Ops
-	gtx.Ops = &a.prevFrame.ops
+	gtx.Ops = &axis.prevFrame.ops
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
 		call.Add(origOps)
-		a.prevFrame.call = call
-		a.prevFrame.dims = dims
+		axis.prevFrame.call = call
+		axis.prevFrame.dims = dims
 	}()
 
 	var ticksPath clip.Path
 	var ticksOps op.Ops
 	ticksPath.Begin(&ticksOps)
 	i := 0
-	for t := a.tl.Start; t < a.tl.End; t += tickInterval {
-		start := a.tl.tsToPx(t) - tickWidth/2
-		end := a.tl.tsToPx(t) + tickWidth/2
+	for t := axis.tl.Start; t < axis.tl.End; t += tickInterval {
+		start := axis.tl.tsToPx(t) - tickWidth/2
+		end := axis.tl.tsToPx(t) + tickWidth/2
 		rect := FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
@@ -627,8 +628,8 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) - tickWidth/2
-			smallEnd := a.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) + tickWidth/2
+			smallStart := axis.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) - tickWidth/2
+			smallEnd := axis.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -640,11 +641,11 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			rect.IntoPath(&ticksPath)
 		}
 
-		if t == a.tl.Start {
+		if t == axis.tl.Start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, a.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -655,7 +656,7 @@ func (a *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, a.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := widget.Label{MaxLines: 1}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -1408,19 +1409,17 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 	return events[first:last]
 }
 
-func main() {
+func loadTrace(path string, ch chan Command) ([]*Goroutine, error) {
 	var gs []*Goroutine
 
-	r, err := os.Open(os.Args[1])
+	r, err := os.Open(path)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-
-	fmt.Println("Loading trace...")
 
 	res, err := trace.Parse(bufio.NewReader(r), "")
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	var evTypeToState = [...]schedulingState{
@@ -1448,7 +1447,10 @@ func main() {
 	lastSyscall := map[uint64][]*trace.Frame{}
 	inMarkAssist := map[uint64]struct{}{}
 
-	for _, ev := range res.Events {
+	for i, ev := range res.Events {
+		if i%1000 == 0 {
+			ch <- Command{"setProgress", float32(i) / float32(len(res.Events))}
+		}
 		var gid uint64
 		var state schedulingState
 		var reason string
@@ -1643,6 +1645,7 @@ func main() {
 
 		getG(gid).Spans = append(getG(gid).Spans, s)
 	}
+	log.Println("done 1")
 
 	for _, g := range gsByID {
 		if len(g.Spans) == 0 {
@@ -1663,16 +1666,46 @@ func main() {
 
 		gs = append(gs, g)
 	}
+	log.Println("done 2")
 
 	sort.Slice(gs, func(i, j int) bool {
 		return gs[i].ID < gs[j].ID
 	})
+	log.Println("done 3")
 
-	fmt.Println("Starting UI...")
+	return gs, nil
+}
 
+type Command struct {
+	// TODO(dh): use an enum
+	Command string
+	Data    any
+}
+
+type Application struct {
+	win      *app.Window
+	theme    *material.Theme
+	commands chan Command
+	tl       Timeline
+	gs       []*Goroutine
+}
+
+func main() {
+	a := &Application{
+		commands: make(chan Command),
+	}
 	go func() {
-		w := app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", os.Args[1])))
-		err := run(w, gs)
+		a.commands <- Command{"setState", "loadingTrace"}
+		gs, err := loadTrace(os.Args[1], a.commands)
+		if err != nil {
+			a.commands <- Command{"error", fmt.Errorf("couldn't load trace; %w", err)}
+			return
+		}
+		a.commands <- Command{"loadTrace", gs}
+	}()
+	go func() {
+		a.win = app.NewWindow(app.Title("gotraceui"))
+		err := a.run()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -1879,7 +1912,7 @@ func toColor(c uint32) color.NRGBA {
 	}
 }
 
-func run(w *app.Window, gs []*Goroutine) error {
+func (a *Application) loadTrace(gs []*Goroutine) {
 	var end time.Duration
 	for _, g := range gs {
 		if len(g.Spans) > 0 {
@@ -1889,106 +1922,157 @@ func run(w *app.Window, gs []*Goroutine) error {
 			}
 		}
 	}
+	log.Println("done 4")
 
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
 	// entire trace.
 	slack := float64(end) * 0.05
 	start := time.Duration(-slack)
 	end = time.Duration(float64(end) + slack)
-	tl := &Timeline{
+
+	a.tl = Timeline{
 		Start: start,
 		End:   end,
-		Theme: material.NewTheme(gofont.Collection()),
+		Theme: a.theme,
 	}
-	tl.Axis = Axis{tl: tl}
-	tl.Gs = make([]*GoroutineWidget, len(gs))
+	a.tl.Axis = Axis{tl: &a.tl}
+	a.tl.Gs = make([]*GoroutineWidget, len(gs))
 	for i, g := range gs {
-		tl.Gs[i] = NewGoroutineWidget(tl, g)
+		a.tl.Gs[i] = NewGoroutineWidget(&a.tl, g)
 	}
-	tl.prevFrame.dspSpans = map[uint64][]struct {
+	a.tl.prevFrame.dspSpans = map[uint64][]struct {
 		dspSpans []Span
 		startPx  float32
 		endPx    float32
 	}{}
+	log.Println("done 5")
+
+	a.gs = gs
+}
+
+func (a *Application) run() error {
+	a.theme = material.NewTheme(gofont.Collection())
+	a.tl.Theme = a.theme
+	a.tl.Axis.tl = &a.tl
 
 	profileTag := new(int)
 	var ops op.Ops
 
 	var ww *ListWindow[*Goroutine]
-
 	var shortcuts int
 
+	// TODO(dh): use enum for state
+	state := "empty"
+	var progress float32
 	for {
-		e := <-w.Events()
-		switch ev := e.(type) {
-		case system.DestroyEvent:
-			return ev.Err
-		case system.FrameEvent:
-			gtx := layout.NewContext(&ops, ev)
-			gtx.Constraints.Min = image.Point{}
+		select {
+		case cmd := <-a.commands:
+			switch cmd.Command {
+			case "setState":
+				state = cmd.Data.(string)
+				progress = 0.0
+				a.win.Invalidate()
+			case "setProgress":
+				progress = cmd.Data.(float32)
+				a.win.Invalidate()
+			case "loadTrace":
+				a.loadTrace(cmd.Data.([]*Goroutine))
+				state = "main"
+				progress = 0.0
+				a.win.Invalidate()
+				ww = nil
+			default:
+				panic(fmt.Sprintf("unknown command %s", cmd.Command))
+			}
 
-			clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+		case e := <-a.win.Events():
+			switch ev := e.(type) {
+			case system.DestroyEvent:
+				return ev.Err
+			case system.FrameEvent:
+				gtx := layout.NewContext(&ops, ev)
+				gtx.Constraints.Min = image.Point{}
 
-			for _, ev := range gtx.Events(&shortcuts) {
-				switch ev := ev.(type) {
-				case key.Event:
-					if ev.State == key.Press && ev.Name == "G" && ww == nil {
-						ww = NewListWindow[*Goroutine](tl.Theme)
-						ww.SetItems(gs)
-						ww.Filter = func(item *Goroutine, f string) bool {
-							// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
-							// and allows matching goroutines by ID.
-							return strings.Contains(item.Function.Fn, f)
+				clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+				// Fill background
+				paint.Fill(gtx.Ops, colors[colorBackground])
+
+				switch state {
+				case "empty":
+
+				case "loadingTrace":
+					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+					m := op.Record(gtx.Ops)
+					dims := widget.Label{}.Layout(gtx, a.theme.Shaper, text.Font{}, 14, "Loading trace...")
+					op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
+					Constrain(gtx, clip.Rect{Max: image.Pt(dims.Size.X, 5)}, material.ProgressBar(a.theme, progress).Layout)
+					call := m.Stop()
+					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
+					call.Add(gtx.Ops)
+
+				case "main":
+					for _, ev := range gtx.Events(&shortcuts) {
+						switch ev := ev.(type) {
+						case key.Event:
+							if ev.State == key.Press && ev.Name == "G" && ww == nil {
+								ww = NewListWindow[*Goroutine](a.theme)
+								ww.SetItems(a.gs)
+								ww.Filter = func(item *Goroutine, f string) bool {
+									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
+									// and allows matching goroutines by ID.
+									return strings.Contains(item.Function.Fn, f)
+								}
+							}
 						}
 					}
+
+					key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
+
+					if ww != nil {
+						if item, ok := ww.Confirmed(); ok {
+							a.tl.scrollToGoroutine(gtx, item)
+							ww = nil
+						} else if ww.Cancelled() {
+							ww = nil
+						} else {
+							macro := op.Record(gtx.Ops)
+
+							// Draw full-screen overlay that prevents input to the timeline and closed the window if clicking
+							// outside of it.
+							//
+							// XXX use constant for color
+							paint.Fill(gtx.Ops, toColor(0x000000DD))
+							pointer.InputOp{Tag: ww}.Add(gtx.Ops)
+
+							offset := image.Pt(gtx.Constraints.Max.X/2-1000/2, gtx.Constraints.Max.Y/2-500/2)
+							stack := op.Offset(offset).Push(gtx.Ops)
+							gtx := gtx
+							// XXX compute constraints from window size
+							// XXX also set a minimum width
+							gtx.Constraints.Max.X = 1000
+							gtx.Constraints.Max.Y = 500
+							ww.Layout(gtx)
+							stack.Pop()
+							op.Defer(gtx.Ops, macro.Stop())
+						}
+					}
+
+					for _, ev := range gtx.Events(profileTag) {
+						fmt.Println(ev)
+					}
+					profile.Op{Tag: profileTag}.Add(gtx.Ops)
+
+					a.tl.Layout(gtx)
+					a.tl.prevFrame.Start = a.tl.Start
+					a.tl.prevFrame.End = a.tl.End
+					a.tl.prevFrame.nsPerPx = a.tl.nsPerPx
+					a.tl.prevFrame.Y = a.tl.Y
+					a.tl.prevFrame.compact = a.tl.Goroutines.Compact
+					a.tl.prevFrame.highlightSpansWithEvents = a.tl.Goroutines.HighlightSpansWithEvents
 				}
+
+				ev.Frame(&ops)
 			}
-
-			key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
-
-			if ww != nil {
-				if item, ok := ww.Confirmed(); ok {
-					tl.scrollToGoroutine(gtx, item)
-					ww = nil
-				} else if ww.Cancelled() {
-					ww = nil
-				} else {
-					macro := op.Record(gtx.Ops)
-
-					// Draw full-screen overlay that prevents input to the timeline and closed the window if clicking
-					// outside of it.
-					//
-					// XXX use constant for color
-					paint.Fill(gtx.Ops, toColor(0x000000DD))
-					pointer.InputOp{Tag: ww}.Add(gtx.Ops)
-
-					offset := image.Pt(gtx.Constraints.Max.X/2-1000/2, gtx.Constraints.Max.Y/2-500/2)
-					stack := op.Offset(offset).Push(gtx.Ops)
-					gtx := gtx
-					// XXX compute constraints from window size
-					// XXX also set a minimum width
-					gtx.Constraints.Max.X = 1000
-					gtx.Constraints.Max.Y = 500
-					ww.Layout(gtx)
-					stack.Pop()
-					op.Defer(gtx.Ops, macro.Stop())
-				}
-			}
-
-			for _, ev := range gtx.Events(profileTag) {
-				fmt.Println(ev)
-			}
-			profile.Op{Tag: profileTag}.Add(gtx.Ops)
-
-			tl.Layout(gtx)
-			tl.prevFrame.Start = tl.Start
-			tl.prevFrame.End = tl.End
-			tl.prevFrame.nsPerPx = tl.nsPerPx
-			tl.prevFrame.Y = tl.Y
-			tl.prevFrame.compact = tl.Goroutines.Compact
-			tl.prevFrame.highlightSpansWithEvents = tl.Goroutines.HighlightSpansWithEvents
-
-			ev.Frame(&ops)
 		}
 	}
 }
@@ -2260,3 +2344,10 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
    - How much memory we sweeped/reclaimed
    - Maybe something about MMU?
 */
+
+func Constrain(gtx layout.Context, c clip.Rect, w layout.Widget) layout.Dimensions {
+	defer c.Push(gtx.Ops).Pop()
+	gtx.Constraints.Max.X = c.Max.X - c.Min.X
+	gtx.Constraints.Max.Y = c.Max.Y - c.Min.Y
+	return w(gtx)
+}
