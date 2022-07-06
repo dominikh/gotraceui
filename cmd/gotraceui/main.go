@@ -1242,6 +1242,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "GC mark assist"
 		case stateGCSweep:
 			label += "GC sweep"
+			if l := s.Event.Link; l != nil {
+				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
+			}
 		default:
 			panic(fmt.Sprintf("unhandled state %d", state))
 		}
@@ -1349,6 +1352,7 @@ type Span struct {
 	Start time.Duration
 	End   time.Duration
 	State schedulingState
+	Event *trace.Event
 	// TODO(dh): use an enum for Reason
 	Reason string
 	Events []*trace.Event
@@ -1622,7 +1626,7 @@ func main() {
 			}
 		}
 
-		s := Span{Start: time.Duration(ev.Ts), State: state, Reason: reason, Stack: ev.Stk}
+		s := Span{Start: time.Duration(ev.Ts), State: state, Event: ev, Reason: reason, Stack: ev.Stk}
 		if ev.Type == trace.EvGoSysBlock {
 			s.Stack = lastSyscall[ev.G]
 		}
