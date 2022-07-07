@@ -292,7 +292,7 @@ type renderedSpansIterator struct {
 	offset         int
 	tl             *Timeline
 	spans          []Span
-	prevExtendedBy float32
+	prevEnd time.Duration
 }
 
 func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float32, ok bool) {
@@ -303,61 +303,66 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		return nil, 0, 0, false
 	}
 
-	minSpanWidth := float32(gtx.Dp(minSpanWidthDp))
-	startOffset := offset
 	nsPerPx := float32(it.tl.nsPerPx)
+	minSpanWidthD := time.Duration(math.Ceil(float64(gtx.Dp(minSpanWidthDp)) * float64(nsPerPx)))
+	startOffset := offset
 	tlStart := it.tl.Start
 
 	s := it.spans[offset]
 	offset++
-	startPx = float32(s.Start-tlStart)/nsPerPx + it.prevExtendedBy
-	endPx = float32(s.End-tlStart) / nsPerPx
 
-	if endPx-startPx < minSpanWidth {
-		// Collect enough spans until we've filled the minimum width
+	start := s.Start
+	end := s.End
+	if it.prevEnd > start {
+		// The previous span was extended and grew into this span. This shifts our start position to the right.
+		start = it.prevEnd
+	}
 
-		// Compute the minimum duration for a span to stand on its own. We subtract 1 from minSpanWidth to account for
-		// lucky rounding to pixel boundaries.
-		minStandaloneDuration := (minSpanWidth - 1) * nsPerPx
-
+	if end-start < minSpanWidthD {
+		// Merge all tiny spans until we find a span or gap that's big enough to stand on its own. We do not stop
+		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
+		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
+		// previously merged spans becoming visible again when zooming out.
 		for {
 			if offset == len(it.spans) {
 				// We've run out of spans
 				break
 			}
 
-			s := spans[offset]
-			if float32(s.End-s.Start) < minStandaloneDuration {
-				// Even under ideal conditions - no extension and no truncation - this span wouldn't be able to stand on
-				// its own. Avoid doing expensive math.
-			} else {
-				// Assume that we stop at this span. Compute the final size and the future prevExtendedBy. Use that to see
-				// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-				var extended float32
-				if endPx-startPx < minSpanWidth {
-					extended = minSpanWidth - (endPx - startPx)
-				}
-				theirStartPx := float32(s.Start-tlStart)/nsPerPx + extended
-				theirEndPx := float32(s.End-tlStart) / nsPerPx
-				if theirEndPx-theirStartPx >= minSpanWidth {
-					// Don't merge spans that can stand on their own
-					break
-				}
+			adjustedEnd := end
+			if end-start < minSpanWidthD {
+				adjustedEnd = start + minSpanWidthD
 			}
 
-			endPx = float32(s.End-tlStart) / nsPerPx
+			nextSpan := spans[offset]
+			// Assume that we stop at this span. Compute the final size and extension. Use that to see
+			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+			nextStart := nextSpan.Start
+			nextEnd := nextSpan.End
+			if adjustedEnd > nextStart {
+				// The current span would have to grow into the next span, making it smaller
+				nextStart = adjustedEnd
+			}
+			// XXX don't merge with tiny spans that are very separated from us
+			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
+				// Don't merge spans or gaps that can stand on their own
+				break
+			}
+
+			end = nextSpan.End
 			offset++
 		}
 	}
 
-	if endPx-startPx < minSpanWidth {
-		it.prevExtendedBy = minSpanWidth - (endPx - startPx)
-		endPx = startPx + minSpanWidth
-	} else {
-		it.prevExtendedBy = 0
+	if end-start < minSpanWidthD {
+		// We're still too small, so extend the span to its minimum size.
+		end = start + minSpanWidthD
 	}
 
 	it.offset = offset
+	it.prevEnd = end
+	startPx = float32(start-tlStart) / nsPerPx
+	endPx = float32(end-tlStart) / nsPerPx
 	return it.spans[startOffset:it.offset], startPx, endPx, true
 }
 
