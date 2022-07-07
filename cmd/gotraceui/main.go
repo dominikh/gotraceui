@@ -100,15 +100,15 @@ type Timeline struct {
 	// The region of the timeline that we're displaying, measured in nanoseconds
 	Start time.Duration
 	End   time.Duration
-	// Imagine we're drawing all goroutines onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
-	// canvas that the goroutine section's Y == 0 is displaying.
-	Y         int
-	GC        *ActivityWidget[[]Span]
-	STW       *ActivityWidget[[]Span]
-	Gs        []*ActivityWidget[*Goroutine]
-	Theme     *material.Theme
-	Scrollbar widget.Scrollbar
-	Axis      Axis
+	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
+	// canvas that the activity section's Y == 0 is displaying.
+	Y          int
+	GC         *ActivityWidget
+	STW        *ActivityWidget
+	Activities []*ActivityWidget
+	Theme      *material.Theme
+	Scrollbar  widget.Scrollbar
+	Axis       Axis
 
 	// State for dragging the timeline
 	Drag struct {
@@ -147,7 +147,7 @@ type Timeline struct {
 		Y                        int
 		nsPerPx                  float32
 		compact                  bool
-		displayedGws             []*ActivityWidget[*Goroutine]
+		displayedAws             []*ActivityWidget
 		highlightSpansWithEvents bool
 		dspSpans                 map[any][]struct {
 			dspSpans       []Span
@@ -371,14 +371,14 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	var first, last time.Duration = -1, -1
-	for _, gw := range tl.visibleGoroutines(gtx) {
-		if len(gw.item.Spans) == 0 {
+	for _, gw := range tl.visibleActivities(gtx) {
+		if len(gw.AllSpans) == 0 {
 			continue
 		}
-		if t := gw.item.Spans[0].Start; t < first || first == -1 {
+		if t := gw.AllSpans[0].Start; t < first || first == -1 {
 			first = t
 		}
-		if t := gw.item.Spans[len(gw.item.Spans)-1].End; t > last {
+		if t := gw.AllSpans[len(gw.AllSpans)-1].End; t > last {
 			last = t
 		}
 	}
@@ -392,7 +392,7 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	// OPT(dh): don't be O(n)
 	off := 0
-	for _, og := range tl.Gs {
+	for _, og := range tl.Activities {
 		if g == og.item {
 			// TODO(dh): show goroutine at center of window, not the top
 			tl.Y = off
@@ -481,14 +481,14 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		activityGap := gtx.Dp(activityGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 		d := tl.Scrollbar.ScrollDistance()
-		totalHeight := float32(len(tl.Gs) * (activityHeight + activityGap))
+		totalHeight := float32(len(tl.Activities) * (activityHeight + activityGap))
 		tl.Y += int(round32(d * totalHeight))
 		if tl.Y < 0 {
 			tl.Y = 0
 		}
 	}
 
-	for _, gw := range tl.prevFrame.displayedGws {
+	for _, gw := range tl.prevFrame.displayedAws {
 		if spans := gw.ClickedSpans; len(spans) > 0 {
 			start := spans[0].Start
 			end := spans[len(spans)-1].End
@@ -525,8 +525,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	// Draw axis and goroutines
 	Stack(gtx, tl.Axis.Layout, func(gtx layout.Context) layout.Dimensions {
-		dims, gws := tl.layoutGoroutines(gtx)
-		tl.prevFrame.displayedGws = gws
+		dims, gws := tl.layoutActivities(gtx)
+		tl.prevFrame.displayedAws = gws
 		return dims
 	})
 
@@ -677,14 +677,14 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
 
-type ActivityWidget[T any] struct {
+type ActivityWidget struct {
 	// Inputs
 	AllSpans      []Span
-	WidgetTooltip func(gtx layout.Context, aw *ActivityWidget[T])
-	HighlightSpan func(aw *ActivityWidget[T], spans []Span) bool
+	WidgetTooltip func(gtx layout.Context, aw *ActivityWidget)
+	HighlightSpan func(aw *ActivityWidget, spans []Span) bool
 
 	tl    *Timeline
-	item  T
+	item  any
 	label string
 
 	pointerAt       f32.Point
@@ -712,8 +712,8 @@ type clipPath struct {
 	path clip.Path
 }
 
-func NewGCWidget(tl *Timeline, spans []Span) *ActivityWidget[[]Span] {
-	return &ActivityWidget[[]Span]{
+func NewGCWidget(tl *Timeline, spans []Span) *ActivityWidget {
+	return &ActivityWidget{
 		AllSpans: spans,
 		tl:       tl,
 		item:     spans,
@@ -721,8 +721,8 @@ func NewGCWidget(tl *Timeline, spans []Span) *ActivityWidget[[]Span] {
 	}
 }
 
-func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget[[]Span] {
-	return &ActivityWidget[[]Span]{
+func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget {
+	return &ActivityWidget{
 		AllSpans: spans,
 		tl:       tl,
 		item:     spans,
@@ -730,20 +730,20 @@ func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget[[]Span] {
 	}
 }
 
-func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget[*Goroutine] {
+func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	var l string
 	if g.Function != nil {
 		l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
 	} else {
 		l = fmt.Sprintf("goroutine %d", g.ID)
 	}
-	return &ActivityWidget[*Goroutine]{
+	return &ActivityWidget{
 		AllSpans: g.Spans,
-		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget[*Goroutine]) {
-			GoroutineTooltip{aw.item, aw.tl.Theme.Shaper}.Layout(gtx)
+		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
+			GoroutineTooltip{g, aw.tl.Theme.Shaper}.Layout(gtx)
 		},
-		HighlightSpan: func(aw *ActivityWidget[*Goroutine], dspSpans []Span) bool {
-			return spanHasEvents(aw.item.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End)
+		HighlightSpan: func(aw *ActivityWidget, dspSpans []Span) bool {
+			return spanHasEvents(g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End)
 
 		},
 		tl:    tl,
@@ -752,7 +752,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget[*Goroutine] 
 	}
 }
 
-func (aw *ActivityWidget[T]) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	activityHeight := aw.tl.activityHeight(gtx)
 	activityStateHeight := gtx.Dp(activityStateHeightDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
@@ -1038,17 +1038,17 @@ func (aw *ActivityWidget[T]) Layout(gtx layout.Context, forceLabel bool, compact
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
 }
 
-func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*ActivityWidget[*Goroutine] {
+func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 	activityHeight := tl.activityHeight(gtx)
 	activityGap := gtx.Dp(activityGapDp)
 
 	start := -1
 	end := -1
-	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
+	// OPT(dh): at least use binary search to find the range of activities we need to draw
 	// OPT(dh): we can probably compute the indices directly
-	for i := range tl.Gs {
+	for i := range tl.Activities {
 		y := (activityHeight+activityGap)*int(i) - tl.Y
-		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
+		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
 		if y < -activityHeight {
 			continue
 		}
@@ -1062,28 +1062,28 @@ func (tl *Timeline) visibleGoroutines(gtx layout.Context) []*ActivityWidget[*Gor
 	}
 
 	if start == -1 {
-		// No visible goroutines
+		// No visible activities
 		return nil
 	}
 
 	if end == -1 {
-		end = len(tl.Gs)
+		end = len(tl.Activities)
 	}
 
-	return tl.Gs[start:end]
+	return tl.Activities[start:end]
 }
 
-func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*ActivityWidget[*Goroutine]) {
+func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	activityHeight := tl.activityHeight(gtx)
 	activityGap := gtx.Dp(activityGapDp)
 
-	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the goroutine area will
+	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the activity area will
 	// not bring us out of alignment with the axis.
 	{
-		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		totalHeight := float32((len(tl.Gs) + 1) * (activityHeight + activityGap))
+		// TODO(dh): add another screen worth of activities so the user can scroll a bit further
+		totalHeight := float32((len(tl.Activities) + 1) * (activityHeight + activityGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
 		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
@@ -1095,12 +1095,12 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	}
 
-	// OPT(dh): at least use binary search to find the range of goroutines we need to draw
+	// OPT(dh): at least use binary search to find the range of activities we need to draw
 	start := -1
 	end := -1
-	for i, gw := range tl.Gs {
+	for i, gw := range tl.Activities {
 		y := (activityHeight+activityGap)*int(i) - tl.Y
-		// Don't draw goroutines that would be fully hidden, but do draw partially hidden ones
+		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
 		if y < -activityHeight {
 			continue
 		}
@@ -1113,14 +1113,14 @@ func (tl *Timeline) layoutGoroutines(gtx layout.Context) (layout.Dimensions, []*
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		topBorder := i > 0 && tl.Gs[i-1].hovered
+		topBorder := i > 0 && tl.Activities[i-1].hovered
 		gw.Layout(gtx, tl.Activity.DisplayAllLabels, tl.Activity.Compact, topBorder)
 		stack.Pop()
 	}
 
-	var out []*ActivityWidget[*Goroutine]
+	var out []*ActivityWidget
 	if start != -1 {
-		out = tl.Gs[start : end+1]
+		out = tl.Activities[start : end+1]
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
@@ -1995,9 +1995,9 @@ func (a *Application) loadTrace(t *Trace) {
 		Theme: a.theme,
 	}
 	a.tl.Axis = Axis{tl: &a.tl}
-	a.tl.Gs = make([]*ActivityWidget[*Goroutine], len(t.Gs))
+	a.tl.Activities = make([]*ActivityWidget, len(t.Gs))
 	for i, g := range t.Gs {
-		a.tl.Gs[i] = NewGoroutineWidget(&a.tl, g)
+		a.tl.Activities[i] = NewGoroutineWidget(&a.tl, g)
 	}
 	a.tl.GC = NewGCWidget(&a.tl, t.GC)
 	a.tl.STW = NewGCWidget(&a.tl, t.STW)
