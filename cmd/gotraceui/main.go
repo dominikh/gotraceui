@@ -103,6 +103,8 @@ type Timeline struct {
 	// Imagine we're drawing all goroutines onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
 	// canvas that the goroutine section's Y == 0 is displaying.
 	Y         int
+	GC        *ActivityWidget[[]Span]
+	STW       *ActivityWidget[[]Span]
 	Gs        []*ActivityWidget[*Goroutine]
 	Theme     *material.Theme
 	Scrollbar widget.Scrollbar
@@ -708,6 +710,24 @@ type ActivityWidget[T any] struct {
 type clipPath struct {
 	ops  op.Ops
 	path clip.Path
+}
+
+func NewGCWidget(tl *Timeline, spans []Span) *ActivityWidget[[]Span] {
+	return &ActivityWidget[[]Span]{
+		AllSpans: spans,
+		tl:       tl,
+		item:     spans,
+		label:    "GC",
+	}
+}
+
+func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget[[]Span] {
+	return &ActivityWidget[[]Span]{
+		AllSpans: spans,
+		tl:       tl,
+		item:     spans,
+		label:    "STW",
+	}
 }
 
 func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget[*Goroutine] {
@@ -1422,8 +1442,16 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 	return events[first:last]
 }
 
-func loadTrace(path string, ch chan Command) ([]*Goroutine, error) {
+type Trace struct {
+	Gs  []*Goroutine
+	GC  []Span
+	STW []Span
+}
+
+func loadTrace(path string, ch chan Command) (*Trace, error) {
 	var gs []*Goroutine
+	var gc []Span
+	var stw []Span
 
 	r, err := os.Open(path)
 	if err != nil {
@@ -1605,11 +1633,26 @@ func loadTrace(path string, ch chan Command) ([]*Goroutine, error) {
 			// XXX apparently this can happen on g0, in which case going to stateActive is probably wrong.
 			gid = ev.G
 			state = stateActive
-		case trace.EvGCStart, trace.EvGCDone, trace.EvGCSTWStart, trace.EvGCSTWDone:
-			// TODO(dh): implement a GC timeline
-			//
-			// These seem to always happen on g0
+
+		case trace.EvGCStart:
+			gc = append(gc, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.Stk})
 			continue
+
+		case trace.EvGCSTWStart:
+			stw = append(stw, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.Stk})
+			continue
+
+		case trace.EvGCDone:
+			// XXX verify that index isn't out of bounds
+			gc[len(gc)-1].End = time.Duration(ev.Ts)
+			continue
+
+		case trace.EvGCSTWDone:
+			// Even though STW happens as part of GC, we can see EvGCSTWDone after EvGCDone.
+			// XXX verify that index isn't out of bounds
+			stw[len(stw)-1].End = time.Duration(ev.Ts)
+			continue
+
 		case trace.EvHeapAlloc:
 			// Instant measurement of currently allocated memory
 			continue
@@ -1686,7 +1729,7 @@ func loadTrace(path string, ch chan Command) ([]*Goroutine, error) {
 	})
 	log.Println("done 3")
 
-	return gs, nil
+	return &Trace{Gs: gs, GC: gc, STW: stw}, nil
 }
 
 type Command struct {
@@ -1709,12 +1752,12 @@ func main() {
 	}
 	go func() {
 		a.commands <- Command{"setState", "loadingTrace"}
-		gs, err := loadTrace(os.Args[1], a.commands)
+		t, err := loadTrace(os.Args[1], a.commands)
 		if err != nil {
 			a.commands <- Command{"error", fmt.Errorf("couldn't load trace; %w", err)}
 			return
 		}
-		a.commands <- Command{"loadTrace", gs}
+		a.commands <- Command{"loadTrace", t}
 	}()
 	go func() {
 		a.win = app.NewWindow(app.Title("gotraceui"))
@@ -1928,9 +1971,9 @@ func toColor(c uint32) color.NRGBA {
 	}
 }
 
-func (a *Application) loadTrace(gs []*Goroutine) {
+func (a *Application) loadTrace(t *Trace) {
 	var end time.Duration
-	for _, g := range gs {
+	for _, g := range t.Gs {
 		if len(g.Spans) > 0 {
 			d := g.Spans[len(g.Spans)-1].End
 			if d > end {
@@ -1952,10 +1995,12 @@ func (a *Application) loadTrace(gs []*Goroutine) {
 		Theme: a.theme,
 	}
 	a.tl.Axis = Axis{tl: &a.tl}
-	a.tl.Gs = make([]*ActivityWidget[*Goroutine], len(gs))
-	for i, g := range gs {
+	a.tl.Gs = make([]*ActivityWidget[*Goroutine], len(t.Gs))
+	for i, g := range t.Gs {
 		a.tl.Gs[i] = NewGoroutineWidget(&a.tl, g)
 	}
+	a.tl.GC = NewGCWidget(&a.tl, t.GC)
+	a.tl.STW = NewGCWidget(&a.tl, t.STW)
 	a.tl.prevFrame.dspSpans = map[any][]struct {
 		dspSpans []Span
 		startPx  float32
@@ -1963,7 +2008,7 @@ func (a *Application) loadTrace(gs []*Goroutine) {
 	}{}
 	log.Println("done 5")
 
-	a.gs = gs
+	a.gs = t.Gs
 }
 
 func (a *Application) run() error {
@@ -1992,7 +2037,7 @@ func (a *Application) run() error {
 				progress = cmd.Data.(float32)
 				a.win.Invalidate()
 			case "loadTrace":
-				a.loadTrace(cmd.Data.([]*Goroutine))
+				a.loadTrace(cmd.Data.(*Trace))
 				state = "main"
 				progress = 0.0
 				a.win.Invalidate()
