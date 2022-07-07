@@ -1707,7 +1707,6 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 		getG(gid).Spans = append(getG(gid).Spans, s)
 	}
-	log.Println("done 1")
 
 	for _, g := range gsByID {
 		if len(g.Spans) == 0 {
@@ -1728,12 +1727,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 		gs = append(gs, g)
 	}
-	log.Println("done 2")
 
 	sort.Slice(gs, func(i, j int) bool {
 		return gs[i].ID < gs[j].ID
 	})
-	log.Println("done 3")
 
 	return &Trace{Gs: gs, GC: gc, STW: stw}, nil
 }
@@ -1987,7 +1984,6 @@ func (a *Application) loadTrace(t *Trace) {
 			}
 		}
 	}
-	log.Println("done 4")
 
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
 	// entire trace.
@@ -2012,7 +2008,6 @@ func (a *Application) loadTrace(t *Trace) {
 		startPx  float32
 		endPx    float32
 	}{}
-	log.Println("done 5")
 
 	a.gs = t.Gs
 }
