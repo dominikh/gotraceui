@@ -70,7 +70,7 @@ const (
 	activityHeightDp        unit.Dp = activityStateHeightDp + activityLabelHeightDp
 	activityLabelFontSizeSp unit.Sp = 14
 
-	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 2
+	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
 	spanBorderWidthDp unit.Dp = 1
 
