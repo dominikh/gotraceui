@@ -40,6 +40,9 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
+// looking at an arbitrary goroutine.
+
 // XXX parsing failures and other format violations shouldn't cause panics, but instead return errors that we can
 // present in the UI.
 
@@ -68,7 +71,7 @@ const (
 	activityHeightDp        unit.Dp = activityStateHeightDp + activityLabelHeightDp
 	activityLabelFontSizeSp unit.Sp = 14
 
-	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
+	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 2
 
 	spanBorderWidthDp unit.Dp = 1
 
@@ -102,9 +105,8 @@ type Timeline struct {
 	End   time.Duration
 	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
 	// canvas that the activity section's Y == 0 is displaying.
-	Y          int
-	GC         *ActivityWidget
-	STW        *ActivityWidget
+	Y int
+	// All activities. Index 0 and 1 are the GC and STW timelines, followed by goroutines.
 	Activities []*ActivityWidget
 	Theme      *material.Theme
 	Scrollbar  widget.Scrollbar
@@ -289,9 +291,9 @@ func (tl *Timeline) pxToTs(px float32) time.Duration {
 }
 
 type renderedSpansIterator struct {
-	offset         int
-	tl             *Timeline
-	spans          []Span
+	offset  int
+	tl      *Timeline
+	spans   []Span
 	prevEnd time.Duration
 }
 
@@ -912,6 +914,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		colorStateUnknown:              {},
 	}
 
+	outlinesPath := &clipPath{}
+	outlinesPath.path.Begin(&outlinesPath.ops)
 	eventsPath := &clipPath{}
 	eventsPath.path.Begin(&eventsPath.ops)
 
@@ -919,20 +923,14 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		paths[i].Begin(&ops[i])
 	}
 
-	firstStart := float32(-1)
-	lastEnd := float32(-1)
 	first := true
 
+	var prevEndPx float32
 	doSpans := func(dspSpans []Span, startPx, endPx float32) {
 		if trackClick && trackPos.X >= startPx && trackPos.X < endPx {
 			aw.ClickedSpans = dspSpans
 			trackClick = false
 		}
-
-		if first {
-			firstStart = startPx
-		}
-		lastEnd = endPx
 
 		var c colorIndex
 		if len(dspSpans) == 1 {
@@ -950,10 +948,26 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		var maxP f32.Point
 		minP = f32.Pt((max(startPx, 0)), 0)
 		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(activityStateHeight))
-		if first && startPx >= 0 {
-			// We don't want two borders right next to each other, nor do we want a border for truncated spans
+
+		// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
+		//
+		// OPT(dh): for activities that have no gaps between any of the spans this can be drawn as a single rectangle
+		// covering all spans.
+		outlinesPath.path.MoveTo(minP)
+		outlinesPath.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		outlinesPath.path.LineTo(maxP)
+		outlinesPath.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		outlinesPath.path.Close()
+
+		if first && startPx < 0 {
+			// Never draw a left border for spans truncated spans
+		} else if !first && startPx == prevEndPx {
+			// Don't draw left border if it'd touch a right border
+		} else {
 			minP.X += float32(spanBorderWidth)
 		}
+		prevEndPx = endPx
+
 		minP.Y += float32(spanBorderWidth)
 		if endPx <= float32(gtx.Constraints.Max.X) {
 			maxP.X -= float32(spanBorderWidth)
@@ -995,11 +1009,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}
 
 	if aw.tl.unchanged() {
-		for _, prevSpans := range aw.tl.prevFrame.dspSpans[aw.item] {
+		for _, prevSpans := range aw.tl.prevFrame.dspSpans[aw] {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
 	} else {
-		allDspSpans := aw.tl.prevFrame.dspSpans[aw.item][:0]
+		allDspSpans := aw.tl.prevFrame.dspSpans[aw][:0]
 		it := renderedSpansIterator{
 			tl:    aw.tl,
 			spans: aw.tl.visibleSpans(aw.AllSpans),
@@ -1015,24 +1029,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			}{dspSpans, startPx, endPx})
 			doSpans(dspSpans, startPx, endPx)
 		}
-		aw.tl.prevFrame.dspSpans[aw.item] = allDspSpans
+		aw.tl.prevFrame.dspSpans[aw] = allDspSpans
 	}
 
-	if !first {
-		var outlinesPath clip.Path
-		outlinesPath.Begin(gtx.Ops)
-		// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
-		firstStart = max(firstStart, 0)
-		lastEnd = min(lastEnd, float32(gtx.Constraints.Max.X))
-		outlinesPath.MoveTo(f32.Pt(firstStart, 0))
-		outlinesPath.LineTo(f32.Pt(lastEnd, 0))
-		outlinesPath.LineTo(f32.Pt(lastEnd, float32(activityStateHeight)))
-		outlinesPath.LineTo(f32.Pt(firstStart, float32(activityStateHeight)))
-		outlinesPath.Close()
-		paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
-	} else {
-		// No spans for this activity
-	}
+	// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
+	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.path.End()}.Op())
 
 	for cIdx := range paths {
 		p := &paths[cIdx]
@@ -2000,12 +2001,12 @@ func (a *Application) loadTrace(t *Trace) {
 		Theme: a.theme,
 	}
 	a.tl.Axis = Axis{tl: &a.tl}
-	a.tl.Activities = make([]*ActivityWidget, len(t.Gs))
+	a.tl.Activities = make([]*ActivityWidget, len(t.Gs)+2)
+	a.tl.Activities[0] = NewGCWidget(&a.tl, t.GC)
+	a.tl.Activities[1] = NewSTWWidget(&a.tl, t.STW)
 	for i, g := range t.Gs {
-		a.tl.Activities[i] = NewGoroutineWidget(&a.tl, g)
+		a.tl.Activities[i+2] = NewGoroutineWidget(&a.tl, g)
 	}
-	a.tl.GC = NewGCWidget(&a.tl, t.GC)
-	a.tl.STW = NewGCWidget(&a.tl, t.STW)
 	a.tl.prevFrame.dspSpans = map[any][]struct {
 		dspSpans []Span
 		startPx  float32
