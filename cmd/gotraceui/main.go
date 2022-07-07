@@ -105,7 +105,7 @@ type Timeline struct {
 	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
 	// canvas that the activity section's Y == 0 is displaying.
 	Y int
-	// All activities. Index 0 and 1 are the GC and STW timelines, followed by goroutines.
+	// All activities. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
 	Activities []*ActivityWidget
 	Theme      *material.Theme
 	Scrollbar  widget.Scrollbar
@@ -758,6 +758,17 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	}
 }
 
+func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
+	return &ActivityWidget{
+		AllSpans:      p.Spans,
+		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
+		HighlightSpan: func(aw *ActivityWidget, spans []Span) bool { return false },
+		tl:            tl,
+		item:          p,
+		label:         fmt.Sprintf("Processor %d", p.ID),
+	}
+}
+
 func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	activityHeight := aw.tl.activityHeight(gtx)
 	activityStateHeight := gtx.Dp(activityStateHeightDp)
@@ -1288,6 +1299,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			if l := s.Event.Link; l != nil {
 				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
+		case stateRunningG:
+			label += fmt.Sprintf("running goroutine %d", s.Event.G)
 		default:
 			panic(fmt.Sprintf("unhandled state %d", state))
 		}
@@ -1370,6 +1383,11 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 	}
 }
 
+type Processor struct {
+	ID    int
+	Spans []Span
+}
+
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
@@ -1449,12 +1467,14 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 
 type Trace struct {
 	Gs  []*Goroutine
+	Ps  []*Processor
 	GC  []Span
 	STW []Span
 }
 
 func loadTrace(path string, ch chan Command) (*Trace, error) {
 	var gs []*Goroutine
+	var ps []*Processor
 	var gc []Span
 	var stw []Span
 
@@ -1489,6 +1509,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		gsByID[gid] = g
 		return g
 	}
+	psByID := map[int]*Processor{}
+	getP := func(pid int) *Processor {
+		p, ok := psByID[pid]
+		if ok {
+			return p
+		}
+		p = &Processor{ID: pid}
+		psByID[pid] = p
+		return p
+	}
 
 	lastSyscall := map[uint64][]*trace.Frame{}
 	inMarkAssist := map[uint64]struct{}{}
@@ -1500,6 +1530,13 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		var gid uint64
 		var state schedulingState
 		var reason string
+		var pState int
+
+		const (
+			pNone = iota
+			pRunG
+			pStopG
+		)
 
 		switch ev.Type {
 		case trace.EvGoCreate:
@@ -1527,6 +1564,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvGoStart:
 			// ev.G starts running
 			gid = ev.G
+			pState = pRunG
 
 			if _, ok := inMarkAssist[gid]; ok {
 				state = stateGCMarkAssist
@@ -1537,28 +1575,34 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// ev.G starts running
 			// TODO(dh): make use of the label
 			gid = ev.G
+			pState = pRunG
 			state = stateActive
 		case trace.EvGoStop:
 			// ev.G is stopping
 			gid = ev.G
+			pState = pStopG
 			state = stateStuck
 		case trace.EvGoEnd:
 			// ev.G is ending
 			gid = ev.G
+			pState = pStopG
 			state = stateDone
 		case trace.EvGoSched:
 			// ev.G calls Gosched
 			gid = ev.G
+			pState = pStopG
 			state = stateInactive
 			reason = "called runtime.Gosched"
 		case trace.EvGoSleep:
 			// ev.G calls Sleep
 			gid = ev.G
+			pState = pStopG
 			state = stateInactive
 			reason = "called time.Sleep"
 		case trace.EvGoPreempt:
 			// ev.G got preempted
 			gid = ev.G
+			pState = pStopG
 			state = stateInactive
 			reason = "got preempted"
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
@@ -1566,6 +1610,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			trace.EvGoBlockGC, trace.EvGoBlock:
 			// ev.G is blocking
 			gid = ev.G
+			pState = pStopG
 			state = evTypeToState[ev.Type]
 		case trace.EvGoWaiting:
 			// ev.G is blocked when tracing starts
@@ -1591,6 +1636,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			continue
 		case trace.EvGoSysBlock:
 			gid = ev.G
+			pState = pStopG
 			state = stateBlockedSyscall
 		case trace.EvGoInSyscall:
 			gid = ev.G
@@ -1599,7 +1645,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			gid = ev.G
 			state = stateReady
 		case trace.EvProcStart, trace.EvProcStop:
-			// TODO(dh): implement a per-proc timeline
+			// TODO(dh): should we implement a per-M timeline that shows which procs are running on which OS threads?
 			continue
 
 		case trace.EvGCMarkAssistStart:
@@ -1705,6 +1751,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		}
 
 		getG(gid).Spans = append(getG(gid).Spans, s)
+
+		switch pState {
+		case pRunG:
+			p := getP(ev.P)
+			p.Spans = append(p.Spans, Span{Start: time.Duration(ev.Ts), State: stateRunningG, Event: ev})
+		case pStopG:
+			// XXX guard against malformed traces
+			p := getP(ev.P)
+			p.Spans[len(p.Spans)-1].End = time.Duration(ev.Ts)
+		}
 	}
 
 	for _, g := range gsByID {
@@ -1731,7 +1787,15 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return gs[i].ID < gs[j].ID
 	})
 
-	return &Trace{Gs: gs, GC: gc, STW: stw}, nil
+	for _, p := range psByID {
+		ps = append(ps, p)
+	}
+
+	sort.Slice(ps, func(i, j int) bool {
+		return ps[i].ID < ps[j].ID
+	})
+
+	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw}, nil
 }
 
 type Command struct {
@@ -1746,6 +1810,7 @@ type Application struct {
 	commands chan Command
 	tl       Timeline
 	gs       []*Goroutine
+	ps       []*Processor
 }
 
 func main() {
@@ -1848,6 +1913,8 @@ type schedulingState int
 
 const (
 	stateNone schedulingState = iota
+
+	// Goroutine states
 	stateInactive
 	stateActive
 	stateBlocked
@@ -1870,6 +1937,9 @@ const (
 	stateGCMarkAssist
 	stateGCSweep
 	stateLast
+
+	// Processor states
+	stateRunningG
 )
 
 var stateColors = [...]colorIndex{
@@ -1983,6 +2053,14 @@ func (a *Application) loadTrace(t *Trace) {
 			}
 		}
 	}
+	for _, p := range t.Ps {
+		if len(p.Spans) > 0 {
+			d := p.Spans[len(p.Spans)-1].End
+			if d > end {
+				end = d
+			}
+		}
+	}
 
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
 	// entire trace.
@@ -1996,11 +2074,14 @@ func (a *Application) loadTrace(t *Trace) {
 		Theme: a.theme,
 	}
 	a.tl.Axis = Axis{tl: &a.tl}
-	a.tl.Activities = make([]*ActivityWidget, len(t.Gs)+2)
+	a.tl.Activities = make([]*ActivityWidget, 2, len(t.Gs)+len(t.Ps)+2)
 	a.tl.Activities[0] = NewGCWidget(&a.tl, t.GC)
 	a.tl.Activities[1] = NewSTWWidget(&a.tl, t.STW)
-	for i, g := range t.Gs {
-		a.tl.Activities[i+2] = NewGoroutineWidget(&a.tl, g)
+	for _, p := range t.Ps {
+		a.tl.Activities = append(a.tl.Activities, NewProcessorWidget(&a.tl, p))
+	}
+	for _, g := range t.Gs {
+		a.tl.Activities = append(a.tl.Activities, NewGoroutineWidget(&a.tl, g))
 	}
 	a.tl.prevFrame.dspSpans = map[any][]struct {
 		dspSpans []Span
@@ -2009,6 +2090,7 @@ func (a *Application) loadTrace(t *Trace) {
 	}{}
 
 	a.gs = t.Gs
+	a.ps = t.Ps
 }
 
 func (a *Application) run() error {
