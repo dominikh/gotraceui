@@ -40,11 +40,10 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): toggleable overlay that shows STW and GC phases
+
 // TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
 // looking at an arbitrary goroutine.
-
-// XXX parsing failures and other format violations shouldn't cause panics, but instead return errors that we can
-// present in the UI.
 
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 // GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
@@ -1676,7 +1675,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// TODO(dh): incorporate regions and logs in per-goroutine timeline
 			continue
 		default:
-			panic(fmt.Sprintf("unhandled event %d", ev.Type))
+			return nil, fmt.Errorf("unsupported trace event %d", ev.Type)
 		}
 
 		if debug {
@@ -1688,7 +1687,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 				} else {
 					prevState := s[len(s)-1].State
 					if !legalStateTransitions[prevState][state] {
-						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, offset %d", prevState, state, gid, ev.Off))
+						return nil, fmt.Errorf("illegal state transition %d -> %d for goroutine %d, offset %d", prevState, state, gid, ev.Off)
 					}
 				}
 			}
@@ -1757,7 +1756,7 @@ func main() {
 		a.commands <- Command{"setState", "loadingTrace"}
 		t, err := loadTrace(os.Args[1], a.commands)
 		if err != nil {
-			a.commands <- Command{"error", fmt.Errorf("couldn't load trace; %w", err)}
+			a.commands <- Command{"error", fmt.Errorf("couldn't load trace: %w", err)}
 			return
 		}
 		a.commands <- Command{"loadTrace", t}
@@ -2026,6 +2025,7 @@ func (a *Application) run() error {
 	// TODO(dh): use enum for state
 	state := "empty"
 	var progress float32
+	var err error
 	for {
 		select {
 		case cmd := <-a.commands:
@@ -2043,6 +2043,10 @@ func (a *Application) run() error {
 				progress = 0.0
 				a.win.Invalidate()
 				ww = nil
+			case "error":
+				state = "error"
+				err = cmd.Data.(error)
+				progress = 0.0
 			default:
 				panic(fmt.Sprintf("unknown command %s", cmd.Command))
 			}
@@ -2061,6 +2065,14 @@ func (a *Application) run() error {
 
 				switch state {
 				case "empty":
+
+				case "error":
+					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+					m := op.Record(gtx.Ops)
+					dims := widget.Label{}.Layout(gtx, a.theme.Shaper, text.Font{}, 14, fmt.Sprintf("Error: %s", err))
+					call := m.Stop()
+					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
+					call.Add(gtx.Ops)
 
 				case "loadingTrace":
 					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
