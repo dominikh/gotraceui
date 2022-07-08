@@ -41,6 +41,31 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): provide different sortings for goroutines. One user requested sorting by "amount of activity" but couldn't
+// define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
+// sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
+// "relatedness", keeping goroutines that interact a lot close together. But I reckon that'll require a lot of tuning
+// and experimentation to get right, especially once more than 2 goroutines interact.
+
+// TODO(dh): implement popup windows that can be used to customize UI settings. e.g. instead of needing different
+// shortcuts for toggling labels, compact mode, tooltips etc, have one shortcut that opens a menu that allows toggling
+// these features. maybe even use a radial menu? (probably not.)
+
+// FIXME(dh): sync.Once state has no assigned color
+
+// TODO(dh): allow computing statistics for a selectable region of time
+
+// TODO(dh): hovering over spans in the goroutine timelines highlights goroutines in the processor timelines. that's a
+// happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
+// some events, like unblocking, that's the wrong G.
+
+// TODO(dh): use the GC-purple color in the GC and STW timelines, as well as for the GC goroutines in the per-P
+// timelines.
+
+// TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
+// highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
+// span could highlight all the spans it unblocks.
+
 // TODO(dh): toggleable overlay that shows STW and GC phases
 
 // TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
@@ -1477,6 +1502,7 @@ type Goroutine struct {
 }
 
 func (g *Goroutine) String() string {
+	// OPT(dh): cache this. especially because it gets called a lot by the goroutine selector window.
 	if g.Function == nil {
 		// At least GCSweepStart can happen on g0
 		return fmt.Sprintf("goroutine %d", g.ID)
