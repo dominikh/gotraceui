@@ -646,6 +646,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 
 	origOps := gtx.Ops
 	gtx.Ops = &axis.prevFrame.ops
+	gtx.Ops.Reset()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
