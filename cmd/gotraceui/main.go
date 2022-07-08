@@ -1580,8 +1580,13 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	inMarkAssist := map[uint64]struct{}{}
 
 	for i, ev := range res.Events {
-		if i%1000 == 0 {
-			ch <- Command{"setProgress", float32(i) / float32(len(res.Events))}
+		if i%10000 == 0 {
+			select {
+			case ch <- Command{"setProgress", float32(i) / float32(len(res.Events))}:
+			default:
+				// Don't let the rendering loop slow down parsing. Especially when vsync is enabled we'll only get to
+				// read commands every blanking interval.
+			}
 		}
 		var gid uint64
 		var state schedulingState
@@ -1871,7 +1876,7 @@ type Application struct {
 
 func main() {
 	a := &Application{
-		commands: make(chan Command),
+		commands: make(chan Command, 16),
 	}
 	go func() {
 		a.commands <- Command{"setState", "loadingTrace"}
