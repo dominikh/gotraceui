@@ -138,6 +138,8 @@ type Timeline struct {
 		HighlightSpansWithEvents bool
 		// Should tooltips be shown?
 		ShowTooltips showTooltips
+
+		HoveredSpans []Span
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -154,6 +156,7 @@ type Timeline struct {
 			dspSpans       []Span
 			startPx, endPx float32
 		}
+		hoveredSpans []Span
 	}
 }
 
@@ -494,12 +497,19 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	tl.Activity.HoveredSpans = nil
 	for _, gw := range tl.prevFrame.displayedAws {
 		if spans := gw.ClickedSpans; len(spans) > 0 {
 			start := spans[0].Start
 			end := spans[len(spans)-1].End
 			tl.Start = start
 			tl.End = end
+			break
+		}
+	}
+	for _, gw := range tl.prevFrame.displayedAws {
+		if spans := gw.HoveredSpans; len(spans) > 0 {
+			tl.Activity.HoveredSpans = spans
 			break
 		}
 	}
@@ -685,9 +695,11 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 
 type ActivityWidget struct {
 	// Inputs
-	AllSpans      []Span
-	WidgetTooltip func(gtx layout.Context, aw *ActivityWidget)
-	HighlightSpan func(aw *ActivityWidget, spans []Span) bool
+	AllSpans        []Span
+	WidgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
+	MarkSpan        func(aw *ActivityWidget, spans []Span) bool
+	HighlightSpan   func(aw *ActivityWidget, spans []Span) bool
+	InvalidateCache func(aw *ActivityWidget) bool
 
 	tl    *Timeline
 	item  any
@@ -699,6 +711,7 @@ type ActivityWidget struct {
 	hoveredLabel    bool
 
 	ClickedSpans []Span
+	HoveredSpans []Span
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -748,9 +761,8 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
 			GoroutineTooltip{g, aw.tl.Theme.Shaper}.Layout(gtx)
 		},
-		HighlightSpan: func(aw *ActivityWidget, dspSpans []Span) bool {
+		MarkSpan: func(aw *ActivityWidget, dspSpans []Span) bool {
 			return spanHasEvents(g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End)
-
 		},
 		tl:    tl,
 		item:  g,
@@ -762,10 +774,50 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 	return &ActivityWidget{
 		AllSpans:      p.Spans,
 		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
-		HighlightSpan: func(aw *ActivityWidget, spans []Span) bool { return false },
-		tl:            tl,
-		item:          p,
-		label:         fmt.Sprintf("Processor %d", p.ID),
+		MarkSpan:      func(aw *ActivityWidget, spans []Span) bool { return false },
+		HighlightSpan: func(aw *ActivityWidget, spans []Span) bool {
+			if len(tl.Activity.HoveredSpans) != 1 {
+				return false
+			}
+			// OPT(dh): don't be O(n)
+			o := tl.Activity.HoveredSpans[0]
+			for _, s := range spans {
+				if s.Event.G == o.Event.G {
+					return true
+				}
+			}
+			return false
+		},
+		InvalidateCache: func(aw *ActivityWidget) bool {
+			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.Activity.HoveredSpans) == 0 {
+				// Nothing hovered in either frame.
+				return false
+			}
+
+			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.Activity.HoveredSpans) > 1 {
+				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
+				// frames, then nothing changes for rendering.
+				return false
+			}
+
+			if len(tl.prevFrame.hoveredSpans) != len(tl.Activity.HoveredSpans) {
+				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
+				// previously highlighted.
+				//
+				// The number of hovered spans changed, and at least in one frame the number was 1.
+				return true
+			}
+
+			// If we got to this point, then both slices have exactly one element.
+			if tl.prevFrame.hoveredSpans[0].Event.G != tl.Activity.HoveredSpans[0].Event.G {
+				return true
+			}
+
+			return false
+		},
+		tl:    tl,
+		item:  p,
+		label: fmt.Sprintf("Processor %d", p.ID),
 	}
 }
 
@@ -776,8 +828,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 
 	aw.ClickedSpans = nil
+	aw.HoveredSpans = nil
 
-	var trackPos f32.Point
 	var trackClick bool
 
 	// FIXME(dh): update tooltip position when dragging
@@ -791,7 +843,6 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			aw.hoveredActivity = false
 		case pointer.Press:
 			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-				trackPos = ev.Position
 				trackClick = true
 			}
 		}
@@ -831,6 +882,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		!aw.prevFrame.hovered &&
 		forceLabel == aw.prevFrame.forceLabel &&
 		compact == aw.prevFrame.compact &&
+		(aw.InvalidateCache == nil || !aw.InvalidateCache(aw)) &&
 		topBorder == aw.prevFrame.topBorder {
 
 		// OPT(dh): instead of avoiding cached ops completely when the activity is hovered, draw the tooltip
@@ -937,9 +989,12 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	var prevEndPx float32
 	doSpans := func(dspSpans []Span, startPx, endPx float32) {
-		if trackClick && trackPos.X >= startPx && trackPos.X < endPx {
-			aw.ClickedSpans = dspSpans
-			trackClick = false
+		if aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
+			if trackClick {
+				aw.ClickedSpans = dspSpans
+				trackClick = false
+			}
+			aw.HoveredSpans = dspSpans
 		}
 
 		var c colorIndex
@@ -991,7 +1046,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 		p.Close()
 
-		if aw.tl.Activity.HighlightSpansWithEvents && aw.HighlightSpan(aw, dspSpans) {
+		// TODO(dh): use different looks for marked spans and highlighted spans
+		if (aw.tl.Activity.HighlightSpansWithEvents && aw.MarkSpan(aw, dspSpans)) || (aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans)) {
 			p := eventsPath
 			minP := minP
 			maxP := maxP
@@ -2225,6 +2281,7 @@ func (a *Application) run() error {
 					a.tl.prevFrame.Y = a.tl.Y
 					a.tl.prevFrame.compact = a.tl.Activity.Compact
 					a.tl.prevFrame.highlightSpansWithEvents = a.tl.Activity.HighlightSpansWithEvents
+					a.tl.prevFrame.hoveredSpans = a.tl.Activity.HoveredSpans
 				}
 
 				ev.Frame(&ops)
