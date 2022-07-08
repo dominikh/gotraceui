@@ -367,7 +367,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	it.prevEnd = end
 	startPx = float32(start-tlStart) / nsPerPx
 	endPx = float32(end-tlStart) / nsPerPx
-	return it.spans[startOffset:it.offset], startPx, endPx, true
+	return spans[startOffset:it.offset], startPx, endPx, true
 }
 
 func Stack(gtx layout.Context, widgets ...layout.Widget) {
