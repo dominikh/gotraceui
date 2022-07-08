@@ -83,13 +83,23 @@ const (
 	tooltipBorderWidthDp unit.Dp = 2
 )
 
+type reusableOps struct {
+	ops op.Ops
+}
+
+// get resets and returns an op.Ops
+func (rops *reusableOps) get() *op.Ops {
+	rops.ops.Reset()
+	return &rops.ops
+}
+
 type Axis struct {
 	tl *Timeline
 
-	ticksOps op.Ops
+	ticksOps reusableOps
 
 	prevFrame struct {
-		ops    op.Ops
+		ops    reusableOps
 		call   op.CallOp
 		labels []string
 		dims   layout.Dimensions
@@ -645,8 +655,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	}
 
 	origOps := gtx.Ops
-	gtx.Ops = &axis.prevFrame.ops
-	gtx.Ops.Reset()
+	gtx.Ops = axis.prevFrame.ops.get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
@@ -656,8 +665,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	}()
 
 	var ticksPath clip.Path
-	axis.ticksOps.Reset()
-	ticksPath.Begin(&axis.ticksOps)
+	ticksPath.Begin(axis.ticksOps.get())
 	i := 0
 	for t := axis.tl.Start; t < axis.tl.End; t += tickInterval {
 		start := axis.tl.tsToPx(t) - tickWidth/2
@@ -739,8 +747,8 @@ type ActivityWidget struct {
 
 	// op lists get reused between frames to avoid generating garbage
 	ops         [colorStateLast]op.Ops
-	outlinesOps op.Ops
-	eventsOps   op.Ops
+	outlinesOps reusableOps
+	eventsOps   reusableOps
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -750,7 +758,7 @@ type ActivityWidget struct {
 		forceLabel      bool
 		compact         bool
 		topBorder       bool
-		ops             op.Ops
+		ops             reusableOps
 		call            op.CallOp
 	}
 }
@@ -923,8 +931,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	aw.prevFrame.topBorder = topBorder
 
 	origOps := gtx.Ops
-	gtx.Ops = &aw.prevFrame.ops
-	gtx.Ops.Reset()
+	gtx.Ops = aw.prevFrame.ops.get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
@@ -992,10 +999,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	var outlinesPath clip.Path
 	var eventsPath clip.Path
-	aw.outlinesOps.Reset()
-	aw.eventsOps.Reset()
-	outlinesPath.Begin(&aw.outlinesOps)
-	eventsPath.Begin(&aw.eventsOps)
+	outlinesPath.Begin(aw.outlinesOps.get())
+	eventsPath.Begin(aw.eventsOps.get())
 
 	for i := range paths {
 		paths[i].Begin(&aw.ops[i])
