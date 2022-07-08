@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +55,7 @@ import (
 // EvCPUSample, and updates the trace's version to Go 1.19.
 
 const debug = true
+const cpuprofile = true
 
 const (
 	// TODO(dh): compute min tick distance based on font size
@@ -161,6 +163,10 @@ type Timeline struct {
 }
 
 func (tl *Timeline) unchanged() bool {
+	if cpuprofile {
+		return false
+	}
+
 	return tl.prevFrame.Start == tl.Start &&
 		tl.prevFrame.End == tl.End &&
 		tl.prevFrame.nsPerPx == tl.nsPerPx &&
@@ -1902,7 +1908,14 @@ func main() {
 	}()
 	go func() {
 		a.win = app.NewWindow(app.Title("gotraceui"))
+		if cpuprofile {
+			f, _ := os.Create("pprof.cpu")
+			pprof.StartCPUProfile(f)
+		}
 		err := a.run()
+		if cpuprofile {
+			pprof.StopCPUProfile()
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -2302,6 +2315,9 @@ func (a *Application) run() error {
 					a.tl.prevFrame.hoveredSpans = a.tl.Activity.HoveredSpans
 				}
 
+				if cpuprofile {
+					op.InvalidateOp{}.Add(&ops)
+				}
 				ev.Frame(&ops)
 			}
 		}
