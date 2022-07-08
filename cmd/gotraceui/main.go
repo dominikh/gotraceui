@@ -86,6 +86,8 @@ const (
 type Axis struct {
 	tl *Timeline
 
+	ticksOps op.Ops
+
 	prevFrame struct {
 		ops    op.Ops
 		call   op.CallOp
@@ -653,8 +655,8 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	}()
 
 	var ticksPath clip.Path
-	var ticksOps op.Ops
-	ticksPath.Begin(&ticksOps)
+	axis.ticksOps.Reset()
+	ticksPath.Begin(&axis.ticksOps)
 	i := 0
 	for t := axis.tl.Start; t < axis.tl.End; t += tickInterval {
 		start := axis.tl.tsToPx(t) - tickWidth/2
@@ -734,6 +736,11 @@ type ActivityWidget struct {
 	ClickedSpans []Span
 	HoveredSpans []Span
 
+	// op lists get reused between frames to avoid generating garbage
+	ops         [colorStateLast]op.Ops
+	outlinesOps op.Ops
+	eventsOps   op.Ops
+
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
 		hovered         bool
@@ -745,11 +752,6 @@ type ActivityWidget struct {
 		ops             op.Ops
 		call            op.CallOp
 	}
-}
-
-type clipPath struct {
-	ops  op.Ops
-	path clip.Path
 }
 
 func NewGCWidget(tl *Timeline, spans []Span) *ActivityWidget {
@@ -969,18 +971,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	// We batch draw operations by color to avoid making thousands of draw calls. See
 	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
 	//
-	ops := [...]op.Ops{
-		colorStateInactive:             {},
-		colorStateActive:               {},
-		colorStateBlocked:              {},
-		colorStateBlockedHappensBefore: {},
-		colorStateBlockedNet:           {},
-		colorStateBlockedGC:            {},
-		colorStateBlockedSyscall:       {},
-		colorStateReady:                {},
-		colorStateStuck:                {},
-		colorStateMerged:               {},
-		colorStateUnknown:              {},
+	for i := range aw.ops {
+		aw.ops[i].Reset()
 	}
 	//gcassert:noescape
 	paths := [...]clip.Path{
@@ -997,13 +989,15 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		colorStateUnknown:              {},
 	}
 
-	outlinesPath := &clipPath{}
-	outlinesPath.path.Begin(&outlinesPath.ops)
-	eventsPath := &clipPath{}
-	eventsPath.path.Begin(&eventsPath.ops)
+	var outlinesPath clip.Path
+	var eventsPath clip.Path
+	aw.outlinesOps.Reset()
+	aw.eventsOps.Reset()
+	outlinesPath.Begin(&aw.outlinesOps)
+	eventsPath.Begin(&aw.eventsOps)
 
 	for i := range paths {
-		paths[i].Begin(&ops[i])
+		paths[i].Begin(&aw.ops[i])
 	}
 
 	first := true
@@ -1039,11 +1033,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		//
 		// OPT(dh): for activities that have no gaps between any of the spans this can be drawn as a single rectangle
 		// covering all spans.
-		outlinesPath.path.MoveTo(minP)
-		outlinesPath.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-		outlinesPath.path.LineTo(maxP)
-		outlinesPath.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-		outlinesPath.path.Close()
+		outlinesPath.MoveTo(minP)
+		outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		outlinesPath.LineTo(maxP)
+		outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		outlinesPath.Close()
 
 		if first && startPx < 0 {
 			// Never draw a left border for spans truncated spans
@@ -1069,16 +1063,15 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 		// TODO(dh): use different looks for marked spans and highlighted spans
 		if (aw.tl.Activity.HighlightSpansWithEvents && aw.MarkSpan(aw, dspSpans)) || (aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans)) {
-			p := eventsPath
 			minP := minP
 			maxP := maxP
 			minP.Y += float32((activityStateHeight - spanBorderWidth*2) / 2)
 
-			p.path.MoveTo(minP)
-			p.path.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			p.path.LineTo(maxP)
-			p.path.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			p.path.Close()
+			eventsPath.MoveTo(minP)
+			eventsPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			eventsPath.LineTo(maxP)
+			eventsPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			eventsPath.Close()
 		}
 
 		if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
@@ -1120,13 +1113,13 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}
 
 	// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
-	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.path.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
 
 	for cIdx := range paths {
 		p := &paths[cIdx]
 		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
 	}
-	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: eventsPath.path.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: eventsPath.End()}.Op())
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
 }
@@ -1985,6 +1978,8 @@ const (
 	colorStateReady
 	colorStateStuck
 	colorStateMerged
+
+	colorStateLast
 
 	colorBackground
 	colorZoomSelection
