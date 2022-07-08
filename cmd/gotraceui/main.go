@@ -312,7 +312,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	startOffset := offset
 	tlStart := it.tl.Start
 
-	s := it.spans[offset]
+	s := &spans[offset]
 	offset++
 
 	start := s.Start
@@ -338,7 +338,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 				adjustedEnd = start + minSpanWidthD
 			}
 
-			nextSpan := spans[offset]
+			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
 			nextStart := nextSpan.Start
