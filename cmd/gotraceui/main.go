@@ -347,7 +347,6 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 				// The current span would have to grow into the next span, making it smaller
 				nextStart = adjustedEnd
 			}
-			// XXX don't merge with tiny spans that are very separated from us
 			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
 				break
