@@ -327,15 +327,16 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
 		// previously merged spans becoming visible again when zooming out.
-		for {
-			if offset == len(it.spans) {
-				// We've run out of spans
-				break
-			}
-
+		for ; offset < len(it.spans); offset++ {
 			adjustedEnd := end
 			if end-start < minSpanWidthD {
 				adjustedEnd = start + minSpanWidthD
+			} else {
+				// Our merged span is long enough now and won't need to be extended anymore. Break out of this loop and
+				// go into a smaller loop that specializes on just collecting tiny spans, avoiding the comparisons
+				// needed for extending.
+				offset--
+				break
 			}
 
 			nextSpan := &spans[offset]
@@ -353,7 +354,20 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			}
 
 			end = nextSpan.End
-			offset++
+		}
+
+		for ; offset < len(it.spans); offset++ {
+			nextSpan := &spans[offset]
+			// Assume that we stop at this span. Compute the final size and extension. Use that to see
+			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+			nextStart := nextSpan.Start
+			nextEnd := nextSpan.End
+			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
+				// Don't merge spans or gaps that can stand on their own
+				break
+			}
+
+			end = nextSpan.End
 		}
 	}
 
