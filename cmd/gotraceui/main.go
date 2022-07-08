@@ -719,7 +719,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := StrictLabel{}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -730,7 +730,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := widget.Label{MaxLines: 1}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := StrictLabel{}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -975,7 +975,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 		if aw.hovered || forceLabel {
 			paint.ColorOp{Color: colors[colorActivityLabel]}.Add(gtx.Ops)
-			labelDims := widget.Label{}.Layout(gtx, aw.tl.Theme.Shaper, text.Font{}, activityLabelFontSizeSp, aw.label)
+			labelDims := StrictLabel{}.Layout(gtx, aw.tl.Theme.Shaper, text.Font{}, activityLabelFontSizeSp, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &aw.hoveredLabel, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
@@ -1457,8 +1457,7 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
-	// XXX can we ensure that widget.Label only uses our newlines and doesn't attempt to word-wrap for us?
-	dims := widget.Label{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, l)
+	dims := StrictLabel{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, l)
 	call := macro.Stop()
 
 	total := clip.Rect{
@@ -2465,6 +2464,13 @@ func (w *ListWindow[T]) Confirmed() (T, bool) {
 	return w.items[w.filtered[w.index]].item, true
 }
 
+type StrictLabel struct{}
+
+func (StrictLabel) Layout(gtx layout.Context, s text.Shaper, font text.Font, size unit.Sp, txt string) layout.Dimensions {
+	gtx.Constraints.Max.X = math.MaxInt
+	return widget.Label{}.Layout(gtx, s, font, size, txt)
+}
+
 func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -2498,7 +2504,7 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
 					}
-					return widget.Label{MaxLines: 1}.Layout(gtx, w.theme.Shaper, text.Font{}, 14, item.s)
+					return StrictLabel{}.Layout(gtx, w.theme.Shaper, text.Font{}, 14, item.s)
 				})
 			})
 		}
