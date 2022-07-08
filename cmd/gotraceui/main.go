@@ -2270,6 +2270,9 @@ func (a *Application) run() error {
 								ww.Filter = func(item *Goroutine, f string) bool {
 									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
 									// and allows matching goroutines by ID.
+									if item.Function == nil {
+										return f == ""
+									}
 									return strings.Contains(item.Function.Fn, f)
 								}
 							}
