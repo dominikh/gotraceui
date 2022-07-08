@@ -94,7 +94,7 @@ const (
 
 	// XXX the label height depends on the font used
 	activityLabelHeightDp   unit.Dp = 20
-	activityStateHeightDp   unit.Dp = 12
+	activityStateHeightDp   unit.Dp = 16
 	activityGapDp           unit.Dp = 5
 	activityHeightDp        unit.Dp = activityStateHeightDp + activityLabelHeightDp
 	activityLabelFontSizeSp unit.Sp = 14
@@ -151,6 +151,8 @@ type Timeline struct {
 	Theme      *material.Theme
 	Scrollbar  widget.Scrollbar
 	Axis       Axis
+
+	Gs map[uint64]*Goroutine
 
 	// State for dragging the timeline
 	Drag struct {
@@ -757,6 +759,7 @@ type ActivityWidget struct {
 	MarkSpan        func(aw *ActivityWidget, spans []Span) bool
 	HighlightSpan   func(aw *ActivityWidget, spans []Span) bool
 	InvalidateCache func(aw *ActivityWidget) bool
+	SpanLabel       func(aw *ActivityWidget, spans []Span) []string
 
 	tl    *Timeline
 	item  any
@@ -774,6 +777,7 @@ type ActivityWidget struct {
 	ops         [colorStateLast]op.Ops
 	outlinesOps reusableOps
 	eventsOps   reusableOps
+	labelsOps   reusableOps
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -872,6 +876,23 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 
 			return false
 		},
+		SpanLabel: func(aw *ActivityWidget, spans []Span) []string {
+			if len(spans) != 1 {
+				return nil
+			}
+			// OPT(dh): cache the strings
+			out := make([]string, 3)
+			g := aw.tl.Gs[spans[0].Event.G]
+			if g.Function != nil {
+				out[0] = fmt.Sprintf("g%d: %s", g.ID, g.Function.Fn)
+			} else {
+				out[0] = fmt.Sprintf("g%d", g.ID)
+			}
+			out[1] = fmt.Sprintf("g%d", g.ID)
+			out[2] = ""
+			return out
+
+		},
 		tl:    tl,
 		item:  p,
 		label: fmt.Sprintf("Processor %d", p.ID),
@@ -883,6 +904,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	activityStateHeight := gtx.Dp(activityStateHeightDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
+	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	aw.ClickedSpans = nil
 	aw.HoveredSpans = nil
@@ -1026,6 +1048,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	var eventsPath clip.Path
 	outlinesPath.Begin(aw.outlinesOps.get())
 	eventsPath.Begin(aw.eventsOps.get())
+	labelsOps := aw.labelsOps.get()
+	labelsMacro := op.Record(labelsOps)
 
 	for i := range paths {
 		paths[i].Begin(&aw.ops[i])
@@ -1116,6 +1140,48 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			op.Defer(gtx.Ops, call)
 		}
 
+		if len(dspSpans) == 1 && aw.SpanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
+			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
+			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
+			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
+			// empty string to effectively display no label.
+			//
+			// We don't try to render a label for very small spans.
+			if labels := aw.SpanLabel(aw, dspSpans); len(labels) > 0 {
+				for i, label := range labels {
+					if label == "" {
+						continue
+					}
+
+					macro := op.Record(labelsOps)
+					dims := StrictLabel{}.Layout(withOps(gtx, labelsOps), aw.tl.Theme.Shaper, text.Font{Weight: text.ExtraBold}, 12, label)
+					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
+						// This label doesn't fit. If the callback provided more labels, try those instead.
+						macro.Stop()
+						continue
+					}
+
+					call := macro.Stop()
+					middleOfSpan := startPx + (endPx-startPx)/2
+					left := middleOfSpan - float32(dims.Size.X)/2
+					if left+float32(dims.Size.X) > maxP.X {
+						left = maxP.X - float32(dims.Size.X)
+					}
+					if left < minP.X {
+						left = minP.X
+					}
+					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
+					// XXX use constant for color
+					paint.ColorOp{Color: toColor(0x000000FF)}.Add(labelsOps)
+					stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
+					call.Add(labelsOps)
+					stack2.Pop()
+					stack.Pop()
+					break
+				}
+			}
+		}
+
 		first = false
 	}
 
@@ -1143,14 +1209,18 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		aw.tl.prevFrame.dspSpans[aw] = allDspSpans
 	}
 
-	// Outlines are not grouped with other spans of the same color because they have to be drawn before spans.
+	// First draw the outlines. We draw these as solid rectangles and let the spans overlay them.
 	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
 
+	// Then draw the spans
 	for cIdx := range paths {
 		p := &paths[cIdx]
 		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
 	}
 	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: eventsPath.End()}.Op())
+
+	// Finally print labels on top
+	labelsMacro.Stop().Add(gtx.Ops)
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
 }
@@ -2187,10 +2257,16 @@ func (a *Application) loadTrace(t *Trace) {
 	start := time.Duration(-slack)
 	end = time.Duration(float64(end) + slack)
 
+	gsByID := map[uint64]*Goroutine{}
+	for _, g := range t.Gs {
+		gsByID[g.ID] = g
+	}
+
 	a.tl = Timeline{
 		Start: start,
 		End:   end,
 		Theme: a.theme,
+		Gs:    gsByID,
 	}
 	a.tl.Axis = Axis{tl: &a.tl}
 	a.tl.Activities = make([]*ActivityWidget, 2, len(t.Gs)+len(t.Ps)+2)
@@ -2640,3 +2716,10 @@ func Constrain(gtx layout.Context, c clip.Rect, w layout.Widget) layout.Dimensio
 	gtx.Constraints.Max.Y = c.Max.Y - c.Min.Y
 	return w(gtx)
 }
+
+//gcassert:inline
+func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
+	gtx.Ops = ops
+	return gtx
+}
+
