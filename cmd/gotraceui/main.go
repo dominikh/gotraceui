@@ -104,6 +104,9 @@ const (
 	tooltipFontSizeSp    unit.Sp = 14
 	tooltipPaddingDp     unit.Dp = 2
 	tooltipBorderWidthDp unit.Dp = 2
+	windowFontSizeSp unit.Sp = 14
+	windowPaddingDp  unit.Dp = 2
+	windowBorderDp   unit.Dp = 2
 )
 
 type reusableOps struct {
@@ -178,7 +181,8 @@ type Timeline struct {
 		Compact                  bool
 		HighlightSpansWithEvents bool
 		// Should tooltips be shown?
-		ShowTooltips showTooltips
+		ShowTooltips             showTooltips
+		ShowTooltipsNotification Notification
 
 		HoveredSpans []Span
 	}
@@ -498,9 +502,26 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				case "T":
 					// TODO(dh): show an onscreen hint what setting we changed to
 					tl.Activity.ShowTooltips = (tl.Activity.ShowTooltips + 1) % (showTooltipsNone + 1)
+					var s string
+					switch tl.Activity.ShowTooltips {
+					case showTooltipsBoth:
+						s = "Showing all tooltips"
+					case showTooltipsSpans:
+						s = "Showing span tooltips only"
+					case showTooltipsNone:
+						s = "Showing no tooltips"
+					}
+					tl.Activity.ShowTooltipsNotification.Show(gtx, s)
 
 				case "E":
 					tl.Activity.HighlightSpansWithEvents = !tl.Activity.HighlightSpansWithEvents
+					var s string
+					if tl.Activity.HighlightSpansWithEvents {
+						s = "Highlighting spans with events"
+					} else {
+						s = "Not highlighting spans with events"
+					}
+					tl.Activity.ShowTooltipsNotification.Show(gtx, s)
 				}
 			}
 		case pointer.Event:
@@ -621,6 +642,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		Max: image.Pt(int(round32(tl.Global.cursorPos.X+1)), gtx.Constraints.Max.Y),
 	}
 	paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
+
+	tl.Activity.ShowTooltipsNotification.Layout(gtx)
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -2093,6 +2116,9 @@ var colors = [...]color.NRGBA{
 	colorTooltipText:       toColor(0x000000FF),
 	colorTooltipBackground: toColor(0xEEFFEEFF),
 	colorTooltipBorder:     toColor(0x57A8A8FF),
+	colorWindowText:       toColor(0x000000FF),
+	colorWindowBackground: toColor(0xEEFFEEFF),
+	colorWindowBorder:     toColor(0x57A8A8FF),
 
 	colorActivityLabel:  toColor(0x888888FF),
 	colorActivityBorder: toColor(0xDDDDDDFF),
@@ -2132,6 +2158,9 @@ const (
 	colorTooltipText
 	colorTooltipBackground
 	colorTooltipBorder
+	colorWindowText
+	colorWindowBackground
+	colorWindowBorder
 
 	colorActivityLabel
 	colorActivityBorder
@@ -2330,6 +2359,7 @@ func (a *Application) loadTrace(t *Trace) {
 		Theme: a.theme,
 		Gs:    gsByID,
 	}
+	a.tl.Activity.ShowTooltipsNotification.Theme = a.theme
 	a.tl.Axis = Axis{tl: &a.tl}
 	a.tl.Activities = make([]*ActivityWidget, 2, len(t.Gs)+len(t.Ps)+2)
 	a.tl.Activities[0] = NewGCWidget(&a.tl, t.GC)
@@ -2784,4 +2814,85 @@ func Constrain(gtx layout.Context, c clip.Rect, w layout.Widget) layout.Dimensio
 func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 	gtx.Ops = ops
 	return gtx
+}
+
+type Notification struct {
+	Theme   *material.Theme
+	message string
+	shownAt time.Time
+}
+
+func (notif *Notification) Show(gtx layout.Context, msg string) {
+	notif.message = msg
+	notif.shownAt = gtx.Now
+}
+
+func (notif *Notification) Layout(gtx layout.Context) layout.Dimensions {
+	if gtx.Now.After(notif.shownAt.Add(1000 * time.Millisecond)) {
+		return layout.Dimensions{}
+	}
+
+	// XXX compute width based on window size
+	// TODO(dh): limit height to something sensible, just in case
+	ngtx := gtx
+	ngtx.Constraints.Max.X = 500
+	macro := op.Record(gtx.Ops)
+	dims := BorderedText(ngtx, notif.Theme.Shaper, notif.message)
+	call := macro.Stop()
+
+	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
+	call.Add(gtx.Ops)
+
+	op.InvalidateOp{At: notif.shownAt.Add(1000 * time.Millisecond)}.Add(gtx.Ops)
+
+	return dims
+}
+
+func Bordered(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	border := gtx.Dp(windowBorderDp)
+
+	ngtx := gtx
+	// XXX what about the Min constraints?
+	ngtx.Constraints.Max.X -= 2 * border
+	ngtx.Constraints.Max.Y -= 2 * border
+
+	macro := op.Record(gtx.Ops)
+	dims := w(ngtx)
+	call := macro.Stop()
+
+	dims.Size.X += 2 * border
+	dims.Size.Y += 2 * border
+	// XXX use a stroke instead
+	paint.FillShape(gtx.Ops, colors[colorWindowBorder], clip.Rect{Max: dims.Size}.Op())
+	defer op.Offset(image.Pt(border, border)).Push(gtx.Ops).Pop()
+	call.Add(gtx.Ops)
+	return dims
+}
+
+func BorderedText(gtx layout.Context, shaper text.Shaper, s string) layout.Dimensions {
+	return Bordered(gtx, func(gtx layout.Context) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		var padding = gtx.Dp(windowPaddingDp)
+
+		macro := op.Record(gtx.Ops)
+		paint.ColorOp{Color: colors[colorWindowText]}.Add(gtx.Ops)
+		dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, windowFontSizeSp, s)
+		call := macro.Stop()
+
+		total := clip.Rect{
+			Min: image.Pt(0, 0),
+			Max: image.Pt(dims.Size.X+2*padding, dims.Size.Y+2*padding),
+		}
+
+		paint.FillShape(gtx.Ops, colors[colorWindowBackground], total.Op())
+
+		stack := op.Offset(image.Pt(padding, padding)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		stack.Pop()
+
+		return layout.Dimensions{
+			Baseline: dims.Baseline,
+			Size:     total.Max,
+		}
+	})
 }
