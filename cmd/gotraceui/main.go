@@ -1673,6 +1673,21 @@ type Trace struct {
 	STW []Span
 }
 
+// Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this
+// is more similar to a goroutine calling runtime.Gosched than to a goroutine really wishing it had work to do. Because
+// of that we put those into the inactive state.
+func blockedIsInactive(fn *trace.Frame) bool {
+	if fn == nil {
+		return false
+	}
+	switch fn.Fn {
+	case "runtime.gcBgMarkWorker", "runtime.forcegchelper", "runtime.bgsweep", "runtime.bgscavenge", "runtime.runfinq":
+		return true
+	default:
+		return false
+	}
+}
+
 func loadTrace(path string, ch chan Command) (*Trace, error) {
 	var gs []*Goroutine
 	var ps []*Processor
@@ -1822,15 +1837,29 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			reason = "got preempted"
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
-			trace.EvGoBlockGC, trace.EvGoBlock:
+			trace.EvGoBlockGC:
 			// ev.G is blocking
 			gid = ev.G
 			pState = pStopG
 			state = evTypeToState[ev.Type]
+		case trace.EvGoBlock:
+			// ev.G is blocking
+			gid = ev.G
+			pState = pStopG
+			state = evTypeToState[ev.Type]
+
+			if ev.Type == trace.EvGoBlock {
+				if blockedIsInactive(gsByID[gid].Function) {
+					state = stateInactive
+				}
+			}
 		case trace.EvGoWaiting:
 			// ev.G is blocked when tracing starts
 			gid = ev.G
 			state = stateBlocked
+			if blockedIsInactive(gsByID[gid].Function) {
+				state = stateInactive
+			}
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
 			getG(ev.G).Events = append(getG(ev.G).Events, ev)
