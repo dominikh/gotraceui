@@ -1347,8 +1347,6 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			runningD += s.Duration()
 		case stateBlocked:
 			blockedD += s.Duration()
-		case stateBlockedRunfinqWaiting:
-			inactiveD += s.Duration()
 		case stateBlockedWaitingForTraceData:
 			inactiveD += s.Duration()
 		case stateBlockedSend:
@@ -1455,8 +1453,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "blocked on channel send"
 		case stateBlockedWaitingForTraceData:
 			label += "waiting for trace data"
-		case stateBlockedRunfinqWaiting:
-			label += "runfinq: waiting for finalizer to run"
 		case stateBlockedRecv:
 			label += "blocked on channel recv"
 		case stateBlockedSelect:
@@ -2163,7 +2159,6 @@ const (
 	stateGCIdle
 	stateGCDedicated
 	stateBlocked
-	stateBlockedRunfinqWaiting
 	stateBlockedWaitingForTraceData
 	stateBlockedSend
 	stateBlockedRecv
@@ -2227,7 +2222,6 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateBlockedSync:                true,
 		stateBlockedSyncOnce:            true,
 		stateBlockedSyncTriggeringGC:    true,
-		stateBlockedRunfinqWaiting:      true,
 		stateBlockedWaitingForTraceData: true,
 		stateBlockedCond:                true,
 		stateBlockedNet:                 true,
@@ -2269,7 +2263,6 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 	stateBlockedSync:                {stateReady: true},
 	stateBlockedSyncOnce:            {stateReady: true},
 	stateBlockedSyncTriggeringGC:    {stateReady: true},
-	stateBlockedRunfinqWaiting:      {stateReady: true},
 	stateBlockedWaitingForTraceData: {stateReady: true},
 	stateBlockedCond:                {stateReady: true},
 	stateBlockedNet:                 {stateReady: true},

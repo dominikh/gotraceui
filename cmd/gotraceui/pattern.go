@@ -31,13 +31,6 @@ var patterns = []pattern{
 	{
 		state: stateBlocked,
 		fns: []string{
-			0: "runtime.runfinq",
-		},
-		newState: stateBlockedRunfinqWaiting,
-	},
-	{
-		state: stateBlocked,
-		fns: []string{
 			0: "runtime.ReadTrace",
 		},
 		newState: stateBlockedWaitingForTraceData,
