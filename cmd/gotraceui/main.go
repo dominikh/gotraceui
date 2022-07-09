@@ -41,6 +41,9 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// FIXME(dh): ctrl+button-down on a span zooms on it; if one then starts dragging without releasing the key, we zoom out
+// again and start tragging.
+
 // TODO(dh): provide different sortings for goroutines. One user requested sorting by "amount of activity" but couldn't
 // define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
 // sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
@@ -50,8 +53,6 @@ import (
 // TODO(dh): implement popup windows that can be used to customize UI settings. e.g. instead of needing different
 // shortcuts for toggling labels, compact mode, tooltips etc, have one shortcut that opens a menu that allows toggling
 // these features. maybe even use a radial menu? (probably not.)
-
-// FIXME(dh): sync.Once state has no assigned color
 
 // TODO(dh): allow computing statistics for a selectable region of time
 
@@ -1083,12 +1084,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 		var c colorIndex
 		if len(dspSpans) == 1 {
-			s := dspSpans[0]
-			if int(s.State) >= len(stateColors) {
-				c = colorStateUnknown
-			} else {
-				c = stateColors[s.State]
-			}
+			c = stateColors[dspSpans[0].State]
 		} else {
 			c = colorStateMerged
 		}
@@ -2176,13 +2172,15 @@ const (
 	stateDone
 	stateGCMarkAssist
 	stateGCSweep
-	stateLast
 
 	// Processor states
 	stateRunningG
+
+	stateLast
 )
 
-var stateColors = [...]colorIndex{
+var stateColors = [stateLast]colorIndex{
+	// per-G states
 	stateInactive:                   colorStateInactive,
 	stateActive:                     colorStateActive,
 	stateBlocked:                    colorStateBlocked,
@@ -2202,6 +2200,12 @@ var stateColors = [...]colorIndex{
 	stateGCSweep:                    colorStateGC,
 	stateGCIdle:                     colorStateGC,
 	stateGCDedicated:                colorStateGC,
+	stateBlockedSyncOnce:            colorStateBlockedHappensBefore,
+	stateBlockedSyncTriggeringGC:    colorStateGC,
+	stateDone:                       colorStateUnknown, // no span with this state should be rendered
+
+	// per-P states
+	stateRunningG: colorStateActive,
 }
 
 var legalStateTransitions = [stateLast][stateLast]bool{
