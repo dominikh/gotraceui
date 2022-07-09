@@ -810,6 +810,23 @@ func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget {
 	}
 }
 
+var spanLabels = [...][]string{
+	stateBlockedCond:             {"sync.Cond"},
+	stateBlockedGC:               {"GC assist wait"},
+	stateBlockedNet:              {"I/O"},
+	stateBlockedRecv:             {"recv"},
+	stateBlockedSelect:           {"select"},
+	stateBlockedSend:             {"send"},
+	stateBlockedSync:             {"sync"},
+	stateBlockedSyncOnce:         {"sync.Once"},
+	stateBlockedSyncTriggeringGC: {"triggering GC"},
+	stateBlockedSyscall:          {"syscall"},
+	stateGCMarkAssist:            {"GC mark assist"},
+	stateGCSweep:                 {"GC sweep"},
+	stateStuck:                   {"stuck"},
+	stateLast:                    nil,
+}
+
 func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	var l string
 	if g.Function != nil {
@@ -817,6 +834,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	} else {
 		l = fmt.Sprintf("goroutine %d", g.ID)
 	}
+
 	return &ActivityWidget{
 		AllSpans: g.Spans,
 		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
@@ -824,6 +842,12 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 		},
 		MarkSpan: func(aw *ActivityWidget, dspSpans []Span) bool {
 			return spanHasEvents(g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End)
+		},
+		SpanLabel: func(aw *ActivityWidget, spans []Span) []string {
+			if len(spans) != 1 {
+				return nil
+			}
+			return spanLabels[spans[0].State]
 		},
 		tl:    tl,
 		item:  g,
@@ -1454,7 +1478,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateBlockedNet:
 			label += "blocked on polled I/O"
 		case stateBlockedGC:
-			label += "blocked on GC assist"
+			label += "GC assist wait"
 		case stateBlockedSyscall:
 			label += "blocked on syscall"
 		case stateStuck:
@@ -2032,7 +2056,7 @@ var colors = [...]color.NRGBA{
 	colorStateBlockedWaitingForTraceData: toColor(0xBA4141FF),
 	colorStateBlockedHappensBefore:       toColor(0xBB6363FF),
 	colorStateBlockedNet:                 toColor(0xBB5D5DFF),
-	colorStateBlockedGC:                  toColor(0xBB554FFF),
+	colorStateBlockedGC:                  toColor(0x9C6FD6FF),
 	colorStateBlockedSyscall:             toColor(0xBA4F41FF),
 	colorStateGCMarkAssist:               toColor(0x9C6FD6FF),
 	colorStateGCSweep:                    toColor(0x9C6FD6FF),
