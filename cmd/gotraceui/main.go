@@ -1056,19 +1056,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		aw.ops[i].Reset()
 	}
 	//gcassert:noescape
-	paths := [...]clip.Path{
-		colorStateInactive:             {},
-		colorStateActive:               {},
-		colorStateBlocked:              {},
-		colorStateBlockedHappensBefore: {},
-		colorStateBlockedNet:           {},
-		colorStateBlockedGC:            {},
-		colorStateBlockedSyscall:       {},
-		colorStateReady:                {},
-		colorStateStuck:                {},
-		colorStateMerged:               {},
-		colorStateUnknown:              {},
-	}
+	paths := [colorStateLast]clip.Path{}
 
 	var outlinesPath clip.Path
 	var eventsPath clip.Path
@@ -2804,4 +2792,3 @@ func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 	gtx.Ops = ops
 	return gtx
 }
-
