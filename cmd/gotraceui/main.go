@@ -935,11 +935,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	var trackClick bool
 
-	// FIXME(dh): update tooltip position when dragging
 	for _, e := range gtx.Events(&aw.hoveredActivity) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
-		case pointer.Enter, pointer.Move:
+		case pointer.Enter, pointer.Move, pointer.Drag:
 			aw.hoveredActivity = true
 			aw.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
@@ -1043,7 +1042,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, activityStateHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: &aw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
+	pointer.InputOp{Tag: &aw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Drag | pointer.Cancel}.Add(gtx.Ops)
 
 	// Draw activity lifetimes
 	//
