@@ -2405,6 +2405,7 @@ func (a *Application) run() error {
 				state = "error"
 				err = cmd.Data.(error)
 				progress = 0.0
+				a.win.Invalidate()
 			default:
 				panic(fmt.Sprintf("unknown command %s", cmd.Command))
 			}
