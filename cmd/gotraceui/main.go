@@ -101,9 +101,6 @@ const (
 
 	spanBorderWidthDp unit.Dp = 1
 
-	tooltipFontSizeSp    unit.Sp = 14
-	tooltipPaddingDp     unit.Dp = 2
-	tooltipBorderWidthDp unit.Dp = 2
 	windowFontSizeSp unit.Sp = 14
 	windowPaddingDp  unit.Dp = 2
 	windowBorderDp   unit.Dp = 2
@@ -1551,35 +1548,7 @@ type Tooltip struct {
 }
 
 func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
-	var padding = gtx.Dp(tooltipPaddingDp)
-	var tooltipBorderWidth = gtx.Dp(tooltipBorderWidthDp)
-
-	macro := op.Record(gtx.Ops)
-	paint.ColorOp{Color: colors[colorTooltipText]}.Add(gtx.Ops)
-	dims := StrictLabel{}.Layout(gtx, tt.shaper, text.Font{}, tooltipFontSizeSp, l)
-	call := macro.Stop()
-
-	total := clip.Rect{
-		Min: image.Pt(0, 0),
-		Max: image.Pt(dims.Size.X+2*tooltipBorderWidth+2*padding, dims.Size.Y+2*tooltipBorderWidth+2*padding),
-	}
-	paint.FillShape(gtx.Ops, colors[colorTooltipBorder], total.Op())
-
-	content := total
-	content.Min.X += tooltipBorderWidth
-	content.Min.Y += tooltipBorderWidth
-	content.Max.X -= tooltipBorderWidth
-	content.Max.Y -= tooltipBorderWidth
-	paint.FillShape(gtx.Ops, colors[colorTooltipBackground], content.Op())
-
-	stack := op.Offset(image.Pt(tooltipBorderWidth+padding, tooltipBorderWidth+padding)).Push(gtx.Ops)
-	call.Add(gtx.Ops)
-	stack.Pop()
-
-	return layout.Dimensions{
-		Baseline: dims.Baseline,
-		Size:     total.Max,
-	}
+	return BorderedText(gtx, tt.shaper, l)
 }
 
 type Processor struct {
@@ -2108,14 +2077,11 @@ var colors = [...]color.NRGBA{
 	colorStateMerged:  toColor(0xB9BB63FF),
 	colorStateUnknown: toColor(0xFFFF00FF),
 
-	colorBackground:        toColor(0xffffeaFF),
-	colorZoomSelection:     toColor(0xeeee9e99),
-	colorCursor:            toColor(0x000000FF),
-	colorTick:              toColor(0x000000FF),
-	colorTickLabel:         toColor(0x000000FF),
-	colorTooltipText:       toColor(0x000000FF),
-	colorTooltipBackground: toColor(0xEEFFEEFF),
-	colorTooltipBorder:     toColor(0x57A8A8FF),
+	colorBackground:       toColor(0xffffeaFF),
+	colorZoomSelection:    toColor(0xeeee9e99),
+	colorCursor:           toColor(0x000000FF),
+	colorTick:             toColor(0x000000FF),
+	colorTickLabel:        toColor(0x000000FF),
 	colorWindowText:       toColor(0x000000FF),
 	colorWindowBackground: toColor(0xEEFFEEFF),
 	colorWindowBorder:     toColor(0x57A8A8FF),
@@ -2155,9 +2121,7 @@ const (
 	colorCursor
 	colorTick
 	colorTickLabel
-	colorTooltipText
-	colorTooltipBackground
-	colorTooltipBorder
+
 	colorWindowText
 	colorWindowBackground
 	colorWindowBorder
@@ -2643,21 +2607,16 @@ func (StrictLabel) Layout(gtx layout.Context, s text.Shaper, font text.Font, siz
 func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	// XXX use constant for color
-	paint.Fill(gtx.Ops, toColor(0xFFFFFFFF))
-
 	key.InputOp{Tag: w, Keys: "↓|↑|⎋"}.Add(gtx.Ops)
 
 	var spy *eventx.Spy
 
-	dims := widget.Border{
-		// XXX use a dedicated constant
-		Color:        colors[colorTooltipBorder],
-		CornerRadius: 0,
-		Width:        1,
-	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := Bordered(gtx, func(gtx layout.Context) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		spy, gtx = eventx.Enspy(gtx)
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		// XXX use constant for color
+		paint.Fill(gtx.Ops, toColor(0xFFFFFFFF))
 
 		fn2 := func(gtx layout.Context) layout.Dimensions {
 			return material.List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
