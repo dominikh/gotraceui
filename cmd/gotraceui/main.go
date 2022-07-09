@@ -41,9 +41,6 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
-// FIXME(dh): ctrl+button-down on a span zooms on it; if one then starts dragging without releasing the key, we zoom out
-// again and start tragging.
-
 // TODO(dh): provide different sortings for goroutines. One user requested sorting by "amount of activity" but couldn't
 // define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
 // sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
@@ -512,7 +509,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				if ev.Buttons&pointer.ButtonTertiary != 0 {
 					if ev.Modifiers&key.ModShift != 0 {
 						tl.startZoomSelection(ev.Position)
-					} else {
+					} else if ev.Modifiers == 0 {
 						tl.startDrag(ev.Position)
 					}
 				}
@@ -523,7 +520,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 			case pointer.Drag:
 				tl.Global.cursorPos = ev.Position
-				if ev.Buttons&pointer.ButtonTertiary != 0 {
+				if tl.Drag.Active {
 					if tl.Drag.Active {
 						tl.dragTo(gtx, ev.Position)
 					}
