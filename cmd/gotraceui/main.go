@@ -611,6 +611,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Release |
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
+		Grab:         tl.Drag.Active,
 	}.Add(gtx.Ops)
 	key.InputOp{Tag: tl, Keys: "C|E|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
@@ -958,8 +959,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	for _, e := range gtx.Events(&aw.hoveredActivity) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
-		case pointer.Enter, pointer.Move, pointer.Drag:
+		case pointer.Enter, pointer.Move:
 			aw.hoveredActivity = true
+			aw.pointerAt = ev.Position
+		case pointer.Drag:
 			aw.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
 			aw.hoveredActivity = false
