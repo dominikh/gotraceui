@@ -1143,7 +1143,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		p.Close()
 
 		// TODO(dh): use different looks for marked spans and highlighted spans
-		if (aw.tl.Activity.HighlightSpansWithEvents && aw.MarkSpan(aw, dspSpans)) || (aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans)) {
+		if (aw.tl.Activity.HighlightSpansWithEvents && aw.MarkSpan != nil && aw.MarkSpan(aw, dspSpans)) || (aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans)) {
 			minP := minP
 			maxP := maxP
 			minP.Y += float32((activityStateHeight - spanBorderWidth*2) / 2)
