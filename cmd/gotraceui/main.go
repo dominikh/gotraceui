@@ -810,7 +810,9 @@ func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget {
 	}
 }
 
-var spanLabels = [...][]string{
+var spanStateLabels = [...][]string{
+	stateGCDedicated:             {"GC (dedicated)"},
+	stateGCIdle:                  {"GC (idle)"},
 	stateBlockedCond:             {"sync.Cond"},
 	stateBlockedGC:               {"GC assist wait"},
 	stateBlockedNet:              {"I/O"},
@@ -847,7 +849,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 			if len(spans) != 1 {
 				return nil
 			}
-			return spanLabels[spans[0].State]
+			return spanStateLabels[spans[0].State]
 		},
 		tl:    tl,
 		item:  g,
@@ -1353,7 +1355,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		switch s.State {
 		case stateInactive:
 			inactiveD += s.Duration()
-		case stateActive:
+		case stateActive, stateGCDedicated, stateGCIdle:
 			runningD += s.Duration()
 		case stateBlocked:
 			blockedD += s.Duration()
@@ -1455,6 +1457,10 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "\nReason: " + s.Reason
 		case stateActive:
 			label += "active"
+		case stateGCDedicated:
+			label += "GC (dedicated)"
+		case stateGCIdle:
+			label += "GC (idle)"
 		case stateBlocked:
 			label += "blocked"
 		case stateBlockedSend:
@@ -1777,6 +1783,15 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			gid = ev.G
 			pState = pRunG
 			state = stateActive
+
+			if len(ev.SArgs) == 1 {
+				switch ev.SArgs[0] {
+				case "GC (dedicated)":
+					state = stateGCDedicated
+				case "GC (idle)":
+					state = stateGCIdle
+				}
+			}
 		case trace.EvGoStop:
 			// ev.G is stopping
 			gid = ev.G
@@ -2058,8 +2073,7 @@ var colors = [...]color.NRGBA{
 	colorStateBlockedNet:                 toColor(0xBB5D5DFF),
 	colorStateBlockedGC:                  toColor(0x9C6FD6FF),
 	colorStateBlockedSyscall:             toColor(0xBA4F41FF),
-	colorStateGCMarkAssist:               toColor(0x9C6FD6FF),
-	colorStateGCSweep:                    toColor(0x9C6FD6FF),
+	colorStateGC:                         toColor(0x9C6FD6FF),
 
 	colorStateReady:   toColor(0x4BACB8FF),
 	colorStateStuck:   toColor(0x000000FF),
@@ -2096,8 +2110,7 @@ const (
 	colorStateBlockedNet
 	colorStateBlockedGC
 	colorStateBlockedSyscall
-	colorStateGCMarkAssist
-	colorStateGCSweep
+	colorStateGC
 	colorStateBlockedWaitingForTraceData
 
 	colorStateReady
@@ -2130,6 +2143,8 @@ const (
 	// Goroutine states
 	stateInactive
 	stateActive
+	stateGCIdle
+	stateGCDedicated
 	stateBlocked
 	stateBlockedRunfinqWaiting
 	stateBlockedWaitingForTraceData
@@ -2171,8 +2186,10 @@ var stateColors = [...]colorIndex{
 	stateStuck:                      colorStateStuck,
 	stateReady:                      colorStateReady,
 	stateCreated:                    colorStateReady,
-	stateGCMarkAssist:               colorStateGCMarkAssist,
-	stateGCSweep:                    colorStateGCSweep,
+	stateGCMarkAssist:               colorStateGC,
+	stateGCSweep:                    colorStateGC,
+	stateGCIdle:                     colorStateGC,
+	stateGCDedicated:                colorStateGC,
 }
 
 var legalStateTransitions = [stateLast][stateLast]bool{
@@ -2204,18 +2221,29 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateGCMarkAssist:               true,
 		stateGCSweep:                    true,
 	},
+	stateGCIdle: {
+		stateInactive:    true,
+		stateBlockedSync: true,
+	},
+	stateGCDedicated: {
+		stateInactive:    true,
+		stateBlockedSync: true,
+	},
 	stateCreated: {
 		stateActive: true,
 
-		// FIXME(dh): These two transitions are only valid for goroutines that already existed when tracing started.
+		// FIXME(dh): These three transitions are only valid for goroutines that already existed when tracing started.
 		// eventually we'll make it so those goroutines don't end up in stateReady, at which point we should remove
 		// these entries.
+		stateInactive:       true,
 		stateBlocked:        true,
 		stateBlockedSyscall: true,
 	},
 	stateReady: {
 		stateActive:       true,
 		stateGCMarkAssist: true,
+		stateGCIdle:       true,
+		stateGCDedicated:  true,
 	},
 	stateBlocked:                    {stateReady: true},
 	stateBlockedSend:                {stateReady: true},
