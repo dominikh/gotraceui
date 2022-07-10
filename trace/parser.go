@@ -10,7 +10,6 @@ import (
 	"io"
 	"math"
 	"math/rand"
-	_ "unsafe"
 )
 
 // Event describes one event in the trace.
