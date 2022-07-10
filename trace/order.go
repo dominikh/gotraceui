@@ -85,7 +85,7 @@ func order1007(m map[int][]*Event) (events []*Event, err error) {
 		if len(frontier) == 0 {
 			return nil, fmt.Errorf("no consistent ordering of events possible")
 		}
-		sort.Sort(orderEventList(frontier))
+		sort.Sort((*orderEventList)(&frontier))
 		f := frontier[0]
 		frontier[0] = frontier[len(frontier)-1]
 		frontier = frontier[:len(frontier)-1]
@@ -100,7 +100,7 @@ func order1007(m map[int][]*Event) (events []*Event, err error) {
 	// At this point we have a consistent stream of events.
 	// Make sure time stamps respect the ordering.
 	// The tests will skip (not fail) the test case if they see this error.
-	if !sort.IsSorted(eventList(events)) {
+	if !sort.IsSorted((*eventList)(&events)) {
 		return nil, ErrTimeOrder
 	}
 
@@ -133,7 +133,7 @@ func order1007(m map[int][]*Event) (events []*Event, err error) {
 			ev.Ts = ts
 		}
 	}
-	sort.Stable(eventList(events))
+	sort.Stable((*eventList)(&events))
 
 	return
 }
@@ -216,28 +216,28 @@ func transition(gs map[uint64]gState, g uint64, init, next gState) {
 
 type orderEventList []orderEvent
 
-func (l orderEventList) Len() int {
-	return len(l)
+func (l *orderEventList) Len() int {
+	return len(*l)
 }
 
-func (l orderEventList) Less(i, j int) bool {
-	return l[i].ev.Ts < l[j].ev.Ts
+func (l *orderEventList) Less(i, j int) bool {
+	return (*l)[i].ev.Ts < (*l)[j].ev.Ts
 }
 
-func (l orderEventList) Swap(i, j int) {
-	l[i], l[j] = l[j], l[i]
+func (l *orderEventList) Swap(i, j int) {
+	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
 }
 
 type eventList []*Event
 
-func (l eventList) Len() int {
-	return len(l)
+func (l *eventList) Len() int {
+	return len(*l)
 }
 
-func (l eventList) Less(i, j int) bool {
-	return l[i].Ts < l[j].Ts
+func (l *eventList) Less(i, j int) bool {
+	return (*l)[i].Ts < (*l)[j].Ts
 }
 
-func (l eventList) Swap(i, j int) {
-	l[i], l[j] = l[j], l[i]
+func (l *eventList) Swap(i, j int) {
+	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
 }
