@@ -20,7 +20,7 @@ type Event struct {
 	P     int       // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	G     uint64    // G on which the event happened
 	StkID uint64    // unique stack ID
-	Stk   []*Frame  // stack trace (can be empty)
+	Stk   []uint64  // stack trace (can be empty)
 	Args  [3]uint64 // event-type-specific arguments
 	SArgs []string  // event-type-specific string args
 	// linked event (can be nil), depends on event type:
@@ -62,7 +62,8 @@ type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
 	Events []*Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
-	Stacks map[uint64][]*Frame
+	Stacks map[uint64][]uint64
+	PCs    map[uint64]*Frame
 }
 
 type parser struct {
@@ -70,9 +71,10 @@ type parser struct {
 
 	strings     map[uint64]string
 	batches     map[int][]*Event // events by P
-	stacks      map[uint64][]*Frame
+	stacks      map[uint64][]uint64
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
+	pcs         map[uint64]*Frame
 
 	// state for parseEvent
 	lastTs int64
@@ -96,9 +98,10 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
 	p.batches = make(map[int][]*Event)
-	p.stacks = make(map[uint64][]*Frame)
+	p.stacks = make(map[uint64][]uint64)
 	p.timerGoids = make(map[uint64]bool)
 	p.lastGs = make(map[int]uint64)
+	p.pcs = make(map[uint64]*Frame)
 
 	ver, err := p.readHeader(r)
 	if err != nil {
@@ -126,7 +129,7 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 			ev.Stk = p.stacks[ev.StkID]
 		}
 	}
-	return ver, ParseResult{Events: events, Stacks: p.stacks}, nil
+	return ver, ParseResult{Events: events, Stacks: p.stacks, PCs: p.pcs}, nil
 }
 
 // rawEvent is a helper type used during parsing.
@@ -361,13 +364,17 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		}
 		id := raw.args[0]
 		if id != 0 && size > 0 {
-			stk := make([]*Frame, size)
+			stk := make([]uint64, size)
 			for i := 0; i < int(size); i++ {
 				pc := raw.args[2+i*4+0]
 				fn := raw.args[2+i*4+1]
 				file := raw.args[2+i*4+2]
 				line := raw.args[2+i*4+3]
-				stk[i] = &Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
+				stk[i] = pc
+
+				if _, ok := p.pcs[pc]; !ok {
+					p.pcs[pc] = &Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
+				}
 			}
 			p.stacks[id] = stk
 		}

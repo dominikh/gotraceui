@@ -148,7 +148,7 @@ type gdesc struct {
 }
 
 // GoroutineStats generates statistics for all goroutines in the trace.
-func GoroutineStats(events []*Event) map[uint64]*GDesc {
+func GoroutineStats(events []*Event, pcs map[uint64]*Frame) map[uint64]*GDesc {
 	gs := make(map[uint64]*GDesc)
 	var lastTs int64
 	var gcStartTime int64 // gcStartTime == 0 indicates gc is inactive.
@@ -175,8 +175,9 @@ func GoroutineStats(events []*Event) map[uint64]*GDesc {
 		case EvGoStart, EvGoStartLabel:
 			g := gs[ev.G]
 			if g.PC == 0 {
-				g.PC = ev.Stk[0].PC
-				g.Name = ev.Stk[0].Fn
+				f := pcs[ev.Stk[0]]
+				g.PC = f.PC
+				g.Name = f.Fn
 			}
 			g.lastStartTime = ev.Ts
 			if g.StartTime == 0 {

@@ -1,5 +1,7 @@
 package main
 
+import "honnef.co/go/gotraceui/trace"
+
 type spanTags uint16
 
 const (
@@ -194,7 +196,7 @@ var patterns = []pattern{
 	},
 }
 
-func applyPatterns(s Span) Span {
+func applyPatterns(s Span, pcs map[uint64]*trace.Frame) Span {
 	// OPT(dh): be better than O(n)
 
 patternLoop:
@@ -210,7 +212,7 @@ patternLoop:
 			if fn == "" {
 				continue
 			}
-			if s.Stack[i].Fn != fn {
+			if pcs[s.Stack[i]].Fn != fn {
 				continue patternLoop
 			}
 		}
@@ -229,7 +231,7 @@ patternLoop:
 					if fn == "" {
 						continue
 					}
-					if s.Stack[start:][i].Fn != fn {
+					if pcs[s.Stack[start:][i]].Fn != fn {
 						continue offsetLoop
 					}
 				}

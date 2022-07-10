@@ -149,6 +149,8 @@ const (
 )
 
 type Timeline struct {
+	App *Application
+
 	// The region of the timeline that we're displaying, measured in nanoseconds
 	Start time.Duration
 	End   time.Duration
@@ -861,8 +863,8 @@ var spanStateLabels = [...][]string{
 
 func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	var l string
-	if g.Function != nil {
-		l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
+	if g.Function != "" {
+		l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
 	} else {
 		l = fmt.Sprintf("goroutine %d", g.ID)
 	}
@@ -939,8 +941,8 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 			// OPT(dh): cache the strings
 			out := make([]string, 3)
 			g := aw.tl.Gs[spans[0].Event.G]
-			if g.Function != nil {
-				out[0] = fmt.Sprintf("g%d: %s", g.ID, g.Function.Fn)
+			if g.Function != "" {
+				out[0] = fmt.Sprintf("g%d: %s", g.ID, g.Function)
 			} else {
 				out[0] = fmt.Sprintf("g%d", g.ID)
 			}
@@ -1174,7 +1176,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
 			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
-			SpanTooltip{dspSpans, aw.tl.Theme.Shaper}.Layout(gtx)
+			SpanTooltip{dspSpans, aw.tl}.Layout(gtx)
 			stack.Pop()
 			call := macro.Stop()
 			op.Defer(gtx.Ops, call)
@@ -1419,8 +1421,8 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	gcAssistPct := float32(gcAssistD) / float32(d) * 100
 	var fnName string
 	line1 := "Goroutine %[1]d\n\n"
-	if tt.G.Function != nil {
-		fnName = tt.G.Function.Fn
+	if tt.G.Function != "" {
+		fnName = tt.G.Function
 		line1 = "Goroutine %[1]d: %[2]s\n\n"
 	}
 	l := fmt.Sprintf(line1+
@@ -1444,8 +1446,8 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type SpanTooltip struct {
-	Spans  []Span
-	shaper text.Shaper
+	Spans []Span
+	tl    *Timeline
 }
 
 // For debugging
@@ -1460,11 +1462,11 @@ func dumpFrames(frames []*trace.Frame) {
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	label := "State: "
-	var at *trace.Frame
+	var at string
 	if len(tt.Spans) == 1 {
 		s := tt.Spans[0]
-		if at == nil && len(s.Stack) > 0 {
-			at = s.Stack[s.At]
+		if at == "" && len(s.Stack) > 0 {
+			at = tt.tl.App.pcs[s.Stack[s.At]].Fn
 		}
 		switch state := s.State; state {
 		case stateInactive:
@@ -1551,13 +1553,13 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	d := tt.Spans[len(tt.Spans)-1].End - tt.Spans[0].Start
 	label += fmt.Sprintf("Duration: %s", d)
 
-	if at != nil {
+	if at != "" {
 		// TODO(dh): document what In represents. If possible, it is the last frame in user space that triggered this
 		// state. We try to pattern match away the runtime when it makes sense.
-		label += fmt.Sprintf("\nIn: %s", at.Fn)
+		label += fmt.Sprintf("\nIn: %s", at)
 	}
 
-	return Tooltip{shaper: tt.shaper}.Layout(gtx, label)
+	return Tooltip{shaper: tt.tl.Theme.Shaper}.Layout(gtx, label)
 }
 
 type Tooltip struct {
@@ -1580,18 +1582,18 @@ type Processor struct {
 
 type Goroutine struct {
 	ID       uint64
-	Function *trace.Frame
+	Function string
 	Spans    []Span
 	Events   []*trace.Event
 }
 
 func (g *Goroutine) String() string {
 	// OPT(dh): cache this. especially because it gets called a lot by the goroutine selector window.
-	if g.Function == nil {
+	if g.Function == "" {
 		// At least GCSweepStart can happen on g0
 		return fmt.Sprintf("goroutine %d", g.ID)
 	} else {
-		return fmt.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
+		return fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
 	}
 }
 
@@ -1603,7 +1605,7 @@ type Span struct {
 	// TODO(dh): use an enum for Reason
 	Reason string
 	Events []*trace.Event
-	Stack  []*trace.Frame
+	Stack  []uint64
 	Tags   spanTags
 	At     int
 }
@@ -1656,16 +1658,17 @@ type Trace struct {
 	Ps  []*Processor
 	GC  []Span
 	STW []Span
+	PCs map[uint64]*trace.Frame
 }
 
 // Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this
 // is more similar to a goroutine calling runtime.Gosched than to a goroutine really wishing it had work to do. Because
 // of that we put those into the inactive state.
-func blockedIsInactive(fn *trace.Frame) bool {
-	if fn == nil {
+func blockedIsInactive(fn string) bool {
+	if fn == "" {
 		return false
 	}
-	switch fn.Fn {
+	switch fn {
 	case "runtime.gcBgMarkWorker", "runtime.forcegchelper", "runtime.bgsweep", "runtime.bgscavenge", "runtime.runfinq":
 		return true
 	default:
@@ -1721,7 +1724,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return p
 	}
 
-	lastSyscall := map[uint64][]*trace.Frame{}
+	lastSyscall := map[uint64][]uint64{}
 	inMarkAssist := map[uint64]struct{}{}
 
 	for i, ev := range res.Events {
@@ -1752,7 +1755,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			if ev.Args[1] != 0 {
 				stack := res.Stacks[ev.Args[1]]
 				if len(stack) != 0 {
-					getG(gid).Function = stack[0]
+					getG(gid).Function = res.PCs[stack[0]].Fn
 				}
 			}
 			// FIXME(dh): when tracing starts after goroutines have already been created then we receive an EvGoCreate
@@ -1972,10 +1975,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		if ev.Type == trace.EvGoSysBlock {
 			s.Stack = lastSyscall[ev.G]
 		}
-		s = applyPatterns(s)
+		s = applyPatterns(s, res.PCs)
 
 		// move s.At out of the runtime
-		for s.At+1 < len(s.Stack) && strings.HasPrefix(s.Stack[s.At].Fn, "runtime.") {
+		for s.At+1 < len(s.Stack) && strings.HasPrefix(res.PCs[s.Stack[s.At]].Fn, "runtime.") {
 			s.At++
 		}
 
@@ -2024,7 +2027,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return ps[i].ID < ps[j].ID
 	})
 
-	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw}, nil
+	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw, PCs: res.PCs}, nil
 }
 
 type Command struct {
@@ -2040,6 +2043,7 @@ type Application struct {
 	tl       Timeline
 	gs       []*Goroutine
 	ps       []*Processor
+	pcs      map[uint64]*trace.Frame
 }
 
 func main() {
@@ -2335,6 +2339,7 @@ func (a *Application) loadTrace(t *Trace) {
 	}
 
 	a.tl = Timeline{
+		App:   a,
 		Start: start,
 		End:   end,
 		Theme: a.theme,
@@ -2359,6 +2364,7 @@ func (a *Application) loadTrace(t *Trace) {
 
 	a.gs = t.Gs
 	a.ps = t.Ps
+	a.pcs = t.PCs
 }
 
 func (a *Application) run() error {
@@ -2445,10 +2451,7 @@ func (a *Application) run() error {
 								ww.Filter = func(item *Goroutine, f string) bool {
 									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
 									// and allows matching goroutines by ID.
-									if item.Function == nil {
-										return f == ""
-									}
-									return strings.Contains(item.Function.Fn, f)
+									return strings.Contains(item.Function, f)
 								}
 							}
 						}
