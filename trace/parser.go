@@ -225,6 +225,7 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 		}
 		ev := rawEvent{typ: typ, off: off0}
 		if narg < inlineArgs {
+			ev.args = make([]uint64, narg)
 			for i := 0; i < int(narg); i++ {
 				var v uint64
 				v, off, err = p.readVal(r, off)
@@ -232,7 +233,7 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 					err = fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
 					return
 				}
-				ev.args = append(ev.args, v)
+				ev.args[i] = v
 			}
 		} else {
 			// More than inlineArgs args, the first value is length of the event in bytes.
@@ -244,6 +245,12 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 			}
 			evLen := v
 			off1 := off
+			// Empirically, arguments are on average 1.5 bytes long. If we preallocate to evLen/2, then around half the
+			// time we'll have to grow once. If we preallocate to evLen, then around half the time we waste half the
+			// space. Since growing won't immediately free the old slice, and the slices are short-lived, both
+			// approaches lead to the same amount of allocated memory, but preallocating aggressively allocates fewer
+			// objects and means we don't spend CPU time on growing.
+			ev.args = make([]uint64, 0, evLen)
 			for evLen > uint64(off-off1) {
 				v, off, err = p.readVal(r, off)
 				if err != nil {
