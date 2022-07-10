@@ -830,20 +830,20 @@ func NewSTWWidget(tl *Timeline, spans []Span) *ActivityWidget {
 }
 
 var spanStateLabels = [...][]string{
-	stateGCDedicated:             {"GC (dedicated)"},
-	stateGCIdle:                  {"GC (idle)"},
+	stateGCDedicated:             {"GC (dedicated)", "D"},
+	stateGCIdle:                  {"GC (idle)", "I"},
 	stateBlockedCond:             {"sync.Cond"},
-	stateBlockedGC:               {"GC assist wait"},
+	stateBlockedGC:               {"GC assist wait", "W"},
 	stateBlockedNet:              {"I/O"},
 	stateBlockedRecv:             {"recv"},
 	stateBlockedSelect:           {"select"},
 	stateBlockedSend:             {"send"},
 	stateBlockedSync:             {"sync"},
 	stateBlockedSyncOnce:         {"sync.Once"},
-	stateBlockedSyncTriggeringGC: {"triggering GC"},
+	stateBlockedSyncTriggeringGC: {"triggering GC", "T"},
 	stateBlockedSyscall:          {"syscall"},
-	stateGCMarkAssist:            {"GC mark assist"},
-	stateGCSweep:                 {"GC sweep"},
+	stateGCMarkAssist:            {"GC mark assist", "M"},
+	stateGCSweep:                 {"GC sweep", "S"},
 	stateStuck:                   {"stuck"},
 	stateLast:                    nil,
 }
