@@ -175,7 +175,7 @@ func GoroutineStats(events []*Event, res ParseResult) map[uint64]*GDesc {
 		case EvGoStart, EvGoStartLabel:
 			g := gs[ev.G]
 			if g.PC == 0 {
-				f := res.PCs[res.Stacks[ev.StkID][0]]
+				f := res.PCs[res.Stacks[ev.StkID].Decode()[0]]
 				g.PC = f.PC
 				g.Name = f.Fn
 			}

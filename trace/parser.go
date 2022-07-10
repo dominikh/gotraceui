@@ -6,6 +6,7 @@ package trace
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -37,6 +38,96 @@ type Event struct {
 	Type byte   // one of Ev*
 }
 
+type Stack []byte
+
+func (s Stack) Decode() []uint64 {
+	if len(s) == 0 {
+		return nil
+	}
+
+	// First byte indicates format, followed by a uvarint of the number of PCs, followed by a uvarint of the first PC,
+	// followed by either uvarints of PCs, or varints of deltas of PCs.
+
+	off := 1
+	num, n := binary.Uvarint(s[1:])
+	off += n
+	out := make([]uint64, num)
+	f, n := binary.Uvarint(s[off:])
+	off += n
+	out[0] = f
+
+	if s[0] == 0 {
+		// uvarint encoding
+		for i := 1; off < len(s); i++ {
+			f, n := binary.Uvarint(s[off:])
+			off += n
+			out[i] = f
+		}
+	} else {
+		// varint + delta encoding
+		prev := out[0]
+		for i := 1; off < len(s); i++ {
+			d, n := binary.Varint(s[off:])
+			off += n
+			f := prev + uint64(d)
+			out[i] = f
+			prev = f
+		}
+	}
+
+	return out
+}
+
+func toStack(pcs []uint64) Stack {
+	if len(pcs) == 0 {
+		return nil
+	}
+	var out []byte
+	var buf [binary.MaxVarintLen64]byte
+	out = append(out, 1)
+	n := binary.PutUvarint(buf[:], uint64(len(pcs)))
+	out = append(out, buf[:n]...)
+	prev := pcs[0]
+	n = binary.PutUvarint(buf[:], prev)
+	out = append(out, buf[:n]...)
+
+	for _, pc := range pcs[1:] {
+		var sd int64
+		if pc > prev {
+			ud := pc - prev
+			if ud > math.MaxInt64 {
+				return toStackUvarint(pcs, out[:0])
+			}
+			sd = int64(ud)
+		} else {
+			ud := prev - pc
+			if ud > math.MaxInt64 {
+				return toStackUvarint(pcs, out[:0])
+			}
+			sd = int64(-ud)
+		}
+
+		n := binary.PutVarint(buf[:], sd)
+		out = append(out, buf[:n]...)
+		prev = pc
+	}
+
+	return out
+}
+
+func toStackUvarint(pcs []uint64, out []byte) Stack {
+	out = append(out, 0)
+	var buf [binary.MaxVarintLen64]byte
+	n := binary.PutUvarint(buf[:], uint64(len(pcs)))
+	out = append(out, buf[:n]...)
+
+	for _, pc := range pcs {
+		n := binary.PutUvarint(buf[:], pc)
+		out = append(out, buf[:n]...)
+	}
+	return out
+}
+
 // Frame is a frame in stack traces.
 type Frame struct {
 	PC   uint64
@@ -59,7 +150,7 @@ type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
 	Events []*Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
-	Stacks  map[uint64][]uint64
+	Stacks  map[uint64]Stack
 	PCs     map[uint64]*Frame
 	Strings map[uint64]string
 }
@@ -69,7 +160,7 @@ type parser struct {
 
 	strings     map[uint64]string
 	batches     map[uint32][]*Event // events by P
-	stacks      map[uint64][]uint64
+	stacks      map[uint64]Stack
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
 	pcs         map[uint64]*Frame
@@ -96,7 +187,7 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
 	p.batches = make(map[uint32][]*Event)
-	p.stacks = make(map[uint64][]uint64)
+	p.stacks = make(map[uint64]Stack)
 	p.timerGoids = make(map[uint64]bool)
 	p.lastGs = make(map[uint32]uint64)
 	p.pcs = make(map[uint64]*Frame)
@@ -372,7 +463,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 					p.pcs[pc] = &Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
 				}
 			}
-			p.stacks[id] = stk
+			p.stacks[id] = toStack(stk)
 		}
 	default:
 		e := &Event{Type: raw.typ, P: p.lastP, G: p.lastG}

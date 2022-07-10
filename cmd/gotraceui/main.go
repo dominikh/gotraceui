@@ -1466,7 +1466,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	if len(tt.Spans) == 1 {
 		s := tt.Spans[0]
 		if at == "" && s.Stack > 0 {
-			at = tt.tl.App.pcs[tt.tl.App.stacks[s.Stack][s.At]].Fn
+			// OPT(dh): cache the decoded stack; this allocates a lot
+			at = tt.tl.App.pcs[tt.tl.App.stacks[s.Stack].Decode()[s.At]].Fn
 		}
 		switch state := s.State; state {
 		case stateInactive:
@@ -1659,7 +1660,7 @@ type Trace struct {
 	GC     []Span
 	STW    []Span
 	PCs    map[uint64]*trace.Frame
-	Stacks map[uint64][]uint64
+	Stacks map[uint64]trace.Stack
 }
 
 // Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this
@@ -1754,7 +1755,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			getG(ev.G).Events = append(getG(ev.G).Events, ev)
 			gid = ev.Args[0]
 			if ev.Args[1] != 0 {
-				stack := res.Stacks[ev.Args[1]]
+				stack := res.Stacks[ev.Args[1]].Decode()
 				if len(stack) != 0 {
 					getG(gid).Function = res.PCs[stack[0]].Fn
 				}
@@ -1977,7 +1978,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		s = applyPatterns(s, res.PCs, res.Stacks)
 
 		// move s.At out of the runtime
-		stack := res.Stacks[s.Stack]
+		stack := res.Stacks[s.Stack].Decode()
 		for s.At+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
 			s.At++
 		}
@@ -2045,7 +2046,7 @@ type Application struct {
 	ps       []*Processor
 	// TODO(dh): just store the whole trace.ParseResult
 	pcs    map[uint64]*trace.Frame
-	stacks map[uint64][]uint64
+	stacks map[uint64]trace.Stack
 }
 
 func main() {
