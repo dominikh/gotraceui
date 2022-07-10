@@ -57,6 +57,7 @@ func order1007(m map[int][]*Event) (events []*Event, err error) {
 		pending += len(v)
 		batches = append(batches, &eventBatch{v, false})
 	}
+	events = make([]*Event, 0, pending)
 	gs := make(map[uint64]gState)
 	var frontier []orderEvent
 	for ; pending != 0; pending-- {
