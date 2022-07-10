@@ -15,9 +15,7 @@ import (
 
 // Event describes one event in the trace.
 type Event struct {
-	Type  byte      // one of Ev*
 	Ts    int64     // timestamp in nanoseconds
-	P     uint32    // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	G     uint64    // G on which the event happened
 	StkID uint64    // unique stack ID
 	Args  [3]uint64 // event-type-specific arguments
@@ -36,6 +34,8 @@ type Event struct {
 	// for UserTaskCreate: the UserTaskEnd
 	// for UserRegion: if the start region, the corresponding UserRegion end event
 	Link *Event
+	P    uint32 // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
+	Type byte   // one of Ev*
 }
 
 // Frame is a frame in stack traces.
