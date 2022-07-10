@@ -1465,8 +1465,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var at string
 	if len(tt.Spans) == 1 {
 		s := tt.Spans[0]
-		if at == "" && len(s.Stack) > 0 {
-			at = tt.tl.App.pcs[s.Stack[s.At]].Fn
+		if at == "" && s.Stack > 0 {
+			at = tt.tl.App.pcs[tt.tl.App.stacks[s.Stack][s.At]].Fn
 		}
 		switch state := s.State; state {
 		case stateInactive:
@@ -1605,7 +1605,7 @@ type Span struct {
 	// TODO(dh): use an enum for Reason
 	Reason string
 	Events []*trace.Event
-	Stack  []uint64
+	Stack  uint64
 	Tags   spanTags
 	At     int
 }
@@ -1654,11 +1654,12 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 }
 
 type Trace struct {
-	Gs  []*Goroutine
-	Ps  []*Processor
-	GC  []Span
-	STW []Span
-	PCs map[uint64]*trace.Frame
+	Gs     []*Goroutine
+	Ps     []*Processor
+	GC     []Span
+	STW    []Span
+	PCs    map[uint64]*trace.Frame
+	Stacks map[uint64][]uint64
 }
 
 // Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this
@@ -1724,7 +1725,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return p
 	}
 
-	lastSyscall := map[uint64][]uint64{}
+	lastSyscall := map[uint64]uint64{}
 	inMarkAssist := map[uint64]struct{}{}
 
 	for i, ev := range res.Events {
@@ -1787,13 +1788,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			pState = pRunG
 			state = stateActive
 
-			if len(ev.SArgs) == 1 {
-				switch ev.SArgs[0] {
-				case "GC (dedicated)":
-					state = stateGCDedicated
-				case "GC (idle)":
-					state = stateGCIdle
-				}
+			switch res.Strings[ev.Args[2]] {
+			case "GC (dedicated)":
+				state = stateGCDedicated
+			case "GC (idle)":
+				state = stateGCIdle
 			}
 		case trace.EvGoStop:
 			// ev.G is stopping
@@ -1864,7 +1863,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// (potentially instantly, if exitsyscallfast returns true) we emit traceGoStart.
 
 			// TODO(dh): denote syscall somehow
-			lastSyscall[ev.G] = ev.Stk
+			lastSyscall[ev.G] = ev.StkID
 			continue
 		case trace.EvGoSysBlock:
 			gid = ev.G
@@ -1918,11 +1917,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.Stk})
+			gc = append(gc, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.StkID})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.Stk})
+			stw = append(stw, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.StkID})
 			continue
 
 		case trace.EvGCDone:
@@ -1971,14 +1970,15 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{Start: time.Duration(ev.Ts), State: state, Event: ev, Reason: reason, Stack: ev.Stk}
+		s := Span{Start: time.Duration(ev.Ts), State: state, Event: ev, Reason: reason, Stack: ev.StkID}
 		if ev.Type == trace.EvGoSysBlock {
 			s.Stack = lastSyscall[ev.G]
 		}
-		s = applyPatterns(s, res.PCs)
+		s = applyPatterns(s, res.PCs, res.Stacks)
 
 		// move s.At out of the runtime
-		for s.At+1 < len(s.Stack) && strings.HasPrefix(res.PCs[s.Stack[s.At]].Fn, "runtime.") {
+		stack := res.Stacks[s.Stack]
+		for s.At+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
 			s.At++
 		}
 
@@ -2027,7 +2027,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return ps[i].ID < ps[j].ID
 	})
 
-	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw, PCs: res.PCs}, nil
+	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw, PCs: res.PCs, Stacks: res.Stacks}, nil
 }
 
 type Command struct {
@@ -2043,7 +2043,9 @@ type Application struct {
 	tl       Timeline
 	gs       []*Goroutine
 	ps       []*Processor
-	pcs      map[uint64]*trace.Frame
+	// TODO(dh): just store the whole trace.ParseResult
+	pcs    map[uint64]*trace.Frame
+	stacks map[uint64][]uint64
 }
 
 func main() {
@@ -2365,6 +2367,7 @@ func (a *Application) loadTrace(t *Trace) {
 	a.gs = t.Gs
 	a.ps = t.Ps
 	a.pcs = t.PCs
+	a.stacks = t.Stacks
 }
 
 func (a *Application) run() error {

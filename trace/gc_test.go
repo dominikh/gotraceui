@@ -92,7 +92,7 @@ func TestMMUTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse trace: %s", err)
 	}
-	mu := MutatorUtilization(events.Events, UtilSTW|UtilBackground|UtilAssist)
+	mu := MutatorUtilization(events.Events, events, UtilSTW|UtilBackground|UtilAssist)
 	mmuCurve := NewMMUCurve(mu)
 
 	// Test the optimized implementation against the "obviously
@@ -134,7 +134,7 @@ func BenchmarkMMU(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to parse trace: %s", err)
 	}
-	mu := MutatorUtilization(events.Events, UtilSTW|UtilBackground|UtilAssist|UtilSweep)
+	mu := MutatorUtilization(events.Events, events, UtilSTW|UtilBackground|UtilAssist|UtilSweep)
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {

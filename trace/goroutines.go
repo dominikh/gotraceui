@@ -148,7 +148,7 @@ type gdesc struct {
 }
 
 // GoroutineStats generates statistics for all goroutines in the trace.
-func GoroutineStats(events []*Event, pcs map[uint64]*Frame) map[uint64]*GDesc {
+func GoroutineStats(events []*Event, res ParseResult) map[uint64]*GDesc {
 	gs := make(map[uint64]*GDesc)
 	var lastTs int64
 	var gcStartTime int64 // gcStartTime == 0 indicates gc is inactive.
@@ -175,7 +175,7 @@ func GoroutineStats(events []*Event, pcs map[uint64]*Frame) map[uint64]*GDesc {
 		case EvGoStart, EvGoStartLabel:
 			g := gs[ev.G]
 			if g.PC == 0 {
-				f := pcs[ev.Stk[0]]
+				f := res.PCs[res.Stacks[ev.StkID][0]]
 				g.PC = f.PC
 				g.Name = f.Fn
 			}
@@ -269,7 +269,7 @@ func GoroutineStats(events []*Event, pcs map[uint64]*Frame) map[uint64]*GDesc {
 			switch mode := ev.Args[1]; mode {
 			case 0: // region start
 				g.activeRegions = append(g.activeRegions, &UserRegionDesc{
-					Name:           ev.SArgs[0],
+					Name:           res.Strings[ev.Args[2]],
 					TaskID:         ev.Args[0],
 					Start:          ev,
 					GExecutionStat: g.snapshotStat(lastTs, gcStartTime),
@@ -283,7 +283,7 @@ func GoroutineStats(events []*Event, pcs map[uint64]*Frame) map[uint64]*GDesc {
 					g.activeRegions = regionStk
 				} else {
 					sd = &UserRegionDesc{
-						Name:   ev.SArgs[0],
+						Name:   res.Strings[ev.Args[2]],
 						TaskID: ev.Args[0],
 					}
 				}

@@ -196,15 +196,16 @@ var patterns = []pattern{
 	},
 }
 
-func applyPatterns(s Span, pcs map[uint64]*trace.Frame) Span {
+func applyPatterns(s Span, pcs map[uint64]*trace.Frame, stacks map[uint64][]uint64) Span {
 	// OPT(dh): be better than O(n)
 
+	stack := stacks[s.Stack]
 patternLoop:
 	for _, p := range patterns {
 		if s.State != p.state {
 			continue
 		}
-		if len(s.Stack) < len(p.fns) {
+		if len(stack) < len(p.fns) {
 			continue
 		}
 
@@ -212,7 +213,7 @@ patternLoop:
 			if fn == "" {
 				continue
 			}
-			if pcs[s.Stack[i]].Fn != fn {
+			if pcs[stack[i]].Fn != fn {
 				continue patternLoop
 			}
 		}
@@ -222,8 +223,8 @@ patternLoop:
 
 			// OPT(dh): be better than O(n²)
 		offsetLoop:
-			for start := range s.Stack {
-				if len(s.Stack[start:]) < len(relFns) {
+			for start := range stack {
+				if len(stack[start:]) < len(relFns) {
 					break
 				}
 
@@ -231,7 +232,7 @@ patternLoop:
 					if fn == "" {
 						continue
 					}
-					if pcs[s.Stack[start:][i]].Fn != fn {
+					if pcs[stack[start:][i]].Fn != fn {
 						continue offsetLoop
 					}
 				}
@@ -245,12 +246,12 @@ patternLoop:
 			}
 		}
 
-		if p.at != 0 && p.at >= len(s.Stack) {
+		if p.at != 0 && p.at >= len(stack) {
 			continue
 		}
 
 		if p.at != 0 {
-			if p.at < len(s.Stack) {
+			if p.at < len(stack) {
 				s.At = p.at
 			} else {
 				continue

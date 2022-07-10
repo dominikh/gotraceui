@@ -50,7 +50,7 @@ const (
 //
 // If the UtilPerProc flag is not given, this always returns a single
 // utilization function. Otherwise, it returns one function per P.
-func MutatorUtilization(events []*Event, flags UtilFlags) [][]MutatorUtil {
+func MutatorUtilization(events []*Event, res ParseResult, flags UtilFlags) [][]MutatorUtil {
 	if len(events) == 0 {
 		return nil
 	}
@@ -120,7 +120,7 @@ func MutatorUtilization(events []*Event, flags UtilFlags) [][]MutatorUtil {
 				ps[ev.P].gc--
 			}
 		case EvGoStartLabel:
-			if flags&UtilBackground != 0 && strings.HasPrefix(ev.SArgs[0], "GC ") && ev.SArgs[0] != "GC (idle)" {
+			if label := res.Strings[ev.Args[2]]; flags&UtilBackground != 0 && strings.HasPrefix(label, "GC ") && label != "GC (idle)" {
 				// Background mark worker.
 				//
 				// If we're in per-proc mode, we don't
@@ -128,7 +128,7 @@ func MutatorUtilization(events []*Event, flags UtilFlags) [][]MutatorUtil {
 				// they kick all of the goroutines off
 				// that P, so don't directly
 				// contribute to goroutine latency.
-				if !(flags&UtilPerProc != 0 && ev.SArgs[0] == "GC (dedicated)") {
+				if !(flags&UtilPerProc != 0 && label == "GC (dedicated)") {
 					bgMark[ev.G] = true
 					ps[ev.P].gc++
 				}

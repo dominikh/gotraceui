@@ -20,9 +20,7 @@ type Event struct {
 	P     int       // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	G     uint64    // G on which the event happened
 	StkID uint64    // unique stack ID
-	Stk   []uint64  // stack trace (can be empty)
 	Args  [3]uint64 // event-type-specific arguments
-	SArgs []string  // event-type-specific string args
 	// linked event (can be nil), depends on event type:
 	// for GCStart: the GCStop
 	// for GCSTWStart: the GCSTWDone
@@ -62,8 +60,9 @@ type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
 	Events []*Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
-	Stacks map[uint64][]uint64
-	PCs    map[uint64]*Frame
+	Stacks  map[uint64][]uint64
+	PCs     map[uint64]*Frame
+	Strings map[uint64]string
 }
 
 type parser struct {
@@ -124,12 +123,7 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 		return 0, ParseResult{}, err
 	}
 	// Attach stack traces.
-	for _, ev := range events {
-		if ev.StkID != 0 {
-			ev.Stk = p.stacks[ev.StkID]
-		}
-	}
-	return ver, ParseResult{Events: events, Stacks: p.stacks, PCs: p.pcs}, nil
+	return ver, ParseResult{Events: events, Stacks: p.stacks, Strings: p.strings, PCs: p.pcs}, nil
 }
 
 // rawEvent is a helper type used during parsing.
@@ -395,19 +389,8 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		case EvGoStart, EvGoStartLocal, EvGoStartLabel:
 			p.lastG = e.Args[0]
 			e.G = p.lastG
-			if raw.typ == EvGoStartLabel {
-				e.SArgs = []string{p.strings[e.Args[2]]}
-			}
 		case EvGCSTWStart:
 			e.G = 0
-			switch e.Args[0] {
-			case 0:
-				e.SArgs = []string{"mark termination"}
-			case 1:
-				e.SArgs = []string{"sweep termination"}
-			default:
-				return fmt.Errorf("unknown STW kind %d", e.Args[0])
-			}
 		case EvGCStart, EvGCDone, EvGCSTWDone:
 			e.G = 0
 		case EvGoEnd, EvGoStop, EvGoSched, EvGoPreempt,
@@ -419,19 +402,21 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 			e.G = e.Args[0]
 		case EvUserTaskCreate:
 			// e.Args 0: taskID, 1:parentID, 2:nameID
-			e.SArgs = []string{p.strings[e.Args[2]]}
 		case EvUserRegion:
 			// e.Args 0: taskID, 1: mode, 2:nameID
-			e.SArgs = []string{p.strings[e.Args[2]]}
 		case EvUserLog:
 			// e.Args 0: taskID, 1:keyID, 2: stackID
-			e.SArgs = []string{p.strings[e.Args[1]], raw.sargs[0]}
 		}
 		p.batches[p.lastP] = append(p.batches[p.lastP], e)
 	}
 
 	return nil
 }
+
+const (
+	STWKindMark  = 0
+	STWKindSweep = 1
+)
 
 func (p *parser) finalize() ([]*Event, error) {
 	if len(p.batches) == 0 {
@@ -783,7 +768,7 @@ func postProcessTrace(ver int, events []*Event) error {
 				n := len(regions)
 				if n > 0 { // matching region start event is in the trace.
 					s := regions[n-1]
-					if s.Args[0] != ev.Args[0] || s.SArgs[0] != ev.SArgs[0] { // task id, region name mismatch
+					if s.Args[0] != ev.Args[0] || s.Args[2] != ev.Args[2] { // task id, region name mismatch
 						return fmt.Errorf("misuse of region in goroutine %d: span end %q when the inner-most active span start event is %q", ev.G, ev, s)
 					}
 					// Link region start event with span end event
@@ -846,9 +831,6 @@ func (ev *Event) String() string {
 	fmt.Fprintf(w, "%v %v p=%v g=%v off=%v", ev.Ts, desc.Name, ev.P, ev.G, ev.Off)
 	for i, a := range desc.Args {
 		fmt.Fprintf(w, " %v=%v", a, ev.Args[i])
-	}
-	for i, a := range desc.SArgs {
-		fmt.Fprintf(w, " %v=%v", a, ev.SArgs[i])
 	}
 	return w.String()
 }
