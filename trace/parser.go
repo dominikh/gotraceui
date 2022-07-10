@@ -14,7 +14,7 @@ import (
 
 // Event describes one event in the trace.
 type Event struct {
-	Off   int       // offset in input file (for debugging and error reporting)
+	Off   int       // offset in input file; offset 0 is right after the header (for debugging and error reporting)
 	Type  byte      // one of Ev*
 	Ts    int64     // timestamp in nanoseconds
 	P     int       // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
@@ -67,6 +67,18 @@ type ParseResult struct {
 
 type parser struct {
 	byte [1]byte
+
+	strings     map[uint64]string
+	batches     map[int][]*Event // events by P
+	stacks      map[uint64][]*Frame
+	timerGoids  map[uint64]bool
+	ticksPerSec int64
+
+	// state for parseEvent
+	lastTs int64
+	lastG  uint64
+	lastP  int
+	lastGs map[int]uint64 // last goroutine running on P
 }
 
 // Parse parses, post-processes and verifies the trace.
@@ -82,14 +94,27 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 // parse parses, post-processes and verifies the trace. It returns the
 // trace version and the list of events.
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
-	ver, rawEvents, strings, err := p.readTrace(r)
+	p.strings = make(map[uint64]string)
+	p.batches = make(map[int][]*Event)
+	p.stacks = make(map[uint64][]*Frame)
+	p.timerGoids = make(map[uint64]bool)
+	p.lastGs = make(map[int]uint64)
+
+	ver, err := p.readHeader(r)
 	if err != nil {
 		return 0, ParseResult{}, err
 	}
-	events, stacks, err := parseEvents(ver, rawEvents, strings)
+
+	err = p.readTrace(r, ver)
 	if err != nil {
 		return 0, ParseResult{}, err
 	}
+
+	events, err := p.finalize()
+	if err != nil {
+		return 0, ParseResult{}, err
+	}
+
 	events = removeFutile(events)
 	err = postProcessTrace(ver, events)
 	if err != nil {
@@ -98,10 +123,10 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	// Attach stack traces.
 	for _, ev := range events {
 		if ev.StkID != 0 {
-			ev.Stk = stacks[ev.StkID]
+			ev.Stk = p.stacks[ev.StkID]
 		}
 	}
-	return ver, ParseResult{Events: events, Stacks: stacks}, nil
+	return ver, ParseResult{Events: events, Stacks: p.stacks}, nil
 }
 
 // rawEvent is a helper type used during parsing.
@@ -112,35 +137,35 @@ type rawEvent struct {
 	sargs []string
 }
 
-// readTrace does wire-format parsing and verification.
-// It does not care about specific event types and argument meaning.
-func (p *parser) readTrace(r io.Reader) (ver int, events []rawEvent, strings map[uint64]string, err error) {
+func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 	// Read and validate trace header.
 	var buf [16]byte
 	off, err := io.ReadFull(r, buf[:])
 	if err != nil {
-		err = fmt.Errorf("failed to read header: read %v, err %v", off, err)
-		return
+		return 0, fmt.Errorf("failed to read header: read %v, err %v", off, err)
 	}
 	ver, err = parseHeader(buf[:])
 	if err != nil {
-		return
+		return 0, err
 	}
 	switch ver {
 	case 1011:
 		// Note: When adding a new version, add canned traces
 		// from the old version to the test suite using mkcanned.bash.
-		break
 	default:
-		err = fmt.Errorf("unsupported trace file version %v.%v (update Go toolchain) %v", ver/1000, ver%1000, ver)
-		return
+		return 0, fmt.Errorf("unsupported trace file version %v.%v (update Go toolchain) %v", ver/1000, ver%1000, ver)
 	}
 
+	return ver, err
+}
+
+func (p *parser) readTrace(r io.Reader, ver int) (err error) {
+	var buf [16]byte
+	var off int
 	// Read events.
-	strings = make(map[uint64]string)
 	for {
 		// Read event type and number of arguments (1 byte).
-		off0 := off
+		var off0 int
 		var n int
 		n, err = r.Read(buf[:1])
 		if err == io.EOF {
@@ -170,7 +195,7 @@ func (p *parser) readTrace(r io.Reader) (ver int, events []rawEvent, strings map
 				err = fmt.Errorf("string at offset %d has invalid id 0", off)
 				return
 			}
-			if strings[id] != "" {
+			if p.strings[id] != "" {
 				err = fmt.Errorf("string at offset %d has duplicate id %v", off, id)
 				return
 			}
@@ -195,7 +220,7 @@ func (p *parser) readTrace(r io.Reader) (ver int, events []rawEvent, strings map
 				return
 			}
 			off += n
-			strings[id] = string(buf)
+			p.strings[id] = string(buf)
 			continue
 		}
 		ev := rawEvent{typ: typ, off: off0}
@@ -238,7 +263,7 @@ func (p *parser) readTrace(r io.Reader) (ver int, events []rawEvent, strings map
 			s, off, err = p.readStr(r, off)
 			ev.sargs = append(ev.sargs, s)
 		}
-		events = append(events, ev)
+		p.parseEvent(ver, ev)
 	}
 	return
 }
@@ -284,139 +309,126 @@ func parseHeader(buf []byte) (int, error) {
 	return ver, nil
 }
 
-// Parse events transforms raw events into events.
+// parseEvent transforms raw events into events.
 // It does analyze and verify per-event-type arguments.
-func parseEvents(ver int, rawEvents []rawEvent, strings map[uint64]string) (events []*Event, stacks map[uint64][]*Frame, err error) {
-	var ticksPerSec, lastTs int64
-	var lastG uint64
-	var lastP int
-	timerGoids := make(map[uint64]bool)
-	lastGs := make(map[int]uint64) // last goroutine running on P
-	stacks = make(map[uint64][]*Frame)
-	batches := make(map[int][]*Event) // events by P
-	for _, raw := range rawEvents {
-		desc := EventDescriptions[raw.typ]
-		if desc.Name == "" {
-			err = fmt.Errorf("missing description for event type %v", raw.typ)
-			return
+func (p *parser) parseEvent(ver int, raw rawEvent) error {
+	desc := EventDescriptions[raw.typ]
+	if desc.Name == "" {
+		return fmt.Errorf("missing description for event type %v", raw.typ)
+	}
+	narg := argNum(raw, ver)
+	if len(raw.args) != narg {
+		return fmt.Errorf("%v has wrong number of arguments at offset 0x%x: want %v, got %v",
+			desc.Name, raw.off, narg, len(raw.args))
+	}
+	switch raw.typ {
+	case EvBatch:
+		p.lastGs[p.lastP] = p.lastG
+		p.lastP = int(raw.args[0])
+		p.lastG = p.lastGs[p.lastP]
+		p.lastTs = int64(raw.args[1])
+	case EvFrequency:
+		p.ticksPerSec = int64(raw.args[0])
+		if p.ticksPerSec <= 0 {
+			// The most likely cause for this is tick skew on different CPUs.
+			// For example, solaris/amd64 seems to have wildly different
+			// ticks on different CPUs.
+			return ErrTimeOrder
 		}
-		narg := argNum(raw, ver)
-		if len(raw.args) != narg {
-			err = fmt.Errorf("%v has wrong number of arguments at offset 0x%x: want %v, got %v",
-				desc.Name, raw.off, narg, len(raw.args))
-			return
+	case EvTimerGoroutine:
+		p.timerGoids[raw.args[0]] = true
+	case EvStack:
+		if len(raw.args) < 2 {
+			return fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want at least 2, got %v",
+				raw.off, len(raw.args))
+		}
+		size := raw.args[1]
+		if size > 1000 {
+			return fmt.Errorf("EvStack has bad number of frames at offset 0x%x: %v",
+				raw.off, size)
+		}
+		want := 2 + 4*size
+		if uint64(len(raw.args)) != want {
+			return fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want %v, got %v",
+				raw.off, want, len(raw.args))
+		}
+		id := raw.args[0]
+		if id != 0 && size > 0 {
+			stk := make([]*Frame, size)
+			for i := 0; i < int(size); i++ {
+				pc := raw.args[2+i*4+0]
+				fn := raw.args[2+i*4+1]
+				file := raw.args[2+i*4+2]
+				line := raw.args[2+i*4+3]
+				stk[i] = &Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
+			}
+			p.stacks[id] = stk
+		}
+	default:
+		e := &Event{Off: raw.off, Type: raw.typ, P: p.lastP, G: p.lastG}
+		var argOffset int
+		e.Ts = p.lastTs + int64(raw.args[0])
+		argOffset = 1
+		p.lastTs = e.Ts
+		for i := argOffset; i < narg; i++ {
+			if i == narg-1 && desc.Stack {
+				e.StkID = raw.args[i]
+			} else {
+				e.Args[i-argOffset] = raw.args[i]
+			}
 		}
 		switch raw.typ {
-		case EvBatch:
-			lastGs[lastP] = lastG
-			lastP = int(raw.args[0])
-			lastG = lastGs[lastP]
-			lastTs = int64(raw.args[1])
-		case EvFrequency:
-			ticksPerSec = int64(raw.args[0])
-			if ticksPerSec <= 0 {
-				// The most likely cause for this is tick skew on different CPUs.
-				// For example, solaris/amd64 seems to have wildly different
-				// ticks on different CPUs.
-				err = ErrTimeOrder
-				return
+		case EvGoStart, EvGoStartLocal, EvGoStartLabel:
+			p.lastG = e.Args[0]
+			e.G = p.lastG
+			if raw.typ == EvGoStartLabel {
+				e.SArgs = []string{p.strings[e.Args[2]]}
 			}
-		case EvTimerGoroutine:
-			timerGoids[raw.args[0]] = true
-		case EvStack:
-			if len(raw.args) < 2 {
-				err = fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want at least 2, got %v",
-					raw.off, len(raw.args))
-				return
+		case EvGCSTWStart:
+			e.G = 0
+			switch e.Args[0] {
+			case 0:
+				e.SArgs = []string{"mark termination"}
+			case 1:
+				e.SArgs = []string{"sweep termination"}
+			default:
+				return fmt.Errorf("unknown STW kind %d", e.Args[0])
 			}
-			size := raw.args[1]
-			if size > 1000 {
-				err = fmt.Errorf("EvStack has bad number of frames at offset 0x%x: %v",
-					raw.off, size)
-				return
-			}
-			want := 2 + 4*size
-			if uint64(len(raw.args)) != want {
-				err = fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want %v, got %v",
-					raw.off, want, len(raw.args))
-				return
-			}
-			id := raw.args[0]
-			if id != 0 && size > 0 {
-				stk := make([]*Frame, size)
-				for i := 0; i < int(size); i++ {
-					pc := raw.args[2+i*4+0]
-					fn := raw.args[2+i*4+1]
-					file := raw.args[2+i*4+2]
-					line := raw.args[2+i*4+3]
-					stk[i] = &Frame{PC: pc, Fn: strings[fn], File: strings[file], Line: int(line)}
-				}
-				stacks[id] = stk
-			}
-		default:
-			e := &Event{Off: raw.off, Type: raw.typ, P: lastP, G: lastG}
-			var argOffset int
-			e.Ts = lastTs + int64(raw.args[0])
-			argOffset = 1
-			lastTs = e.Ts
-			for i := argOffset; i < narg; i++ {
-				if i == narg-1 && desc.Stack {
-					e.StkID = raw.args[i]
-				} else {
-					e.Args[i-argOffset] = raw.args[i]
-				}
-			}
-			switch raw.typ {
-			case EvGoStart, EvGoStartLocal, EvGoStartLabel:
-				lastG = e.Args[0]
-				e.G = lastG
-				if raw.typ == EvGoStartLabel {
-					e.SArgs = []string{strings[e.Args[2]]}
-				}
-			case EvGCSTWStart:
-				e.G = 0
-				switch e.Args[0] {
-				case 0:
-					e.SArgs = []string{"mark termination"}
-				case 1:
-					e.SArgs = []string{"sweep termination"}
-				default:
-					err = fmt.Errorf("unknown STW kind %d", e.Args[0])
-					return
-				}
-			case EvGCStart, EvGCDone, EvGCSTWDone:
-				e.G = 0
-			case EvGoEnd, EvGoStop, EvGoSched, EvGoPreempt,
-				EvGoSleep, EvGoBlock, EvGoBlockSend, EvGoBlockRecv,
-				EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond, EvGoBlockNet,
-				EvGoSysBlock, EvGoBlockGC:
-				lastG = 0
-			case EvGoSysExit, EvGoWaiting, EvGoInSyscall:
-				e.G = e.Args[0]
-			case EvUserTaskCreate:
-				// e.Args 0: taskID, 1:parentID, 2:nameID
-				e.SArgs = []string{strings[e.Args[2]]}
-			case EvUserRegion:
-				// e.Args 0: taskID, 1: mode, 2:nameID
-				e.SArgs = []string{strings[e.Args[2]]}
-			case EvUserLog:
-				// e.Args 0: taskID, 1:keyID, 2: stackID
-				e.SArgs = []string{strings[e.Args[1]], raw.sargs[0]}
-			}
-			batches[lastP] = append(batches[lastP], e)
+		case EvGCStart, EvGCDone, EvGCSTWDone:
+			e.G = 0
+		case EvGoEnd, EvGoStop, EvGoSched, EvGoPreempt,
+			EvGoSleep, EvGoBlock, EvGoBlockSend, EvGoBlockRecv,
+			EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond, EvGoBlockNet,
+			EvGoSysBlock, EvGoBlockGC:
+			p.lastG = 0
+		case EvGoSysExit, EvGoWaiting, EvGoInSyscall:
+			e.G = e.Args[0]
+		case EvUserTaskCreate:
+			// e.Args 0: taskID, 1:parentID, 2:nameID
+			e.SArgs = []string{p.strings[e.Args[2]]}
+		case EvUserRegion:
+			// e.Args 0: taskID, 1: mode, 2:nameID
+			e.SArgs = []string{p.strings[e.Args[2]]}
+		case EvUserLog:
+			// e.Args 0: taskID, 1:keyID, 2: stackID
+			e.SArgs = []string{p.strings[e.Args[1]], raw.sargs[0]}
 		}
+		p.batches[p.lastP] = append(p.batches[p.lastP], e)
 	}
-	if len(batches) == 0 {
-		err = fmt.Errorf("trace is empty")
-		return
+
+	return nil
+}
+
+func (p *parser) finalize() ([]*Event, error) {
+	if len(p.batches) == 0 {
+		return nil, fmt.Errorf("trace is empty")
 	}
-	if ticksPerSec == 0 {
-		err = fmt.Errorf("no EvFrequency event")
-		return
+	if p.ticksPerSec == 0 {
+		return nil, fmt.Errorf("no EvFrequency event")
 	}
 	if BreakTimestampsForTesting {
 		var batchArr [][]*Event
-		for _, batch := range batches {
+		for _, batch := range p.batches {
 			batchArr = append(batchArr, batch)
 		}
 		for i := 0; i < 5; i++ {
@@ -424,19 +436,20 @@ func parseEvents(ver int, rawEvents []rawEvent, strings map[uint64]string) (even
 			batch[rand.Intn(len(batch))].Ts += int64(rand.Intn(2000) - 1000)
 		}
 	}
-	events, err = order1007(batches)
+
+	events, err := order1007(p.batches)
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	// Translate cpu ticks to real time.
 	minTs := events[0].Ts
 	// Use floating point to avoid integer overflows.
-	freq := 1e9 / float64(ticksPerSec)
+	freq := 1e9 / float64(p.ticksPerSec)
 	for _, ev := range events {
 		ev.Ts = int64(float64(ev.Ts-minTs) * freq)
 		// Move timers and syscalls to separate fake Ps.
-		if timerGoids[ev.G] && ev.Type == EvGoUnblock {
+		if p.timerGoids[ev.G] && ev.Type == EvGoUnblock {
 			ev.P = TimerP
 		}
 		if ev.Type == EvGoSysExit {
@@ -444,7 +457,7 @@ func parseEvents(ver int, rawEvents []rawEvent, strings map[uint64]string) (even
 		}
 	}
 
-	return
+	return events, nil
 }
 
 // removeFutile removes all constituents of futile wakeups (block, unblock, start).
