@@ -14,7 +14,6 @@ import (
 
 // Event describes one event in the trace.
 type Event struct {
-	Off   int       // offset in input file; offset 0 is right after the header (for debugging and error reporting)
 	Type  byte      // one of Ev*
 	Ts    int64     // timestamp in nanoseconds
 	P     int       // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
@@ -373,7 +372,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 			p.stacks[id] = stk
 		}
 	default:
-		e := &Event{Off: raw.off, Type: raw.typ, P: p.lastP, G: p.lastG}
+		e := &Event{Type: raw.typ, P: p.lastP, G: p.lastG}
 		var argOffset int
 		e.Ts = p.lastTs + int64(raw.args[0])
 		argOffset = 1
@@ -552,13 +551,13 @@ func postProcessTrace(ver int, events []*Event) error {
 	checkRunning := func(p pdesc, g gdesc, ev *Event, allowG0 bool) error {
 		name := EventDescriptions[ev.Type].Name
 		if g.state != gRunning {
-			return fmt.Errorf("g %v is not running while %v (offset %v, time %v)", ev.G, name, ev.Off, ev.Ts)
+			return fmt.Errorf("g %v is not running while %v (time %v)", ev.G, name, ev.Ts)
 		}
 		if p.g != ev.G {
-			return fmt.Errorf("p %v is not running g %v while %v (offset %v, time %v)", ev.P, ev.G, name, ev.Off, ev.Ts)
+			return fmt.Errorf("p %v is not running g %v while %v (time %v)", ev.P, ev.G, name, ev.Ts)
 		}
 		if !allowG0 && ev.G == 0 {
-			return fmt.Errorf("g 0 did %v (offset %v, time %v)", EventDescriptions[ev.Type].Name, ev.Off, ev.Ts)
+			return fmt.Errorf("g 0 did %v (time %v)", EventDescriptions[ev.Type].Name, ev.Ts)
 		}
 		return nil
 	}
@@ -570,51 +569,51 @@ func postProcessTrace(ver int, events []*Event) error {
 		switch ev.Type {
 		case EvProcStart:
 			if p.running {
-				return fmt.Errorf("p %v is running before start (offset %v, time %v)", ev.P, ev.Off, ev.Ts)
+				return fmt.Errorf("p %v is running before start (time %v)", ev.P, ev.Ts)
 			}
 			p.running = true
 		case EvProcStop:
 			if !p.running {
-				return fmt.Errorf("p %v is not running before stop (offset %v, time %v)", ev.P, ev.Off, ev.Ts)
+				return fmt.Errorf("p %v is not running before stop (time %v)", ev.P, ev.Ts)
 			}
 			if p.g != 0 {
-				return fmt.Errorf("p %v is running a goroutine %v during stop (offset %v, time %v)", ev.P, p.g, ev.Off, ev.Ts)
+				return fmt.Errorf("p %v is running a goroutine %v during stop (time %v)", ev.P, p.g, ev.Ts)
 			}
 			p.running = false
 		case EvGCStart:
 			if evGC != nil {
-				return fmt.Errorf("previous GC is not ended before a new one (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("previous GC is not ended before a new one (time %v)", ev.Ts)
 			}
 			evGC = ev
 			// Attribute this to the global GC state.
 			ev.P = GCP
 		case EvGCDone:
 			if evGC == nil {
-				return fmt.Errorf("bogus GC end (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("bogus GC end (time %v)", ev.Ts)
 			}
 			evGC.Link = ev
 			evGC = nil
 		case EvGCSTWStart:
 			evp := &evSTW
 			if *evp != nil {
-				return fmt.Errorf("previous STW is not ended before a new one (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("previous STW is not ended before a new one (time %v)", ev.Ts)
 			}
 			*evp = ev
 		case EvGCSTWDone:
 			evp := &evSTW
 			if *evp == nil {
-				return fmt.Errorf("bogus STW end (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("bogus STW end (time %v)", ev.Ts)
 			}
 			(*evp).Link = ev
 			*evp = nil
 		case EvGCSweepStart:
 			if p.evSweep != nil {
-				return fmt.Errorf("previous sweeping is not ended before a new one (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("previous sweeping is not ended before a new one (time %v)", ev.Ts)
 			}
 			p.evSweep = ev
 		case EvGCMarkAssistStart:
 			if g.evMarkAssist != nil {
-				return fmt.Errorf("previous mark assist is not ended before a new one (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("previous mark assist is not ended before a new one (time %v)", ev.Ts)
 			}
 			g.evMarkAssist = ev
 		case EvGCMarkAssistDone:
@@ -626,19 +625,19 @@ func postProcessTrace(ver int, events []*Event) error {
 			}
 		case EvGCSweepDone:
 			if p.evSweep == nil {
-				return fmt.Errorf("bogus sweeping end (offset %v, time %v)", ev.Off, ev.Ts)
+				return fmt.Errorf("bogus sweeping end (time %v)", ev.Ts)
 			}
 			p.evSweep.Link = ev
 			p.evSweep = nil
 		case EvGoWaiting:
 			if g.state != gRunnable {
-				return fmt.Errorf("g %v is not runnable before EvGoWaiting (offset %v, time %v)", ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("g %v is not runnable before EvGoWaiting (time %v)", ev.G, ev.Ts)
 			}
 			g.state = gWaiting
 			g.ev = ev
 		case EvGoInSyscall:
 			if g.state != gRunnable {
-				return fmt.Errorf("g %v is not runnable before EvGoInSyscall (offset %v, time %v)", ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("g %v is not runnable before EvGoInSyscall (time %v)", ev.G, ev.Ts)
 			}
 			g.state = gWaiting
 			g.ev = ev
@@ -647,15 +646,15 @@ func postProcessTrace(ver int, events []*Event) error {
 				return err
 			}
 			if _, ok := gs[ev.Args[0]]; ok {
-				return fmt.Errorf("g %v already exists (offset %v, time %v)", ev.Args[0], ev.Off, ev.Ts)
+				return fmt.Errorf("g %v already exists (time %v)", ev.Args[0], ev.Ts)
 			}
 			gs[ev.Args[0]] = gdesc{state: gRunnable, ev: ev, evCreate: ev}
 		case EvGoStart, EvGoStartLabel:
 			if g.state != gRunnable {
-				return fmt.Errorf("g %v is not runnable before start (offset %v, time %v)", ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("g %v is not runnable before start (time %v)", ev.G, ev.Ts)
 			}
 			if p.g != 0 {
-				return fmt.Errorf("p %v is already running g %v while start g %v (offset %v, time %v)", ev.P, p.g, ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("p %v is already running g %v while start g %v (time %v)", ev.P, p.g, ev.G, ev.Ts)
 			}
 			g.state = gRunning
 			g.evStart = ev
@@ -697,14 +696,14 @@ func postProcessTrace(ver int, events []*Event) error {
 			g.ev = ev
 		case EvGoUnblock:
 			if g.state != gRunning {
-				return fmt.Errorf("g %v is not running while unpark (offset %v, time %v)", ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("g %v is not running while unpark (time %v)", ev.G, ev.Ts)
 			}
 			if ev.P != TimerP && p.g != ev.G {
-				return fmt.Errorf("p %v is not running g %v while unpark (offset %v, time %v)", ev.P, ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("p %v is not running g %v while unpark (time %v)", ev.P, ev.G, ev.Ts)
 			}
 			g1 := gs[ev.Args[0]]
 			if g1.state != gWaiting {
-				return fmt.Errorf("g %v is not waiting before unpark (offset %v, time %v)", ev.Args[0], ev.Off, ev.Ts)
+				return fmt.Errorf("g %v is not waiting before unpark (time %v)", ev.Args[0], ev.Ts)
 			}
 			if g1.ev != nil && g1.ev.Type == EvGoBlockNet && ev.P != TimerP {
 				ev.P = NetpollP
@@ -730,7 +729,7 @@ func postProcessTrace(ver int, events []*Event) error {
 			p.g = 0
 		case EvGoSysExit:
 			if g.state != gWaiting {
-				return fmt.Errorf("g %v is not waiting during syscall exit (offset %v, time %v)", ev.G, ev.Off, ev.Ts)
+				return fmt.Errorf("g %v is not waiting during syscall exit (time %v)", ev.G, ev.Ts)
 			}
 			if g.ev != nil && g.ev.Type == EvGoSysCall {
 				g.ev.Link = ev
@@ -828,7 +827,7 @@ func PrintEvent(ev *Event) {
 func (ev *Event) String() string {
 	desc := EventDescriptions[ev.Type]
 	w := new(bytes.Buffer)
-	fmt.Fprintf(w, "%v %v p=%v g=%v off=%v", ev.Ts, desc.Name, ev.P, ev.G, ev.Off)
+	fmt.Fprintf(w, "%v %v p=%v g=%v", ev.Ts, desc.Name, ev.P, ev.G)
 	for i, a := range desc.Args {
 		fmt.Fprintf(w, " %v=%v", a, ev.Args[i])
 	}

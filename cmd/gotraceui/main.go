@@ -1964,7 +1964,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 				} else {
 					prevState := s[len(s)-1].State
 					if !legalStateTransitions[prevState][state] {
-						return nil, fmt.Errorf("illegal state transition %d -> %d for goroutine %d, offset %d", prevState, state, gid, ev.Off)
+						return nil, fmt.Errorf("illegal state transition %d -> %d for goroutine %d, time %d", prevState, state, gid, ev.Ts)
 					}
 				}
 			}
