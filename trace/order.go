@@ -214,28 +214,6 @@ func transition(gs map[uint64]gState, g uint64, init, next gState) {
 	gs[g] = next
 }
 
-// order1005 merges a set of per-P event batches into a single, consistent stream.
-func order1005(m map[int][]*Event) (events []*Event, err error) {
-	for _, batch := range m {
-		events = append(events, batch...)
-	}
-	for _, ev := range events {
-		if ev.Type == EvGoSysExit {
-			// EvGoSysExit emission is delayed until the thread has a P.
-			// Give it the real sequence number and time stamp.
-			ev.seq = int64(ev.Args[1])
-			if ev.Args[2] != 0 {
-				ev.Ts = int64(ev.Args[2])
-			}
-		}
-	}
-	sort.Sort(eventSeqList(events))
-	if !sort.IsSorted(eventList(events)) {
-		return nil, ErrTimeOrder
-	}
-	return
-}
-
 type orderEventList []orderEvent
 
 func (l orderEventList) Len() int {
@@ -261,19 +239,5 @@ func (l eventList) Less(i, j int) bool {
 }
 
 func (l eventList) Swap(i, j int) {
-	l[i], l[j] = l[j], l[i]
-}
-
-type eventSeqList []*Event
-
-func (l eventSeqList) Len() int {
-	return len(l)
-}
-
-func (l eventSeqList) Less(i, j int) bool {
-	return l[i].seq < l[j].seq
-}
-
-func (l eventSeqList) Swap(i, j int) {
 	l[i], l[j] = l[j], l[i]
 }

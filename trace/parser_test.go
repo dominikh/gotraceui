@@ -134,16 +134,3 @@ func TestParseVersion(t *testing.T) {
 		}
 	}
 }
-
-func TestTimestampOverflow(t *testing.T) {
-	// Test that parser correctly handles large timestamps (long tracing).
-	w := NewWriter()
-	w.Emit(EvBatch, 0, 0)
-	w.Emit(EvFrequency, 1e9)
-	for ts := uint64(1); ts < 1e16; ts *= 2 {
-		w.Emit(EvGoCreate, ts, ts, 0, 0)
-	}
-	if _, err := Parse(w, ""); err != nil {
-		t.Fatalf("failed to parse: %v", err)
-	}
-}
