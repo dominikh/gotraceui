@@ -41,6 +41,17 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): processor timeline span tooltip should show goroutine function name
+
+// TODO(dh): color GC-related goroutines in the per-P timeline
+
+// TODO(dh): display number of spans in goroutine tooltip
+
+// OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
+// rendering the tooltip alone takes ~16ms
+
+// TODO(dh): add tooltip for processor timelines
+
 // TODO(dh): provide different sortings for goroutines. One user requested sorting by "amount of activity" but couldn't
 // define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
 // sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
@@ -1239,6 +1250,9 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}
 
 	// First draw the outlines. We draw these as solid rectangles and let the spans overlay them.
+	//
+	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
+	// specific instance.
 	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
 
 	// Then draw the spans
@@ -2824,7 +2838,6 @@ func Bordered(gtx layout.Context, w layout.Widget) layout.Dimensions {
 
 	dims.Size.X += 2 * border
 	dims.Size.Y += 2 * border
-	// XXX use a stroke instead
 	paint.FillShape(gtx.Ops, colors[colorWindowBorder], clip.Rect{Max: dims.Size}.Op())
 	defer op.Offset(image.Pt(border, border)).Push(gtx.Ops).Pop()
 	call.Add(gtx.Ops)
