@@ -1571,7 +1571,7 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 }
 
 type Processor struct {
-	ID    int
+	ID    uint32
 	Spans []Span
 }
 
@@ -1714,8 +1714,8 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		gsByID[gid] = g
 		return g
 	}
-	psByID := map[int]*Processor{}
-	getP := func(pid int) *Processor {
+	psByID := map[uint32]*Processor{}
+	getP := func(pid uint32) *Processor {
 		p, ok := psByID[pid]
 		if ok {
 			return p

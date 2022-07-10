@@ -50,7 +50,7 @@ const (
 // event with the lowest timestamp from the subset, merge it and repeat.
 // This approach ensures that we form a consistent stream even if timestamps are
 // incorrect (condition observed on some machines).
-func order1007(m map[int][]*Event) (events []*Event, err error) {
+func order1007(m map[uint32][]*Event) (events []*Event, err error) {
 	pending := 0
 	var batches []*eventBatch
 	for _, v := range m {

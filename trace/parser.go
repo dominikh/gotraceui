@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	_ "unsafe"
 )
@@ -16,7 +17,7 @@ import (
 type Event struct {
 	Type  byte      // one of Ev*
 	Ts    int64     // timestamp in nanoseconds
-	P     int       // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
+	P     uint32    // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	G     uint64    // G on which the event happened
 	StkID uint64    // unique stack ID
 	Args  [3]uint64 // event-type-specific arguments
@@ -68,7 +69,7 @@ type parser struct {
 	byte [1]byte
 
 	strings     map[uint64]string
-	batches     map[int][]*Event // events by P
+	batches     map[uint32][]*Event // events by P
 	stacks      map[uint64][]uint64
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
@@ -77,8 +78,8 @@ type parser struct {
 	// state for parseEvent
 	lastTs int64
 	lastG  uint64
-	lastP  int
-	lastGs map[int]uint64 // last goroutine running on P
+	lastP  uint32
+	lastGs map[uint32]uint64 // last goroutine running on P
 }
 
 // Parse parses, post-processes and verifies the trace.
@@ -95,10 +96,10 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 // trace version and the list of events.
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
-	p.batches = make(map[int][]*Event)
+	p.batches = make(map[uint32][]*Event)
 	p.stacks = make(map[uint64][]uint64)
 	p.timerGoids = make(map[uint64]bool)
-	p.lastGs = make(map[int]uint64)
+	p.lastGs = make(map[uint32]uint64)
 	p.pcs = make(map[uint64]*Frame)
 
 	ver, err := p.readHeader(r)
@@ -327,7 +328,10 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 	switch raw.typ {
 	case EvBatch:
 		p.lastGs[p.lastP] = p.lastG
-		p.lastP = int(raw.args[0])
+		if raw.args[0] > math.MaxUint {
+			return fmt.Errorf("processor ID %d is larger than maximum of %d", raw.args[0], uint64(math.MaxUint))
+		}
+		p.lastP = uint32(raw.args[0])
 		p.lastG = p.lastGs[p.lastP]
 		p.lastTs = int64(raw.args[1])
 	case EvFrequency:
@@ -542,7 +546,7 @@ func postProcessTrace(ver int, events []*Event) error {
 	}
 
 	gs := make(map[uint64]gdesc)
-	ps := make(map[int]pdesc)
+	ps := make(map[uint32]pdesc)
 	tasks := make(map[uint64]*Event)           // task id to task creation events
 	activeRegions := make(map[uint64][]*Event) // goroutine id to stack of regions
 	gs[0] = gdesc{state: gRunning}
