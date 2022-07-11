@@ -169,7 +169,7 @@ type ParseResult struct {
 	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
 	Stacks  map[uint64]Stack
-	PCs     map[uint64]*Frame
+	PCs     map[uint64]Frame
 	Strings map[uint64]string
 }
 
@@ -182,7 +182,7 @@ type parser struct {
 	stacksData  []byte
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
-	pcs         map[uint64]*Frame
+	pcs         map[uint64]Frame
 
 	// state for parseEvent
 	lastTs int64
@@ -232,7 +232,7 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.stacks = make(map[uint64]Stack)
 	p.timerGoids = make(map[uint64]bool)
 	p.lastGs = make(map[uint32]uint64)
-	p.pcs = make(map[uint64]*Frame)
+	p.pcs = make(map[uint64]Frame)
 
 	ver, err := p.readHeader(r)
 	if err != nil {
@@ -507,7 +507,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 				stk[i] = pc
 
 				if _, ok := p.pcs[pc]; !ok {
-					p.pcs[pc] = &Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
+					p.pcs[pc] = Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
 				}
 			}
 			p.stacks[id] = p.toStack(stk)

@@ -196,7 +196,7 @@ var patterns = []pattern{
 	},
 }
 
-func applyPatterns(s Span, pcs map[uint64]*trace.Frame, stacks map[uint64]trace.Stack) Span {
+func applyPatterns(s Span, pcs map[uint64]trace.Frame, stacks map[uint64]trace.Stack) Span {
 	// OPT(dh): be better than O(n)
 
 	stack := stacks[s.Stack].Decode()
