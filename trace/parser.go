@@ -81,7 +81,7 @@ func toStack(pcs []uint64) Stack {
 	if len(pcs) == 0 {
 		return nil
 	}
-	out := make([]byte, 0, len(pcs)*2)
+	out := make([]byte, 0, len(pcs)*3)
 	var buf [binary.MaxVarintLen64]byte
 	out = append(out, 1)
 	n := binary.PutUvarint(buf[:], uint64(len(pcs)))
