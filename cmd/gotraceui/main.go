@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io"
 	"log"
 	"math"
 	"os"
 	"runtime/pprof"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"honnef.co/go/gotraceui/trace"
@@ -1678,18 +1680,63 @@ func blockedIsInactive(fn string) bool {
 	}
 }
 
+type countingReader struct {
+	r    io.Reader
+	read int64
+}
+
+func (r *countingReader) Read(b []byte) (int, error) {
+	n, err := r.r.Read(b)
+	atomic.AddInt64(&r.read, int64(n))
+	return n, err
+}
+
+func (r *countingReader) amount() int64 {
+	return atomic.LoadInt64(&r.read)
+}
+
 func loadTrace(path string, ch chan Command) (*Trace, error) {
 	var gs []*Goroutine
 	var ps []*Processor
 	var gc []Span
 	var stw []Span
 
-	r, err := os.Open(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := trace.Parse(bufio.NewReader(r), "")
+	stat, err := f.Stat()
+	var r io.Reader
+	var done chan struct{}
+	if err == nil {
+		done = make(chan struct{})
+		// We wrap the counting reader in a bufio.Reader and not the other way around because the parser does many 1
+		// byte sized reads, and we don't want the overhead of tracking reads that accurately.
+		cr := &countingReader{r: f}
+		r = bufio.NewReader(cr)
+		total := stat.Size()
+		go func() {
+			t := time.NewTicker(10 * time.Millisecond)
+			defer t.Stop()
+			for {
+				select {
+				case <-t.C:
+					ch <- Command{"setProgress", (float32(cr.amount()) / float32(total)) / 2}
+				case <-done:
+					ch <- Command{"setProgress", float32(0.5)}
+					return
+				}
+			}
+		}()
+	} else {
+		r = bufio.NewReader(f)
+	}
+
+	res, err := trace.Parse(r, "")
+	if done != nil {
+		close(done)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1733,7 +1780,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		ev := &res.Events[i]
 		if i%10000 == 0 {
 			select {
-			case ch <- Command{"setProgress", float32(i) / float32(len(res.Events))}:
+			case ch <- Command{"setProgress", 0.5 + (float32(i)/float32(len(res.Events)))/2}:
 			default:
 				// Don't let the rendering loop slow down parsing. Especially when vsync is enabled we'll only get to
 				// read commands every blanking interval.
