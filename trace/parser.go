@@ -590,41 +590,54 @@ func removeFutile(events []Event) []Event {
 
 	// Phase 1: determine futile wakeup sequences.
 	type G struct {
-		futile bool
-		wakeup []*Event // wakeup sequence (subject for removal)
+		futile    bool
+		wakeupArr [2]int
+		wakeup    []int // wakeup sequence (subject for removal)
 	}
-	gs := make(map[uint64]G)
-	futile := make(map[*Event]bool)
+	gs := make(map[uint64]*G)
+	getG := func(gid uint64) *G {
+		g := gs[gid]
+		if g != nil {
+			return g
+		}
+		g = &G{}
+		g.wakeup = g.wakeupArr[:0]
+		gs[gid] = g
+		return g
+	}
+	futile := make(map[int]struct{})
 	for i := range events {
 		ev := &events[i]
 		switch ev.Type {
 		case EvGoUnblock:
-			g := gs[ev.Args[0]]
-			g.wakeup = []*Event{ev}
-			gs[ev.Args[0]] = g
+			g := getG(ev.Args[0])
+			g.wakeup = g.wakeupArr[:1]
+			g.wakeup[0] = i
 		case EvGoStart, EvGoPreempt, EvFutileWakeup:
-			g := gs[ev.G]
-			g.wakeup = append(g.wakeup, ev)
+			g := getG(ev.G)
+			if g.wakeup == nil {
+				g.wakeup = g.wakeupArr[:0]
+			}
+			g.wakeup = append(g.wakeup, i)
 			if ev.Type == EvFutileWakeup {
 				g.futile = true
 			}
-			gs[ev.G] = g
 		case EvGoBlock, EvGoBlockSend, EvGoBlockRecv, EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond:
-			g := gs[ev.G]
+			g := getG(ev.G)
 			if g.futile {
-				futile[ev] = true
+				futile[i] = struct{}{}
 				for _, ev1 := range g.wakeup {
-					futile[ev1] = true
+					futile[ev1] = struct{}{}
 				}
 			}
-			delete(gs, ev.G)
+			g.wakeup = g.wakeup[:0]
 		}
 	}
 
 	// Phase 2: remove futile wakeup sequences.
 	newEvents := events[:0] // overwrite the original slice
 	for i, ev := range events {
-		if !futile[&events[i]] {
+		if _, ok := futile[i]; !ok {
 			newEvents = append(newEvents, ev)
 		}
 	}
