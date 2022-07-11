@@ -1467,7 +1467,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		s := tt.Spans[0]
 		if at == "" && s.Stack > 0 {
 			// OPT(dh): cache the decoded stack; this allocates a lot
-			at = tt.tl.App.pcs[tt.tl.App.stacks[s.Stack].Decode()[s.At]].Fn
+			at = tt.tl.App.trace.PCs[tt.tl.App.trace.Stacks[s.Stack].Decode()[s.At]].Fn
 		}
 		switch state := s.State; state {
 		case stateInactive:
@@ -1513,7 +1513,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "GC mark assist"
 		case stateGCSweep:
 			label += "GC sweep"
-			if l := s.Event.Link; l != nil {
+			if s.Event.Link != -1 {
+				l := tt.tl.App.trace.Events[s.Event.Link]
 				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
 		case stateRunningG:
@@ -1655,12 +1656,11 @@ func eventsForSpan(events []*trace.Event, start, end time.Duration) []*trace.Eve
 }
 
 type Trace struct {
-	Gs     []*Goroutine
-	Ps     []*Processor
-	GC     []Span
-	STW    []Span
-	PCs    map[uint64]*trace.Frame
-	Stacks map[uint64]trace.Stack
+	Gs  []*Goroutine
+	Ps  []*Processor
+	GC  []Span
+	STW []Span
+	trace.ParseResult
 }
 
 // Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this
@@ -1729,7 +1729,8 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	lastSyscall := map[uint64]uint64{}
 	inMarkAssist := map[uint64]struct{}{}
 
-	for i, ev := range res.Events {
+	for i := range res.Events {
+		ev := &res.Events[i]
 		if i%10000 == 0 {
 			select {
 			case ch <- Command{"setProgress", float32(i) / float32(len(res.Events))}:
@@ -2028,7 +2029,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return ps[i].ID < ps[j].ID
 	})
 
-	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw, PCs: res.PCs, Stacks: res.Stacks}, nil
+	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw, ParseResult: res}, nil
 }
 
 type Command struct {
@@ -2042,11 +2043,7 @@ type Application struct {
 	theme    *material.Theme
 	commands chan Command
 	tl       Timeline
-	gs       []*Goroutine
-	ps       []*Processor
-	// TODO(dh): just store the whole trace.ParseResult
-	pcs    map[uint64]*trace.Frame
-	stacks map[uint64]trace.Stack
+	trace    *Trace
 }
 
 func main() {
@@ -2365,10 +2362,7 @@ func (a *Application) loadTrace(t *Trace) {
 		endPx    float32
 	}{}
 
-	a.gs = t.Gs
-	a.ps = t.Ps
-	a.pcs = t.PCs
-	a.stacks = t.Stacks
+	a.trace = t
 }
 
 func (a *Application) run() error {
@@ -2451,7 +2445,7 @@ func (a *Application) run() error {
 						case key.Event:
 							if ev.State == key.Press && ev.Name == "G" && ww == nil {
 								ww = NewListWindow[*Goroutine](a.theme)
-								ww.SetItems(a.gs)
+								ww.SetItems(a.trace.Gs)
 								ww.Filter = func(item *Goroutine, f string) bool {
 									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
 									// and allows matching goroutines by ID.

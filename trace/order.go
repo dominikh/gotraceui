@@ -10,7 +10,7 @@ import (
 )
 
 type eventBatch struct {
-	events   []*Event
+	batch    *batch
 	selected bool
 }
 
@@ -50,28 +50,30 @@ const (
 // event with the lowest timestamp from the subset, merge it and repeat.
 // This approach ensures that we form a consistent stream even if timestamps are
 // incorrect (condition observed on some machines).
-func order1007(m map[uint32][]*Event) (events []*Event, err error) {
+func order1007(m map[uint32]*batch) (events []Event, err error) {
 	pending := 0
 	var batches []*eventBatch
 	for _, v := range m {
-		pending += len(v)
+		for _, vv := range v.events {
+			pending += len(vv)
+		}
 		batches = append(batches, &eventBatch{v, false})
 	}
-	events = make([]*Event, 0, pending)
+	events = make([]Event, 0, pending)
 	gs := make(map[uint64]gState)
 	var frontier []orderEvent
 	for ; pending != 0; pending-- {
 		for i, b := range batches {
-			if b.selected || len(b.events) == 0 {
+			if b.selected || len(b.batch.events) == 0 {
 				continue
 			}
-			ev := b.events[0]
+			ev := &b.batch.events[0][0]
 			g, init, next := stateTransition(ev)
 			if !transitionReady(g, gs[g], init) {
 				continue
 			}
 			frontier = append(frontier, orderEvent{ev, i, g, init, next})
-			b.events = b.events[1:]
+			b.batch.popFront()
 			b.selected = true
 			// Get rid of "Local" events, they are intended merely for ordering.
 			switch ev.Type {
@@ -90,7 +92,7 @@ func order1007(m map[uint32][]*Event) (events []*Event, err error) {
 		f := frontier[0]
 		frontier[0] = frontier[len(frontier)-1]
 		frontier = frontier[:len(frontier)-1]
-		events = append(events, f.ev)
+		events = append(events, *f.ev)
 		transition(gs, f.g, f.init, f.next)
 		if !batches[f.batch].selected {
 			panic("frontier batch is not selected")
@@ -229,7 +231,7 @@ func (l *orderEventList) Swap(i, j int) {
 	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
 }
 
-type eventList []*Event
+type eventList []Event
 
 func (l *eventList) Len() int {
 	return len(*l)

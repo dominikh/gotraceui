@@ -50,7 +50,7 @@ const (
 //
 // If the UtilPerProc flag is not given, this always returns a single
 // utilization function. Otherwise, it returns one function per P.
-func MutatorUtilization(events []*Event, res ParseResult, flags UtilFlags) [][]MutatorUtil {
+func MutatorUtilization(events []Event, res ParseResult, flags UtilFlags) [][]MutatorUtil {
 	if len(events) == 0 {
 		return nil
 	}
@@ -71,7 +71,8 @@ func MutatorUtilization(events []*Event, res ParseResult, flags UtilFlags) [][]M
 	block := map[uint64]*Event{}
 	bgMark := map[uint64]bool{}
 
-	for _, ev := range events {
+	for i := range events {
+		ev := &events[i]
 		switch ev.Type {
 		case EvGomaxprocs:
 			gomaxprocs := int(ev.Args[0])
@@ -139,7 +140,7 @@ func MutatorUtilization(events []*Event, res ParseResult, flags UtilFlags) [][]M
 				// Unblocked during assist.
 				ps[ev.P].gc++
 			}
-			block[ev.G] = ev.Link
+			block[ev.G] = &events[ev.Link]
 		default:
 			if ev != block[ev.G] {
 				continue

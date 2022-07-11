@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 )
 
 // Event describes one event in the trace.
@@ -33,7 +32,7 @@ type Event struct {
 	// for GCMarkAssistStart: the associated GCMarkAssistDone
 	// for UserTaskCreate: the UserTaskEnd
 	// for UserRegion: if the start region, the corresponding UserRegion end event
-	Link *Event
+	Link int
 	P    uint32 // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	Type byte   // one of Ev*
 }
@@ -148,7 +147,7 @@ const (
 // ParseResult is the result of Parse.
 type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
-	Events []*Event
+	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
 	Stacks  map[uint64]Stack
 	PCs     map[uint64]*Frame
@@ -159,7 +158,7 @@ type parser struct {
 	byte [1]byte
 
 	strings     map[uint64]string
-	batches     map[uint32][]*Event // events by P
+	batches     map[uint32]*batch // events by P
 	stacks      map[uint64]Stack
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
@@ -171,6 +170,28 @@ type parser struct {
 	lastP  uint32
 	lastGs map[uint32]uint64 // last goroutine running on P
 	stk    []uint64          // scratch space for building stacks
+}
+
+type batch struct {
+	events [][]Event
+}
+
+func (b *batch) add(ev Event) {
+	evs := b.events
+	last := len(evs) - 1
+	if last == -1 || len(evs[last]) == cap(evs[last]) {
+		evs = append(evs, make([]Event, 0, (len(b.events)+1)*128))
+		last = len(evs) - 1
+	}
+	evs[last] = append(evs[last], ev)
+	b.events = evs
+}
+
+func (b *batch) popFront() {
+	b.events[0] = b.events[0][1:]
+	if len(b.events[0]) == 0 {
+		b.events = b.events[1:]
+	}
 }
 
 // Parse parses, post-processes and verifies the trace.
@@ -187,7 +208,7 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 // trace version and the list of events.
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
-	p.batches = make(map[uint32][]*Event)
+	p.batches = make(map[uint32]*batch)
 	p.stacks = make(map[uint64]Stack)
 	p.timerGoids = make(map[uint64]bool)
 	p.lastGs = make(map[uint32]uint64)
@@ -472,7 +493,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 			p.stacks[id] = toStack(stk)
 		}
 	default:
-		e := &Event{Type: raw.typ, P: p.lastP, G: p.lastG}
+		e := Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: -1}
 		var argOffset int
 		e.Ts = p.lastTs + int64(raw.args[0])
 		argOffset = 1
@@ -506,7 +527,12 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		case EvUserLog:
 			// e.Args 0: taskID, 1:keyID, 2: stackID
 		}
-		p.batches[p.lastP] = append(p.batches[p.lastP], e)
+		b := p.batches[p.lastP]
+		if b == nil {
+			b = &batch{}
+			p.batches[p.lastP] = b
+		}
+		b.add(e)
 	}
 
 	return nil
@@ -517,22 +543,12 @@ const (
 	STWKindSweep = 1
 )
 
-func (p *parser) finalize() ([]*Event, error) {
+func (p *parser) finalize() ([]Event, error) {
 	if len(p.batches) == 0 {
 		return nil, fmt.Errorf("trace is empty")
 	}
 	if p.ticksPerSec == 0 {
 		return nil, fmt.Errorf("no EvFrequency event")
-	}
-	if BreakTimestampsForTesting {
-		var batchArr [][]*Event
-		for _, batch := range p.batches {
-			batchArr = append(batchArr, batch)
-		}
-		for i := 0; i < 5; i++ {
-			batch := batchArr[rand.Intn(len(batchArr))]
-			batch[rand.Intn(len(batch))].Ts += int64(rand.Intn(2000) - 1000)
-		}
 	}
 
 	events, err := order1007(p.batches)
@@ -544,7 +560,8 @@ func (p *parser) finalize() ([]*Event, error) {
 	minTs := events[0].Ts
 	// Use floating point to avoid integer overflows.
 	freq := 1e9 / float64(p.ticksPerSec)
-	for _, ev := range events {
+	for i := range events {
+		ev := &events[i]
 		ev.Ts = int64(float64(ev.Ts-minTs) * freq)
 		// Move timers and syscalls to separate fake Ps.
 		if p.timerGoids[ev.G] && ev.Type == EvGoUnblock {
@@ -563,7 +580,7 @@ func (p *parser) finalize() ([]*Event, error) {
 // ahead and acquired the mutex before the first goroutine is scheduled,
 // so the first goroutine has to block again. Such wakeups happen on buffered
 // channels and sync.Mutex, but are generally not interesting for end user.
-func removeFutile(events []*Event) []*Event {
+func removeFutile(events []Event) []Event {
 	// Two non-trivial aspects:
 	// 1. A goroutine can be preempted during a futile wakeup and migrate to another P.
 	//	We want to remove all of that.
@@ -578,7 +595,8 @@ func removeFutile(events []*Event) []*Event {
 	}
 	gs := make(map[uint64]G)
 	futile := make(map[*Event]bool)
-	for _, ev := range events {
+	for i := range events {
+		ev := &events[i]
 		switch ev.Type {
 		case EvGoUnblock:
 			g := gs[ev.Args[0]]
@@ -605,8 +623,8 @@ func removeFutile(events []*Event) []*Event {
 
 	// Phase 2: remove futile wakeup sequences.
 	newEvents := events[:0] // overwrite the original slice
-	for _, ev := range events {
-		if !futile[ev] {
+	for i, ev := range events {
+		if !futile[&events[i]] {
 			newEvents = append(newEvents, ev)
 		}
 	}
@@ -621,7 +639,7 @@ var ErrTimeOrder = fmt.Errorf("time stamps out of order")
 // The resulting trace is guaranteed to be consistent
 // (for example, a P does not run two Gs at the same time, or a G is indeed
 // blocked before an unblock event).
-func postProcessTrace(ver int, events []*Event) error {
+func postProcessTrace(ver int, events []Event) error {
 	const (
 		gDead = iota
 		gRunnable
@@ -662,7 +680,8 @@ func postProcessTrace(ver int, events []*Event) error {
 		return nil
 	}
 
-	for _, ev := range events {
+	for evIdx := range events {
+		ev := &events[evIdx]
 		g := gs[ev.G]
 		p := ps[ev.P]
 
@@ -691,7 +710,7 @@ func postProcessTrace(ver int, events []*Event) error {
 			if evGC == nil {
 				return fmt.Errorf("bogus GC end (time %v)", ev.Ts)
 			}
-			evGC.Link = ev
+			evGC.Link = evIdx
 			evGC = nil
 		case EvGCSTWStart:
 			evp := &evSTW
@@ -704,7 +723,7 @@ func postProcessTrace(ver int, events []*Event) error {
 			if *evp == nil {
 				return fmt.Errorf("bogus STW end (time %v)", ev.Ts)
 			}
-			(*evp).Link = ev
+			(*evp).Link = evIdx
 			*evp = nil
 		case EvGCSweepStart:
 			if p.evSweep != nil {
@@ -720,14 +739,14 @@ func postProcessTrace(ver int, events []*Event) error {
 			// Unlike most events, mark assists can be in progress when a
 			// goroutine starts tracing, so we can't report an error here.
 			if g.evMarkAssist != nil {
-				g.evMarkAssist.Link = ev
+				g.evMarkAssist.Link = evIdx
 				g.evMarkAssist = nil
 			}
 		case EvGCSweepDone:
 			if p.evSweep == nil {
 				return fmt.Errorf("bogus sweeping end (time %v)", ev.Ts)
 			}
-			p.evSweep.Link = ev
+			p.evSweep.Link = evIdx
 			p.evSweep = nil
 		case EvGoWaiting:
 			if g.state != gRunnable {
@@ -765,14 +784,14 @@ func postProcessTrace(ver int, events []*Event) error {
 			}
 
 			if g.ev != nil {
-				g.ev.Link = ev
+				g.ev.Link = evIdx
 				g.ev = nil
 			}
 		case EvGoEnd, EvGoStop:
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
-			g.evStart.Link = ev
+			g.evStart.Link = evIdx
 			g.evStart = nil
 			g.state = gDead
 			p.g = 0
@@ -780,7 +799,7 @@ func postProcessTrace(ver int, events []*Event) error {
 			if ev.Type == EvGoEnd { // flush all active regions
 				regions := activeRegions[ev.G]
 				for _, s := range regions {
-					s.Link = ev
+					s.Link = evIdx
 				}
 				delete(activeRegions, ev.G)
 			}
@@ -790,7 +809,7 @@ func postProcessTrace(ver int, events []*Event) error {
 				return err
 			}
 			g.state = gRunnable
-			g.evStart.Link = ev
+			g.evStart.Link = evIdx
 			g.evStart = nil
 			p.g = 0
 			g.ev = ev
@@ -809,7 +828,7 @@ func postProcessTrace(ver int, events []*Event) error {
 				ev.P = NetpollP
 			}
 			if g1.ev != nil {
-				g1.ev.Link = ev
+				g1.ev.Link = evIdx
 			}
 			g1.state = gRunnable
 			g1.ev = ev
@@ -824,7 +843,7 @@ func postProcessTrace(ver int, events []*Event) error {
 				return err
 			}
 			g.state = gWaiting
-			g.evStart.Link = ev
+			g.evStart.Link = evIdx
 			g.evStart = nil
 			p.g = 0
 		case EvGoSysExit:
@@ -832,7 +851,7 @@ func postProcessTrace(ver int, events []*Event) error {
 				return fmt.Errorf("g %v is not waiting during syscall exit (time %v)", ev.G, ev.Ts)
 			}
 			if g.ev != nil && g.ev.Type == EvGoSysCall {
-				g.ev.Link = ev
+				g.ev.Link = evIdx
 			}
 			g.state = gRunnable
 			g.ev = ev
@@ -843,7 +862,7 @@ func postProcessTrace(ver int, events []*Event) error {
 			}
 			g.state = gWaiting
 			g.ev = ev
-			g.evStart.Link = ev
+			g.evStart.Link = evIdx
 			g.evStart = nil
 			p.g = 0
 		case EvUserTaskCreate:
@@ -855,7 +874,7 @@ func postProcessTrace(ver int, events []*Event) error {
 		case EvUserTaskEnd:
 			taskid := ev.Args[0]
 			if taskCreateEv, ok := tasks[taskid]; ok {
-				taskCreateEv.Link = ev
+				taskCreateEv.Link = evIdx
 				delete(tasks, taskid)
 			}
 		case EvUserRegion:
@@ -871,7 +890,7 @@ func postProcessTrace(ver int, events []*Event) error {
 						return fmt.Errorf("misuse of region in goroutine %d: span end %q when the inner-most active span start event is %q", ev.G, ev, s)
 					}
 					// Link region start event with span end event
-					s.Link = ev
+					s.Link = evIdx
 
 					if n > 1 {
 						activeRegions[ev.G] = regions[:n-1]
@@ -952,9 +971,6 @@ func argNum(raw rawEvent, ver int) int {
 	narg++ // timestamp
 	return narg
 }
-
-// BreakTimestampsForTesting causes the parser to randomly alter timestamps (for testing of broken cputicks).
-var BreakTimestampsForTesting bool
 
 // Event types in the trace.
 // Verbatim copy from src/runtime/trace.go with the "trace" prefix removed.
