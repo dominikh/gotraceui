@@ -170,6 +170,7 @@ type parser struct {
 	lastG  uint64
 	lastP  uint32
 	lastGs map[uint32]uint64 // last goroutine running on P
+	stk    []uint64          // scratch space for building stacks
 }
 
 // Parse parses, post-processes and verifies the trace.
@@ -249,6 +250,10 @@ func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 	var buf [16]byte
 	var off int
+
+	// space for event args, reused between events
+	var args []uint64
+
 	// Read events.
 	for {
 		// Read event type and number of arguments (1 byte).
@@ -310,9 +315,8 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 			p.strings[id] = string(buf)
 			continue
 		}
-		ev := rawEvent{typ: typ, off: off0}
+		ev := rawEvent{typ: typ, off: off0, args: args[:0]}
 		if narg < inlineArgs {
-			ev.args = make([]uint64, narg)
 			for i := 0; i < int(narg); i++ {
 				var v uint64
 				v, off, err = p.readVal(r, off)
@@ -320,7 +324,7 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 					err = fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
 					return
 				}
-				ev.args[i] = v
+				ev.args = append(ev.args, v)
 			}
 		} else {
 			// More than inlineArgs args, the first value is length of the event in bytes.
@@ -332,12 +336,6 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 			}
 			evLen := v
 			off1 := off
-			// Empirically, arguments are on average 1.5 bytes long. If we preallocate to evLen/2, then around half the
-			// time we'll have to grow once. If we preallocate to evLen, then around half the time we waste half the
-			// space. Since growing won't immediately free the old slice, and the slices are short-lived, both
-			// approaches lead to the same amount of allocated memory, but preallocating aggressively allocates fewer
-			// objects and means we don't spend CPU time on growing.
-			ev.args = make([]uint64, 0, evLen)
 			for evLen > uint64(off-off1) {
 				v, off, err = p.readVal(r, off)
 				if err != nil {
@@ -358,6 +356,8 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 			ev.sargs = append(ev.sargs, s)
 		}
 		p.parseEvent(ver, ev)
+
+		args = ev.args[:0]
 	}
 	return
 }
@@ -451,7 +451,13 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		}
 		id := raw.args[0]
 		if id != 0 && size > 0 {
-			stk := make([]uint64, size)
+			stk := p.stk
+			if size <= uint64(cap(stk)) {
+				stk = stk[:size]
+			} else {
+				stk = make([]uint64, size)
+				p.stk = stk[:0]
+			}
 			for i := 0; i < int(size); i++ {
 				pc := raw.args[2+i*4+0]
 				fn := raw.args[2+i*4+1]
