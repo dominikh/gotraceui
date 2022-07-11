@@ -77,11 +77,25 @@ func (s Stack) Decode() []uint64 {
 	return out
 }
 
-func toStack(pcs []uint64) Stack {
+func (p *parser) toStack(pcs []uint64) Stack {
 	if len(pcs) == 0 {
 		return nil
 	}
-	out := make([]byte, 0, len(pcs)*3)
+
+	// Stacks are plentiful but small. For our "Staticcheck on std" trace with 11e6 events, we have roughly 500,000
+	// stacks, using 41 MiB of memory. To avoid making 500,000 small allocations we allocate backing arrays 1 MiB at a
+	// time. We have to be careful not to ever grow the backing array, because existing slices will continue referring
+	// to the old array.
+	out := p.stacksData[len(p.stacksData):]
+	if cap(out) < len(pcs)*binary.MaxVarintLen64+1 {
+		// We cannot guarantee that this slice will have enough capacity, so allocate a new slice. Otherwise we would
+		// allocate a new array while existing slices continued referring to the old one.
+		//
+		// It doesn't matter if the new slice's size is slightly too small, because we'll only grow it once (in this
+		// very invocation of the function) and thus not return stale handles.
+		out = make([]byte, 0, 1024*1024)
+	}
+
 	var buf [binary.MaxVarintLen64]byte
 	out = append(out, 1)
 	n := binary.PutUvarint(buf[:], uint64(len(pcs)))
@@ -95,13 +109,17 @@ func toStack(pcs []uint64) Stack {
 		if pc > prev {
 			ud := pc - prev
 			if ud > math.MaxInt64 {
-				return toStackUvarint(pcs, out[:0])
+				out = toStackUvarint(pcs, out[:0])
+				p.stacksData = out
+				return out
 			}
 			sd = int64(ud)
 		} else {
 			ud := prev - pc
 			if ud > math.MaxInt64 {
-				return toStackUvarint(pcs, out[:0])
+				out = toStackUvarint(pcs, out[:0])
+				p.stacksData = out
+				return out
 			}
 			sd = int64(-ud)
 		}
@@ -111,6 +129,7 @@ func toStack(pcs []uint64) Stack {
 		prev = pc
 	}
 
+	p.stacksData = out
 	return out
 }
 
@@ -160,6 +179,7 @@ type parser struct {
 	strings     map[uint64]string
 	batches     map[uint32]*batch // events by P
 	stacks      map[uint64]Stack
+	stacksData  []byte
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
 	pcs         map[uint64]*Frame
@@ -490,7 +510,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 					p.pcs[pc] = &Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
 				}
 			}
-			p.stacks[id] = toStack(stk)
+			p.stacks[id] = p.toStack(stk)
 		}
 	default:
 		e := Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: -1}
