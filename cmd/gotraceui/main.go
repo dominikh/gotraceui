@@ -9,9 +9,11 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -2023,13 +2025,6 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		if ev.Type == trace.EvGoSysBlock {
 			s.Stack = lastSyscall[ev.G]
 		}
-		stack := res.Stacks[s.Stack].Decode()
-		s = applyPatterns(s, res.PCs, stack)
-
-		// move s.At out of the runtime
-		for s.At+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
-			s.At++
-		}
 
 		getG(gid).Spans = append(getG(gid).Spans, s)
 
@@ -2044,24 +2039,52 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		}
 	}
 
+	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+	var wg sync.WaitGroup
 	for _, g := range gsByID {
-		if len(g.Spans) == 0 {
-			continue
-		}
-		for i := range g.Spans[:len(g.Spans)-1] {
-			g.Spans[i].End = g.Spans[i+1].Start
-		}
-		last := g.Spans[len(g.Spans)-1]
-		if last.State == stateDone {
-			// The goroutine has ended
-			// XXX the event probably has a stack associated with it, which we shouldn't discard.
-			g.Spans = g.Spans[:len(g.Spans)-1]
-		} else {
-			// XXX somehow encode open-ended traces
-			g.Spans[len(g.Spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
-		}
+		sem <- struct{}{}
+		g := g
+		wg.Add(1)
+		go func() {
+			for i, s := range g.Spans {
+				if i != len(g.Spans)-1 {
+					s.End = g.Spans[i+1].Start
+				}
 
-		gs = append(gs, g)
+				stack := res.Stacks[s.Stack].Decode()
+				s = applyPatterns(s, res.PCs, stack)
+
+				// move s.At out of the runtime
+				for s.At+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
+					s.At++
+				}
+
+				g.Spans[i] = s
+			}
+
+			if len(g.Spans) != 0 {
+				last := g.Spans[len(g.Spans)-1]
+				if last.State == stateDone {
+					// The goroutine has ended
+					// XXX the event probably has a stack associated with it, which we shouldn't discard.
+					g.Spans = g.Spans[:len(g.Spans)-1]
+				} else {
+					// XXX somehow encode open-ended traces
+					g.Spans[len(g.Spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
+				}
+			}
+
+			<-sem
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
+	for _, g := range gsByID {
+		if len(g.Spans) != 0 {
+			gs = append(gs, g)
+		}
 	}
 
 	sort.Slice(gs, func(i, j int) bool {
