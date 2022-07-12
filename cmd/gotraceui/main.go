@@ -2023,10 +2023,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		if ev.Type == trace.EvGoSysBlock {
 			s.Stack = lastSyscall[ev.G]
 		}
-		s = applyPatterns(s, res.PCs, res.Stacks)
+		stack := res.Stacks[s.Stack].Decode()
+		s = applyPatterns(s, res.PCs, stack)
 
 		// move s.At out of the runtime
-		stack := res.Stacks[s.Stack].Decode()
 		for s.At+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
 			s.At++
 		}
