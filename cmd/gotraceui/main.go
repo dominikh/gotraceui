@@ -1467,7 +1467,9 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			gcAssistD += s.Duration()
 		case stateDone:
 		default:
-			panic(fmt.Sprintf("unknown state %d", s.State))
+			if debug {
+				panic(fmt.Sprintf("unknown state %d", s.State))
+			}
 		}
 	}
 	blockedPct := float32(blockedD) / float32(d) * 100
@@ -1576,7 +1578,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateRunningG:
 			label += fmt.Sprintf("running goroutine %d", s.Event.G)
 		default:
-			panic(fmt.Sprintf("unhandled state %d", state))
+			if debug {
+				panic(fmt.Sprintf("unhandled state %d", state))
+			}
 		}
 
 		tags := make([]string, 0, 4)
