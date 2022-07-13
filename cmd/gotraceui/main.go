@@ -191,9 +191,8 @@ type Timeline struct {
 		cursorPos f32.Point
 	}
 	Activity struct {
-		DisplayAllLabels         bool
-		Compact                  bool
-		HighlightSpansWithEvents bool
+		DisplayAllLabels bool
+		Compact          bool
 		// Should tooltips be shown?
 		ShowTooltips             showTooltips
 		ShowTooltipsNotification Notification
@@ -204,14 +203,13 @@ type Timeline struct {
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
-		Start                    time.Duration
-		End                      time.Duration
-		Y                        int
-		nsPerPx                  float32
-		compact                  bool
-		displayedAws             []*ActivityWidget
-		highlightSpansWithEvents bool
-		dspSpans                 map[any][]struct {
+		Start        time.Duration
+		End          time.Duration
+		Y            int
+		nsPerPx      float32
+		compact      bool
+		displayedAws []*ActivityWidget
+		dspSpans     map[any][]struct {
 			dspSpans       []Span
 			startPx, endPx float32
 		}
@@ -228,8 +226,7 @@ func (tl *Timeline) unchanged() bool {
 		tl.prevFrame.End == tl.End &&
 		tl.prevFrame.nsPerPx == tl.nsPerPx &&
 		tl.prevFrame.Y == tl.Y &&
-		tl.prevFrame.compact == tl.Activity.Compact &&
-		tl.prevFrame.highlightSpansWithEvents == tl.Activity.HighlightSpansWithEvents
+		tl.prevFrame.compact == tl.Activity.Compact
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -527,15 +524,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					}
 					tl.Activity.ShowTooltipsNotification.Show(gtx, s)
 
-				case "E":
-					tl.Activity.HighlightSpansWithEvents = !tl.Activity.HighlightSpansWithEvents
-					var s string
-					if tl.Activity.HighlightSpansWithEvents {
-						s = "Highlighting spans with events"
-					} else {
-						s = "Not highlighting spans with events"
-					}
-					tl.Activity.ShowTooltipsNotification.Show(gtx, s)
 				}
 			}
 		case pointer.Event:
@@ -630,7 +618,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 		Grab:         tl.Drag.Active,
 	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: "C|E|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+	key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
@@ -792,7 +780,6 @@ type ActivityWidget struct {
 	// Inputs
 	AllSpans        []Span
 	WidgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
-	MarkSpan        func(aw *ActivityWidget, spans []Span) bool
 	HighlightSpan   func(aw *ActivityWidget, spans []Span) bool
 	InvalidateCache func(aw *ActivityWidget) bool
 	SpanLabel       func(aw *ActivityWidget, spans []Span) []string
@@ -810,10 +797,11 @@ type ActivityWidget struct {
 	HoveredSpans []Span
 
 	// op lists get reused between frames to avoid generating garbage
-	ops         [colorStateLast]op.Ops
-	outlinesOps reusableOps
-	eventsOps   reusableOps
-	labelsOps   reusableOps
+	ops          [colorStateLast]op.Ops
+	outlinesOps  reusableOps
+	highlightOps reusableOps
+	eventsOps    reusableOps
+	labelsOps    reusableOps
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -878,9 +866,6 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
 			GoroutineTooltip{g, aw.tl.Theme.Shaper}.Layout(gtx)
 		},
-		MarkSpan: func(aw *ActivityWidget, dspSpans []Span) bool {
-			return spanHasEvents(g.Events, dspSpans[0].Start, dspSpans[len(dspSpans)-1].End)
-		},
 		SpanLabel: func(aw *ActivityWidget, spans []Span) []string {
 			if len(spans) != 1 {
 				return nil
@@ -897,7 +882,6 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 	return &ActivityWidget{
 		AllSpans:      p.Spans,
 		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
-		MarkSpan:      func(aw *ActivityWidget, spans []Span) bool { return false },
 		HighlightSpan: func(aw *ActivityWidget, spans []Span) bool {
 			if len(tl.Activity.HoveredSpans) != 1 {
 				return false
@@ -1096,8 +1080,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	paths := [colorStateLast]clip.Path{}
 
 	var outlinesPath clip.Path
+	var highlightPath clip.Path
 	var eventsPath clip.Path
 	outlinesPath.Begin(aw.outlinesOps.get())
+	highlightPath.Begin(aw.highlightOps.get())
 	eventsPath.Begin(aw.eventsOps.get())
 	labelsOps := aw.labelsOps.get()
 	labelsMacro := op.Record(labelsOps)
@@ -1162,17 +1148,67 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 		p.Close()
 
-		// TODO(dh): use different looks for marked spans and highlighted spans
-		if (aw.tl.Activity.HighlightSpansWithEvents && aw.MarkSpan != nil && aw.MarkSpan(aw, dspSpans)) || (aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans)) {
+		dotRadiusX := float32(gtx.Dp(4))
+		dotRadiusY := float32(gtx.Dp(3))
+		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
+			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
+			// zoom in, causing dots to disappear and reappearappear and disappear.
+			events := dspSpans[0].Events
+
+			dotGap := float32(gtx.Dp(4))
+			centerY := float32(activityStateHeight) / 2
+
+			for i := 0; i < len(events); i++ {
+				ev := events[i]
+				px := aw.tl.tsToPx(time.Duration(ev.Ts))
+				if px < 0 || px >= float32(gtx.Constraints.Max.X) {
+					continue
+				}
+
+				if px < minP.X+dotRadiusX {
+					px = minP.X + dotRadiusX
+				}
+
+				start := px
+				end := px
+				for i = i + 1; i < len(events); i++ {
+					ev := events[i]
+					px := aw.tl.tsToPx(time.Duration(ev.Ts))
+					if px < end+dotRadiusX*2+dotGap {
+						end = px
+					} else {
+						break
+					}
+				}
+				i--
+
+				if end+dotRadiusX > maxP.X {
+					end = maxP.X - dotRadiusX
+				}
+
+				minX := start - dotRadiusX
+				minY := centerY - dotRadiusY
+				maxX := end + dotRadiusX
+				maxY := centerY + dotRadiusY
+
+				eventsPath.MoveTo(f32.Pt(minX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, maxY))
+				eventsPath.LineTo(f32.Pt(minX, maxY))
+				eventsPath.Close()
+			}
+		}
+
+		if aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans) {
 			minP := minP
 			maxP := maxP
 			minP.Y += float32((activityStateHeight - spanBorderWidth*2) / 2)
 
-			eventsPath.MoveTo(minP)
-			eventsPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			eventsPath.LineTo(maxP)
-			eventsPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			eventsPath.Close()
+			highlightPath.MoveTo(minP)
+			highlightPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			highlightPath.LineTo(maxP)
+			highlightPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			highlightPath.Close()
 		}
 
 		if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
@@ -1266,7 +1302,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		p := &paths[cIdx]
 		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
 	}
-	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: eventsPath.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: highlightPath.End()}.Op())
+	paint.FillShape(gtx.Ops, toColor(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
 
 	// Finally print labels on top
 	labelsMacro.Stop().Add(gtx.Ops)
@@ -1590,7 +1627,6 @@ type Goroutine struct {
 	ID       uint64
 	Function string
 	Spans    []Span
-	Events   []*trace.Event
 }
 
 func (g *Goroutine) String() string {
@@ -1778,6 +1814,19 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	lastSyscall := map[uint64]uint64{}
 	inMarkAssist := map[uint64]struct{}{}
 
+	addEventToCurrentSpan := func(gid uint64, ev *trace.Event) {
+		if gid == 0 {
+			// FIXME(dh): figure out why we have events for g0 when there are no spans on g0.
+			return
+		}
+		g := getG(gid)
+		if len(g.Spans) == 0 {
+			panic(fmt.Sprintf("tried to add event %v, but gid %d has no spans", ev, gid))
+		}
+		s := &g.Spans[len(g.Spans)-1]
+		s.Events = append(s.Events, ev)
+	}
+
 	for i := range res.Events {
 		ev := &res.Events[i]
 		if i%10000 == 0 {
@@ -1802,7 +1851,9 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		switch ev.Type {
 		case trace.EvGoCreate:
 			// ev.G creates ev.Args[0]
-			getG(ev.G).Events = append(getG(ev.G).Events, ev)
+			if ev.G != 0 {
+				addEventToCurrentSpan(ev.G, ev)
+			}
 			gid = ev.Args[0]
 			if ev.Args[1] != 0 {
 				stack := res.Stacks[ev.Args[1]].Decode()
@@ -1900,7 +1951,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
-			getG(ev.G).Events = append(getG(ev.G).Events, ev)
+			addEventToCurrentSpan(ev.G, ev)
 			gid = ev.Args[0]
 			state = stateReady
 		case trace.EvGoSysCall:
@@ -1913,8 +1964,9 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// when syscall returns we emit traceGoSysExit and when the goroutine starts running
 			// (potentially instantly, if exitsyscallfast returns true) we emit traceGoStart.
 
-			// TODO(dh): denote syscall somehow
+			// XXX guard against malformed trace
 			lastSyscall[ev.G] = ev.StkID
+			addEventToCurrentSpan(ev.G, ev)
 			continue
 		case trace.EvGoSysBlock:
 			gid = ev.G
@@ -2567,7 +2619,6 @@ func (a *Application) run() error {
 					a.tl.prevFrame.nsPerPx = a.tl.nsPerPx
 					a.tl.prevFrame.Y = a.tl.Y
 					a.tl.prevFrame.compact = a.tl.Activity.Compact
-					a.tl.prevFrame.highlightSpansWithEvents = a.tl.Activity.HighlightSpansWithEvents
 					a.tl.prevFrame.hoveredSpans = a.tl.Activity.HoveredSpans
 				}
 
