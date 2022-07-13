@@ -1148,6 +1148,12 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 		p.Close()
 
+		var tooltip *SpanTooltip
+		if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
+			//gcassert:noescape
+			tooltip = &SpanTooltip{dspSpans, nil, aw.tl}
+		}
+
 		dotRadiusX := float32(gtx.Dp(4))
 		dotRadiusY := float32(gtx.Dp(3))
 		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
@@ -1161,16 +1167,17 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			for i := 0; i < len(events); i++ {
 				ev := events[i]
 				px := aw.tl.tsToPx(time.Duration(ev.Ts))
-				if px < 0 || px >= float32(gtx.Constraints.Max.X) {
+
+				if px+dotRadiusX < minP.X {
 					continue
 				}
-
-				if px < minP.X+dotRadiusX {
-					px = minP.X + dotRadiusX
+				if px-dotRadiusX > maxP.X {
+					break
 				}
 
 				start := px
 				end := px
+				oldi := i
 				for i = i + 1; i < len(events); i++ {
 					ev := events[i]
 					px := aw.tl.tsToPx(time.Duration(ev.Ts))
@@ -1182,7 +1189,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				}
 				i--
 
-				if end+dotRadiusX > maxP.X {
+				if minP.X != 0 && start-dotRadiusX < minP.X {
+					start = minP.X + dotRadiusX
+				}
+				if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
 					end = maxP.X - dotRadiusX
 				}
 
@@ -1196,7 +1206,22 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				eventsPath.LineTo(f32.Pt(maxX, maxY))
 				eventsPath.LineTo(f32.Pt(minX, maxY))
 				eventsPath.Close()
+
+				if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= minX && aw.pointerAt.X < maxX {
+					tooltip.Events = events[oldi : i+1]
+				}
 			}
+		}
+
+		if tooltip != nil {
+			// TODO have a gap between the cursor and the tooltip
+			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+			macro := op.Record(gtx.Ops)
+			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
+			tooltip.Layout(gtx)
+			stack.Pop()
+			call := macro.Stop()
+			op.Defer(gtx.Ops, call)
 		}
 
 		if aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans) {
@@ -1209,17 +1234,6 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			highlightPath.LineTo(maxP)
 			highlightPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 			highlightPath.Close()
-		}
-
-		if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
-			// TODO have a gap between the cursor and the tooltip
-			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-			macro := op.Record(gtx.Ops)
-			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
-			SpanTooltip{dspSpans, aw.tl}.Layout(gtx)
-			stack.Pop()
-			call := macro.Stop()
-			op.Defer(gtx.Ops, call)
 		}
 
 		if len(dspSpans) == 1 && aw.SpanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
@@ -1487,8 +1501,9 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type SpanTooltip struct {
-	Spans []Span
-	tl    *Timeline
+	Spans  []Span
+	Events []*trace.Event
+	tl     *Timeline
 }
 
 // For debugging
@@ -1593,6 +1608,44 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += fmt.Sprintf("mixed (%d spans)", len(tt.Spans))
 	}
 	label += "\n"
+	{
+		if len(tt.Events) > 0 {
+			kind := tt.Events[0].Type
+			for _, ev := range tt.Events[1:] {
+				if ev.Type != kind {
+					kind = 255
+				}
+			}
+			if kind != 255 {
+				var noun string
+				switch kind {
+				case trace.EvGoSysCall:
+					noun = "syscalls"
+					if len(tt.Events) == 1 {
+						stk := tt.tl.App.trace.Stacks[tt.Events[0].StkID]
+						if len(stk) != 0 {
+							// OPT(dh): don't decode stack on every rendered frame
+							frame := tt.tl.App.trace.PCs[stk.Decode()[0]]
+							noun += fmt.Sprintf(" (%s)", frame.Fn)
+						}
+					}
+				case trace.EvGoCreate:
+					noun = "goroutine creations"
+				case trace.EvGoUnblock:
+					noun = "goroutine unblocks"
+				default:
+					if debug {
+						panic(fmt.Sprintf("unhandled kind %d", kind))
+					}
+				}
+				label += fmt.Sprintf("Events: %d %s\n", len(tt.Events), noun)
+			} else {
+				label += fmt.Sprintf("Events: %d\n", len(tt.Events))
+			}
+		} else {
+			label += "Events: 0\n"
+		}
+	}
 	d := tt.Spans[len(tt.Spans)-1].End - tt.Spans[0].Start
 	label += fmt.Sprintf("Duration: %s", d)
 
@@ -2609,7 +2662,9 @@ func (a *Application) run() error {
 					}
 
 					for _, ev := range gtx.Events(profileTag) {
-						fmt.Println(ev)
+						if false {
+							fmt.Println(ev)
+						}
 					}
 					profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
