@@ -2111,6 +2111,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// TODO(dh): implement a per-task timeline
 			// TODO(dh): incorporate regions and logs in per-goroutine timeline
 			continue
+
+		case trace.EvCPUSample:
+			// XXX make use of CPU samples
+			continue
+
 		default:
 			return nil, fmt.Errorf("unsupported trace event %d", ev.Type)
 		}

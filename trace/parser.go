@@ -161,6 +161,7 @@ const (
 	NetpollP // depicts network unblocks
 	SyscallP // depicts returns from syscalls
 	GCP      // depicts GC state
+	ProfileP // depicts recording of CPU profile samples
 )
 
 // ParseResult is the result of Parse.
@@ -194,6 +195,36 @@ type parser struct {
 
 type batch struct {
 	events [][]Event
+}
+
+func (b *batch) index(idx int) (int, int) {
+	for major, events := range b.events {
+		if len(events) <= idx {
+			idx -= len(events)
+			continue
+		} else {
+			return major, idx
+		}
+	}
+	panic(fmt.Sprintf("index %d is out of bounds", idx))
+}
+
+func (b *batch) len() int {
+	n := 0
+	for _, evs := range b.events {
+		n += len(evs)
+	}
+	return n
+}
+
+func (b *batch) at(idx int) Event {
+	maj, min := b.index(idx)
+	return b.events[maj][min]
+}
+
+func (b *batch) set(idx int, ev Event) {
+	maj, min := b.index(idx)
+	b.events[maj][min] = ev
 }
 
 func (b *batch) add(ev Event) {
@@ -278,11 +309,11 @@ func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 		return 0, err
 	}
 	switch ver {
-	case 1011:
+	case 1011, 1019:
 		// Note: When adding a new version, add canned traces
 		// from the old version to the test suite using mkcanned.bash.
 	default:
-		return 0, fmt.Errorf("unsupported trace file version %v.%v (update Go toolchain) %v", ver/1000, ver%1000, ver)
+		return 0, fmt.Errorf("unsupported trace file version %v.%v", ver/1000, ver%1000)
 	}
 
 	return ver, err
@@ -546,11 +577,35 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 			// e.Args 0: taskID, 1: mode, 2:nameID
 		case EvUserLog:
 			// e.Args 0: taskID, 1:keyID, 2: stackID
+		case EvCPUSample:
+			e.Ts = int64(e.Args[0])
+			e.P = uint32(e.Args[1])
+			e.G = e.Args[2]
+			e.Args[0] = 0
 		}
-		b := p.batches[p.lastP]
-		if b == nil {
-			b = &batch{}
-			p.batches[p.lastP] = b
+		var b *batch
+		switch raw.typ {
+		case EvCPUSample:
+			// Most events are written out by the active P at the exact
+			// moment they describe. CPU profile samples are different
+			// because they're written to the tracing log after some delay,
+			// by a separate worker goroutine, into a separate buffer.
+			//
+			// We keep these in their own batch until all of the batches are
+			// merged in timestamp order. We also (right before the merge)
+			// re-sort these events by the timestamp captured in the
+			// profiling signal handler.
+			b = p.batches[ProfileP]
+			if b == nil {
+				b = &batch{}
+				p.batches[ProfileP] = b
+			}
+		default:
+			b = p.batches[p.lastP]
+			if b == nil {
+				b = &batch{}
+				p.batches[p.lastP] = b
+			}
 		}
 		b.add(e)
 	}
@@ -1057,7 +1112,8 @@ const (
 	EvUserTaskEnd       = 46 // end of task [timestamp, internal task id, stack]
 	EvUserRegion        = 47 // trace.WithRegion [timestamp, internal task id, mode(0:start, 1:end), stack, name string]
 	EvUserLog           = 48 // trace.Log [timestamp, internal id, key string id, stack, value string]
-	EvCount             = 49
+	EvCPUSample         = 49 // CPU profiling sample [timestamp, stack, real timestamp, real P id (-1 when absent), goroutine id]
+	EvCount             = 50
 )
 
 var EventDescriptions = [EvCount]struct {
@@ -1116,4 +1172,5 @@ var EventDescriptions = [EvCount]struct {
 	EvUserTaskEnd:       {"UserTaskEnd", 1011, true, []string{"taskid"}, nil},
 	EvUserRegion:        {"UserRegion", 1011, true, []string{"taskid", "mode", "typeid"}, []string{"name"}},
 	EvUserLog:           {"UserLog", 1011, true, []string{"id", "keyid"}, []string{"category", "message"}},
+	EvCPUSample:         {"CPUSample", 1019, true, []string{"ts", "p", "g"}, nil},
 }

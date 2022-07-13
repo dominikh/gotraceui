@@ -52,6 +52,14 @@ const (
 // incorrect (condition observed on some machines).
 func order1007(m map[uint32]*batch) (events []Event, err error) {
 	pending := 0
+	// The ordering of CPU profile sample events in the data stream is based on
+	// when each run of the signal handler was able to acquire the spinlock,
+	// with original timestamps corresponding to when ReadTrace pulled the data
+	// off of the profBuf queue. Re-sort them by the timestamp we captured
+	// inside the signal handler.
+	if b, ok := m[ProfileP]; ok {
+		sort.Stable(sortBatch{b})
+	}
 	var batches []*eventBatch
 	for _, v := range m {
 		for _, vv := range v.events {
@@ -243,4 +251,22 @@ func (l *eventList) Less(i, j int) bool {
 
 func (l *eventList) Swap(i, j int) {
 	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
+}
+
+type sortBatch struct {
+	b *batch
+}
+
+func (l sortBatch) Len() int {
+	return l.b.len()
+}
+
+func (l sortBatch) Less(i, j int) bool {
+	return l.b.at(i).Ts < l.b.at(j).Ts
+}
+
+func (l sortBatch) Swap(i, j int) {
+	a, b := l.b.at(i), l.b.at(j)
+	l.b.set(i, b)
+	l.b.set(j, a)
 }
