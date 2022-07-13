@@ -6,7 +6,6 @@ package trace
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -37,115 +36,6 @@ type Event struct {
 	Type byte   // one of Ev*
 }
 
-type Stack []byte
-
-func (s Stack) Decode() []uint64 {
-	if len(s) == 0 {
-		return nil
-	}
-
-	// First byte indicates format, followed by a uvarint of the number of PCs, followed by a uvarint of the first PC,
-	// followed by either uvarints of PCs, or varints of deltas of PCs.
-
-	off := 1
-	num, n := binary.Uvarint(s[1:])
-	off += n
-	out := make([]uint64, num)
-	f, n := binary.Uvarint(s[off:])
-	off += n
-	out[0] = f
-
-	if s[0] == 0 {
-		// uvarint encoding
-		for i := 1; off < len(s); i++ {
-			f, n := binary.Uvarint(s[off:])
-			off += n
-			out[i] = f
-		}
-	} else {
-		// varint + delta encoding
-		prev := out[0]
-		for i := 1; off < len(s); i++ {
-			d, n := binary.Varint(s[off:])
-			off += n
-			f := prev + uint64(d)
-			out[i] = f
-			prev = f
-		}
-	}
-
-	return out
-}
-
-func (p *parser) toStack(pcs []uint64) Stack {
-	if len(pcs) == 0 {
-		return nil
-	}
-
-	// Stacks are plentiful but small. For our "Staticcheck on std" trace with 11e6 events, we have roughly 500,000
-	// stacks, using 41 MiB of memory. To avoid making 500,000 small allocations we allocate backing arrays 1 MiB at a
-	// time. We have to be careful not to ever grow the backing array, because existing slices will continue referring
-	// to the old array.
-	out := p.stacksData[len(p.stacksData):]
-	if cap(out) < len(pcs)*binary.MaxVarintLen64+1 {
-		// We cannot guarantee that this slice will have enough capacity, so allocate a new slice. Otherwise we would
-		// allocate a new array while existing slices continued referring to the old one.
-		//
-		// It doesn't matter if the new slice's size is slightly too small, because we'll only grow it once (in this
-		// very invocation of the function) and thus not return stale handles.
-		out = make([]byte, 0, 1024*1024)
-	}
-
-	var buf [binary.MaxVarintLen64]byte
-	out = append(out, 1)
-	n := binary.PutUvarint(buf[:], uint64(len(pcs)))
-	out = append(out, buf[:n]...)
-	prev := pcs[0]
-	n = binary.PutUvarint(buf[:], prev)
-	out = append(out, buf[:n]...)
-
-	for _, pc := range pcs[1:] {
-		var sd int64
-		if pc > prev {
-			ud := pc - prev
-			if ud > math.MaxInt64 {
-				out = toStackUvarint(pcs, out[:0])
-				p.stacksData = out
-				return out
-			}
-			sd = int64(ud)
-		} else {
-			ud := prev - pc
-			if ud > math.MaxInt64 {
-				out = toStackUvarint(pcs, out[:0])
-				p.stacksData = out
-				return out
-			}
-			sd = int64(-ud)
-		}
-
-		n := binary.PutVarint(buf[:], sd)
-		out = append(out, buf[:n]...)
-		prev = pc
-	}
-
-	p.stacksData = out
-	return out
-}
-
-func toStackUvarint(pcs []uint64, out []byte) Stack {
-	out = append(out, 0)
-	var buf [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(buf[:], uint64(len(pcs)))
-	out = append(out, buf[:n]...)
-
-	for _, pc := range pcs {
-		n := binary.PutUvarint(buf[:], pc)
-		out = append(out, buf[:n]...)
-	}
-	return out
-}
-
 // Frame is a frame in stack traces.
 type Frame struct {
 	PC   uint64
@@ -169,7 +59,7 @@ type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
 	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
-	Stacks  map[uint64]Stack
+	Stacks  map[uint64][]uint64
 	PCs     map[uint64]Frame
 	Strings map[uint64]string
 }
@@ -179,8 +69,8 @@ type parser struct {
 
 	strings     map[uint64]string
 	batches     map[uint32]*batch // events by P
-	stacks      map[uint64]Stack
-	stacksData  []byte
+	stacks      map[uint64][]uint64
+	stacksData  []uint64
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
 	pcs         map[uint64]Frame
@@ -190,7 +80,6 @@ type parser struct {
 	lastG  uint64
 	lastP  uint32
 	lastGs map[uint32]uint64 // last goroutine running on P
-	stk    []uint64          // scratch space for building stacks
 }
 
 type batch struct {
@@ -260,7 +149,7 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
 	p.batches = make(map[uint32]*batch)
-	p.stacks = make(map[uint64]Stack)
+	p.stacks = make(map[uint64][]uint64)
 	p.timerGoids = make(map[uint64]bool)
 	p.lastGs = make(map[uint32]uint64)
 	p.pcs = make(map[uint64]Frame)
@@ -523,13 +412,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		}
 		id := raw.args[0]
 		if id != 0 && size > 0 {
-			stk := p.stk
-			if size <= uint64(cap(stk)) {
-				stk = stk[:size]
-			} else {
-				stk = make([]uint64, size)
-				p.stk = stk[:0]
-			}
+			stk := p.allocateStack(size)
 			for i := 0; i < int(size); i++ {
 				pc := raw.args[2+i*4+0]
 				fn := raw.args[2+i*4+1]
@@ -541,7 +424,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 					p.pcs[pc] = Frame{PC: pc, Fn: p.strings[fn], File: p.strings[file], Line: int(line)}
 				}
 			}
-			p.stacks[id] = p.toStack(stk)
+			p.stacks[id] = stk
 		}
 	default:
 		e := Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: -1}
@@ -1173,4 +1056,20 @@ var EventDescriptions = [EvCount]struct {
 	EvUserRegion:        {"UserRegion", 1011, true, []string{"taskid", "mode", "typeid"}, []string{"name"}},
 	EvUserLog:           {"UserLog", 1011, true, []string{"id", "keyid"}, []string{"category", "message"}},
 	EvCPUSample:         {"CPUSample", 1019, true, []string{"ts", "p", "g"}, nil},
+}
+
+func (p *parser) allocateStack(size uint64) []uint64 {
+	if size == 0 {
+		return nil
+	}
+
+	// Stacks are plentiful but small. For our "Staticcheck on std" trace with 11e6 events, we have roughly 500,000
+	// stacks, using 200 MiB of memory. To avoid making 500,000 small allocations we allocate backing arrays 1 MiB at a
+	// time.
+	out := p.stacksData
+	if uint64(len(out)) < size {
+		out = make([]uint64, 1024*128)
+	}
+	p.stacksData = out[size:]
+	return out[:size:size]
 }

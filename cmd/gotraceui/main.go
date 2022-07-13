@@ -1524,8 +1524,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	if len(tt.Spans) == 1 {
 		s := tt.Spans[0]
 		if at == "" && s.Stack > 0 {
-			// OPT(dh): cache the decoded stack; this allocates a lot
-			at = tt.tl.App.trace.PCs[tt.tl.App.trace.Stacks[s.Stack].Decode()[s.At]].Fn
+			at = tt.tl.App.trace.PCs[tt.tl.App.trace.Stacks[s.Stack][s.At]].Fn
 		}
 		switch state := s.State; state {
 		case stateInactive:
@@ -1628,8 +1627,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 					if len(tt.Events) == 1 {
 						stk := tt.tl.App.trace.Stacks[tt.Events[0].StkID]
 						if len(stk) != 0 {
-							// OPT(dh): don't decode stack on every rendered frame
-							frame := tt.tl.App.trace.PCs[stk.Decode()[0]]
+							frame := tt.tl.App.trace.PCs[stk[0]]
 							noun += fmt.Sprintf(" (%s)", frame.Fn)
 						}
 					}
@@ -1913,7 +1911,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 			gid = ev.Args[0]
 			if ev.Args[1] != 0 {
-				stack := res.Stacks[ev.Args[1]].Decode()
+				stack := res.Stacks[ev.Args[1]]
 				if len(stack) != 0 {
 					getG(gid).Function = res.PCs[stack[0]].Fn
 				}
@@ -2129,7 +2127,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 				} else {
 					prevState := s[len(s)-1].State
 					if !legalStateTransitions[prevState][state] {
-						return nil, fmt.Errorf("illegal state transition %d -> %d for goroutine %d, time %d", prevState, state, gid, ev.Ts)
+						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, time %d", prevState, state, gid, ev.Ts))
 					}
 				}
 			}
@@ -2165,7 +2163,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 					s.End = g.Spans[i+1].Start
 				}
 
-				stack := res.Stacks[s.Stack].Decode()
+				stack := res.Stacks[s.Stack]
 				s = applyPatterns(s, res.PCs, stack)
 
 				// move s.At out of the runtime
