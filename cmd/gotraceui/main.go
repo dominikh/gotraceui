@@ -35,6 +35,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 	"gioui.org/x/eventx"
+	"gioui.org/x/outlay"
 )
 
 /*
@@ -784,6 +785,8 @@ type ActivityWidget struct {
 	InvalidateCache func(aw *ActivityWidget) bool
 	SpanLabel       func(aw *ActivityWidget, spans []Span) []string
 
+	OnLabelClick func(aw *ActivityWidget)
+
 	tl    *Timeline
 	item  any
 	label string
@@ -872,9 +875,34 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 			}
 			return spanStateLabels[spans[0].State]
 		},
+		OnLabelClick: func(aw *ActivityWidget) {
+			tl.App.openGoroutineStats(g)
+		},
 		tl:    tl,
 		item:  g,
 		label: l,
+	}
+}
+
+func (a *Application) openGoroutineStats(g *Goroutine) {
+	_, ok := a.goroutineWindows[g.ID]
+	if ok {
+		// XXX try to activate (bring to the front) the existing window
+	} else {
+		win := &GoroutineStats{G: g}
+		a.goroutineWindows[g.ID] = win
+		// XXX computing the label is duplicated with rendering the activity widget
+		var l string
+		if g.Function != "" {
+			l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
+		} else {
+			l = fmt.Sprintf("goroutine %d", g.ID)
+		}
+		go func() {
+			// XXX handle error?
+			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
+			a.notifyGoroutineWindowClosed <- g.ID
+		}()
 	}
 }
 
@@ -981,7 +1009,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			aw.hovered = false
 		}
 	}
-	for _, ev := range gtx.Events(&aw.hoveredLabel) {
+	for _, ev := range gtx.Events(&aw.label) {
 		switch ev := ev.(type) {
 		case pointer.Event:
 			switch ev.Type {
@@ -991,6 +1019,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			case pointer.Leave, pointer.Cancel:
 				aw.hoveredLabel = false
 			case pointer.Press:
+				if aw.OnLabelClick != nil && ev.Buttons&pointer.ButtonPrimary != 0 && ev.Modifiers == 0 {
+					aw.OnLabelClick(aw)
+				}
+
 				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
 					aw.ClickedSpans = aw.AllSpans
 				}
@@ -1047,7 +1079,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			labelDims := StrictLabel{}.Layout(gtx, aw.tl.Theme.Shaper, text.Font{}, activityLabelFontSizeSp, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &aw.hoveredLabel, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
 			stack.Pop()
 		}
 
@@ -2226,11 +2258,16 @@ type Application struct {
 	commands chan Command
 	tl       Timeline
 	trace    *Trace
+
+	notifyGoroutineWindowClosed chan uint64
+	goroutineWindows            map[uint64]*GoroutineStats
 }
 
 func main() {
 	a := &Application{
-		commands: make(chan Command, 16),
+		commands:                    make(chan Command, 16),
+		goroutineWindows:            map[uint64]*GoroutineStats{},
+		notifyGoroutineWindowClosed: make(chan uint64),
 	}
 	go func() {
 		a.commands <- Command{"setState", "loadingTrace"}
@@ -2575,6 +2612,7 @@ func (a *Application) run() error {
 				a.win.Invalidate()
 			case "loadTrace":
 				a.loadTrace(cmd.Data.(*Trace))
+
 				state = "main"
 				progress = 0.0
 				a.win.Invalidate()
@@ -2588,6 +2626,9 @@ func (a *Application) run() error {
 				panic(fmt.Sprintf("unknown command %s", cmd.Command))
 			}
 
+		case gid := <-a.notifyGoroutineWindowClosed:
+			delete(a.goroutineWindows, gid)
+
 		case e := <-a.win.Events():
 			switch ev := e.(type) {
 			case system.DestroyEvent:
@@ -2596,7 +2637,7 @@ func (a *Application) run() error {
 				gtx := layout.NewContext(&ops, ev)
 				gtx.Constraints.Min = image.Point{}
 
-				clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+				// clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 				// Fill background
 				paint.Fill(gtx.Ops, colors[colorBackground])
 
@@ -2682,11 +2723,12 @@ func (a *Application) run() error {
 					a.tl.prevFrame.Y = a.tl.Y
 					a.tl.prevFrame.compact = a.tl.Activity.Compact
 					a.tl.prevFrame.hoveredSpans = a.tl.Activity.HoveredSpans
+
+					if cpuprofiling {
+						op.InvalidateOp{}.Add(&ops)
+					}
 				}
 
-				if cpuprofiling {
-					op.InvalidateOp{}.Add(&ops)
-				}
 				ev.Frame(&ops)
 			}
 		}
@@ -2816,8 +2858,6 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		spy, gtx = eventx.Enspy(gtx)
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		// XXX use constant for color
-		paint.Fill(gtx.Ops, toColor(0xFFFFFFFF))
 
 		fn2 := func(gtx layout.Context) layout.Dimensions {
 			return material.List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
@@ -3012,7 +3052,6 @@ func Bordered(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	border := gtx.Dp(windowBorderDp)
 
 	ngtx := gtx
-	// XXX what about the Min constraints?
 	ngtx.Constraints.Max.X -= 2 * border
 	ngtx.Constraints.Max.Y -= 2 * border
 
@@ -3020,12 +3059,15 @@ func Bordered(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	dims := w(ngtx)
 	call := macro.Stop()
 
-	dims.Size.X += 2 * border
-	dims.Size.Y += 2 * border
-	paint.FillShape(gtx.Ops, colors[colorWindowBorder], clip.Rect{Max: dims.Size}.Op())
+	outerDims := dims
+	outerDims.Size.X += 2 * border
+	outerDims.Size.Y += 2 * border
+	paint.FillShape(gtx.Ops, colors[colorWindowBorder], clip.Rect{Max: outerDims.Size}.Op())
 	defer op.Offset(image.Pt(border, border)).Push(gtx.Ops).Pop()
+	paint.FillShape(gtx.Ops, toColor(0xFFFFFFFF), clip.Rect{Max: dims.Size}.Op())
+
 	call.Add(gtx.Ops)
-	return dims
+	return outerDims
 }
 
 func BorderedText(gtx layout.Context, shaper text.Shaper, s string) layout.Dimensions {
@@ -3054,4 +3096,248 @@ func BorderedText(gtx layout.Context, shaper text.Shaper, s string) layout.Dimen
 			Size:     total.Max,
 		}
 	})
+}
+
+type SmallGrid struct {
+	Grid          outlay.Grid
+	RowPadding    int
+	ColumnPadding int
+}
+
+func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.Cell) layout.Dimensions {
+	colWidths := make([]int, cols)
+	// Storing dims isn't strictly necessarily, since we only need to know the row height (which Grid assumes is the
+	// same for each row) and the column widths, as outlay.Grid passes an exact constraint to the cell function with
+	// those dimensions. However, as written, the code depends less on implementation details.
+	dims := make([]layout.Dimensions, rows*cols)
+	macros := make([]op.CallOp, rows*cols)
+
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			m := op.Record(gtx.Ops)
+			dim := cellFunc(gtx, row, col)
+			dims[row*cols+col] = dim
+			if dim.Size.X > colWidths[col] {
+				colWidths[col] = dim.Size.X
+			}
+			macros[row*cols+col] = m.Stop()
+		}
+	}
+
+	dimmer := func(axis layout.Axis, index, constraint int) int {
+		switch axis {
+		case layout.Vertical:
+			// outlay.Grid doesn't support different row heights, so we can return any of them
+			return dims[0].Size.Y + sg.RowPadding
+		case layout.Horizontal:
+			return colWidths[index] + sg.ColumnPadding
+		default:
+			panic("unreachable")
+		}
+	}
+
+	macroCellFunc := func(gtx layout.Context, row, col int) layout.Dimensions {
+		macros[row*cols+col].Add(gtx.Ops)
+		dims := dims[row*cols+col]
+		dims.Size = gtx.Constraints.Constrain(dims.Size)
+		return dims
+	}
+
+	// outlay.Grid fills the Max constraint
+	height := rows*(dims[0].Size.Y+sg.RowPadding) - sg.RowPadding
+	var width int
+	for _, cw := range colWidths {
+		width += cw + sg.ColumnPadding
+	}
+	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(width, height))
+	return sg.Grid.Layout(gtx, rows, cols, dimmer, macroCellFunc)
+}
+
+// XXX I think outlay.Grid behaves incorrectly with locked rows, rendering fewer rows than it should
+
+func table(gtx layout.Context, th *material.Theme, g *Goroutine) layout.Dimensions {
+	grid := SmallGrid{
+		RowPadding:    10,
+		ColumnPadding: 10,
+	}
+
+	type stat struct {
+		count           int
+		min, max, total time.Duration
+		avg, p50        float32
+		values          []time.Duration
+	}
+
+	var stats [stateLast]stat
+
+	for _, span := range g.Spans {
+		s := &stats[span.State]
+		s.count++
+		d := span.Duration()
+		if d > s.max {
+			s.max = d
+		}
+		if d < s.min || s.min == 0 {
+			s.min = d
+		}
+		s.total += d
+		s.values = append(s.values, d)
+	}
+
+	mapping := make([]int, 0, len(stats))
+
+	for i := range stats {
+		s := &stats[i]
+
+		if len(s.values) == 0 {
+			continue
+		}
+
+		mapping = append(mapping, i)
+
+		s.avg = float32(s.total) / float32(len(s.values))
+
+		sort.Slice(s.values, func(i, j int) bool {
+			return s.values[i] < s.values[j]
+		})
+
+		if len(s.values)%2 == 0 {
+			mid := len(s.values) / 2
+			s.p50 = float32(s.values[mid]+s.values[mid-1]) / 2
+		} else {
+			s.p50 = float32(s.values[len(s.values)/2])
+		}
+	}
+
+	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		if row == 0 {
+			l := statLabels[col]
+			// XXX make sure we really don't wrap
+			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{Weight: text.Bold}, 12, l)
+		} else {
+			row--
+			n := mapping[row]
+
+			var l string
+			switch col {
+			case 0:
+				// type
+				l = stateNamesCapitalized[n]
+			case 1:
+				l = fmt.Sprintf("%d", stats[n].count)
+				if stats[n].count == 0 {
+					panic(row)
+				}
+			case 2:
+				// total
+				l = roundDuration(stats[n].total, 2).String()
+			case 3:
+				// min
+				l = roundDuration(stats[n].min, 2).String()
+			case 4:
+				// max
+				l = roundDuration(stats[n].max, 2).String()
+			case 5:
+				// avg
+				l = roundDuration(time.Duration(stats[n].avg), 2).String()
+			case 6:
+				// p50
+				l = roundDuration(time.Duration(stats[n].p50), 2).String()
+			default:
+				panic("unreachable")
+			}
+
+			// XXX make sure we really don't wrap
+			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{}, 12, l)
+		}
+	}
+
+	return grid.Layout(gtx, len(mapping)+1, len(statLabels), cellFn)
+}
+
+var statLabels = [...]string{
+	"State", "Count", "Total", "Min", "Max", "Avg", "p50",
+}
+
+var stateNamesCapitalized = [stateLast]string{
+	stateInactive:                   "Inactive",
+	stateActive:                     "Active",
+	stateGCIdle:                     "GC (idle)",
+	stateGCDedicated:                "GC (dedicated)",
+	stateBlocked:                    "Blocked",
+	stateBlockedWaitingForTraceData: "Blocked (runtime/trace)",
+	stateBlockedSend:                "Blocked (channel send)",
+	stateBlockedRecv:                "Blocked (channel receive)",
+	stateBlockedSelect:              "Blocked (select)",
+	stateBlockedSync:                "Blocked (sync)",
+	stateBlockedSyncOnce:            "Blocked (sync.Once)",
+	stateBlockedSyncTriggeringGC:    "Blocked (triggering GC)",
+	stateBlockedCond:                "Blocked (sync.Cond)",
+	stateBlockedNet:                 "Blocked (pollable I/O)",
+	stateBlockedGC:                  "Blocked (GC)",
+	stateBlockedSyscall:             "Blocking syscall",
+	stateStuck:                      "Stuck",
+	stateReady:                      "Ready",
+	stateCreated:                    "Created",
+	stateDone:                       "Done",
+	stateGCMarkAssist:               "GC (mark assist)",
+	stateGCSweep:                    "GC (sweep assist)",
+}
+
+func roundDuration(d time.Duration, digits int) time.Duration {
+	var div time.Duration = 1
+	for i := 0; i < digits; i++ {
+		div *= 10
+	}
+
+	switch {
+	case d > time.Second:
+		d = d.Round(time.Second / div)
+	case d > time.Millisecond:
+		d = d.Round(time.Millisecond / div)
+	case d > time.Microsecond:
+		d = d.Round(time.Microsecond / div)
+	}
+	return d
+}
+
+type Window interface {
+	Run(win *app.Window) error
+}
+
+type GoroutineStats struct {
+	G *Goroutine
+}
+
+func (gs *GoroutineStats) Run(win *app.Window) error {
+	theme := material.NewTheme(gofont.Collection())
+	var ops op.Ops
+
+	var setSize bool
+
+	for {
+		select {
+		case e := <-win.Events():
+			switch ev := e.(type) {
+			case system.DestroyEvent:
+				return ev.Err
+			case system.FrameEvent:
+				gtx := layout.NewContext(&ops, ev)
+				gtx.Constraints.Min = image.Point{}
+				paint.Fill(gtx.Ops, colors[colorBackground])
+				dims := table(gtx, theme, gs.G)
+
+				if !setSize {
+					width := unit.Dp(math.Round(float64(float32(dims.Size.X) / gtx.Metric.PxPerDp)))
+					height := unit.Dp(math.Round(float64(float32(dims.Size.Y) / gtx.Metric.PxPerDp)))
+					win.Option(app.Size(width, height))
+					setSize = true
+				}
+
+				ev.Frame(&ops)
+			}
+		}
+	}
 }
