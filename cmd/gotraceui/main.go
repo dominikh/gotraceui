@@ -433,10 +433,11 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 }
 
 func Stack(gtx layout.Context, widgets ...layout.Widget) {
+	defer op.TransformOp{}.Push(gtx.Ops).Pop()
 	for _, w := range widgets {
 		dims := w(gtx)
 		gtx.Constraints.Max.Y -= dims.Size.Y
-		defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
+		op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
 	}
 }
 
