@@ -36,6 +36,7 @@ import (
 	"gioui.org/widget/material"
 	"gioui.org/x/eventx"
 	"gioui.org/x/outlay"
+	"gioui.org/x/richtext"
 )
 
 /*
@@ -863,7 +864,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 			return spanStateLabels[spans[0].State]
 		},
 		OnLabelClick: func(aw *ActivityWidget) {
-			tl.App.openGoroutineStats(g)
+			tl.App.openGoroutineWindow(g)
 		},
 		tl:    tl,
 		item:  g,
@@ -871,12 +872,15 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	}
 }
 
-func (a *Application) openGoroutineStats(g *Goroutine) {
-	_, ok := a.goroutineWindows[g.ID]
+func (a *Application) openGoroutineWindow(g *Goroutine) {
+	_, ok := a.goroutineStatWindows[g.ID]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
-		win := &GoroutineStats{G: g}
+		win := &GoroutineWindow{
+			Trace: a.trace,
+			G:     g,
+		}
 		a.goroutineWindows[g.ID] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
@@ -889,6 +893,28 @@ func (a *Application) openGoroutineStats(g *Goroutine) {
 			// XXX handle error?
 			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
 			a.notifyGoroutineWindowClosed <- g.ID
+		}()
+	}
+}
+
+func (a *Application) openGoroutineStats(g *Goroutine) {
+	_, ok := a.goroutineStatWindows[g.ID]
+	if ok {
+		// XXX try to activate (bring to the front) the existing window
+	} else {
+		win := &GoroutineStats{G: g}
+		a.goroutineStatWindows[g.ID] = win
+		// XXX computing the label is duplicated with rendering the activity widget
+		var l string
+		if g.Function != "" {
+			l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
+		} else {
+			l = fmt.Sprintf("goroutine %d", g.ID)
+		}
+		go func() {
+			// XXX handle error?
+			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
+			a.notifyGoroutineStatWindowClosed <- g.ID
 		}()
 	}
 }
@@ -1067,6 +1093,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			pointer.CursorPointer.Add(gtx.Ops)
 			stack.Pop()
 		}
 
@@ -2124,9 +2151,13 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvGomaxprocs:
 			// TODO(dh): graph GOMAXPROCS
 			continue
-		case trace.EvUserTaskCreate, trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog:
+		case trace.EvUserTaskCreate, trace.EvUserTaskEnd, trace.EvUserRegion:
 			// TODO(dh): implement a per-task timeline
 			// TODO(dh): incorporate regions and logs in per-goroutine timeline
+			continue
+
+		case trace.EvUserLog:
+			addEventToCurrentSpan(ev.G, ev)
 			continue
 
 		case trace.EvCPUSample:
@@ -2246,15 +2277,19 @@ type Application struct {
 	tl       Timeline
 	trace    *Trace
 
-	notifyGoroutineWindowClosed chan uint64
-	goroutineWindows            map[uint64]*GoroutineStats
+	notifyGoroutineWindowClosed     chan uint64
+	goroutineWindows                map[uint64]*GoroutineWindow
+	notifyGoroutineStatWindowClosed chan uint64
+	goroutineStatWindows            map[uint64]*GoroutineStats
 }
 
 func main() {
 	a := &Application{
-		commands:                    make(chan Command, 16),
-		goroutineWindows:            map[uint64]*GoroutineStats{},
-		notifyGoroutineWindowClosed: make(chan uint64),
+		commands:                        make(chan Command, 16),
+		goroutineStatWindows:            map[uint64]*GoroutineStats{},
+		goroutineWindows:                map[uint64]*GoroutineWindow{},
+		notifyGoroutineStatWindowClosed: make(chan uint64),
+		notifyGoroutineWindowClosed:     make(chan uint64),
 	}
 	go func() {
 		a.commands <- Command{"setState", "loadingTrace"}
@@ -2613,8 +2648,8 @@ func (a *Application) run() error {
 				panic(fmt.Sprintf("unknown command %s", cmd.Command))
 			}
 
-		case gid := <-a.notifyGoroutineWindowClosed:
-			delete(a.goroutineWindows, gid)
+		case gid := <-a.notifyGoroutineStatWindowClosed:
+			delete(a.goroutineStatWindows, gid)
 
 		case e := <-a.win.Events():
 			switch ev := e.(type) {
@@ -3327,4 +3362,289 @@ func (gs *GoroutineStats) Run(win *app.Window) error {
 			}
 		}
 	}
+}
+
+type GoroutineWindow struct {
+	Trace *Trace
+	G     *Goroutine
+}
+
+func (gwin *GoroutineWindow) Run(win *app.Window) error {
+	theme := material.NewTheme(gofont.Collection())
+
+	events := Events{Trace: gwin.Trace, Theme: theme}
+	events.filter.ShowGoCreate.Value = true
+	events.filter.ShowGoUnblock.Value = true
+	events.filter.ShowGoSysCall.Value = true
+	events.filter.ShowUserLog.Value = true
+	for _, span := range gwin.G.Spans {
+		for _, ev := range span.Events {
+			// XXX we don't need the slice, iterate over events in spans in the Events layouter
+			events.AllEvents = append(events.AllEvents, ev)
+		}
+	}
+	events.updateFilter()
+
+	var ops op.Ops
+	eventsFoldable := Foldable{
+		Title: "Events",
+		Theme: theme,
+	}
+	for {
+		select {
+		case e := <-win.Events():
+			switch ev := e.(type) {
+			case system.DestroyEvent:
+				return ev.Err
+			case system.FrameEvent:
+				gtx := layout.NewContext(&ops, ev)
+				gtx.Constraints.Min = image.Point{}
+
+				paint.Fill(gtx.Ops, colors[colorBackground])
+				Stack(
+					gtx,
+					func(gtx layout.Context) layout.Dimensions {
+						return eventsFoldable.Layout(gtx, events.Layout)
+					},
+				)
+
+				ev.Frame(gtx.Ops)
+			}
+		}
+	}
+}
+
+type Foldable struct {
+	Title  string
+	Closed bool
+	Theme  *material.Theme
+
+	clickable widget.Clickable
+}
+
+func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dimensions {
+	for f.clickable.Clicked() {
+		f.Closed = !f.Closed
+	}
+
+	var size image.Point
+	dims := f.clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// TODO(dh): show an icon indicating state of the foldable. We tried using ▶ and ▼ but the Go font only has ▼…
+		var l string
+		if f.Closed {
+			l = "[C] " + f.Title
+		} else {
+			l = "[O] " + f.Title
+		}
+		gtx.Constraints.Min.Y = 0
+		paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+		pointer.CursorPointer.Add(gtx.Ops)
+		return widget.Label{MaxLines: 1}.Layout(gtx, f.Theme.Shaper, text.Font{Weight: text.Bold}, 12, l)
+
+	})
+	size = dims.Size
+
+	if !f.Closed {
+		defer op.Offset(image.Pt(0, size.Y)).Push(gtx.Ops).Pop()
+		gtx.Constraints.Max.Y -= size.Y
+		dims := contents(gtx)
+
+		max := func(a, b int) int {
+			if a >= b {
+				return a
+			} else {
+				return b
+			}
+		}
+		size.X = max(size.X, dims.Size.X)
+		size.Y += dims.Size.Y
+	}
+
+	size = gtx.Constraints.Constrain(size)
+	return layout.Dimensions{Size: size}
+}
+
+type Events struct {
+	Theme     *material.Theme
+	Trace     *Trace
+	AllEvents []*trace.Event
+	filter    struct {
+		ShowGoCreate  widget.Bool
+		ShowGoUnblock widget.Bool
+		ShowGoSysCall widget.Bool
+		ShowUserLog   widget.Bool
+	}
+	filteredEvents []*trace.Event
+	grid           outlay.Grid
+	richState      richtext.InteractiveText
+}
+
+var goFonts = gofont.Collection()
+
+func (evs *Events) updateFilter() {
+	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
+	//   requires us to check each event.
+	evs.filteredEvents = evs.filteredEvents[:0]
+	for _, ev := range evs.AllEvents {
+		var b bool
+		switch ev.Type {
+		case trace.EvGoCreate:
+			b = evs.filter.ShowGoCreate.Value
+		case trace.EvGoUnblock:
+			b = evs.filter.ShowGoUnblock.Value
+		case trace.EvGoSysCall:
+			b = evs.filter.ShowGoSysCall.Value
+		case trace.EvUserLog:
+			b = evs.filter.ShowUserLog.Value
+		default:
+			panic(fmt.Sprintf("unexpected type %v", ev.Type))
+		}
+
+		if b {
+			evs.filteredEvents = append(evs.filteredEvents, ev)
+		}
+	}
+}
+
+func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
+	// XXX draw grid scrollbars
+
+	if evs.filter.ShowGoCreate.Changed() ||
+		evs.filter.ShowGoUnblock.Changed() ||
+		evs.filter.ShowGoSysCall.Changed() ||
+		evs.filter.ShowUserLog.Changed() {
+		evs.updateFilter()
+	}
+
+	evs.grid.LockedRows = 1
+
+	blue := toColor(0x0000FFFF)
+
+	dimmer := func(axis layout.Axis, index, constraint int) int {
+		switch axis {
+		case layout.Vertical:
+			// XXX return proper line height
+			return 24
+		case layout.Horizontal:
+			// XXX don't guess the dimensions
+			// XXX don't insist on a minimum if the window is too narrow or columns will overlap
+			switch index {
+			case 0:
+				return 200
+			case 1:
+				return 200
+			case 2:
+				w := constraint - 400
+				if w < 0 {
+					w = 0
+				}
+				return w
+			default:
+				panic("unreachable")
+			}
+		default:
+			panic("unreachable")
+		}
+	}
+
+	columns := [...]string{
+		"Time", "Category", "Message",
+	}
+
+	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		if row == 0 {
+			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+			return widget.Label{MaxLines: 1}.Layout(gtx, evs.Theme.Shaper, text.Font{Weight: text.Bold}, 12, columns[col])
+		} else {
+			ev := evs.filteredEvents[row-1]
+			var labelSpans []richtext.SpanStyle
+			switch col {
+			case 0:
+				labelSpans = []richtext.SpanStyle{
+					// FIXME(dh): we can't pad with spaces because the font is proportional. we can't pad with zeros
+					// because it looks shit. Ideally richtext would let us right-align the span.
+					span(fmt.Sprintf("% 13d ns", ev.Ts)),
+				}
+			case 1:
+				if ev.Type == trace.EvUserLog {
+					labelSpans = []richtext.SpanStyle{span(evs.Trace.Strings[ev.Args[1]])}
+				}
+			case 2:
+				switch ev.Type {
+				case trace.EvGoCreate:
+					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
+					labelSpans = []richtext.SpanStyle{
+						span("Created "),
+						spanWith(fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
+							s.Interactive = true
+							s.Color = blue
+							return s
+						}),
+					}
+				case trace.EvGoUnblock:
+					// XXX linkify goroutine ID, clicking it should scroll to the corresponding event in the unblocked
+					// goroutine
+					labelSpans = []richtext.SpanStyle{
+						span("Unblocked "),
+						spanWith(fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
+							s.Interactive = true
+							s.Color = blue
+							return s
+						}),
+					}
+				case trace.EvGoSysCall:
+					// XXX track syscalls in a separate list
+					// XXX try to extract syscall name from stack trace
+					labelSpans = []richtext.SpanStyle{
+						span("Syscall"),
+					}
+				case trace.EvUserLog:
+					labelSpans = []richtext.SpanStyle{span(evs.Trace.Strings[ev.Args[3]])}
+				default:
+					panic(fmt.Sprintf("unhandled type %v", ev.Type))
+				}
+			default:
+				panic("unreachable")
+			}
+			// TODO(dh): clicking the entry should jump to it on the timeline
+			// TODO(dh): hovering the entry should highlight the corresponding span marker
+			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+			return richtext.Text(&evs.richState, evs.Theme.Shaper, labelSpans...).Layout(gtx)
+		}
+	}
+
+	dims := outlay.FlowWrap{
+		Axis: layout.Horizontal,
+	}.Layout(gtx, 4, func(gtx layout.Context, i int) layout.Dimensions {
+		// XXX don't use the material package
+		// XXX use an array of booleans and labels instead of a switch
+		switch i {
+		case 0:
+			return material.CheckBox(evs.Theme, &evs.filter.ShowGoCreate, "Goroutine creations").Layout(gtx)
+		case 1:
+			return material.CheckBox(evs.Theme, &evs.filter.ShowGoUnblock, "Goroutine unblocks").Layout(gtx)
+		case 2:
+			return material.CheckBox(evs.Theme, &evs.filter.ShowGoSysCall, "Syscalls").Layout(gtx)
+		case 3:
+			return material.CheckBox(evs.Theme, &evs.filter.ShowUserLog, "User logs").Layout(gtx)
+		default:
+			panic("unreachable")
+		}
+	})
+
+	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
+	return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
+}
+
+func span(text string) richtext.SpanStyle {
+	return richtext.SpanStyle{
+		Content: text,
+		Size:    12,
+		Color:   toColor(0x000000FF),
+		Font:    goFonts[0].Font,
+	}
+}
+
+func spanWith(text string, fn func(richtext.SpanStyle) richtext.SpanStyle) richtext.SpanStyle {
+	return fn(span(text))
 }

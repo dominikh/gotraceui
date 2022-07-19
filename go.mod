@@ -3,7 +3,7 @@ module honnef.co/go/gotraceui
 go 1.18
 
 require (
-	gioui.org v0.0.0-20220701091628-2adf4efcbd45
+	gioui.org v0.0.0-20220710125950-53da73de35db
 	gioui.org/x v0.0.0-20220609132952-25f67b5b7e87
 )
 

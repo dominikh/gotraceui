@@ -16,7 +16,7 @@ type Event struct {
 	Ts    int64     // timestamp in nanoseconds
 	G     uint64    // G on which the event happened
 	StkID uint64    // unique stack ID
-	Args  [3]uint64 // event-type-specific arguments
+	Args  [4]uint64 // event-type-specific arguments
 	// linked event (can be nil), depends on event type:
 	// for GCStart: the GCStop
 	// for GCSTWStart: the GCSTWDone
@@ -76,10 +76,11 @@ type parser struct {
 	pcs         map[uint64]Frame
 
 	// state for parseEvent
-	lastTs int64
-	lastG  uint64
-	lastP  uint32
-	lastGs map[uint32]uint64 // last goroutine running on P
+	lastTs       int64
+	lastG        uint64
+	lastP        uint32
+	lastGs       map[uint32]uint64 // last goroutine running on P
+	logMessageID uint64
 }
 
 type batch struct {
@@ -459,7 +460,15 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		case EvUserRegion:
 			// e.Args 0: taskID, 1: mode, 2:nameID
 		case EvUserLog:
-			// e.Args 0: taskID, 1:keyID, 2: stackID
+			// e.Args 0: taskID, 1:keyID, 2: stackID, 3: messageID
+			// raw.sargs 0: message
+
+			// EvUserLog contains the message inline, not as a string ID. We turn it into an ID. String IDs are
+			// (currently) sequentially allocated and start from zero, so we count backwards starting from MaxUint64,
+			// hoping runtime IDs and our IDs will never meet.
+			p.logMessageID--
+			p.strings[p.logMessageID] = raw.sargs[0]
+			e.Args[3] = p.logMessageID
 		case EvCPUSample:
 			e.Ts = int64(e.Args[0])
 			e.P = uint32(e.Args[1])
