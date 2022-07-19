@@ -46,52 +46,39 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): display different cursor when we're panning
 // TODO(dh): processor timeline span tooltip should show goroutine function name
-
 // TODO(dh): color GC-related goroutines in the per-P timeline
-
 // TODO(dh): display number of spans in goroutine tooltip
-
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
-// rendering the tooltip alone takes ~16ms
-
+//   rendering the tooltip alone takes ~16ms
 // TODO(dh): add tooltip for processor timelines
-
 // TODO(dh): provide different sortings for goroutines. One user requested sorting by "amount of activity" but couldn't
-// define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
-// sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
-// "relatedness", keeping goroutines that interact a lot close together. But I reckon that'll require a lot of tuning
-// and experimentation to get right, especially once more than 2 goroutines interact.
-
+//   define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
+//   sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
+//   "relatedness", keeping goroutines that interact a lot close together. But I reckon that'll require a lot of tuning
+//   and experimentation to get right, especially once more than 2 goroutines interact.
 // TODO(dh): implement popup windows that can be used to customize UI settings. e.g. instead of needing different
-// shortcuts for toggling labels, compact mode, tooltips etc, have one shortcut that opens a menu that allows toggling
-// these features. maybe even use a radial menu? (probably not.)
-
+//   shortcuts for toggling labels, compact mode, tooltips etc, have one shortcut that opens a menu that allows toggling
+//   these features. maybe even use a radial menu? (probably not.)
 // TODO(dh): allow computing statistics for a selectable region of time
-
 // TODO(dh): hovering over spans in the goroutine timelines highlights goroutines in the processor timelines. that's a
-// happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
-// some events, like unblocking, that's the wrong G.
-
+//   happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
+//   some events, like unblocking, that's the wrong G.
 // TODO(dh): use the GC-purple color in the GC and STW timelines, as well as for the GC goroutines in the per-P
-// timelines.
-
+//   timelines.
 // TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
-// highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
-// span could highlight all the spans it unblocks.
-
+//   highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
+//   span could highlight all the spans it unblocks.
 // TODO(dh): toggleable overlay that shows STW and GC phases
-
 // TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
-// looking at an arbitrary goroutine.
-
+//   looking at an arbitrary goroutine.
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
-// GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
-// leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
-// goroutine. To avoid confusion, we should remove those stacks altogether.
-
+//   GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
+//   leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
+//   goroutine. To avoid confusion, we should remove those stacks altogether.
 // TODO(dh): Go 1.19 adds CPU samples to the execution trace (if profiling is enabled). This adds the new event
-// EvCPUSample, and updates the trace's version to Go 1.19.
+//   EvCPUSample, and updates the trace's version to Go 1.19.
 
 const debug = true
 const cpuprofiling = true
