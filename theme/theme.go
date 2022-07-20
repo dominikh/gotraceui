@@ -59,7 +59,7 @@ func ProgressBar(th *Theme, progress float32) ProgressBarStyle {
 }
 
 func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
-	return mywidget.Bordered{
+	return mywidget.Border{
 		Color: p.ForegroundColor,
 		Width: p.BorderWidth,
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -110,7 +110,7 @@ func (c CheckBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
 
 				ngtx := gtx
 				ngtx.Constraints = layout.Exact(image.Pt(sizePx, sizePx))
-				return mywidget.Bordered{
+				return mywidget.Border{
 					Color: c.ForegroundColor,
 					Width: 1,
 				}.Layout(ngtx, func(gtx layout.Context) layout.Dimensions {

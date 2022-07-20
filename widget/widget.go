@@ -14,12 +14,39 @@ import (
 	"gioui.org/widget"
 )
 
+// Bordered renders a widget and then draws a border around it, with constraints adjusted to make sure there is room for
+// the border.
 type Bordered struct {
 	Color color.NRGBA
 	Width unit.Dp
 }
 
 func (b Bordered) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	border := gtx.Dp(b.Width)
+
+	// XXX handle Max going negative or Max going smaller than Min
+	ngtx := gtx
+	ngtx.Constraints.Max.X -= 2 * border
+	ngtx.Constraints.Max.Y -= 2 * border
+
+	macro := op.Record(gtx.Ops)
+	dims := w(ngtx)
+	call := macro.Stop()
+
+	gtx.Constraints.Min = dims.Size.Add(image.Pt(2*border, 2*border))
+	return Border{Color: b.Color, Width: b.Width}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		call.Add(gtx.Ops)
+		return layout.Dimensions{Size: gtx.Constraints.Min}
+	})
+}
+
+// Border draws a border and renders a widget inside it, with constraints adjusted for the border.
+type Border struct {
+	Color color.NRGBA
+	Width unit.Dp
+}
+
+func (b Border) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	width := gtx.Dp(b.Width)
 
 	mx := gtx.Constraints.Min.X
@@ -35,16 +62,7 @@ func (b Bordered) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions 
 	paint.FillShape(gtx.Ops, b.Color, nwsw)
 	paint.FillShape(gtx.Ops, b.Color, swse)
 
-	size := gtx.Constraints.Min
-
-	defer op.Offset(image.Pt(width, width)).Push(gtx.Ops).Pop()
-	gtx.Constraints.Min.X -= 2 * width
-	gtx.Constraints.Min.Y -= 2 * width
-	gtx.Constraints.Max.X -= 2 * width
-	gtx.Constraints.Max.Y -= 2 * width
-	w(gtx)
-
-	return layout.Dimensions{Size: size}
+	return layout.UniformInset(b.Width).Layout(gtx, w)
 }
 
 type TextLine struct {

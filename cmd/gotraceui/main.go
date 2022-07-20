@@ -19,6 +19,7 @@ import (
 
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
+	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -430,6 +431,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 }
 
 func Stack(gtx layout.Context, widgets ...layout.Widget) {
+	// XXX we can probably replace this with layout.Flex
 	defer op.TransformOp{}.Push(gtx.Ops).Pop()
 	for _, w := range widgets {
 		dims := w(gtx)
@@ -731,8 +733,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 		if t == axis.tl.Start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
-			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := StrictLabel{}.Layout(gtx, axis.tl.App.theme.Shaper, text.Font{}, axis.tl.App.theme.TextSize, label)
+			dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.tl.App.theme.Shaper, text.Font{}, axis.tl.App.theme.TextSize, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -742,8 +743,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			macro := op.Record(gtx.Ops)
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
-			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := StrictLabel{}.Layout(gtx, axis.tl.App.theme.Shaper, text.Font{}, axis.tl.App.theme.TextSize, label)
+			dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.tl.App.theme.Shaper, text.Font{}, axis.tl.App.theme.TextSize, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -1087,8 +1087,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 
 		if aw.hovered || forceLabel {
-			paint.ColorOp{Color: colors[colorActivityLabel]}.Add(gtx.Ops)
-			labelDims := StrictLabel{}.Layout(gtx, aw.tl.App.theme.Shaper, text.Font{}, aw.tl.App.theme.TextSize, aw.label)
+			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(gtx, aw.tl.App.theme.Shaper, text.Font{}, aw.tl.App.theme.TextSize, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
@@ -1295,7 +1294,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 					}
 
 					macro := op.Record(labelsOps)
-					dims := StrictLabel{}.Layout(withOps(gtx, labelsOps), aw.tl.App.theme.Shaper, text.Font{Weight: text.ExtraBold}, aw.tl.App.theme.TextSize, label)
+					dims := mywidget.TextLine{Color: aw.tl.App.theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), aw.tl.App.theme.Shaper, text.Font{Weight: text.ExtraBold}, aw.tl.App.theme.TextSize, label)
 					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
 						// This label doesn't fit. If the callback provided more labels, try those instead.
 						macro.Stop()
@@ -2867,13 +2866,6 @@ func (w *ListWindow[T]) Confirmed() (T, bool) {
 	return w.items[w.filtered[w.index]].item, true
 }
 
-type StrictLabel struct{}
-
-func (StrictLabel) Layout(gtx layout.Context, s text.Shaper, font text.Font, size unit.Sp, txt string) layout.Dimensions {
-	gtx.Constraints.Max.X = math.MaxInt
-	return widget.Label{}.Layout(gtx, s, font, size, txt)
-}
-
 func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -2881,26 +2873,29 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 
 	var spy *eventx.Spy
 
-	dims := Bordered(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := mywidget.Bordered{Color: colors[colorWindowBorder], Width: windowBorderDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		spy, gtx = eventx.Enspy(gtx)
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+
+		paint.Fill(gtx.Ops, w.theme.Palette.Background)
 
 		fn2 := func(gtx layout.Context) layout.Dimensions {
 			return theme.List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
 				// XXX use constants for colors
 				item := &w.items[w.filtered[index]]
 				return item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					var c color.NRGBA
 					if index == w.index {
 						// XXX make this pretty, don't just change the font color
-						paint.ColorOp{Color: toColor(0xFF0000FF)}.Add(gtx.Ops)
+						c = toColor(0xFF0000FF)
 					} else if item.click.Hovered() {
 						// XXX make this pretty, don't just change the font color
-						paint.ColorOp{Color: toColor(0xFF00FFFF)}.Add(gtx.Ops)
+						c = toColor(0xFF00FFFF)
 					} else {
-						paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+						c = toColor(0x000000FF)
 					}
-					return StrictLabel{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.s)
+					return mywidget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.s)
 				})
 			})
 		}
@@ -3075,30 +3070,8 @@ func (notif *Notification) Layout(gtx layout.Context) layout.Dimensions {
 	return dims
 }
 
-func Bordered(gtx layout.Context, w layout.Widget) layout.Dimensions {
-	border := gtx.Dp(windowBorderDp)
-
-	ngtx := gtx
-	ngtx.Constraints.Max.X -= 2 * border
-	ngtx.Constraints.Max.Y -= 2 * border
-
-	macro := op.Record(gtx.Ops)
-	dims := w(ngtx)
-	call := macro.Stop()
-
-	outerDims := dims
-	outerDims.Size.X += 2 * border
-	outerDims.Size.Y += 2 * border
-	paint.FillShape(gtx.Ops, colors[colorWindowBorder], clip.Rect{Max: outerDims.Size}.Op())
-	defer op.Offset(image.Pt(border, border)).Push(gtx.Ops).Pop()
-	paint.FillShape(gtx.Ops, toColor(0xFFFFFFFF), clip.Rect{Max: dims.Size}.Op())
-
-	call.Add(gtx.Ops)
-	return outerDims
-}
-
 func BorderedText(gtx layout.Context, th *theme.Theme, s string) layout.Dimensions {
-	return Bordered(gtx, func(gtx layout.Context) layout.Dimensions {
+	return mywidget.Bordered{Color: colors[colorWindowBorder], Width: windowBorderDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		var padding = gtx.Dp(windowPaddingDp)
 
