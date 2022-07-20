@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 
 	"gioui.org/app"
@@ -33,7 +34,6 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
-	"gioui.org/widget/material"
 	"gioui.org/x/eventx"
 	"gioui.org/x/outlay"
 	"gioui.org/x/richtext"
@@ -47,6 +47,7 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// FIXME(dh): don't draw our cursor on top of the scrollbar
 // TODO(dh): display different cursor when we're panning
 // TODO(dh): processor timeline span tooltip should show goroutine function name
 // TODO(dh): color GC-related goroutines in the per-P timeline
@@ -92,22 +93,19 @@ const (
 	tickHeightDp           unit.Dp = 12
 	tickWidthDp            unit.Dp = 1
 	minTickLabelDistanceDp unit.Dp = 8
-	tickLabelFontSizeSp    unit.Sp = 14
 
 	// XXX the label height depends on the font used
-	activityLabelHeightDp   unit.Dp = 20
-	activityStateHeightDp   unit.Dp = 16
-	activityGapDp           unit.Dp = 5
-	activityHeightDp        unit.Dp = activityStateHeightDp + activityLabelHeightDp
-	activityLabelFontSizeSp unit.Sp = 14
+	activityLabelHeightDp unit.Dp = 20
+	activityStateHeightDp unit.Dp = 16
+	activityGapDp         unit.Dp = 5
+	activityHeightDp      unit.Dp = activityStateHeightDp + activityLabelHeightDp
 
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
 	spanBorderWidthDp unit.Dp = 1
 
-	windowFontSizeSp unit.Sp = 14
-	windowPaddingDp  unit.Dp = 2
-	windowBorderDp   unit.Dp = 2
+	windowPaddingDp unit.Dp = 2
+	windowBorderDp  unit.Dp = 2
 )
 
 type reusableOps struct {
@@ -152,7 +150,6 @@ type Timeline struct {
 	Y int
 	// All activities. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
 	Activities []*ActivityWidget
-	Theme      *material.Theme
 	Scrollbar  widget.Scrollbar
 	Axis       Axis
 
@@ -735,7 +732,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := StrictLabel{}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := StrictLabel{}.Layout(gtx, axis.tl.App.theme.Shaper, text.Font{}, axis.tl.App.theme.TextSize, label)
 			if dims.Size.Y > labelHeight {
 				labelHeight = dims.Size.Y
 			}
@@ -746,7 +743,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			// TODO separate value and unit symbol with a space
 			label := labels[i]
 			paint.ColorOp{Color: colors[colorTickLabel]}.Add(gtx.Ops)
-			dims := StrictLabel{}.Layout(gtx, axis.tl.Theme.Shaper, text.Font{}, tickLabelFontSizeSp, label)
+			dims := StrictLabel{}.Layout(gtx, axis.tl.App.theme.Shaper, text.Font{}, axis.tl.App.theme.TextSize, label)
 			call := macro.Stop()
 
 			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
@@ -856,7 +853,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	return &ActivityWidget{
 		AllSpans: g.Spans,
 		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
-			GoroutineTooltip{g, aw.tl.Theme.Shaper}.Layout(gtx)
+			GoroutineTooltip{g, aw.tl.App.theme}.Layout(gtx)
 		},
 		SpanLabel: func(aw *ActivityWidget, spans []Span) []string {
 			if len(spans) != 1 {
@@ -879,6 +876,7 @@ func (a *Application) openGoroutineWindow(g *Goroutine) {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
 		win := &GoroutineWindow{
+			Theme: a.theme,
 			Trace: a.trace,
 			G:     g,
 		}
@@ -903,7 +901,7 @@ func (a *Application) openGoroutineStats(g *Goroutine) {
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
-		win := &GoroutineStats{G: g}
+		win := &GoroutineStats{G: g, theme: a.theme}
 		a.goroutineStatWindows[g.ID] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
@@ -1090,7 +1088,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 		if aw.hovered || forceLabel {
 			paint.ColorOp{Color: colors[colorActivityLabel]}.Add(gtx.Ops)
-			labelDims := StrictLabel{}.Layout(gtx, aw.tl.Theme.Shaper, text.Font{}, activityLabelFontSizeSp, aw.label)
+			labelDims := StrictLabel{}.Layout(gtx, aw.tl.App.theme.Shaper, text.Font{}, aw.tl.App.theme.TextSize, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
@@ -1297,7 +1295,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 					}
 
 					macro := op.Record(labelsOps)
-					dims := StrictLabel{}.Layout(withOps(gtx, labelsOps), aw.tl.Theme.Shaper, text.Font{Weight: text.ExtraBold}, 12, label)
+					dims := StrictLabel{}.Layout(withOps(gtx, labelsOps), aw.tl.App.theme.Shaper, text.Font{Weight: text.ExtraBold}, aw.tl.App.theme.TextSize, label)
 					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
 						// This label doesn't fit. If the callback provided more labels, try those instead.
 						macro.Stop()
@@ -1420,7 +1418,7 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 		totalHeight := float32((len(tl.Activities) + 1) * (activityHeight + activityGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
 		offset := float32(tl.Y) / totalHeight
-		sb := material.Scrollbar(tl.Theme, &tl.Scrollbar)
+		sb := theme.Scrollbar(tl.App.theme, &tl.Scrollbar)
 		stack := op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(sb.Width()), 0)).Push(gtx.Ops)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 		stack.Pop()
@@ -1461,8 +1459,8 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 }
 
 type GoroutineTooltip struct {
-	G      *Goroutine
-	shaper text.Shaper
+	G     *Goroutine
+	theme *theme.Theme
 }
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
@@ -1546,7 +1544,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		gcAssistD, gcAssistPct,
 		runningD, runningPct)
 
-	return Tooltip{shaper: tt.shaper}.Layout(gtx, l)
+	return Tooltip{theme: tt.theme}.Layout(gtx, l)
 }
 
 type SpanTooltip struct {
@@ -1704,15 +1702,15 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += fmt.Sprintf("\nIn: %s", at)
 	}
 
-	return Tooltip{shaper: tt.tl.Theme.Shaper}.Layout(gtx, label)
+	return Tooltip{theme: tt.tl.App.theme}.Layout(gtx, label)
 }
 
 type Tooltip struct {
-	shaper text.Shaper
+	theme *theme.Theme
 }
 
 func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
-	return BorderedText(gtx, tt.shaper, l)
+	return BorderedText(gtx, tt.theme, l)
 }
 
 type Processor struct {
@@ -2273,7 +2271,7 @@ type Command struct {
 
 type Application struct {
 	win      *app.Window
-	theme    *material.Theme
+	theme    *theme.Theme
 	commands chan Command
 	tl       Timeline
 	trace    *Trace
@@ -2584,7 +2582,6 @@ func (a *Application) loadTrace(t *Trace) {
 		App:   a,
 		Start: start,
 		End:   end,
-		Theme: a.theme,
 		Gs:    gsByID,
 	}
 	a.tl.Activity.ShowTooltipsNotification.Theme = a.theme
@@ -2608,8 +2605,7 @@ func (a *Application) loadTrace(t *Trace) {
 }
 
 func (a *Application) run() error {
-	a.theme = material.NewTheme(gofont.Collection())
-	a.tl.Theme = a.theme
+	a.theme = theme.NewTheme(gofont.Collection())
 	a.tl.Axis.tl = &a.tl
 
 	profileTag := new(int)
@@ -2670,7 +2666,7 @@ func (a *Application) run() error {
 				case "error":
 					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
 					m := op.Record(gtx.Ops)
-					dims := widget.Label{}.Layout(gtx, a.theme.Shaper, text.Font{}, 14, fmt.Sprintf("Error: %s", err))
+					dims := widget.Label{}.Layout(gtx, a.theme.Shaper, text.Font{}, a.theme.TextSize, fmt.Sprintf("Error: %s", err))
 					call := m.Stop()
 					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
 					call.Add(gtx.Ops)
@@ -2678,9 +2674,17 @@ func (a *Application) run() error {
 				case "loadingTrace":
 					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
 					m := op.Record(gtx.Ops)
-					dims := widget.Label{}.Layout(gtx, a.theme.Shaper, text.Font{}, 14, "Loading trace...")
+					dims := widget.Label{}.Layout(gtx, a.theme.Shaper, text.Font{}, a.theme.TextSize, "Loading trace...")
 					op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
-					Constrain(gtx, clip.Rect{Max: image.Pt(dims.Size.X, 5)}, material.ProgressBar(a.theme, progress).Layout)
+
+					func() {
+						gtx := gtx
+						gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
+						gtx.Constraints.Max = gtx.Constraints.Min
+						// XXX reuse existing theme
+						theme.ProgressBar(a.theme, progress).Layout(gtx)
+					}()
+
 					call := m.Stop()
 					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
 					call.Add(gtx.Ops)
@@ -2820,12 +2824,12 @@ type ListWindow[T fmt.Stringer] struct {
 	done      bool
 	cancelled bool
 
-	theme *material.Theme
+	theme *theme.Theme
 	input widget.Editor
 	list  widget.List
 }
 
-func NewListWindow[T fmt.Stringer](th *material.Theme) *ListWindow[T] {
+func NewListWindow[T fmt.Stringer](th *theme.Theme) *ListWindow[T] {
 	return &ListWindow[T]{
 		theme: th,
 		input: widget.Editor{
@@ -2883,7 +2887,7 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 
 		fn2 := func(gtx layout.Context) layout.Dimensions {
-			return material.List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
+			return theme.List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
 				// XXX use constants for colors
 				item := &w.items[w.filtered[index]]
 				return item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -2896,7 +2900,7 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
 					}
-					return StrictLabel{}.Layout(gtx, w.theme.Shaper, text.Font{}, 14, item.s)
+					return StrictLabel{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.s)
 				})
 			})
 		}
@@ -2904,7 +2908,7 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 		flex := layout.Flex{
 			Axis: layout.Vertical,
 		}
-		editor := material.Editor(w.theme, &w.input, "")
+		editor := theme.Editor(w.theme, &w.input, "")
 		editor.Editor.Focus()
 		return flex.Layout(gtx, layout.Rigid(editor.Layout), layout.Flexed(1, fn2))
 	})
@@ -3040,7 +3044,7 @@ func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 }
 
 type Notification struct {
-	Theme   *material.Theme
+	Theme   *theme.Theme
 	message string
 	shownAt time.Time
 }
@@ -3060,7 +3064,7 @@ func (notif *Notification) Layout(gtx layout.Context) layout.Dimensions {
 	ngtx := gtx
 	ngtx.Constraints.Max.X = 500
 	macro := op.Record(gtx.Ops)
-	dims := BorderedText(ngtx, notif.Theme.Shaper, notif.message)
+	dims := BorderedText(ngtx, notif.Theme, notif.message)
 	call := macro.Stop()
 
 	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
@@ -3093,14 +3097,14 @@ func Bordered(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	return outerDims
 }
 
-func BorderedText(gtx layout.Context, shaper text.Shaper, s string) layout.Dimensions {
+func BorderedText(gtx layout.Context, th *theme.Theme, s string) layout.Dimensions {
 	return Bordered(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		var padding = gtx.Dp(windowPaddingDp)
 
 		macro := op.Record(gtx.Ops)
 		paint.ColorOp{Color: colors[colorWindowText]}.Add(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, shaper, text.Font{}, windowFontSizeSp, s)
+		dims := widget.Label{}.Layout(gtx, th.Shaper, text.Font{}, th.TextSize, s)
 		call := macro.Stop()
 
 		total := clip.Rect{
@@ -3178,7 +3182,7 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.C
 
 // XXX I think outlay.Grid behaves incorrectly with locked rows, rendering fewer rows than it should
 
-func table(gtx layout.Context, th *material.Theme, g *Goroutine) layout.Dimensions {
+func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions {
 	grid := SmallGrid{
 		RowPadding:    10,
 		ColumnPadding: 10,
@@ -3237,7 +3241,7 @@ func table(gtx layout.Context, th *material.Theme, g *Goroutine) layout.Dimensio
 			l := statLabels[col]
 			// XXX make sure we really don't wrap
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{Weight: text.Bold}, 12, l)
+			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{Weight: text.Bold}, th.TextSize, l)
 		} else {
 			row--
 			n := mapping[row]
@@ -3273,7 +3277,7 @@ func table(gtx layout.Context, th *material.Theme, g *Goroutine) layout.Dimensio
 
 			// XXX make sure we really don't wrap
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{}, 12, l)
+			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{}, th.TextSize, l)
 		}
 	}
 
@@ -3331,11 +3335,11 @@ type Window interface {
 }
 
 type GoroutineStats struct {
-	G *Goroutine
+	G     *Goroutine
+	theme *theme.Theme
 }
 
 func (gs *GoroutineStats) Run(win *app.Window) error {
-	theme := material.NewTheme(gofont.Collection())
 	var ops op.Ops
 
 	var setSize bool
@@ -3350,7 +3354,7 @@ func (gs *GoroutineStats) Run(win *app.Window) error {
 				gtx := layout.NewContext(&ops, ev)
 				gtx.Constraints.Min = image.Point{}
 				paint.Fill(gtx.Ops, colors[colorBackground])
-				dims := table(gtx, theme, gs.G)
+				dims := table(gtx, gs.theme, gs.G)
 
 				if !setSize {
 					width := unit.Dp(math.Round(float64(float32(dims.Size.X) / gtx.Metric.PxPerDp)))
@@ -3366,14 +3370,13 @@ func (gs *GoroutineStats) Run(win *app.Window) error {
 }
 
 type GoroutineWindow struct {
+	Theme *theme.Theme
 	Trace *Trace
 	G     *Goroutine
 }
 
 func (gwin *GoroutineWindow) Run(win *app.Window) error {
-	theme := material.NewTheme(gofont.Collection())
-
-	events := Events{Trace: gwin.Trace, Theme: theme}
+	events := Events{Trace: gwin.Trace, Theme: gwin.Theme}
 	events.filter.ShowGoCreate.Value = true
 	events.filter.ShowGoUnblock.Value = true
 	events.filter.ShowGoSysCall.Value = true
@@ -3389,7 +3392,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	var ops op.Ops
 	eventsFoldable := Foldable{
 		Title: "Events",
-		Theme: theme,
+		Theme: gwin.Theme,
 	}
 	for {
 		select {
@@ -3418,7 +3421,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 type Foldable struct {
 	Title  string
 	Closed bool
-	Theme  *material.Theme
+	Theme  *theme.Theme
 
 	clickable widget.Clickable
 }
@@ -3440,7 +3443,7 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 		gtx.Constraints.Min.Y = 0
 		paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
 		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, f.Theme.Shaper, text.Font{Weight: text.Bold}, 12, l)
+		return widget.Label{MaxLines: 1}.Layout(gtx, f.Theme.Shaper, text.Font{Weight: text.Bold}, f.Theme.TextSize, l)
 
 	})
 	size = dims.Size
@@ -3466,7 +3469,7 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 }
 
 type Events struct {
-	Theme     *material.Theme
+	Theme     *theme.Theme
 	Trace     *Trace
 	AllEvents []*trace.Event
 	filter    struct {
@@ -3555,28 +3558,29 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, evs.Theme.Shaper, text.Font{Weight: text.Bold}, 12, columns[col])
+			return widget.Label{MaxLines: 1}.Layout(gtx, evs.Theme.Shaper, text.Font{Weight: text.Bold}, evs.Theme.TextSize, columns[col])
 		} else {
 			ev := evs.filteredEvents[row-1]
+			// XXX richtext wraps our spans if the window is too small
 			var labelSpans []richtext.SpanStyle
 			switch col {
 			case 0:
 				labelSpans = []richtext.SpanStyle{
 					// FIXME(dh): we can't pad with spaces because the font is proportional. we can't pad with zeros
 					// because it looks shit. Ideally richtext would let us right-align the span.
-					span(fmt.Sprintf("% 13d ns", ev.Ts)),
+					span(evs.Theme, fmt.Sprintf("% 13d ns", ev.Ts)),
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					labelSpans = []richtext.SpanStyle{span(evs.Trace.Strings[ev.Args[1]])}
+					labelSpans = []richtext.SpanStyle{span(evs.Theme, evs.Trace.Strings[ev.Args[1]])}
 				}
 			case 2:
 				switch ev.Type {
 				case trace.EvGoCreate:
 					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
 					labelSpans = []richtext.SpanStyle{
-						span("Created "),
-						spanWith(fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
+						span(evs.Theme, "Created "),
+						spanWith(evs.Theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
 							s.Interactive = true
 							s.Color = blue
 							return s
@@ -3586,8 +3590,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// XXX linkify goroutine ID, clicking it should scroll to the corresponding event in the unblocked
 					// goroutine
 					labelSpans = []richtext.SpanStyle{
-						span("Unblocked "),
-						spanWith(fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
+						span(evs.Theme, "Unblocked "),
+						spanWith(evs.Theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
 							s.Interactive = true
 							s.Color = blue
 							return s
@@ -3597,10 +3601,10 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// XXX track syscalls in a separate list
 					// XXX try to extract syscall name from stack trace
 					labelSpans = []richtext.SpanStyle{
-						span("Syscall"),
+						span(evs.Theme, "Syscall"),
 					}
 				case trace.EvUserLog:
-					labelSpans = []richtext.SpanStyle{span(evs.Trace.Strings[ev.Args[3]])}
+					labelSpans = []richtext.SpanStyle{span(evs.Theme, evs.Trace.Strings[ev.Args[3]])}
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}
@@ -3614,38 +3618,32 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	dims := outlay.FlowWrap{
-		Axis: layout.Horizontal,
-	}.Layout(gtx, 4, func(gtx layout.Context, i int) layout.Dimensions {
-		// XXX don't use the material package
-		// XXX use an array of booleans and labels instead of a switch
-		switch i {
-		case 0:
-			return material.CheckBox(evs.Theme, &evs.filter.ShowGoCreate, "Goroutine creations").Layout(gtx)
-		case 1:
-			return material.CheckBox(evs.Theme, &evs.filter.ShowGoUnblock, "Goroutine unblocks").Layout(gtx)
-		case 2:
-			return material.CheckBox(evs.Theme, &evs.filter.ShowGoSysCall, "Syscalls").Layout(gtx)
-		case 3:
-			return material.CheckBox(evs.Theme, &evs.filter.ShowUserLog, "User logs").Layout(gtx)
-		default:
-			panic("unreachable")
-		}
-	})
+	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowGoCreate, "Goroutine creations").Layout),
+		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+
+		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowGoUnblock, "Goroutine unblocks").Layout),
+		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+
+		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowGoSysCall, "Syscalls").Layout),
+		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+
+		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowUserLog, "User logs").Layout),
+	)
 
 	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
 	return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
 }
 
-func span(text string) richtext.SpanStyle {
+func span(th *theme.Theme, text string) richtext.SpanStyle {
 	return richtext.SpanStyle{
 		Content: text,
-		Size:    12,
+		Size:    th.TextSize,
 		Color:   toColor(0x000000FF),
 		Font:    goFonts[0].Font,
 	}
 }
 
-func spanWith(text string, fn func(richtext.SpanStyle) richtext.SpanStyle) richtext.SpanStyle {
-	return fn(span(text))
+func spanWith(th *theme.Theme, text string, fn func(richtext.SpanStyle) richtext.SpanStyle) richtext.SpanStyle {
+	return fn(span(th, text))
 }
