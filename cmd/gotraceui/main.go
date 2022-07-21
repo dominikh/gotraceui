@@ -147,55 +147,55 @@ type Timeline struct {
 	clickedGoroutineActivities []*Goroutine
 
 	// The region of the timeline that we're displaying, measured in nanoseconds
-	Start time.Duration
-	End   time.Duration
-	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.Y specifies the Y of that infinite
-	// canvas that the activity section's Y == 0 is displaying.
-	Y int
+	start time.Duration
+	end   time.Duration
+	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.y specifies the y of that infinite
+	// canvas that the activity section's y == 0 is displaying.
+	y int
 	// All activities. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
-	Activities []*ActivityWidget
-	Scrollbar  widget.Scrollbar
-	Axis       Axis
+	activities []*ActivityWidget
+	scrollbar  widget.Scrollbar
+	axis       Axis
 
-	Gs map[uint64]*Goroutine
+	gs map[uint64]*Goroutine
 
 	// State for dragging the timeline
-	Drag struct {
-		ClickAt f32.Point
-		Active  bool
-		Start   time.Duration
-		End     time.Duration
-		StartY  int
+	drag struct {
+		clickAt f32.Point
+		active  bool
+		start   time.Duration
+		end     time.Duration
+		startY  int
 	}
 
 	// State for zooming to a selection
-	ZoomSelection struct {
-		Active  bool
-		ClickAt f32.Point
+	zoomSelection struct {
+		active  bool
+		clickAt f32.Point
 	}
 
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float32
 
-	Global struct {
+	global struct {
 		cursorPos f32.Point
 	}
-	Activity struct {
-		DisplayAllLabels bool
-		Compact          bool
+	activity struct {
+		displayAllLabels bool
+		compact          bool
 		// Should tooltips be shown?
-		ShowTooltips             showTooltips
-		ShowTooltipsNotification Notification
+		showTooltips             showTooltips
+		showTooltipsNotification Notification
 
-		HoveredSpans []Span
+		hoveredSpans []Span
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
-		Start        time.Duration
-		End          time.Duration
-		Y            int
+		start        time.Duration
+		end          time.Duration
+		y            int
 		nsPerPx      float32
 		compact      bool
 		displayedAws []*ActivityWidget
@@ -212,25 +212,25 @@ func (tl *Timeline) unchanged() bool {
 		return false
 	}
 
-	return tl.prevFrame.Start == tl.Start &&
-		tl.prevFrame.End == tl.End &&
+	return tl.prevFrame.start == tl.start &&
+		tl.prevFrame.end == tl.end &&
 		tl.prevFrame.nsPerPx == tl.nsPerPx &&
-		tl.prevFrame.Y == tl.Y &&
-		tl.prevFrame.compact == tl.Activity.Compact
+		tl.prevFrame.y == tl.y &&
+		tl.prevFrame.compact == tl.activity.compact
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
-	tl.ZoomSelection.Active = true
-	tl.ZoomSelection.ClickAt = pos
+	tl.zoomSelection.active = true
+	tl.zoomSelection.clickAt = pos
 }
 
 func (tl *Timeline) abortZoomSelection() {
-	tl.ZoomSelection.Active = false
+	tl.zoomSelection.active = false
 }
 
 func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
-	tl.ZoomSelection.Active = false
-	one := tl.ZoomSelection.ClickAt.X
+	tl.zoomSelection.active = false
+	one := tl.zoomSelection.clickAt.X
 	two := pos.X
 	start := tl.pxToTs(min(one, two))
 	end := tl.pxToTs(max(one, two))
@@ -239,31 +239,31 @@ func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 		return
 	}
 
-	tl.Start = start
-	tl.End = end
+	tl.start = start
+	tl.end = end
 }
 
 func (tl *Timeline) startDrag(pos f32.Point) {
-	tl.Drag.ClickAt = pos
-	tl.Drag.Active = true
-	tl.Drag.Start = tl.Start
-	tl.Drag.End = tl.End
-	tl.Drag.StartY = tl.Y
+	tl.drag.clickAt = pos
+	tl.drag.active = true
+	tl.drag.start = tl.start
+	tl.drag.end = tl.end
+	tl.drag.startY = tl.y
 }
 
 func (tl *Timeline) endDrag() {
-	tl.Drag.Active = false
+	tl.drag.active = false
 }
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
-	td := time.Duration(round32(tl.nsPerPx * (tl.Drag.ClickAt.X - pos.X)))
-	tl.Start = tl.Drag.Start + td
-	tl.End = tl.Drag.End + td
+	td := time.Duration(round32(tl.nsPerPx * (tl.drag.clickAt.X - pos.X)))
+	tl.start = tl.drag.start + td
+	tl.end = tl.drag.end + td
 
-	yd := int(round32(tl.Drag.ClickAt.Y - pos.Y))
-	tl.Y = tl.Drag.StartY + yd
-	if tl.Y < 0 {
-		tl.Y = 0
+	yd := int(round32(tl.drag.clickAt.Y - pos.Y))
+	tl.y = tl.drag.startY + yd
+	if tl.y < 0 {
+		tl.y = 0
 	}
 	// XXX don't allow dragging tl.Y beyond the end
 }
@@ -275,8 +275,8 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 		ratio := at.X / float32(gtx.Constraints.Max.X)
 		ds := time.Duration(tl.nsPerPx * 100 * ratio)
 		de := time.Duration(tl.nsPerPx * 100 * (1 - ratio))
-		tl.Start += ds
-		tl.End -= de
+		tl.start += ds
+		tl.end -= de
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := at.X / float32(gtx.Constraints.Max.X)
@@ -291,24 +291,24 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 			de = 1
 		}
 
-		start := tl.Start - time.Duration(ds)
-		end := tl.End + time.Duration(de)
+		start := tl.start - time.Duration(ds)
+		end := tl.end + time.Duration(de)
 
 		// Limit timeline to roughly one day. There's rno reason to zoom out this far, and zooming out further will lead
 		// to edge cases and eventually overflow.
 		if end-start < 24*time.Hour {
-			tl.Start = start
-			tl.End = end
+			tl.start = start
+			tl.end = end
 		}
 	}
 
-	if tl.Start > tl.End {
-		tl.Start = tl.End - 1
+	if tl.start > tl.end {
+		tl.start = tl.end - 1
 	}
 }
 
 func (tl *Timeline) activityHeight(gtx layout.Context) int {
-	if tl.Activity.Compact {
+	if tl.activity.compact {
 		return gtx.Dp(activityHeightDp) - gtx.Dp(activityLabelHeightDp)
 	} else {
 		return gtx.Dp(activityHeightDp)
@@ -319,14 +319,14 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 	// Visible spans have to end after tl.Start and begin before tl.End
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.End > tl.Start
+		return s.end > tl.start
 	})
 	if start == len(spans) {
 		return nil
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.Start >= tl.End
+		return s.start >= tl.end
 	})
 
 	return spans[start:end]
@@ -334,12 +334,12 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 
 //gcassert:inline
 func (tl *Timeline) tsToPx(t time.Duration) float32 {
-	return float32(t-tl.Start) / tl.nsPerPx
+	return float32(t-tl.start) / tl.nsPerPx
 }
 
 //gcassert:inline
 func (tl *Timeline) pxToTs(px float32) time.Duration {
-	return time.Duration(round32(px*tl.nsPerPx + float32(tl.Start)))
+	return time.Duration(round32(px*tl.nsPerPx + float32(tl.start)))
 }
 
 type renderedSpansIterator struct {
@@ -360,13 +360,13 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	nsPerPx := float32(it.tl.nsPerPx)
 	minSpanWidthD := time.Duration(math.Ceil(float64(gtx.Dp(minSpanWidthDp)) * float64(nsPerPx)))
 	startOffset := offset
-	tlStart := it.tl.Start
+	tlStart := it.tl.start
 
 	s := &spans[offset]
 	offset++
 
-	start := s.Start
-	end := s.End
+	start := s.start
+	end := s.end
 	if it.prevEnd > start {
 		// The previous span was extended and grew into this span. This shifts our start position to the right.
 		start = it.prevEnd
@@ -392,8 +392,8 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := nextSpan.Start
-			nextEnd := nextSpan.End
+			nextStart := nextSpan.start
+			nextEnd := nextSpan.end
 			if adjustedEnd > nextStart {
 				// The current span would have to grow into the next span, making it smaller
 				nextStart = adjustedEnd
@@ -403,21 +403,21 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 				break
 			}
 
-			end = nextSpan.End
+			end = nextSpan.end
 		}
 
 		for ; offset < len(it.spans); offset++ {
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := nextSpan.Start
-			nextEnd := nextSpan.End
+			nextStart := nextSpan.start
+			nextEnd := nextSpan.end
 			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
 				break
 			}
 
-			end = nextSpan.End
+			end = nextSpan.end
 		}
 	}
 
@@ -446,30 +446,30 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	var first, last time.Duration = -1, -1
 	for _, gw := range tl.visibleActivities(gtx) {
-		if len(gw.AllSpans) == 0 {
+		if len(gw.allSpans) == 0 {
 			continue
 		}
-		if t := gw.AllSpans[0].Start; t < first || first == -1 {
+		if t := gw.allSpans[0].start; t < first || first == -1 {
 			first = t
 		}
-		if t := gw.AllSpans[len(gw.AllSpans)-1].End; t > last {
+		if t := gw.allSpans[len(gw.allSpans)-1].end; t > last {
 			last = t
 		}
 	}
 	if first != -1 && last == -1 {
 		panic("unreachable")
 	}
-	tl.Start = first
-	tl.End = last
+	tl.start = first
+	tl.end = last
 }
 
 func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	// OPT(dh): don't be O(n)
 	off := 0
-	for _, og := range tl.Activities {
+	for _, og := range tl.activities {
 		if g == og.item {
 			// TODO(dh): show goroutine at center of window, not the top
-			tl.Y = off
+			tl.y = off
 			return
 		}
 		off += tl.activityHeight(gtx) + gtx.Dp(activityGapDp)
@@ -488,25 +488,25 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					case ev.Modifiers&key.ModCtrl != 0:
 						tl.zoomToFitCurrentView(gtx)
 					case ev.Modifiers&key.ModShift != 0:
-						d := tl.End - tl.Start
-						tl.Start = 0
-						tl.End = tl.Start + d
+						d := tl.end - tl.start
+						tl.start = 0
+						tl.end = tl.start + d
 					case ev.Modifiers == 0:
-						tl.Y = 0
+						tl.y = 0
 					}
 
 				case "X":
-					tl.Activity.DisplayAllLabels = !tl.Activity.DisplayAllLabels
+					tl.activity.displayAllLabels = !tl.activity.displayAllLabels
 
 				case "C":
 					// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
-					tl.Activity.Compact = !tl.Activity.Compact
+					tl.activity.compact = !tl.activity.compact
 
 				case "T":
 					// TODO(dh): show an onscreen hint what setting we changed to
-					tl.Activity.ShowTooltips = (tl.Activity.ShowTooltips + 1) % (showTooltipsNone + 1)
+					tl.activity.showTooltips = (tl.activity.showTooltips + 1) % (showTooltipsNone + 1)
 					var s string
-					switch tl.Activity.ShowTooltips {
+					switch tl.activity.showTooltips {
 					case showTooltipsBoth:
 						s = "Showing all tooltips"
 					case showTooltipsSpans:
@@ -514,7 +514,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					case showTooltipsNone:
 						s = "Showing no tooltips"
 					}
-					tl.Activity.ShowTooltipsNotification.Show(gtx, s)
+					tl.activity.showTooltipsNotification.Show(gtx, s)
 
 				}
 			}
@@ -534,9 +534,9 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
 			case pointer.Drag:
-				tl.Global.cursorPos = ev.Position
-				if tl.Drag.Active {
-					if tl.Drag.Active {
+				tl.global.cursorPos = ev.Position
+				if tl.drag.active {
+					if tl.drag.active {
 						tl.dragTo(gtx, ev.Position)
 					}
 				}
@@ -545,15 +545,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				// For pointer.Release, ev.Buttons contains the buttons still being pressed, not the ones that have been
 				// released.
 				if ev.Buttons&pointer.ButtonTertiary == 0 {
-					if tl.Drag.Active {
+					if tl.drag.active {
 						tl.endDrag()
-					} else if tl.ZoomSelection.Active {
+					} else if tl.zoomSelection.active {
 						tl.endZoomSelection(gtx, ev.Position)
 					}
 				}
 
 			case pointer.Move:
-				tl.Global.cursorPos = ev.Position
+				tl.global.cursorPos = ev.Position
 			}
 		}
 	}
@@ -564,27 +564,27 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		activityHeight := tl.activityHeight(gtx)
 		activityGap := gtx.Dp(activityGapDp)
 		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		d := tl.Scrollbar.ScrollDistance()
-		totalHeight := float32(len(tl.Activities) * (activityHeight + activityGap))
-		tl.Y += int(round32(d * totalHeight))
-		if tl.Y < 0 {
-			tl.Y = 0
+		d := tl.scrollbar.ScrollDistance()
+		totalHeight := float32(len(tl.activities) * (activityHeight + activityGap))
+		tl.y += int(round32(d * totalHeight))
+		if tl.y < 0 {
+			tl.y = 0
 		}
 	}
 
-	tl.Activity.HoveredSpans = nil
+	tl.activity.hoveredSpans = nil
 	for _, gw := range tl.prevFrame.displayedAws {
-		if spans := gw.ClickedSpans; len(spans) > 0 {
-			start := spans[0].Start
-			end := spans[len(spans)-1].End
-			tl.Start = start
-			tl.End = end
+		if spans := gw.clickedSpans; len(spans) > 0 {
+			start := spans[0].start
+			end := spans[len(spans)-1].end
+			tl.start = start
+			tl.end = end
 			break
 		}
 	}
 	for _, gw := range tl.prevFrame.displayedAws {
-		if spans := gw.HoveredSpans; len(spans) > 0 {
-			tl.Activity.HoveredSpans = spans
+		if spans := gw.hoveredSpans; len(spans) > 0 {
+			tl.activity.hoveredSpans = spans
 			break
 		}
 	}
@@ -593,10 +593,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	// the visible area. that's generally fine, but means that zooming to a span, or to fit the visible goroutines, is
 	// off by a couple pixels.
 
-	tl.nsPerPx = float32(tl.End-tl.Start) / float32(gtx.Constraints.Max.X)
+	tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)
 
 	if debug {
-		if tl.End < tl.Start {
+		if tl.end < tl.start {
 			panic("XXX")
 		}
 	}
@@ -610,22 +610,22 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			pointer.Release |
 			pointer.Move,
 		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
-		Grab:         tl.Drag.Active,
+		Grab:         tl.drag.active,
 	}.Add(gtx.Ops)
 	key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
-	Stack(gtx, tl.Axis.Layout, func(gtx layout.Context) layout.Dimensions {
+	Stack(gtx, tl.axis.Layout, func(gtx layout.Context) layout.Dimensions {
 		dims, gws := tl.layoutActivities(gtx)
 		tl.prevFrame.displayedAws = gws
 		return dims
 	})
 
 	// Draw zoom selection
-	if tl.ZoomSelection.Active {
-		one := tl.ZoomSelection.ClickAt.X
-		two := tl.Global.cursorPos.X
+	if tl.zoomSelection.active {
+		one := tl.zoomSelection.clickAt.X
+		two := tl.global.cursorPos.X
 		rect := FRect{
 			Min: f32.Pt(min(one, two), 0),
 			Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
@@ -635,19 +635,19 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	// Draw cursor
 	rect := clip.Rect{
-		Min: image.Pt(int(round32(tl.Global.cursorPos.X)), 0),
-		Max: image.Pt(int(round32(tl.Global.cursorPos.X+1)), gtx.Constraints.Max.Y),
+		Min: image.Pt(int(round32(tl.global.cursorPos.X)), 0),
+		Max: image.Pt(int(round32(tl.global.cursorPos.X+1)), gtx.Constraints.Max.Y),
 	}
 	paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-	tl.Activity.ShowTooltipsNotification.Layout(gtx)
+	tl.activity.showTooltipsNotification.Layout(gtx)
 
-	tl.prevFrame.Start = tl.Start
-	tl.prevFrame.End = tl.End
+	tl.prevFrame.start = tl.start
+	tl.prevFrame.end = tl.end
 	tl.prevFrame.nsPerPx = tl.nsPerPx
-	tl.prevFrame.Y = tl.Y
-	tl.prevFrame.compact = tl.Activity.Compact
-	tl.prevFrame.hoveredSpans = tl.Activity.HoveredSpans
+	tl.prevFrame.y = tl.y
+	tl.prevFrame.compact = tl.activity.compact
+	tl.prevFrame.hoveredSpans = tl.activity.hoveredSpans
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -692,15 +692,15 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 		// Panning only changes the first label
 		labels = axis.prevFrame.labels
 		// TODO print thousands separator
-		labels[0] = fmt.Sprintf("%d ns", axis.tl.Start)
+		labels[0] = fmt.Sprintf("%d ns", axis.tl.start)
 	} else {
-		for t := axis.tl.Start; t < axis.tl.End; t += tickInterval {
-			if t == axis.tl.Start {
+		for t := axis.tl.start; t < axis.tl.end; t += tickInterval {
+			if t == axis.tl.start {
 				// TODO print thousands separator
 				labels = append(labels, fmt.Sprintf("%d ns", t))
 			} else {
 				// TODO separate value and unit symbol with a space
-				labels = append(labels, fmt.Sprintf("+%s", t-axis.tl.Start))
+				labels = append(labels, fmt.Sprintf("+%s", t-axis.tl.start))
 			}
 		}
 		axis.prevFrame.labels = labels
@@ -719,7 +719,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	var ticksPath clip.Path
 	ticksPath.Begin(axis.ticksOps.get())
 	i := 0
-	for t := axis.tl.Start; t < axis.tl.End; t += tickInterval {
+	for t := axis.tl.start; t < axis.tl.end; t += tickInterval {
 		start := axis.tl.tsToPx(t) - tickWidth/2
 		end := axis.tl.tsToPx(t) + tickWidth/2
 		rect := FRect{
@@ -742,7 +742,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 			rect.IntoPath(&ticksPath)
 		}
 
-		if t == axis.tl.Start {
+		if t == axis.tl.start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, text.Font{}, axis.theme.TextSize, label)
@@ -777,28 +777,26 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 
 type ActivityWidget struct {
 	// Inputs
-	AllSpans        []Span
-	WidgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
-	HighlightSpan   func(aw *ActivityWidget, spans []Span) bool
-	InvalidateCache func(aw *ActivityWidget) bool
-	SpanLabel       func(aw *ActivityWidget, spans []Span) []string
+	allSpans        []Span
+	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
+	highlightSpan   func(aw *ActivityWidget, spans []Span) bool
+	invalidateCache func(aw *ActivityWidget) bool
+	spanLabel       func(aw *ActivityWidget, spans []Span) []string
+	trace           *Trace
+	theme           *theme.Theme
+	tl              *Timeline
+	item            any
+	label           string
 
 	labelClicks int
-
-	trace *Trace
-	theme *theme.Theme
-
-	tl    *Timeline
-	item  any
-	label string
 
 	pointerAt       f32.Point
 	hovered         bool
 	hoveredActivity bool
 	hoveredLabel    bool
 
-	ClickedSpans []Span
-	HoveredSpans []Span
+	clickedSpans []Span
+	hoveredSpans []Span
 
 	// op lists get reused between frames to avoid generating garbage
 	ops          [colorStateLast]op.Ops
@@ -831,7 +829,7 @@ func (aw *ActivityWidget) LabelClicked() bool {
 
 func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *ActivityWidget {
 	return &ActivityWidget{
-		AllSpans: spans,
+		allSpans: spans,
 		tl:       tl,
 		item:     spans,
 		label:    "GC",
@@ -842,7 +840,7 @@ func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *Act
 
 func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *ActivityWidget {
 	return &ActivityWidget{
-		AllSpans: spans,
+		allSpans: spans,
 		tl:       tl,
 		item:     spans,
 		label:    "STW",
@@ -872,22 +870,22 @@ var spanStateLabels = [...][]string{
 
 func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutine) *ActivityWidget {
 	var l string
-	if g.Function != "" {
-		l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
+	if g.function != "" {
+		l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
 	} else {
-		l = fmt.Sprintf("goroutine %d", g.ID)
+		l = fmt.Sprintf("goroutine %d", g.id)
 	}
 
 	return &ActivityWidget{
-		AllSpans: g.Spans,
-		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
+		allSpans: g.spans,
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
 			GoroutineTooltip{g, th}.Layout(gtx)
 		},
-		SpanLabel: func(aw *ActivityWidget, spans []Span) []string {
+		spanLabel: func(aw *ActivityWidget, spans []Span) []string {
 			if len(spans) != 1 {
 				return nil
 			}
-			return spanStateLabels[spans[0].State]
+			return spanStateLabels[spans[0].state]
 		},
 		theme: th,
 		trace: trace,
@@ -898,84 +896,84 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutin
 }
 
 func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
-	_, ok := w.goroutineStatWindows[g.ID]
+	_, ok := w.goroutineStatWindows[g.id]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
 		win := &GoroutineWindow{
 			// Note that we cannot use a.theme, because text.Shaper isn't safe for concurrent use.
-			Theme: theme.NewTheme(gofont.Collection()),
-			Trace: w.trace,
-			G:     g,
+			theme: theme.NewTheme(gofont.Collection()),
+			trace: w.trace,
+			g:     g,
 		}
-		w.goroutineWindows[g.ID] = win
+		w.goroutineWindows[g.id] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
-		if g.Function != "" {
-			l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
+		if g.function != "" {
+			l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
 		} else {
-			l = fmt.Sprintf("goroutine %d", g.ID)
+			l = fmt.Sprintf("goroutine %d", g.id)
 		}
 		go func() {
 			// XXX handle error?
 			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
-			w.notifyGoroutineWindowClosed <- g.ID
+			w.notifyGoroutineWindowClosed <- g.id
 		}()
 	}
 }
 
 func (w *MainWindow) openGoroutineStats(g *Goroutine) {
-	_, ok := w.goroutineStatWindows[g.ID]
+	_, ok := w.goroutineStatWindows[g.id]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
-		win := &GoroutineStats{G: g, theme: w.theme}
-		w.goroutineStatWindows[g.ID] = win
+		win := &GoroutineStats{g: g, theme: w.theme}
+		w.goroutineStatWindows[g.id] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
-		if g.Function != "" {
-			l = fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
+		if g.function != "" {
+			l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
 		} else {
-			l = fmt.Sprintf("goroutine %d", g.ID)
+			l = fmt.Sprintf("goroutine %d", g.id)
 		}
 		go func() {
 			// XXX handle error?
 			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
-			w.notifyGoroutineStatWindowClosed <- g.ID
+			w.notifyGoroutineStatWindowClosed <- g.id
 		}()
 	}
 }
 
 func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processor) *ActivityWidget {
 	return &ActivityWidget{
-		AllSpans:      p.Spans,
-		WidgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
-		HighlightSpan: func(aw *ActivityWidget, spans []Span) bool {
-			if len(tl.Activity.HoveredSpans) != 1 {
+		allSpans:      p.spans,
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
+		highlightSpan: func(aw *ActivityWidget, spans []Span) bool {
+			if len(tl.activity.hoveredSpans) != 1 {
 				return false
 			}
 			// OPT(dh): don't be O(n)
-			o := tl.Activity.HoveredSpans[0]
+			o := tl.activity.hoveredSpans[0]
 			for _, s := range spans {
-				if s.Event.G == o.Event.G {
+				if s.event.G == o.event.G {
 					return true
 				}
 			}
 			return false
 		},
-		InvalidateCache: func(aw *ActivityWidget) bool {
-			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.Activity.HoveredSpans) == 0 {
+		invalidateCache: func(aw *ActivityWidget) bool {
+			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
 				// Nothing hovered in either frame.
 				return false
 			}
 
-			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.Activity.HoveredSpans) > 1 {
+			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.activity.hoveredSpans) > 1 {
 				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 				// frames, then nothing changes for rendering.
 				return false
 			}
 
-			if len(tl.prevFrame.hoveredSpans) != len(tl.Activity.HoveredSpans) {
+			if len(tl.prevFrame.hoveredSpans) != len(tl.activity.hoveredSpans) {
 				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 				// previously highlighted.
 				//
@@ -984,25 +982,25 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processo
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tl.prevFrame.hoveredSpans[0].Event.G != tl.Activity.HoveredSpans[0].Event.G {
+			if tl.prevFrame.hoveredSpans[0].event.G != tl.activity.hoveredSpans[0].event.G {
 				return true
 			}
 
 			return false
 		},
-		SpanLabel: func(aw *ActivityWidget, spans []Span) []string {
+		spanLabel: func(aw *ActivityWidget, spans []Span) []string {
 			if len(spans) != 1 {
 				return nil
 			}
 			// OPT(dh): cache the strings
 			out := make([]string, 3)
-			g := aw.tl.Gs[spans[0].Event.G]
-			if g.Function != "" {
-				out[0] = fmt.Sprintf("g%d: %s", g.ID, g.Function)
+			g := aw.tl.gs[spans[0].event.G]
+			if g.function != "" {
+				out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
 			} else {
-				out[0] = fmt.Sprintf("g%d", g.ID)
+				out[0] = fmt.Sprintf("g%d", g.id)
 			}
-			out[1] = fmt.Sprintf("g%d", g.ID)
+			out[1] = fmt.Sprintf("g%d", g.id)
 			out[2] = ""
 			return out
 
@@ -1010,7 +1008,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processo
 		tl:    tl,
 		item:  p,
 		trace: trace,
-		label: fmt.Sprintf("Processor %d", p.ID),
+		label: fmt.Sprintf("Processor %d", p.id),
 		theme: th,
 	}
 }
@@ -1022,8 +1020,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
-	aw.ClickedSpans = nil
-	aw.HoveredSpans = nil
+	aw.clickedSpans = nil
+	aw.hoveredSpans = nil
 
 	var trackClick bool
 
@@ -1068,7 +1066,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				}
 
 				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-					aw.ClickedSpans = aw.AllSpans
+					aw.clickedSpans = aw.allSpans
 				}
 			}
 		}
@@ -1084,7 +1082,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		!aw.prevFrame.hovered &&
 		forceLabel == aw.prevFrame.forceLabel &&
 		compact == aw.prevFrame.compact &&
-		(aw.InvalidateCache == nil || !aw.InvalidateCache(aw)) &&
+		(aw.invalidateCache == nil || !aw.invalidateCache(aw)) &&
 		topBorder == aw.prevFrame.topBorder {
 
 		// OPT(dh): instead of avoiding cached ops completely when the activity is hovered, draw the tooltip
@@ -1127,12 +1125,12 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			stack.Pop()
 		}
 
-		if aw.WidgetTooltip != nil && aw.tl.Activity.ShowTooltips == showTooltipsBoth && aw.hoveredLabel {
+		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.hoveredLabel {
 			// TODO have a gap between the cursor and the tooltip
 			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
 			macro := op.Record(gtx.Ops)
 			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
-			aw.WidgetTooltip(gtx, aw)
+			aw.widgetTooltip(gtx, aw)
 			stack.Pop()
 			call := macro.Stop()
 			op.Defer(gtx.Ops, call)
@@ -1174,15 +1172,15 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	doSpans := func(dspSpans []Span, startPx, endPx float32) {
 		if aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
 			if trackClick {
-				aw.ClickedSpans = dspSpans
+				aw.clickedSpans = dspSpans
 				trackClick = false
 			}
-			aw.HoveredSpans = dspSpans
+			aw.hoveredSpans = dspSpans
 		}
 
 		var c colorIndex
 		if len(dspSpans) == 1 {
-			c = stateColors[dspSpans[0].State]
+			c = stateColors[dspSpans[0].state]
 		} else {
 			c = colorStateMerged
 		}
@@ -1225,7 +1223,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		p.Close()
 
 		var tooltip *SpanTooltip
-		if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
+		if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
 			//gcassert:noescape
 			tooltip = &SpanTooltip{dspSpans, nil, aw.trace, aw.tl, aw.theme}
 		}
@@ -1235,7 +1233,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpans[0].Events
+			events := dspSpans[0].events
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(activityStateHeight) / 2
@@ -1283,8 +1281,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				eventsPath.LineTo(f32.Pt(minX, maxY))
 				eventsPath.Close()
 
-				if aw.tl.Activity.ShowTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= minX && aw.pointerAt.X < maxX {
-					tooltip.Events = events[oldi : i+1]
+				if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= minX && aw.pointerAt.X < maxX {
+					tooltip.events = events[oldi : i+1]
 				}
 			}
 		}
@@ -1300,7 +1298,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			op.Defer(gtx.Ops, call)
 		}
 
-		if aw.HighlightSpan != nil && aw.HighlightSpan(aw, dspSpans) {
+		if aw.highlightSpan != nil && aw.highlightSpan(aw, dspSpans) {
 			minP := minP
 			maxP := maxP
 			minP.Y += float32((activityStateHeight - spanBorderWidth*2) / 2)
@@ -1312,14 +1310,14 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			highlightPath.Close()
 		}
 
-		if len(dspSpans) == 1 && aw.SpanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
+		if len(dspSpans) == 1 && aw.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
 			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
 			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
 			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
 			// empty string to effectively display no label.
 			//
 			// We don't try to render a label for very small spans.
-			if labels := aw.SpanLabel(aw, dspSpans); len(labels) > 0 {
+			if labels := aw.spanLabel(aw, dspSpans); len(labels) > 0 {
 				for i, label := range labels {
 					if label == "" {
 						continue
@@ -1365,7 +1363,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		allDspSpans := aw.tl.prevFrame.dspSpans[aw][:0]
 		it := renderedSpansIterator{
 			tl:    aw.tl,
-			spans: aw.tl.visibleSpans(aw.AllSpans),
+			spans: aw.tl.visibleSpans(aw.allSpans),
 		}
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
@@ -1409,8 +1407,8 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 	end := -1
 	// OPT(dh): at least use binary search to find the range of activities we need to draw
 	// OPT(dh): we can probably compute the indices directly
-	for i := range tl.Activities {
-		y := (activityHeight+activityGap)*int(i) - tl.Y
+	for i := range tl.activities {
+		y := (activityHeight+activityGap)*int(i) - tl.y
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
 		if y < -activityHeight {
 			continue
@@ -1430,10 +1428,10 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 	}
 
 	if end == -1 {
-		end = len(tl.Activities)
+		end = len(tl.activities)
 	}
 
-	return tl.Activities[start:end]
+	return tl.activities[start:end]
 }
 
 func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
@@ -1446,10 +1444,10 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 	// not bring us out of alignment with the axis.
 	{
 		// TODO(dh): add another screen worth of activities so the user can scroll a bit further
-		totalHeight := float32((len(tl.Activities) + 1) * (activityHeight + activityGap))
+		totalHeight := float32((len(tl.activities) + 1) * (activityHeight + activityGap))
 		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
-		offset := float32(tl.Y) / totalHeight
-		sb := theme.Scrollbar(tl.theme, &tl.Scrollbar)
+		offset := float32(tl.y) / totalHeight
+		sb := theme.Scrollbar(tl.theme, &tl.scrollbar)
 		stack := op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(sb.Width()), 0)).Push(gtx.Ops)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 		stack.Pop()
@@ -1461,13 +1459,13 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 	// OPT(dh): at least use binary search to find the range of activities we need to draw
 	start := -1
 	end := -1
-	for i, gw := range tl.Activities {
+	for i, gw := range tl.activities {
 		if gw.LabelClicked() {
 			if g, ok := gw.item.(*Goroutine); ok {
 				tl.clickedGoroutineActivities = append(tl.clickedGoroutineActivities, g)
 			}
 		}
-		y := (activityHeight+activityGap)*int(i) - tl.Y
+		y := (activityHeight+activityGap)*int(i) - tl.y
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
 		if y < -activityHeight {
 			continue
@@ -1481,33 +1479,33 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		topBorder := i > 0 && tl.Activities[i-1].hovered
-		gw.Layout(gtx, tl.Activity.DisplayAllLabels, tl.Activity.Compact, topBorder)
+		topBorder := i > 0 && tl.activities[i-1].hovered
+		gw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
 		stack.Pop()
 	}
 
 	var out []*ActivityWidget
 	if start != -1 {
-		out = tl.Activities[start : end+1]
+		out = tl.activities[start : end+1]
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
 }
 
 type GoroutineTooltip struct {
-	G     *Goroutine
+	g     *Goroutine
 	theme *theme.Theme
 }
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
-	start := tt.G.Spans[0].Start
-	end := tt.G.Spans[len(tt.G.Spans)-1].End
+	start := tt.g.spans[0].start
+	end := tt.g.spans[len(tt.g.spans)-1].end
 	d := end - start
 
 	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
 	var blockedD, inactiveD, runningD, gcAssistD time.Duration
-	for _, s := range tt.G.Spans {
-		switch s.State {
+	for _, s := range tt.g.spans {
+		switch s.state {
 		case stateInactive:
 			inactiveD += s.Duration()
 		case stateActive, stateGCDedicated, stateGCIdle:
@@ -1549,7 +1547,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		case stateDone:
 		default:
 			if debug {
-				panic(fmt.Sprintf("unknown state %d", s.State))
+				panic(fmt.Sprintf("unknown state %d", s.state))
 			}
 		}
 	}
@@ -1559,8 +1557,8 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	gcAssistPct := float32(gcAssistD) / float32(d) * 100
 	var fnName string
 	line1 := "Goroutine %[1]d\n\n"
-	if tt.G.Function != "" {
-		fnName = tt.G.Function
+	if tt.g.function != "" {
+		fnName = tt.g.function
 		line1 = "Goroutine %[1]d: %[2]s\n\n"
 	}
 	l := fmt.Sprintf(line1+
@@ -1571,7 +1569,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		"Time in inactive states: %[8]s (%.2[9]f%%)\n"+
 		"Time in GC assist: %[10]s (%.2[11]f%%)\n"+
 		"Time in running states: %[12]s (%.2[13]f%%)",
-		tt.G.ID, fnName,
+		tt.g.id, fnName,
 		start,
 		end,
 		d,
@@ -1584,9 +1582,9 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type SpanTooltip struct {
-	Spans  []Span
-	Events []*trace.Event
-	Trace  *Trace
+	spans  []Span
+	events []*trace.Event
+	trace  *Trace
 	tl     *Timeline
 	theme  *theme.Theme
 }
@@ -1604,15 +1602,15 @@ func dumpFrames(frames []*trace.Frame) {
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	label := "State: "
 	var at string
-	if len(tt.Spans) == 1 {
-		s := tt.Spans[0]
-		if at == "" && s.Stack > 0 {
-			at = tt.Trace.PCs[tt.Trace.Stacks[s.Stack][s.At]].Fn
+	if len(tt.spans) == 1 {
+		s := tt.spans[0]
+		if at == "" && s.stack > 0 {
+			at = tt.trace.PCs[tt.trace.Stacks[s.stack][s.at]].Fn
 		}
-		switch state := s.State; state {
+		switch state := s.state; state {
 		case stateInactive:
 			label += "inactive"
-			label += "\nReason: " + s.Reason
+			label += "\nReason: " + s.reason
 		case stateActive:
 			label += "active"
 		case stateGCDedicated:
@@ -1653,12 +1651,12 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "GC mark assist"
 		case stateGCSweep:
 			label += "GC sweep"
-			if s.Event.Link != -1 {
-				l := tt.Trace.Events[s.Event.Link]
+			if s.event.Link != -1 {
+				l := tt.trace.Events[s.event.Link]
 				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
 		case stateRunningG:
-			label += fmt.Sprintf("running goroutine %d", s.Event.G)
+			label += fmt.Sprintf("running goroutine %d", s.event.G)
 		default:
 			if debug {
 				panic(fmt.Sprintf("unhandled state %d", state))
@@ -1666,38 +1664,38 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		}
 
 		tags := make([]string, 0, 4)
-		if s.Tags&spanTagRead != 0 {
+		if s.tags&spanTagRead != 0 {
 			tags = append(tags, "read")
 		}
-		if s.Tags&spanTagAccept != 0 {
+		if s.tags&spanTagAccept != 0 {
 			tags = append(tags, "accept")
 		}
-		if s.Tags&spanTagDial != 0 {
+		if s.tags&spanTagDial != 0 {
 			tags = append(tags, "dial")
 		}
-		if s.Tags&spanTagNetwork != 0 {
+		if s.tags&spanTagNetwork != 0 {
 			tags = append(tags, "network")
 		}
-		if s.Tags&spanTagTCP != 0 {
+		if s.tags&spanTagTCP != 0 {
 			tags = append(tags, "TCP")
 		}
-		if s.Tags&spanTagTLS != 0 {
+		if s.tags&spanTagTLS != 0 {
 			tags = append(tags, "TLS")
 		}
-		if s.Tags&spanTagHTTP != 0 {
+		if s.tags&spanTagHTTP != 0 {
 			tags = append(tags, "HTTP")
 		}
 		if len(tags) != 0 {
 			label += " (" + strings.Join(tags, ", ") + ")"
 		}
 	} else {
-		label += fmt.Sprintf("mixed (%d spans)", len(tt.Spans))
+		label += fmt.Sprintf("mixed (%d spans)", len(tt.spans))
 	}
 	label += "\n"
 	{
-		if len(tt.Events) > 0 {
-			kind := tt.Events[0].Type
-			for _, ev := range tt.Events[1:] {
+		if len(tt.events) > 0 {
+			kind := tt.events[0].Type
+			for _, ev := range tt.events[1:] {
 				if ev.Type != kind {
 					kind = 255
 				}
@@ -1707,10 +1705,10 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 				switch kind {
 				case trace.EvGoSysCall:
 					noun = "syscalls"
-					if len(tt.Events) == 1 {
-						stk := tt.Trace.Stacks[tt.Events[0].StkID]
+					if len(tt.events) == 1 {
+						stk := tt.trace.Stacks[tt.events[0].StkID]
 						if len(stk) != 0 {
-							frame := tt.Trace.PCs[stk[0]]
+							frame := tt.trace.PCs[stk[0]]
 							noun += fmt.Sprintf(" (%s)", frame.Fn)
 						}
 					}
@@ -1723,15 +1721,15 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 						panic(fmt.Sprintf("unhandled kind %d", kind))
 					}
 				}
-				label += fmt.Sprintf("Events: %d %s\n", len(tt.Events), noun)
+				label += fmt.Sprintf("Events: %d %s\n", len(tt.events), noun)
 			} else {
-				label += fmt.Sprintf("Events: %d\n", len(tt.Events))
+				label += fmt.Sprintf("Events: %d\n", len(tt.events))
 			}
 		} else {
 			label += "Events: 0\n"
 		}
 	}
-	d := tt.Spans[len(tt.Spans)-1].End - tt.Spans[0].Start
+	d := tt.spans[len(tt.spans)-1].end - tt.spans[0].start
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != "" {
@@ -1752,8 +1750,8 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 }
 
 type Processor struct {
-	ID    uint32
-	Spans []Span
+	id    uint32
+	spans []Span
 }
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
@@ -1762,44 +1760,44 @@ type Processor struct {
 // time or should it display the same time, stretched to fill the new space? Tracy does the latter.
 
 type Goroutine struct {
-	ID       uint64
-	Function string
-	Spans    []Span
+	id       uint64
+	function string
+	spans    []Span
 }
 
 func (g *Goroutine) String() string {
 	// OPT(dh): cache this. especially because it gets called a lot by the goroutine selector window.
-	if g.Function == "" {
+	if g.function == "" {
 		// At least GCSweepStart can happen on g0
-		return fmt.Sprintf("goroutine %d", g.ID)
+		return fmt.Sprintf("goroutine %d", g.id)
 	} else {
-		return fmt.Sprintf("goroutine %d: %s", g.ID, g.Function)
+		return fmt.Sprintf("goroutine %d: %s", g.id, g.function)
 	}
 }
 
 type Span struct {
-	Start time.Duration
-	End   time.Duration
-	State schedulingState
-	Event *trace.Event
-	// TODO(dh): use an enum for Reason
-	Reason string
-	Events []*trace.Event
-	Stack  uint64
-	Tags   spanTags
-	At     int
+	start time.Duration
+	end   time.Duration
+	state schedulingState
+	event *trace.Event
+	// TODO(dh): use an enum for reason
+	reason string
+	events []*trace.Event
+	stack  uint64
+	tags   spanTags
+	at     int
 }
 
 //gcassert:inline
 func (s Span) Duration() time.Duration {
-	return s.End - s.Start
+	return s.end - s.start
 }
 
 type Trace struct {
-	Gs  []*Goroutine
-	Ps  []*Processor
-	GC  []Span
-	STW []Span
+	gs  []*Goroutine
+	ps  []*Processor
+	gc  []Span
+	stw []Span
 	trace.ParseResult
 }
 
@@ -1896,7 +1894,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		if ok {
 			return g
 		}
-		g = &Goroutine{ID: gid}
+		g = &Goroutine{id: gid}
 		gsByID[gid] = g
 		return g
 	}
@@ -1906,7 +1904,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		if ok {
 			return p
 		}
-		p = &Processor{ID: pid}
+		p = &Processor{id: pid}
 		psByID[pid] = p
 		return p
 	}
@@ -1920,11 +1918,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			return
 		}
 		g := getG(gid)
-		if len(g.Spans) == 0 {
+		if len(g.spans) == 0 {
 			panic(fmt.Sprintf("tried to add event %v, but gid %d has no spans", ev, gid))
 		}
-		s := &g.Spans[len(g.Spans)-1]
-		s.Events = append(s.Events, ev)
+		s := &g.spans[len(g.spans)-1]
+		s.events = append(s.events, ev)
 	}
 
 	for i := range res.Events {
@@ -1958,7 +1956,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			if ev.Args[1] != 0 {
 				stack := res.Stacks[ev.Args[1]]
 				if len(stack) != 0 {
-					getG(gid).Function = res.PCs[stack[0]].Fn
+					getG(gid).function = res.PCs[stack[0]].Fn
 				}
 			}
 			// FIXME(dh): when tracing starts after goroutines have already been created then we receive an EvGoCreate
@@ -2038,7 +2036,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = evTypeToState[ev.Type]
 
 			if ev.Type == trace.EvGoBlock {
-				if blockedIsInactive(gsByID[gid].Function) {
+				if blockedIsInactive(gsByID[gid].function) {
 					state = stateInactive
 				}
 			}
@@ -2046,7 +2044,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// ev.G is blocked when tracing starts
 			gid = ev.G
 			state = stateBlocked
-			if blockedIsInactive(gsByID[gid].Function) {
+			if blockedIsInactive(gsByID[gid].function) {
 				state = stateInactive
 			}
 		case trace.EvGoUnblock:
@@ -2120,22 +2118,22 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.StkID})
+			gc = append(gc, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev, stack: ev.StkID})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{Start: time.Duration(ev.Ts), State: stateActive, Event: ev, Stack: ev.StkID})
+			stw = append(stw, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev, stack: ev.StkID})
 			continue
 
 		case trace.EvGCDone:
 			// XXX verify that index isn't out of bounds
-			gc[len(gc)-1].End = time.Duration(ev.Ts)
+			gc[len(gc)-1].end = time.Duration(ev.Ts)
 			continue
 
 		case trace.EvGCSTWDone:
 			// Even though STW happens as part of GC, we can see EvGCSTWDone after EvGCDone.
 			// XXX verify that index isn't out of bounds
-			stw[len(stw)-1].End = time.Duration(ev.Ts)
+			stw[len(stw)-1].end = time.Duration(ev.Ts)
 			continue
 
 		case trace.EvHeapAlloc:
@@ -2168,13 +2166,13 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		}
 
 		if debug {
-			if s := getG(gid).Spans; len(s) > 0 {
-				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].State == stateInactive {
+			if s := getG(gid).spans; len(s) > 0 {
+				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].state == stateInactive {
 					// The execution trace emits GoCreate + GoWaiting for goroutines that already exist at the start of
 					// tracing if they're in a blocked state. This causes a transition from inactive to blocked, which we
 					// wouldn't normally permit.
 				} else {
-					prevState := s[len(s)-1].State
+					prevState := s[len(s)-1].state
 					if !legalStateTransitions[prevState][state] {
 						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, time %d", prevState, state, gid, ev.Ts))
 					}
@@ -2182,21 +2180,21 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{Start: time.Duration(ev.Ts), State: state, Event: ev, Reason: reason, Stack: ev.StkID}
+		s := Span{start: time.Duration(ev.Ts), state: state, event: ev, reason: reason, stack: ev.StkID}
 		if ev.Type == trace.EvGoSysBlock {
-			s.Stack = lastSyscall[ev.G]
+			s.stack = lastSyscall[ev.G]
 		}
 
-		getG(gid).Spans = append(getG(gid).Spans, s)
+		getG(gid).spans = append(getG(gid).spans, s)
 
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			p.Spans = append(p.Spans, Span{Start: time.Duration(ev.Ts), State: stateRunningG, Event: ev})
+			p.spans = append(p.spans, Span{start: time.Duration(ev.Ts), state: stateRunningG, event: ev})
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
-			p.Spans[len(p.Spans)-1].End = time.Duration(ev.Ts)
+			p.spans[len(p.spans)-1].end = time.Duration(ev.Ts)
 		}
 	}
 
@@ -2207,31 +2205,31 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		g := g
 		wg.Add(1)
 		go func() {
-			for i, s := range g.Spans {
-				if i != len(g.Spans)-1 {
-					s.End = g.Spans[i+1].Start
+			for i, s := range g.spans {
+				if i != len(g.spans)-1 {
+					s.end = g.spans[i+1].start
 				}
 
-				stack := res.Stacks[s.Stack]
+				stack := res.Stacks[s.stack]
 				s = applyPatterns(s, res.PCs, stack)
 
 				// move s.At out of the runtime
-				for s.At+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
-					s.At++
+				for s.at+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.at]].Fn, "runtime.") {
+					s.at++
 				}
 
-				g.Spans[i] = s
+				g.spans[i] = s
 			}
 
-			if len(g.Spans) != 0 {
-				last := g.Spans[len(g.Spans)-1]
-				if last.State == stateDone {
+			if len(g.spans) != 0 {
+				last := g.spans[len(g.spans)-1]
+				if last.state == stateDone {
 					// The goroutine has ended
 					// XXX the event probably has a stack associated with it, which we shouldn't discard.
-					g.Spans = g.Spans[:len(g.Spans)-1]
+					g.spans = g.spans[:len(g.spans)-1]
 				} else {
 					// XXX somehow encode open-ended traces
-					g.Spans[len(g.Spans)-1].End = time.Duration(res.Events[len(res.Events)-1].Ts)
+					g.spans[len(g.spans)-1].end = time.Duration(res.Events[len(res.Events)-1].Ts)
 				}
 			}
 
@@ -2243,13 +2241,13 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
 	for _, g := range gsByID {
-		if len(g.Spans) != 0 {
+		if len(g.spans) != 0 {
 			gs = append(gs, g)
 		}
 	}
 
 	sort.Slice(gs, func(i, j int) bool {
-		return gs[i].ID < gs[j].ID
+		return gs[i].id < gs[j].id
 	})
 
 	for _, p := range psByID {
@@ -2257,16 +2255,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	}
 
 	sort.Slice(ps, func(i, j int) bool {
-		return ps[i].ID < ps[j].ID
+		return ps[i].id < ps[j].id
 	})
 
-	return &Trace{Gs: gs, Ps: ps, GC: gc, STW: stw, ParseResult: res}, nil
+	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, ParseResult: res}, nil
 }
 
 type Command struct {
 	// TODO(dh): use an enum
-	Command string
-	Data    any
+	command string
+	data    any
 }
 
 type MainWindow struct {
@@ -2292,8 +2290,8 @@ func NewMainWindow() *MainWindow {
 	}
 
 	win.tl.theme = win.theme
-	win.tl.Axis.tl = &win.tl
-	win.tl.Activity.ShowTooltipsNotification.Theme = win.theme
+	win.tl.axis.tl = &win.tl
+	win.tl.activity.showTooltipsNotification.theme = win.theme
 
 	return win
 }
@@ -2312,16 +2310,16 @@ func (w *MainWindow) Run(win *app.Window) error {
 	for {
 		select {
 		case cmd := <-w.commands:
-			switch cmd.Command {
+			switch cmd.command {
 			case "setState":
-				state = cmd.Data.(string)
+				state = cmd.data.(string)
 				progress = 0.0
 				win.Invalidate()
 			case "setProgress":
-				progress = cmd.Data.(float32)
+				progress = cmd.data.(float32)
 				win.Invalidate()
 			case "loadTrace":
-				w.loadTrace(cmd.Data.(*Trace))
+				w.loadTrace(cmd.data.(*Trace))
 
 				state = "main"
 				progress = 0.0
@@ -2329,7 +2327,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 				ww = nil
 			case "error":
 				state = "error"
-				err = cmd.Data.(error)
+				err = cmd.data.(error)
 				progress = 0.0
 				win.Invalidate()
 			}
@@ -2383,11 +2381,11 @@ func (w *MainWindow) Run(win *app.Window) error {
 						case key.Event:
 							if ev.State == key.Press && ev.Name == "G" && ww == nil {
 								ww = NewListWindow[*Goroutine](w.theme)
-								ww.SetItems(w.trace.Gs)
-								ww.Filter = func(item *Goroutine, f string) bool {
+								ww.SetItems(w.trace.gs)
+								ww.filter = func(item *Goroutine, f string) bool {
 									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
 									// and allows matching goroutines by ID.
-									return strings.Contains(item.Function, f)
+									return strings.Contains(item.function, f)
 								}
 							}
 						}
@@ -2476,11 +2474,11 @@ func main() {
 		for {
 			select {
 			case cmd := <-commands:
-				switch cmd.Command {
+				switch cmd.command {
 				case "setState", "setProgress", "loadTrace", "error":
 					mwin.commands <- cmd
 				default:
-					panic(fmt.Sprintf("unknown command %s", cmd.Command))
+					panic(fmt.Sprintf("unknown command %s", cmd.command))
 				}
 			case err := <-errs:
 				if err != nil {
@@ -2731,17 +2729,17 @@ func toColor(c uint32) color.NRGBA {
 
 func (w *MainWindow) loadTrace(t *Trace) {
 	var end time.Duration
-	for _, g := range t.Gs {
-		if len(g.Spans) > 0 {
-			d := g.Spans[len(g.Spans)-1].End
+	for _, g := range t.gs {
+		if len(g.spans) > 0 {
+			d := g.spans[len(g.spans)-1].end
 			if d > end {
 				end = d
 			}
 		}
 	}
-	for _, p := range t.Ps {
-		if len(p.Spans) > 0 {
-			d := p.Spans[len(p.Spans)-1].End
+	for _, p := range t.ps {
+		if len(p.spans) > 0 {
+			d := p.spans[len(p.spans)-1].end
 			if d > end {
 				end = d
 			}
@@ -2755,25 +2753,25 @@ func (w *MainWindow) loadTrace(t *Trace) {
 	end = time.Duration(float64(end) + slack)
 
 	gsByID := map[uint64]*Goroutine{}
-	for _, g := range t.Gs {
-		gsByID[g.ID] = g
+	for _, g := range t.gs {
+		gsByID[g.id] = g
 	}
 
 	w.tl = Timeline{
-		Start: start,
-		End:   end,
-		Gs:    gsByID,
+		start: start,
+		end:   end,
+		gs:    gsByID,
 		theme: w.theme,
 	}
-	w.tl.Axis = Axis{tl: &w.tl, theme: w.theme}
-	w.tl.Activities = make([]*ActivityWidget, 2, len(t.Gs)+len(t.Ps)+2)
-	w.tl.Activities[0] = NewGCWidget(w.theme, &w.tl, t, t.GC)
-	w.tl.Activities[1] = NewSTWWidget(w.theme, &w.tl, t, t.STW)
-	for _, p := range t.Ps {
-		w.tl.Activities = append(w.tl.Activities, NewProcessorWidget(w.theme, &w.tl, t, p))
+	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
+	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
+	w.tl.activities[0] = NewGCWidget(w.theme, &w.tl, t, t.gc)
+	w.tl.activities[1] = NewSTWWidget(w.theme, &w.tl, t, t.stw)
+	for _, p := range t.ps {
+		w.tl.activities = append(w.tl.activities, NewProcessorWidget(w.theme, &w.tl, t, p))
 	}
-	for _, g := range t.Gs {
-		w.tl.Activities = append(w.tl.Activities, NewGoroutineWidget(w.theme, &w.tl, t, g))
+	for _, g := range t.gs {
+		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(w.theme, &w.tl, t, g))
 	}
 	w.tl.prevFrame.dspSpans = map[any][]struct {
 		dspSpans []Span
@@ -2836,7 +2834,7 @@ type listWindowItem[T any] struct {
 }
 
 type ListWindow[T fmt.Stringer] struct {
-	Filter func(item T, f string) bool
+	filter func(item T, f string) bool
 
 	items []listWindowItem[T]
 
@@ -2994,7 +2992,7 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 			w.filtered = w.filtered[:0]
 			f := w.input.Text()
 			for _, item := range w.items {
-				if w.Filter(item.item, f) {
+				if w.filter(item.item, f) {
 					w.filtered = append(w.filtered, item.index)
 				}
 			}
@@ -3062,7 +3060,7 @@ func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 }
 
 type Notification struct {
-	Theme   *theme.Theme
+	theme   *theme.Theme
 	message string
 	shownAt time.Time
 }
@@ -3082,7 +3080,7 @@ func (notif *Notification) Layout(gtx layout.Context) layout.Dimensions {
 	ngtx := gtx
 	ngtx.Constraints.Max.X = 500
 	macro := op.Record(gtx.Ops)
-	dims := BorderedText(ngtx, notif.Theme, notif.message)
+	dims := BorderedText(ngtx, notif.theme, notif.message)
 	call := macro.Stop()
 
 	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
@@ -3193,8 +3191,8 @@ func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions 
 
 	var stats [stateLast]stat
 
-	for _, span := range g.Spans {
-		s := &stats[span.State]
+	for _, span := range g.spans {
+		s := &stats[span.state]
 		s.count++
 		d := span.Duration()
 		if d > s.max {
@@ -3331,7 +3329,7 @@ type Window interface {
 }
 
 type GoroutineStats struct {
-	G     *Goroutine
+	g     *Goroutine
 	theme *theme.Theme
 }
 
@@ -3347,7 +3345,7 @@ func (gs *GoroutineStats) Run(win *app.Window) error {
 			gtx := layout.NewContext(&ops, ev)
 			gtx.Constraints.Min = image.Point{}
 			paint.Fill(gtx.Ops, colors[colorBackground])
-			dims := table(gtx, gs.theme, gs.G)
+			dims := table(gtx, gs.theme, gs.g)
 
 			if !setSize {
 				width := unit.Dp(math.Round(float64(float32(dims.Size.X) / gtx.Metric.PxPerDp)))
@@ -3364,27 +3362,27 @@ func (gs *GoroutineStats) Run(win *app.Window) error {
 }
 
 type GoroutineWindow struct {
-	Theme *theme.Theme
-	Trace *Trace
-	G     *Goroutine
+	theme *theme.Theme
+	trace *Trace
+	g     *Goroutine
 }
 
 func (gwin *GoroutineWindow) Run(win *app.Window) error {
-	events := Events{Trace: gwin.Trace, Theme: gwin.Theme}
-	events.filter.ShowGoCreate.Value = true
-	events.filter.ShowGoUnblock.Value = true
-	events.filter.ShowGoSysCall.Value = true
-	events.filter.ShowUserLog.Value = true
-	for _, span := range gwin.G.Spans {
+	events := Events{trace: gwin.trace, theme: gwin.theme}
+	events.filter.showGoCreate.Value = true
+	events.filter.showGoUnblock.Value = true
+	events.filter.showGoSysCall.Value = true
+	events.filter.showUserLog.Value = true
+	for _, span := range gwin.g.spans {
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.AllEvents = append(events.AllEvents, span.Events...)
+		events.allEvents = append(events.allEvents, span.events...)
 	}
 	events.updateFilter()
 
 	var ops op.Ops
 	eventsFoldable := Foldable{
 		Title: "Events",
-		Theme: gwin.Theme,
+		Theme: gwin.theme,
 	}
 	for e := range win.Events() {
 		switch ev := e.(type) {
@@ -3410,9 +3408,9 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 }
 
 type Foldable struct {
+	Theme  *theme.Theme
 	Title  string
 	Closed widget.Bool
-	Theme  *theme.Theme
 }
 
 func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dimensions {
@@ -3454,14 +3452,14 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 }
 
 type Events struct {
-	Theme     *theme.Theme
-	Trace     *Trace
-	AllEvents []*trace.Event
+	theme     *theme.Theme
+	trace     *Trace
+	allEvents []*trace.Event
 	filter    struct {
-		ShowGoCreate  widget.Bool
-		ShowGoUnblock widget.Bool
-		ShowGoSysCall widget.Bool
-		ShowUserLog   widget.Bool
+		showGoCreate  widget.Bool
+		showGoUnblock widget.Bool
+		showGoSysCall widget.Bool
+		showUserLog   widget.Bool
 	}
 	filteredEvents []*trace.Event
 	grid           outlay.Grid
@@ -3474,17 +3472,17 @@ func (evs *Events) updateFilter() {
 	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
 	//   requires us to check each event.
 	evs.filteredEvents = evs.filteredEvents[:0]
-	for _, ev := range evs.AllEvents {
+	for _, ev := range evs.allEvents {
 		var b bool
 		switch ev.Type {
 		case trace.EvGoCreate:
-			b = evs.filter.ShowGoCreate.Value
+			b = evs.filter.showGoCreate.Value
 		case trace.EvGoUnblock:
-			b = evs.filter.ShowGoUnblock.Value
+			b = evs.filter.showGoUnblock.Value
 		case trace.EvGoSysCall:
-			b = evs.filter.ShowGoSysCall.Value
+			b = evs.filter.showGoSysCall.Value
 		case trace.EvUserLog:
-			b = evs.filter.ShowUserLog.Value
+			b = evs.filter.showUserLog.Value
 		default:
 			panic(fmt.Sprintf("unexpected type %v", ev.Type))
 		}
@@ -3498,10 +3496,10 @@ func (evs *Events) updateFilter() {
 func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	// XXX draw grid scrollbars
 
-	if evs.filter.ShowGoCreate.Changed() ||
-		evs.filter.ShowGoUnblock.Changed() ||
-		evs.filter.ShowGoSysCall.Changed() ||
-		evs.filter.ShowUserLog.Changed() {
+	if evs.filter.showGoCreate.Changed() ||
+		evs.filter.showGoUnblock.Changed() ||
+		evs.filter.showGoSysCall.Changed() ||
+		evs.filter.showUserLog.Changed() {
 		evs.updateFilter()
 	}
 
@@ -3543,7 +3541,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, evs.Theme.Shaper, text.Font{Weight: text.Bold}, evs.Theme.TextSize, columns[col])
+			return widget.Label{MaxLines: 1}.Layout(gtx, evs.theme.Shaper, text.Font{Weight: text.Bold}, evs.theme.TextSize, columns[col])
 		} else {
 			ev := evs.filteredEvents[row-1]
 			// XXX richtext wraps our spans if the window is too small
@@ -3553,19 +3551,19 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 				labelSpans = []richtext.SpanStyle{
 					// FIXME(dh): we can't pad with spaces because the font is proportional. we can't pad with zeros
 					// because it looks shit. Ideally richtext would let us right-align the span.
-					span(evs.Theme, fmt.Sprintf("% 13d ns", ev.Ts)),
+					span(evs.theme, fmt.Sprintf("% 13d ns", ev.Ts)),
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					labelSpans = []richtext.SpanStyle{span(evs.Theme, evs.Trace.Strings[ev.Args[1]])}
+					labelSpans = []richtext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[1]])}
 				}
 			case 2:
 				switch ev.Type {
 				case trace.EvGoCreate:
 					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
 					labelSpans = []richtext.SpanStyle{
-						span(evs.Theme, "Created "),
-						spanWith(evs.Theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
+						span(evs.theme, "Created "),
+						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
 							s.Interactive = true
 							s.Color = blue
 							return s
@@ -3575,8 +3573,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// XXX linkify goroutine ID, clicking it should scroll to the corresponding event in the unblocked
 					// goroutine
 					labelSpans = []richtext.SpanStyle{
-						span(evs.Theme, "Unblocked "),
-						spanWith(evs.Theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
+						span(evs.theme, "Unblocked "),
+						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
 							s.Interactive = true
 							s.Color = blue
 							return s
@@ -3586,10 +3584,10 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// XXX track syscalls in a separate list
 					// XXX try to extract syscall name from stack trace
 					labelSpans = []richtext.SpanStyle{
-						span(evs.Theme, "Syscall"),
+						span(evs.theme, "Syscall"),
 					}
 				case trace.EvUserLog:
-					labelSpans = []richtext.SpanStyle{span(evs.Theme, evs.Trace.Strings[ev.Args[3]])}
+					labelSpans = []richtext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[3]])}
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}
@@ -3599,21 +3597,21 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return richtext.Text(&evs.richState, evs.Theme.Shaper, labelSpans...).Layout(gtx)
+			return richtext.Text(&evs.richState, evs.theme.Shaper, labelSpans...).Layout(gtx)
 		}
 	}
 
 	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowGoCreate, "Goroutine creations").Layout),
+		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showGoCreate, "Goroutine creations").Layout),
 		layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowGoUnblock, "Goroutine unblocks").Layout),
+		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showGoUnblock, "Goroutine unblocks").Layout),
 		layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowGoSysCall, "Syscalls").Layout),
+		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showGoSysCall, "Syscalls").Layout),
 		layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.CheckBox(evs.Theme, &evs.filter.ShowUserLog, "User logs").Layout),
+		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showUserLog, "User logs").Layout),
 	)
 
 	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()

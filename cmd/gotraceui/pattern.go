@@ -201,7 +201,7 @@ func applyPatterns(s Span, pcs map[uint64]trace.Frame, stack []uint64) Span {
 
 patternLoop:
 	for _, p := range patterns {
-		if s.State != p.state {
+		if s.state != p.state {
 			continue
 		}
 		if len(stack) < len(p.fns) {
@@ -251,17 +251,17 @@ patternLoop:
 
 		if p.at != 0 {
 			if p.at < len(stack) {
-				s.At = p.at
+				s.at = p.at
 			} else {
 				continue
 			}
 		}
 
 		if p.newState != stateNone {
-			s.State = p.newState
+			s.state = p.newState
 		}
 
-		s.Tags |= p.tags
+		s.tags |= p.tags
 	}
 
 	return s
