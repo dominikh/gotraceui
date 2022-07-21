@@ -445,14 +445,14 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	var first, last time.Duration = -1, -1
-	for _, gw := range tl.visibleActivities(gtx) {
-		if len(gw.allSpans) == 0 {
+	for _, aw := range tl.visibleActivities(gtx) {
+		if len(aw.allSpans) == 0 {
 			continue
 		}
-		if t := gw.allSpans[0].start; t < first || first == -1 {
+		if t := aw.allSpans[0].start; t < first || first == -1 {
 			first = t
 		}
-		if t := gw.allSpans[len(gw.allSpans)-1].end; t > last {
+		if t := aw.allSpans[len(aw.allSpans)-1].end; t > last {
 			last = t
 		}
 	}
@@ -573,8 +573,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	tl.activity.hoveredSpans = nil
-	for _, gw := range tl.prevFrame.displayedAws {
-		if spans := gw.clickedSpans; len(spans) > 0 {
+	for _, aw := range tl.prevFrame.displayedAws {
+		if spans := aw.clickedSpans; len(spans) > 0 {
 			start := spans[0].start
 			end := spans[len(spans)-1].end
 			tl.start = start
@@ -582,8 +582,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			break
 		}
 	}
-	for _, gw := range tl.prevFrame.displayedAws {
-		if spans := gw.hoveredSpans; len(spans) > 0 {
+	for _, aw := range tl.prevFrame.displayedAws {
+		if spans := aw.hoveredSpans; len(spans) > 0 {
 			tl.activity.hoveredSpans = spans
 			break
 		}
@@ -619,8 +619,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			return tl.axis.Layout(gtx)
 		},
 		func(gtx layout.Context) layout.Dimensions {
-			dims, gws := tl.layoutActivities(gtx)
-			tl.prevFrame.displayedAws = gws
+			dims, aws := tl.layoutActivities(gtx)
+			tl.prevFrame.displayedAws = aws
 			return dims
 		})
 
@@ -1463,9 +1463,9 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 	// OPT(dh): at least use binary search to find the range of activities we need to draw
 	start := -1
 	end := -1
-	for i, gw := range tl.activities {
-		if gw.LabelClicked() {
-			if g, ok := gw.item.(*Goroutine); ok {
+	for i, aw := range tl.activities {
+		if aw.LabelClicked() {
+			if g, ok := aw.item.(*Goroutine); ok {
 				tl.clickedGoroutineActivities = append(tl.clickedGoroutineActivities, g)
 			}
 		}
@@ -1484,7 +1484,7 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		topBorder := i > 0 && tl.activities[i-1].hovered
-		gw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
+		aw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
 		stack.Pop()
 	}
 
