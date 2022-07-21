@@ -3393,22 +3393,16 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 
 type Foldable struct {
 	Title  string
-	Closed bool
+	Closed widget.Bool
 	Theme  *theme.Theme
-
-	clickable widget.Clickable
 }
 
 func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dimensions {
-	for f.clickable.Clicked() {
-		f.Closed = !f.Closed
-	}
-
 	var size image.Point
-	dims := f.clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := f.Closed.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		// TODO(dh): show an icon indicating state of the foldable. We tried using ▶ and ▼ but the Go font only has ▼…
 		var l string
-		if f.Closed {
+		if f.Closed.Value {
 			l = "[C] " + f.Title
 		} else {
 			l = "[O] " + f.Title
@@ -3421,7 +3415,7 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 	})
 	size = dims.Size
 
-	if !f.Closed {
+	if !f.Closed.Value {
 		defer op.Offset(image.Pt(0, size.Y)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= size.Y
 		dims := contents(gtx)
