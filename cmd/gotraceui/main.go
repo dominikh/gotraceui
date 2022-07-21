@@ -876,7 +876,8 @@ func (a *Application) openGoroutineWindow(g *Goroutine) {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
 		win := &GoroutineWindow{
-			Theme: a.theme,
+			// Note that we cannot use a.theme, because text.Shaper isn't safe for concurrent use.
+			Theme: theme.NewTheme(gofont.Collection()),
 			Trace: a.trace,
 			G:     g,
 		}
