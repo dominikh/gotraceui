@@ -229,8 +229,19 @@ func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 	tl.zoomSelection.active = false
 	one := tl.zoomSelection.clickAt.X
 	two := pos.X
-	start := tl.pxToTs(min(one, two))
-	end := tl.pxToTs(max(one, two))
+
+	startPx := min(one, two)
+	endPx := max(one, two)
+
+	if startPx < 0 {
+		startPx = 0
+	}
+	if limit := float32(tl.VisibleWidth(gtx)); endPx > limit {
+		endPx = limit
+	}
+
+	start := tl.pxToTs(startPx)
+	end := tl.pxToTs(endPx)
 	if start == end {
 		// Cannot zoom to a zero width area
 		return
