@@ -48,7 +48,6 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
-// FIXME(dh): don't draw our cursor on top of the scrollbar
 // TODO(dh): display different cursor when we're panning
 // TODO(dh): processor timeline span tooltip should show goroutine function name
 // TODO(dh): color GC-related goroutines in the per-P timeline
@@ -177,9 +176,6 @@ type Timeline struct {
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float32
 
-	global struct {
-		cursorPos f32.Point
-	}
 	activity struct {
 		displayAllLabels bool
 		compact          bool
@@ -188,6 +184,7 @@ type Timeline struct {
 		showTooltipsNotification Notification
 
 		hoveredSpans []Span
+		cursorPos    f32.Point
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -477,6 +474,12 @@ func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	panic("unreachable")
 }
 
+// The width in pixels of the visible portion of the timeline, i.e. the part that isn't occupied by the scrollbar.
+func (tl *Timeline) VisibleWidth(gtx layout.Context) int {
+	sbWidth := gtx.Dp(theme.Scrollbar(tl.theme, &tl.scrollbar).Width())
+	return gtx.Constraints.Max.X - sbWidth
+}
+
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
@@ -534,7 +537,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
 			case pointer.Drag:
-				tl.global.cursorPos = ev.Position
+				tl.activity.cursorPos = ev.Position
 				if tl.drag.active {
 					if tl.drag.active {
 						tl.dragTo(gtx, ev.Position)
@@ -553,103 +556,126 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				}
 
 			case pointer.Move:
-				tl.global.cursorPos = ev.Position
+				tl.activity.cursorPos = ev.Position
 			}
 		}
 	}
 
-	tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
+	var axisHeight int
 
-	{
+	// Draw axis and activities
+	func(gtx layout.Context) {
+		gtx.Constraints.Max.X = tl.VisibleWidth(gtx)
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+		tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
+
+		{
+			activityHeight := tl.activityHeight(gtx)
+			activityGap := gtx.Dp(activityGapDp)
+			// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
+			d := tl.scrollbar.ScrollDistance()
+			totalHeight := float32(len(tl.activities) * (activityHeight + activityGap))
+			tl.y += int(round32(d * totalHeight))
+			if tl.y < 0 {
+				tl.y = 0
+			}
+		}
+
+		tl.activity.hoveredSpans = nil
+		for _, aw := range tl.prevFrame.displayedAws {
+			if spans := aw.clickedSpans; len(spans) > 0 {
+				start := spans[0].start
+				end := spans[len(spans)-1].end
+				tl.start = start
+				tl.end = end
+				break
+			}
+		}
+		for _, aw := range tl.prevFrame.displayedAws {
+			if spans := aw.hoveredSpans; len(spans) > 0 {
+				tl.activity.hoveredSpans = spans
+				break
+			}
+		}
+
+		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)
+
+		if debug {
+			if tl.end < tl.start {
+				panic("XXX")
+			}
+		}
+
+		// Set up event handlers
+		pointer.InputOp{
+			Tag: tl,
+			Types: pointer.Scroll |
+				pointer.Drag |
+				pointer.Press |
+				pointer.Release |
+				pointer.Move,
+			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
+			Grab:         tl.drag.active,
+		}.Add(gtx.Ops)
+		key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+		key.FocusOp{Tag: tl}.Add(gtx.Ops)
+
+		// Draw axis and goroutines
+		Stack(gtx,
+			func(gtx layout.Context) layout.Dimensions {
+				dims := tl.axis.Layout(gtx)
+				axisHeight = dims.Size.Y
+				return dims
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				dims, aws := tl.layoutActivities(gtx)
+				tl.prevFrame.displayedAws = aws
+				return dims
+			})
+
+		// Draw zoom selection
+		if tl.zoomSelection.active {
+			one := tl.zoomSelection.clickAt.X
+			two := tl.activity.cursorPos.X
+			rect := FRect{
+				Min: f32.Pt(min(one, two), 0),
+				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
+			}
+			paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
+		}
+
+		// Draw cursor
+		rect := clip.Rect{
+			Min: image.Pt(int(round32(tl.activity.cursorPos.X)), 0),
+			Max: image.Pt(int(round32(tl.activity.cursorPos.X+1)), gtx.Constraints.Max.Y),
+		}
+		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
+
+		tl.activity.showTooltipsNotification.Layout(gtx)
+
+		tl.prevFrame.start = tl.start
+		tl.prevFrame.end = tl.end
+		tl.prevFrame.nsPerPx = tl.nsPerPx
+		tl.prevFrame.y = tl.y
+		tl.prevFrame.compact = tl.activity.compact
+		tl.prevFrame.hoveredSpans = tl.activity.hoveredSpans
+	}(gtx)
+
+	// Draw scrollbar
+	func(gtx layout.Context) {
+		defer op.Offset(image.Pt(tl.VisibleWidth(gtx), axisHeight)).Push(gtx.Ops).Pop()
+		gtx.Constraints.Max.Y -= axisHeight
+
 		activityHeight := tl.activityHeight(gtx)
 		activityGap := gtx.Dp(activityGapDp)
-		// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-		d := tl.scrollbar.ScrollDistance()
-		totalHeight := float32(len(tl.activities) * (activityHeight + activityGap))
-		tl.y += int(round32(d * totalHeight))
-		if tl.y < 0 {
-			tl.y = 0
-		}
-	}
 
-	tl.activity.hoveredSpans = nil
-	for _, aw := range tl.prevFrame.displayedAws {
-		if spans := aw.clickedSpans; len(spans) > 0 {
-			start := spans[0].start
-			end := spans[len(spans)-1].end
-			tl.start = start
-			tl.end = end
-			break
-		}
-	}
-	for _, aw := range tl.prevFrame.displayedAws {
-		if spans := aw.hoveredSpans; len(spans) > 0 {
-			tl.activity.hoveredSpans = spans
-			break
-		}
-	}
-
-	sbWidth := gtx.Dp(theme.Scrollbar(tl.theme, &tl.scrollbar).Width())
-	tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X-sbWidth)
-
-	if debug {
-		if tl.end < tl.start {
-			panic("XXX")
-		}
-	}
-
-	// Set up event handlers
-	pointer.InputOp{
-		Tag: tl,
-		Types: pointer.Scroll |
-			pointer.Drag |
-			pointer.Press |
-			pointer.Release |
-			pointer.Move,
-		ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
-		Grab:         tl.drag.active,
-	}.Add(gtx.Ops)
-	key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
-	key.FocusOp{Tag: tl}.Add(gtx.Ops)
-
-	// Draw axis and goroutines
-	Stack(gtx,
-		func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Max.X -= sbWidth
-			return tl.axis.Layout(gtx)
-		},
-		func(gtx layout.Context) layout.Dimensions {
-			dims, aws := tl.layoutActivities(gtx)
-			tl.prevFrame.displayedAws = aws
-			return dims
-		})
-
-	// Draw zoom selection
-	if tl.zoomSelection.active {
-		one := tl.zoomSelection.clickAt.X
-		two := tl.global.cursorPos.X
-		rect := FRect{
-			Min: f32.Pt(min(one, two), 0),
-			Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
-		}
-		paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
-	}
-
-	// Draw cursor
-	rect := clip.Rect{
-		Min: image.Pt(int(round32(tl.global.cursorPos.X)), 0),
-		Max: image.Pt(int(round32(tl.global.cursorPos.X+1)), gtx.Constraints.Max.Y),
-	}
-	paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
-
-	tl.activity.showTooltipsNotification.Layout(gtx)
-
-	tl.prevFrame.start = tl.start
-	tl.prevFrame.end = tl.end
-	tl.prevFrame.nsPerPx = tl.nsPerPx
-	tl.prevFrame.y = tl.y
-	tl.prevFrame.compact = tl.activity.compact
-	tl.prevFrame.hoveredSpans = tl.activity.hoveredSpans
+		totalHeight := float32((len(tl.activities) + 1) * (activityHeight + activityGap))
+		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
+		offset := float32(tl.y) / totalHeight
+		sb := theme.Scrollbar(tl.theme, &tl.scrollbar)
+		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
+	}(gtx)
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -1439,26 +1465,8 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 }
 
 func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-
 	activityHeight := tl.activityHeight(gtx)
 	activityGap := gtx.Dp(activityGapDp)
-
-	// Draw a scrollbar, then clip to smaller area. We've already computed nsPerPx, so clipping the activity area will
-	// not bring us out of alignment with the axis.
-	{
-		// TODO(dh): add another screen worth of activities so the user can scroll a bit further
-		totalHeight := float32((len(tl.activities) + 1) * (activityHeight + activityGap))
-		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
-		offset := float32(tl.y) / totalHeight
-		sb := theme.Scrollbar(tl.theme, &tl.scrollbar)
-		stack := op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(sb.Width()), 0)).Push(gtx.Ops)
-		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
-		stack.Pop()
-
-		gtx.Constraints.Max.X -= gtx.Dp(sb.Width())
-		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	}
 
 	// OPT(dh): at least use binary search to find the range of activities we need to draw
 	start := -1
@@ -2371,7 +2379,6 @@ func (w *MainWindow) Run(win *app.Window) error {
 						gtx := gtx
 						gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						// XXX reuse existing theme
 						theme.ProgressBar(w.theme, progress).Layout(gtx)
 					}()
 
@@ -3177,8 +3184,6 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.C
 	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(width, height))
 	return sg.Grid.Layout(gtx, rows, cols, dimmer, macroCellFunc)
 }
-
-// XXX I think outlay.Grid behaves incorrectly with locked rows, rendering fewer rows than it should
 
 func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions {
 	grid := SmallGrid{
