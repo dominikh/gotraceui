@@ -26,11 +26,13 @@ type Theme struct {
 type Palette struct {
 	Background color.NRGBA
 	Foreground color.NRGBA
+	Link       color.NRGBA
 }
 
 var DefaultPalette = Palette{
 	Background: rgba(0xFFFFEAFF),
 	Foreground: rgba(0x000000FF),
+	Link:       rgba(0x0000FFFF),
 }
 
 func NewTheme(fontCollection []text.FontFace) *Theme {

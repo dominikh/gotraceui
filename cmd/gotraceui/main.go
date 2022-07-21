@@ -48,6 +48,8 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
+// TODO(dh): add a dialog with text fields for zooming to a specific time range
 // TODO(dh): display different cursor when we're panning
 // TODO(dh): processor timeline span tooltip should show goroutine function name
 // TODO(dh): color GC-related goroutines in the per-P timeline
@@ -937,7 +939,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutin
 }
 
 func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
-	_, ok := w.goroutineStatWindows[g.id]
+	_, ok := w.goroutineWindows[g.id]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
@@ -959,28 +961,6 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 			// XXX handle error?
 			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
 			w.notifyGoroutineWindowClosed <- g.id
-		}()
-	}
-}
-
-func (w *MainWindow) openGoroutineStats(g *Goroutine) {
-	_, ok := w.goroutineStatWindows[g.id]
-	if ok {
-		// XXX try to activate (bring to the front) the existing window
-	} else {
-		win := &GoroutineStats{g: g, theme: w.theme}
-		w.goroutineStatWindows[g.id] = win
-		// XXX computing the label is duplicated with rendering the activity widget
-		var l string
-		if g.function != "" {
-			l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
-		} else {
-			l = fmt.Sprintf("goroutine %d", g.id)
-		}
-		go func() {
-			// XXX handle error?
-			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
-			w.notifyGoroutineStatWindowClosed <- g.id
 		}()
 	}
 }
@@ -1585,8 +1565,8 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		line1 = "Goroutine %[1]d: %[2]s\n\n"
 	}
 	l := fmt.Sprintf(line1+
-		"Appeared at: %[3]s\n"+
-		"Disappeared at: %[4]s\n"+
+		"Created at: %[3]s\n"+
+		"Returned at: %[4]s\n"+
 		"Lifetime: %[5]s\n"+
 		"Time in blocked states: %[6]s (%.2[7]f%%)\n"+
 		"Time in inactive states: %[8]s (%.2[9]f%%)\n"+
@@ -2296,20 +2276,16 @@ type MainWindow struct {
 	trace    *Trace
 	commands chan Command
 
-	notifyGoroutineWindowClosed     chan uint64
-	goroutineWindows                map[uint64]*GoroutineWindow
-	notifyGoroutineStatWindowClosed chan uint64
-	goroutineStatWindows            map[uint64]*GoroutineStats
+	notifyGoroutineWindowClosed chan uint64
+	goroutineWindows            map[uint64]*GoroutineWindow
 }
 
 func NewMainWindow() *MainWindow {
 	win := &MainWindow{
-		theme:                           theme.NewTheme(gofont.Collection()),
-		commands:                        make(chan Command, 128),
-		notifyGoroutineWindowClosed:     make(chan uint64, 16),
-		goroutineWindows:                make(map[uint64]*GoroutineWindow),
-		notifyGoroutineStatWindowClosed: make(chan uint64, 16),
-		goroutineStatWindows:            make(map[uint64]*GoroutineStats),
+		theme:                       theme.NewTheme(gofont.Collection()),
+		commands:                    make(chan Command, 128),
+		notifyGoroutineWindowClosed: make(chan uint64, 16),
+		goroutineWindows:            make(map[uint64]*GoroutineWindow),
 	}
 
 	win.tl.theme = win.theme
@@ -2354,9 +2330,6 @@ func (w *MainWindow) Run(win *app.Window) error {
 				progress = 0.0
 				win.Invalidate()
 			}
-
-		case gid := <-w.notifyGoroutineStatWindowClosed:
-			delete(w.goroutineStatWindows, gid)
 
 		case e := <-win.Events():
 			switch ev := e.(type) {
@@ -3198,7 +3171,7 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.C
 
 func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions {
 	grid := SmallGrid{
-		RowPadding:    10,
+		RowPadding:    0,
 		ColumnPadding: 10,
 	}
 
@@ -3348,39 +3321,6 @@ type Window interface {
 	Run(win *app.Window) error
 }
 
-type GoroutineStats struct {
-	g     *Goroutine
-	theme *theme.Theme
-}
-
-func (gs *GoroutineStats) Run(win *app.Window) error {
-	var ops op.Ops
-	var setSize bool
-
-	for e := range win.Events() {
-		switch ev := e.(type) {
-		case system.DestroyEvent:
-			return ev.Err
-		case system.FrameEvent:
-			gtx := layout.NewContext(&ops, ev)
-			gtx.Constraints.Min = image.Point{}
-			paint.Fill(gtx.Ops, colors[colorBackground])
-			dims := table(gtx, gs.theme, gs.g)
-
-			if !setSize {
-				width := unit.Dp(math.Round(float64(float32(dims.Size.X) / gtx.Metric.PxPerDp)))
-				height := unit.Dp(math.Round(float64(float32(dims.Size.Y) / gtx.Metric.PxPerDp)))
-				win.Option(app.Size(width, height))
-				setSize = true
-			}
-
-			ev.Frame(&ops)
-		}
-	}
-
-	return nil
-}
-
 type GoroutineWindow struct {
 	theme *theme.Theme
 	trace *Trace
@@ -3400,10 +3340,15 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.updateFilter()
 
 	var ops op.Ops
+	statsFoldable := Foldable{
+		Title: "Statistics",
+		Theme: gwin.theme,
+	}
 	eventsFoldable := Foldable{
 		Title: "Events",
 		Theme: gwin.theme,
 	}
+	var rtState richtext.InteractiveText
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
@@ -3413,11 +3358,57 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 			gtx.Constraints.Min = image.Point{}
 
 			paint.Fill(gtx.Ops, colors[colorBackground])
-			Stack(
-				gtx,
-				func(gtx layout.Context) layout.Dimensions {
+
+			th := gwin.theme
+			spans := []richtext.SpanStyle{
+				spanWith(th, "Goroutine: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+					ss.Font.Weight = text.Bold
+					return ss
+				}),
+				span(th, fmt.Sprintf("%d\n", gwin.g.id)),
+
+				spanWith(th, "Function: ", func(ss richtext.SpanStyle) richtext.SpanStyle { ss.Font.Weight = text.Bold; return ss }),
+				spanWith(th, fmt.Sprintf("%s\n", gwin.g.function), func(ss richtext.SpanStyle) richtext.SpanStyle {
+					ss.Interactive = true
+					ss.Color = th.Palette.Link
+					return ss
+				}),
+
+				spanWith(th, "Created at: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+					ss.Font.Weight = text.Bold
+					return ss
+				}),
+				span(th, fmt.Sprintf("%d\n", 999)),
+
+				spanWith(th, "Returned at: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+					ss.Font.Weight = text.Bold
+					return ss
+				}),
+				span(th, fmt.Sprintf("%d\n", 999)),
+
+				spanWith(th, "Lifetime: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+					ss.Font.Weight = text.Bold
+					return ss
+				}),
+				span(th, fmt.Sprintf("%d", 999)),
+			}
+
+			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return richtext.Text(&rtState, gwin.theme.Shaper, spans...).Layout(gtx)
+				}),
+				// XXX ideally the spacing would be one line high
+				layout.Rigid(layout.Spacer{Height: 10}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return statsFoldable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return table(gtx, th, gwin.g)
+					})
+				}),
+				// XXX ideally the spacing would be one line high
+				layout.Rigid(layout.Spacer{Height: 10}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return eventsFoldable.Layout(gtx, events.Layout)
-				},
+				}),
 			)
 
 			ev.Frame(gtx.Ops)
@@ -3525,8 +3516,6 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 
 	evs.grid.LockedRows = 1
 
-	blue := toColor(0x0000FFFF)
-
 	dimmer := func(axis layout.Axis, index, constraint int) int {
 		switch axis {
 		case layout.Vertical:
@@ -3585,7 +3574,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 						span(evs.theme, "Created "),
 						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
 							s.Interactive = true
-							s.Color = blue
+							s.Color = evs.theme.Palette.Link
 							return s
 						}),
 					}
@@ -3596,7 +3585,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 						span(evs.theme, "Unblocked "),
 						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
 							s.Interactive = true
-							s.Color = blue
+							s.Color = evs.theme.Palette.Link
 							return s
 						}),
 					}
