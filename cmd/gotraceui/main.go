@@ -589,11 +589,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	// FIXME(dh): the axis is wider than the canvas because of a scrollbar. this means that tl.End is slightly outside
-	// the visible area. that's generally fine, but means that zooming to a span, or to fit the visible goroutines, is
-	// off by a couple pixels.
-
-	tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)
+	sbWidth := gtx.Dp(theme.Scrollbar(tl.theme, &tl.scrollbar).Width())
+	tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X-sbWidth)
 
 	if debug {
 		if tl.end < tl.start {
@@ -616,11 +613,16 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 	// Draw axis and goroutines
-	Stack(gtx, tl.axis.Layout, func(gtx layout.Context) layout.Dimensions {
-		dims, gws := tl.layoutActivities(gtx)
-		tl.prevFrame.displayedAws = gws
-		return dims
-	})
+	Stack(gtx,
+		func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Max.X -= sbWidth
+			return tl.axis.Layout(gtx)
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			dims, gws := tl.layoutActivities(gtx)
+			tl.prevFrame.displayedAws = gws
+			return dims
+		})
 
 	// Draw zoom selection
 	if tl.zoomSelection.active {
@@ -670,6 +672,8 @@ func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
 }
 
 func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	prevLabelEnd := float32(-1)
 	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
