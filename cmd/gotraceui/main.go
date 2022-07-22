@@ -48,6 +48,7 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// XXX how do we have a minimum inactive span of length 0?
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // TODO(dh): add a dialog with text fields for zooming to a specific time range
 // TODO(dh): display different cursor when we're panning
@@ -3245,19 +3246,19 @@ func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions 
 				}
 			case 2:
 				// total
-				l = roundDuration(stats[n].total, 2).String()
+				l = scientificDuration(stats[n].total, 2)
 			case 3:
 				// min
-				l = roundDuration(stats[n].min, 2).String()
+				l = scientificDuration(stats[n].min, 2)
 			case 4:
 				// max
-				l = roundDuration(stats[n].max, 2).String()
+				l = scientificDuration(stats[n].max, 2)
 			case 5:
 				// avg
-				l = roundDuration(time.Duration(stats[n].avg), 2).String()
+				l = scientificDuration(time.Duration(stats[n].avg), 2)
 			case 6:
 				// p50
-				l = roundDuration(time.Duration(stats[n].p50), 2).String()
+				l = scientificDuration(time.Duration(stats[n].p50), 2)
 			default:
 				panic("unreachable")
 			}
@@ -3300,21 +3301,9 @@ var stateNamesCapitalized = [stateLast]string{
 	stateGCSweep:                    "GC (sweep assist)",
 }
 
-func roundDuration(d time.Duration, digits int) time.Duration {
-	var div time.Duration = 1
-	for i := 0; i < digits; i++ {
-		div *= 10
-	}
-
-	switch {
-	case d > time.Second:
-		d = d.Round(time.Second / div)
-	case d > time.Millisecond:
-		d = d.Round(time.Millisecond / div)
-	case d > time.Microsecond:
-		d = d.Round(time.Microsecond / div)
-	}
-	return d
+func scientificDuration(d time.Duration, digits int) string {
+	// TODO(dh): don't convert to float to use %e, implement our own algorithm
+	return fmt.Sprintf("%.*e s", digits, d.Seconds())
 }
 
 type Window interface {
