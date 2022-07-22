@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/exp/constraints"
+	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	mywidget "honnef.co/go/gotraceui/widget"
@@ -950,6 +952,7 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 			trace: w.trace,
 			g:     g,
 		}
+		win.stats = NewGoroutineStats(g)
 		w.goroutineWindows[g.id] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
@@ -3170,23 +3173,29 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.C
 	return sg.Grid.Layout(gtx, rows, cols, dimmer, macroCellFunc)
 }
 
-func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions {
-	grid := SmallGrid{
-		RowPadding:    0,
-		ColumnPadding: 10,
-	}
+type GoroutineStats struct {
+	g       *Goroutine
+	stats   [stateLast]GoroutineStat
+	mapping []int
 
-	type stat struct {
-		count           int
-		min, max, total time.Duration
-		avg, p50        float32
-		values          []time.Duration
-	}
+	sortCol        int
+	sortDescending bool
 
-	var stats [stateLast]stat
+	interactiveColumnsState [7]richtext.InteractiveText
+}
+
+type GoroutineStat struct {
+	count           int
+	min, max, total time.Duration
+	avg, p50        float32
+	values          []time.Duration
+}
+
+func NewGoroutineStats(g *Goroutine) *GoroutineStats {
+	gst := &GoroutineStats{}
 
 	for _, span := range g.spans {
-		s := &stats[span.state]
+		s := &gst.stats[span.state]
 		s.count++
 		d := span.Duration()
 		if d > s.max {
@@ -3199,40 +3208,136 @@ func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions 
 		s.values = append(s.values, d)
 	}
 
-	mapping := make([]int, 0, len(stats))
+	for state := range gst.stats {
+		stat := &gst.stats[state]
 
-	for i := range stats {
-		s := &stats[i]
+		if len(stat.values) == 0 {
+			continue
+		}
+
+		stat.avg = float32(stat.total) / float32(len(stat.values))
+
+		sort.Slice(stat.values, func(i, j int) bool {
+			return stat.values[i] < stat.values[j]
+		})
+
+		if len(stat.values)%2 == 0 {
+			mid := len(stat.values) / 2
+			stat.p50 = float32(stat.values[mid]+stat.values[mid-1]) / 2
+		} else {
+			stat.p50 = float32(stat.values[len(stat.values)/2])
+		}
+	}
+
+	gst.mapping = make([]int, 0, len(gst.stats))
+
+	for i := range gst.stats {
+		s := &gst.stats[i]
 
 		if len(s.values) == 0 {
 			continue
 		}
 
-		mapping = append(mapping, i)
+		gst.mapping = append(gst.mapping, i)
+	}
 
-		s.avg = float32(s.total) / float32(len(s.values))
+	return gst
+}
 
-		sort.Slice(s.values, func(i, j int) bool {
-			return s.values[i] < s.values[j]
+func sortStats[T constraints.Ordered](stats *[stateLast]GoroutineStat, mapping []int, descending bool, get func(*GoroutineStat) T) {
+	if descending {
+		slices.SortFunc(mapping, func(i, j int) bool {
+			return get(&stats[i]) >= get(&stats[j])
 		})
+	} else {
+		slices.SortFunc(mapping, func(i, j int) bool {
+			return get(&stats[i]) < get(&stats[j])
+		})
+	}
+}
 
-		if len(s.values)%2 == 0 {
-			mid := len(s.values) / 2
-			s.p50 = float32(s.values[mid]+s.values[mid-1]) / 2
-		} else {
-			s.p50 = float32(s.values[len(s.values)/2])
+func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	for col := range gs.interactiveColumnsState {
+		for {
+			span, events := gs.interactiveColumnsState[col].Events()
+			if span == nil {
+				break
+			}
+			for _, ev := range events {
+				if ev.Type == richtext.Click || ev.Type == richtext.LongPress {
+					// XXX using a different label for the sorted column can change the column's width, causing jumping
+					// in the UI
+					if col == gs.sortCol {
+						gs.sortDescending = !gs.sortDescending
+					} else {
+						gs.sortCol = col
+						gs.sortDescending = false
+					}
+					switch col {
+					case 0:
+						// OPT(dh): don't use sort.Slice, it allocates
+						if gs.sortDescending {
+							sort.Slice(gs.mapping, func(i, j int) bool {
+								return gs.mapping[i] >= gs.mapping[j]
+							})
+						} else {
+							sort.Slice(gs.mapping, func(i, j int) bool {
+								return gs.mapping[i] < gs.mapping[j]
+							})
+						}
+					case 1:
+						// Count
+						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) int { return gs.count })
+					case 2:
+						// Total
+						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.total })
+					case 3:
+						// Min
+						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.min })
+					case 4:
+						// Max
+						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.max })
+					case 5:
+						// Avg
+						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.avg })
+					case 6:
+						// p50
+						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.p50 })
+					default:
+						panic("unreachable")
+					}
+				}
+			}
 		}
+	}
+
+	grid := SmallGrid{
+		RowPadding:    0,
+		ColumnPadding: 10,
 	}
 
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
-			l := statLabels[col]
-			// XXX make sure we really don't wrap
-			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{Weight: text.Bold}, th.TextSize, l)
+			var l string
+			if col == gs.sortCol {
+				if gs.sortDescending {
+					l = statLabels[col+7]
+				} else {
+					l = statLabels[col+14]
+				}
+			} else {
+				l = statLabels[col]
+			}
+
+			s := spanWith(th, l, func(ss richtext.SpanStyle) richtext.SpanStyle {
+				ss.Font.Weight = text.Bold
+				ss.Interactive = true
+				return ss
+			})
+			return richtext.Text(&gs.interactiveColumnsState[col], th.Shaper, s).Layout(gtx)
 		} else {
 			row--
-			n := mapping[row]
+			n := gs.mapping[row]
 
 			var l string
 			switch col {
@@ -3240,25 +3345,25 @@ func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions 
 				// type
 				l = stateNamesCapitalized[n]
 			case 1:
-				l = fmt.Sprintf("%d", stats[n].count)
-				if stats[n].count == 0 {
+				l = fmt.Sprintf("%d", gs.stats[n].count)
+				if gs.stats[n].count == 0 {
 					panic(row)
 				}
 			case 2:
 				// total
-				l = scientificDuration(stats[n].total, 2)
+				l = scientificDuration(gs.stats[n].total, 2)
 			case 3:
 				// min
-				l = scientificDuration(stats[n].min, 2)
+				l = scientificDuration(gs.stats[n].min, 2)
 			case 4:
 				// max
-				l = scientificDuration(stats[n].max, 2)
+				l = scientificDuration(gs.stats[n].max, 2)
 			case 5:
 				// avg
-				l = scientificDuration(time.Duration(stats[n].avg), 2)
+				l = scientificDuration(time.Duration(gs.stats[n].avg), 2)
 			case 6:
 				// p50
-				l = scientificDuration(time.Duration(stats[n].p50), 2)
+				l = scientificDuration(time.Duration(gs.stats[n].p50), 2)
 			default:
 				panic("unreachable")
 			}
@@ -3269,11 +3374,13 @@ func table(gtx layout.Context, th *theme.Theme, g *Goroutine) layout.Dimensions 
 		}
 	}
 
-	return grid.Layout(gtx, len(mapping)+1, len(statLabels), cellFn)
+	return grid.Layout(gtx, len(gs.mapping)+1, 7, cellFn)
 }
 
 var statLabels = [...]string{
 	"State", "Count", "Total", "Min", "Max", "Avg", "p50",
+	"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
+	"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
 }
 
 var stateNamesCapitalized = [stateLast]string{
@@ -3314,6 +3421,8 @@ type GoroutineWindow struct {
 	theme *theme.Theme
 	trace *Trace
 	g     *Goroutine
+
+	stats *GoroutineStats
 }
 
 func (gwin *GoroutineWindow) Run(win *app.Window) error {
@@ -3390,7 +3499,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 				layout.Rigid(layout.Spacer{Height: 10}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return statsFoldable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return table(gtx, th, gwin.g)
+						return gwin.stats.Layout(gtx, gwin.theme)
 					})
 				}),
 				// XXX ideally the spacing would be one line high
@@ -3620,7 +3729,7 @@ func span(th *theme.Theme, text string) richtext.SpanStyle {
 	return richtext.SpanStyle{
 		Content: text,
 		Size:    th.TextSize,
-		Color:   toColor(0x000000FF),
+		Color:   th.Palette.Foreground,
 		Font:    goFonts[0].Font,
 	}
 }
