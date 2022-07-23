@@ -3313,7 +3313,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 
 	grid := SmallGrid{
 		RowPadding:    0,
-		ColumnPadding: 10,
+		ColumnPadding: gtx.Dp(15),
 	}
 
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
