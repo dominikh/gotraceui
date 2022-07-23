@@ -3378,9 +3378,9 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 }
 
 var statLabels = [...]string{
-	"State", "Count", "Total", "Min", "Max", "Avg", "p50",
-	"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
-	"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
+	"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
+	"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
+	"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
 }
 
 var stateNamesCapitalized = [stateLast]string{
@@ -3410,7 +3410,7 @@ var stateNamesCapitalized = [stateLast]string{
 
 func scientificDuration(d time.Duration, digits int) string {
 	// TODO(dh): don't convert to float to use %e, implement our own algorithm
-	return fmt.Sprintf("%.*e s", digits, d.Seconds())
+	return fmt.Sprintf("%.*e", digits, d.Seconds())
 }
 
 type Window interface {
