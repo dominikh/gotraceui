@@ -3265,8 +3265,6 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 			}
 			for _, ev := range events {
 				if ev.Type == richtext.Click || ev.Type == richtext.LongPress {
-					// XXX using a different label for the sorted column can change the column's width, causing jumping
-					// in the UI
 					if col == gs.sortCol {
 						gs.sortDescending = !gs.sortDescending
 					} else {
@@ -3316,6 +3314,17 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 		ColumnPadding: gtx.Dp(15),
 	}
 
+	m := op.Record(gtx.Ops)
+	indicatorWidth := richtext.Text(
+		// OPT(dh): avoid this unnecessary allocation
+		new(richtext.InteractiveText),
+		th.Shaper,
+		spanWith(th, "▼", func(ss richtext.SpanStyle) richtext.SpanStyle {
+			ss.Font.Weight = text.Bold
+			return ss
+		})).Layout(gtx).Size.X
+	m.Stop()
+
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
 			var l string
@@ -3334,7 +3343,13 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				ss.Interactive = true
 				return ss
 			})
-			return richtext.Text(&gs.interactiveColumnsState[col], th.Shaper, s).Layout(gtx)
+			dims := richtext.Text(&gs.interactiveColumnsState[col], th.Shaper, s).Layout(gtx)
+			if col == gs.sortCol {
+				return dims
+			} else {
+				dims.Size.X += indicatorWidth
+				return dims
+			}
 		} else {
 			row--
 			n := gs.mapping[row]
