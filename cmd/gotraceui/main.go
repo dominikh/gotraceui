@@ -3637,6 +3637,10 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		case layout.Horizontal:
 			// XXX don't guess the dimensions
 			// XXX don't insist on a minimum if the window is too narrow or columns will overlap
+
+			// XXX we do have to guess the dimensions. computing them accurately is too expensive if we have tens of
+			// thousands of events because we can't shape them all. we can probably do some approximate math, pretending
+			// the font is fixed width.
 			switch index {
 			case 0:
 				return 200
@@ -3665,15 +3669,15 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
 			return widget.Label{MaxLines: 1}.Layout(gtx, evs.theme.Shaper, text.Font{Weight: text.Bold}, evs.theme.TextSize, columns[col])
 		} else {
+			// XXX subtract padding from width
+
 			ev := evs.filteredEvents[row-1]
 			// XXX richtext wraps our spans if the window is too small
 			var labelSpans []richtext.SpanStyle
 			switch col {
 			case 0:
 				labelSpans = []richtext.SpanStyle{
-					// FIXME(dh): we can't pad with spaces because the font is proportional. we can't pad with zeros
-					// because it looks shit. Ideally richtext would let us right-align the span.
-					span(evs.theme, fmt.Sprintf("% 13d ns", ev.Ts)),
+					span(evs.theme, fmt.Sprintf("%d ns", ev.Ts)),
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
@@ -3719,7 +3723,11 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return richtext.Text(&evs.richState, evs.theme.Shaper, labelSpans...).Layout(gtx)
+			txt := richtext.Text(&evs.richState, evs.theme.Shaper, labelSpans...)
+			if col == 0 && row != 0 {
+				txt.Alignment = text.End
+			}
+			return txt.Layout(gtx)
 		}
 	}
 
