@@ -3316,8 +3316,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 
 	m := op.Record(gtx.Ops)
 	indicatorWidth := richtext.Text(
-		// OPT(dh): avoid this unnecessary allocation
-		new(richtext.InteractiveText),
+		nil,
 		th.Shaper,
 		spanWith(th, "▼", func(ss richtext.SpanStyle) richtext.SpanStyle {
 			ss.Font.Weight = text.Bold
