@@ -3383,9 +3383,8 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				panic("unreachable")
 			}
 
-			// XXX make sure we really don't wrap
-			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, text.Font{}, th.TextSize, l)
+			txt := richtext.Text(nil, th.Shaper, span(th, l))
+			return txt.Layout(gtx)
 		}
 	}
 
