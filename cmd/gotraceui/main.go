@@ -19,6 +19,7 @@ import (
 
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
+	"golang.org/x/image/math/fixed"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	mywidget "honnef.co/go/gotraceui/widget"
@@ -3124,23 +3125,20 @@ type SmallGrid struct {
 	ColumnPadding int
 }
 
-func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.Cell) layout.Dimensions {
+func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, sizeEstimator outlay.Cell, cellFunc outlay.Cell) layout.Dimensions {
 	colWidths := make([]int, cols)
 	// Storing dims isn't strictly necessarily, since we only need to know the row height (which Grid assumes is the
 	// same for each row) and the column widths, as outlay.Grid passes an exact constraint to the cell function with
 	// those dimensions. However, as written, the code depends less on implementation details.
 	dims := make([]layout.Dimensions, rows*cols)
-	macros := make([]op.CallOp, rows*cols)
 
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
-			m := op.Record(gtx.Ops)
-			dim := cellFunc(gtx, row, col)
+			dim := sizeEstimator(gtx, row, col)
 			dims[row*cols+col] = dim
 			if dim.Size.X > colWidths[col] {
 				colWidths[col] = dim.Size.X
 			}
-			macros[row*cols+col] = m.Stop()
 		}
 	}
 
@@ -3156,13 +3154,6 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.C
 		}
 	}
 
-	macroCellFunc := func(gtx layout.Context, row, col int) layout.Dimensions {
-		macros[row*cols+col].Add(gtx.Ops)
-		dims := dims[row*cols+col]
-		dims.Size = gtx.Constraints.Constrain(dims.Size)
-		return dims
-	}
-
 	// outlay.Grid fills the Max constraint
 	height := rows*(dims[0].Size.Y+sg.RowPadding) - sg.RowPadding
 	var width int
@@ -3170,7 +3161,15 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, cellFunc outlay.C
 		width += cw + sg.ColumnPadding
 	}
 	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(width, height))
-	return sg.Grid.Layout(gtx, rows, cols, dimmer, macroCellFunc)
+	wrapper := func(gtx layout.Context, row, col int) layout.Dimensions {
+		ogtx := gtx
+		gtx.Constraints.Min.X -= sg.ColumnPadding
+		gtx.Constraints.Max.X -= sg.ColumnPadding
+		dims := cellFunc(gtx, row, col)
+		dims.Size = ogtx.Constraints.Constrain(dims.Size)
+		return dims
+	}
+	return sg.Grid.Layout(gtx, rows, cols, dimmer, wrapper)
 }
 
 type GoroutineStats struct {
@@ -3256,6 +3255,69 @@ func sortStats[T constraints.Ordered](stats *[stateLast]GoroutineStat, mapping [
 	}
 }
 
+func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStatLabels]image.Point {
+	// Column 1 and 2 (state and count) are sized individually, all other columns (min, max, ...) have the same width.
+	// The last columns' labels are all roughly the same size and only differ by a few pixels, which would look
+	// inconsistent. The values in the last columns all have the same width.
+	//
+	// We assume that all lines have the same height. This is an assumption shared by outlay.Grid.
+
+	fLabel := goFonts[0].Font
+	fLabel.Weight = text.Bold
+	fContent := goFonts[0].Font
+
+	var columnSizes [numStatLabels]image.Point
+
+	shape := func(s string, f text.Font) image.Point {
+		lines := th.Shaper.LayoutString(fLabel, fixed.I(gtx.Sp(th.TextSize)), gtx.Constraints.Max.X, gtx.Locale, s)
+		firstLine := lines[0]
+		spanWidth := firstLine.Width.Ceil()
+		spanHeight := (firstLine.Ascent + firstLine.Descent).Ceil()
+
+		return image.Point{spanWidth, spanHeight}
+	}
+
+	// Column 1 contains strings, so the width is that of the widest shaped string
+	size := shape(statLabels[0+numStatLabels], fLabel)
+	for _, name := range stateNamesCapitalized {
+		size2 := shape(name, fContent)
+		if size2.X > size.X {
+			size.X = size2.X
+		}
+	}
+	columnSizes[0] = size
+
+	// Column 2 contains numbers, so the width is either that of the column label or the widest number. Digits all have
+	// the same width, so we only need to shape the largest number.
+	size = shape(statLabels[1+numStatLabels], fLabel)
+	max := 0
+	for _, stat := range gs.stats {
+		if stat.count > max {
+			max = stat.count
+		}
+	}
+	size2 := shape(fmt.Sprintf("%d", max), fContent)
+	if size2.X > size.X {
+		size.X = size2.X
+	}
+	columnSizes[1] = size
+
+	// The remaining columns contain numbers in scientific notation with fixed precision, so the width is either that of
+	// the column label or that of "1.23E+99".
+	size = shape("1.23E+99", fContent)
+	for i := 2; i < numStatLabels; i++ {
+		size2 := shape(statLabels[i+numStatLabels], fLabel)
+		if size2.X > size.X {
+			size.X = size2.X
+		}
+	}
+	for i := 2; i < numStatLabels; i++ {
+		columnSizes[i] = size
+	}
+
+	return columnSizes
+}
+
 func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	for col := range gs.interactiveColumnsState {
 		for {
@@ -3314,24 +3376,46 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 		ColumnPadding: gtx.Dp(15),
 	}
 
-	m := op.Record(gtx.Ops)
-	indicatorWidth := richtext.Text(
-		nil,
-		th.Shaper,
-		spanWith(th, "▼", func(ss richtext.SpanStyle) richtext.SpanStyle {
-			ss.Font.Weight = text.Bold
-			return ss
-		})).Layout(gtx).Size.X
-	m.Stop()
+	// Compute the widest column label so that all columns have the same size (unless they need to be wider due to their
+	// contents.)
+	var labelSizes [3]image.Point
+	for i := numStatLabels; i < 2*numStatLabels; i++ {
+		f := goFonts[0].Font
+		f.Weight = text.Bold
+
+		l := statLabels[i]
+		lines := th.Shaper.LayoutString(f, fixed.I(gtx.Sp(th.TextSize)), gtx.Constraints.Max.X, gtx.Locale, l)
+		firstLine := lines[0]
+		spanWidth := firstLine.Width.Ceil()
+		spanHeight := (firstLine.Ascent + firstLine.Descent).Ceil()
+
+		j := i - numStatLabels
+		if j > 2 {
+			j = 2
+		}
+		if spanWidth > labelSizes[j].X {
+			labelSizes[j].X = spanWidth
+		}
+		if spanHeight > labelSizes[j].Y {
+			labelSizes[j].Y = spanHeight
+		}
+	}
+
+	// There is probably no need to cache the sizes between frames. The window only redraws when it's being interacted
+	// with, which may even change the sizes.
+	sizes := gs.computeSizes(gtx, th)
+	sizer := func(gtx layout.Context, row, col int) layout.Dimensions {
+		return layout.Dimensions{Size: sizes[col]}
+	}
 
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
 			var l string
 			if col == gs.sortCol {
 				if gs.sortDescending {
-					l = statLabels[col+7]
+					l = statLabels[col+numStatLabels]
 				} else {
-					l = statLabels[col+14]
+					l = statLabels[col+numStatLabels*2]
 				}
 			} else {
 				l = statLabels[col]
@@ -3342,13 +3426,8 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				ss.Interactive = true
 				return ss
 			})
-			dims := richtext.Text(&gs.interactiveColumnsState[col], th.Shaper, s).Layout(gtx)
-			if col == gs.sortCol {
-				return dims
-			} else {
-				dims.Size.X += indicatorWidth
-				return dims
-			}
+			_ = s
+			richtext.Text(&gs.interactiveColumnsState[col], th.Shaper, s).Layout(gtx)
 		} else {
 			row--
 			n := gs.mapping[row]
@@ -3383,12 +3462,19 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 			}
 
 			txt := richtext.Text(nil, th.Shaper, span(th, l))
-			return txt.Layout(gtx)
+			if col != 0 {
+				txt.Alignment = text.End
+			}
+			txt.Layout(gtx)
 		}
+
+		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
 
-	return grid.Layout(gtx, len(gs.mapping)+1, 7, cellFn)
+	return grid.Layout(gtx, len(gs.mapping)+1, 7, sizer, cellFn)
 }
+
+const numStatLabels = 7
 
 var statLabels = [...]string{
 	"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
