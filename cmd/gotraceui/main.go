@@ -3177,6 +3177,8 @@ type GoroutineStats struct {
 	stats   [stateLast]GoroutineStat
 	mapping []int
 
+	start, end time.Duration
+
 	sortCol        int
 	sortDescending bool
 
@@ -3239,6 +3241,9 @@ func NewGoroutineStats(g *Goroutine) *GoroutineStats {
 
 		gst.mapping = append(gst.mapping, i)
 	}
+
+	gst.start = g.spans[0].start
+	gst.end = g.spans[len(g.spans)-1].end
 
 	return gst
 }
@@ -3575,19 +3580,19 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%d\n", 999)),
+				span(th, fmt.Sprintf("%d ns\n", gwin.stats.start)),
 
 				spanWith(th, "Returned at: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%d\n", 999)),
+				span(th, fmt.Sprintf("%d ns\n", gwin.stats.end)),
 
 				spanWith(th, "Lifetime: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%d", 999)),
+				span(th, fmt.Sprintf("%s", gwin.stats.end-gwin.stats.start)),
 			}
 
 			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
