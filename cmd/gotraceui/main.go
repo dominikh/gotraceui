@@ -669,7 +669,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-		tl.activity.showTooltipsNotification.Layout(gtx)
+		tl.activity.showTooltipsNotification.Layout(gtx, tl.theme)
 
 		tl.prevFrame.start = tl.start
 		tl.prevFrame.end = tl.end
@@ -2295,7 +2295,6 @@ func NewMainWindow() *MainWindow {
 
 	win.tl.theme = win.theme
 	win.tl.axis.tl = &win.tl
-	win.tl.activity.showTooltipsNotification.theme = win.theme
 
 	return win
 }
@@ -3060,7 +3059,6 @@ func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 }
 
 type Notification struct {
-	theme   *theme.Theme
 	message string
 	shownAt time.Time
 }
@@ -3070,7 +3068,7 @@ func (notif *Notification) Show(gtx layout.Context, msg string) {
 	notif.shownAt = gtx.Now
 }
 
-func (notif *Notification) Layout(gtx layout.Context) layout.Dimensions {
+func (notif *Notification) Layout(gtx layout.Context, theme *theme.Theme) layout.Dimensions {
 	if gtx.Now.After(notif.shownAt.Add(1000 * time.Millisecond)) {
 		return layout.Dimensions{}
 	}
@@ -3080,7 +3078,7 @@ func (notif *Notification) Layout(gtx layout.Context) layout.Dimensions {
 	ngtx := gtx
 	ngtx.Constraints.Max.X = 500
 	macro := op.Record(gtx.Ops)
-	dims := BorderedText(ngtx, notif.theme, notif.message)
+	dims := BorderedText(ngtx, theme, notif.message)
 	call := macro.Stop()
 
 	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
