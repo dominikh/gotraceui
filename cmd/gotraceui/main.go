@@ -27,6 +27,7 @@ import (
 	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/font/gofont"
+	"gioui.org/gesture"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/profile"
@@ -40,7 +41,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/x/eventx"
 	"gioui.org/x/outlay"
-	"gioui.org/x/richtext"
+	"gioui.org/x/poortext"
 )
 
 /*
@@ -3180,7 +3181,7 @@ type GoroutineStats struct {
 	sortCol        int
 	sortDescending bool
 
-	interactiveColumnsState [7]richtext.InteractiveText
+	columnClicks [7]gesture.Click
 }
 
 type GoroutineStat struct {
@@ -3322,54 +3323,50 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 }
 
 func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
-	for col := range gs.interactiveColumnsState {
-		for {
-			span, events := gs.interactiveColumnsState[col].Events()
-			if span == nil {
-				break
+	for col := range gs.columnClicks {
+		for _, ev := range gs.columnClicks[col].Events(gtx) {
+			if ev.Type != gesture.TypeClick {
+				continue
 			}
-			for _, ev := range events {
-				if ev.Type == richtext.Click || ev.Type == richtext.LongPress {
-					if col == gs.sortCol {
-						gs.sortDescending = !gs.sortDescending
-					} else {
-						gs.sortCol = col
-						gs.sortDescending = false
-					}
-					switch col {
-					case 0:
-						// OPT(dh): don't use sort.Slice, it allocates
-						if gs.sortDescending {
-							sort.Slice(gs.mapping, func(i, j int) bool {
-								return gs.mapping[i] >= gs.mapping[j]
-							})
-						} else {
-							sort.Slice(gs.mapping, func(i, j int) bool {
-								return gs.mapping[i] < gs.mapping[j]
-							})
-						}
-					case 1:
-						// Count
-						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) int { return gs.count })
-					case 2:
-						// Total
-						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.total })
-					case 3:
-						// Min
-						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.min })
-					case 4:
-						// Max
-						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.max })
-					case 5:
-						// Avg
-						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.avg })
-					case 6:
-						// p50
-						sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.p50 })
-					default:
-						panic("unreachable")
-					}
+
+			if col == gs.sortCol {
+				gs.sortDescending = !gs.sortDescending
+			} else {
+				gs.sortCol = col
+				gs.sortDescending = false
+			}
+			switch col {
+			case 0:
+				// OPT(dh): don't use sort.Slice, it allocates
+				if gs.sortDescending {
+					sort.Slice(gs.mapping, func(i, j int) bool {
+						return gs.mapping[i] >= gs.mapping[j]
+					})
+				} else {
+					sort.Slice(gs.mapping, func(i, j int) bool {
+						return gs.mapping[i] < gs.mapping[j]
+					})
 				}
+			case 1:
+				// Count
+				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) int { return gs.count })
+			case 2:
+				// Total
+				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.total })
+			case 3:
+				// Min
+				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.min })
+			case 4:
+				// Max
+				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.max })
+			case 5:
+				// Avg
+				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.avg })
+			case 6:
+				// p50
+				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.p50 })
+			default:
+				panic("unreachable")
 			}
 		}
 	}
@@ -3424,13 +3421,14 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				l = statLabels[col]
 			}
 
-			s := spanWith(th, l, func(ss richtext.SpanStyle) richtext.SpanStyle {
+			s := spanWith(th, l, func(ss poortext.SpanStyle) poortext.SpanStyle {
 				ss.Font.Weight = text.Bold
-				ss.Interactive = true
 				return ss
 			})
-			_ = s
-			richtext.Text(&gs.interactiveColumnsState[col], th.Shaper, s).Layout(gtx)
+			poortext.Text(th.Shaper, s).Layout(gtx, func(i int) {
+				pointer.CursorPointer.Add(gtx.Ops)
+				gs.columnClicks[col].Add(gtx.Ops)
+			})
 		} else {
 			row--
 			n := gs.mapping[row]
@@ -3464,11 +3462,11 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				panic("unreachable")
 			}
 
-			txt := richtext.Text(nil, th.Shaper, span(th, l))
+			txt := poortext.Text(th.Shaper, span(th, l))
 			if col != 0 {
 				txt.Alignment = text.End
 			}
-			txt.Layout(gtx)
+			txt.Layout(gtx, nil)
 		}
 
 		return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -3548,7 +3546,6 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		Title: "Events",
 		Theme: gwin.theme,
 	}
-	var rtState richtext.InteractiveText
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
@@ -3560,33 +3557,33 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 			paint.Fill(gtx.Ops, colors[colorBackground])
 
 			th := gwin.theme
-			spans := []richtext.SpanStyle{
-				spanWith(th, "Goroutine: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+			spans := []poortext.SpanStyle{
+				spanWith(th, "Goroutine: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
 				span(th, fmt.Sprintf("%d\n", gwin.g.id)),
 
-				spanWith(th, "Function: ", func(ss richtext.SpanStyle) richtext.SpanStyle { ss.Font.Weight = text.Bold; return ss }),
-				spanWith(th, fmt.Sprintf("%s\n", gwin.g.function), func(ss richtext.SpanStyle) richtext.SpanStyle {
-					ss.Interactive = true
+				spanWith(th, "Function: ", func(ss poortext.SpanStyle) poortext.SpanStyle { ss.Font.Weight = text.Bold; return ss }),
+				spanWith(th, fmt.Sprintf("%s\n", gwin.g.function), func(ss poortext.SpanStyle) poortext.SpanStyle {
+					// XXX make function clickable
 					ss.Color = th.Palette.Link
 					return ss
 				}),
 
-				spanWith(th, "Created at: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+				spanWith(th, "Created at: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
 				span(th, fmt.Sprintf("%d ns\n", gwin.stats.start)),
 
-				spanWith(th, "Returned at: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+				spanWith(th, "Returned at: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
 				span(th, fmt.Sprintf("%d ns\n", gwin.stats.end)),
 
-				spanWith(th, "Lifetime: ", func(ss richtext.SpanStyle) richtext.SpanStyle {
+				spanWith(th, "Lifetime: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
@@ -3595,7 +3592,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 
 			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return richtext.Text(&rtState, gwin.theme.Shaper, spans...).Layout(gtx)
+					return poortext.Text(gwin.theme.Shaper, spans...).Layout(gtx, nil)
 				}),
 				// XXX ideally the spacing would be one line high
 				layout.Rigid(layout.Spacer{Height: 10}.Layout),
@@ -3674,7 +3671,6 @@ type Events struct {
 	}
 	filteredEvents []*trace.Event
 	grid           outlay.Grid
-	richState      richtext.InteractiveText
 }
 
 var goFonts = gofont.Collection()
@@ -3759,25 +3755,25 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// XXX subtract padding from width
 
 			ev := evs.filteredEvents[row-1]
-			// XXX richtext wraps our spans if the window is too small
-			var labelSpans []richtext.SpanStyle
+			// XXX poortext wraps our spans if the window is too small
+			var labelSpans []poortext.SpanStyle
 			switch col {
 			case 0:
-				labelSpans = []richtext.SpanStyle{
+				labelSpans = []poortext.SpanStyle{
 					span(evs.theme, fmt.Sprintf("%d ns", ev.Ts)),
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					labelSpans = []richtext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[1]])}
+					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[1]])}
 				}
 			case 2:
 				switch ev.Type {
 				case trace.EvGoCreate:
 					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
-					labelSpans = []richtext.SpanStyle{
+					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Created "),
-						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
-							s.Interactive = true
+						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
+							// XXX make clickable
 							s.Color = evs.theme.Palette.Link
 							return s
 						}),
@@ -3785,10 +3781,10 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 				case trace.EvGoUnblock:
 					// XXX linkify goroutine ID, clicking it should scroll to the corresponding event in the unblocked
 					// goroutine
-					labelSpans = []richtext.SpanStyle{
+					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Unblocked "),
-						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s richtext.SpanStyle) richtext.SpanStyle {
-							s.Interactive = true
+						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
+							// XXX make clickable
 							s.Color = evs.theme.Palette.Link
 							return s
 						}),
@@ -3796,11 +3792,11 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 				case trace.EvGoSysCall:
 					// XXX track syscalls in a separate list
 					// XXX try to extract syscall name from stack trace
-					labelSpans = []richtext.SpanStyle{
+					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Syscall"),
 					}
 				case trace.EvUserLog:
-					labelSpans = []richtext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[3]])}
+					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[3]])}
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}
@@ -3810,11 +3806,11 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
 			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-			txt := richtext.Text(&evs.richState, evs.theme.Shaper, labelSpans...)
+			txt := poortext.Text(evs.theme.Shaper, labelSpans...)
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
 			}
-			return txt.Layout(gtx)
+			return txt.Layout(gtx, nil)
 		}
 	}
 
@@ -3835,8 +3831,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
 }
 
-func span(th *theme.Theme, text string) richtext.SpanStyle {
-	return richtext.SpanStyle{
+func span(th *theme.Theme, text string) poortext.SpanStyle {
+	return poortext.SpanStyle{
 		Content: text,
 		Size:    th.TextSize,
 		Color:   th.Palette.Foreground,
@@ -3844,6 +3840,6 @@ func span(th *theme.Theme, text string) richtext.SpanStyle {
 	}
 }
 
-func spanWith(th *theme.Theme, text string, fn func(richtext.SpanStyle) richtext.SpanStyle) richtext.SpanStyle {
+func spanWith(th *theme.Theme, text string, fn func(poortext.SpanStyle) poortext.SpanStyle) poortext.SpanStyle {
 	return fn(span(th, text))
 }
