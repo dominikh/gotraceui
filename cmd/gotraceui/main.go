@@ -1627,7 +1627,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		switch state := s.state; state {
 		case stateInactive:
 			label += "inactive"
-			label += "\nReason: " + s.reason
+			label += "\nReason: " + reasons[s.reason]
 		case stateActive:
 			label += "active"
 		case stateGCDedicated:
@@ -1793,22 +1793,37 @@ func (g *Goroutine) String() string {
 }
 
 type Span struct {
-	start time.Duration
-	end   time.Duration
-	state schedulingState
-	event *trace.Event
-	// TODO(dh): use an enum for reason
-	reason string
+	start  time.Duration
+	end    time.Duration
+	state  schedulingState
+	event  *trace.Event
 	events []*trace.Event
 	stack  uint64
 	tags   spanTags
 	at     int
+	reason reason
 }
 
 //gcassert:inline
 func (s Span) Duration() time.Duration {
 	return s.end - s.start
 }
+
+type reason uint8
+
+var reasons = map[reason]string{
+	reasonNewlyCreated: "newly created",
+	reasonGosched:      "called runtime.Gosched",
+	reasonTimeSleep:    "called time.Sleep",
+	reasonPreempted:    "got preempted",
+}
+
+const (
+	reasonNewlyCreated reason = iota
+	reasonGosched
+	reasonTimeSleep
+	reasonPreempted
+)
 
 type Trace struct {
 	gs  []*Goroutine
@@ -1954,7 +1969,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		}
 		var gid uint64
 		var state schedulingState
-		var reason string
+		var reason reason
 		var pState int
 
 		const (
@@ -1987,7 +2002,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// there's another event then we can deduce it (we can't go from _Grunnable to _Gblocked, for example), but
 			// if there are no more events, then we cannot tell if the goroutine was always running or always runnable.
 			state = stateCreated
-			reason = "newly created"
+			reason = reasonNewlyCreated
 		case trace.EvGoStart:
 			// ev.G starts running
 			gid = ev.G
@@ -2026,19 +2041,19 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			gid = ev.G
 			pState = pStopG
 			state = stateInactive
-			reason = "called runtime.Gosched"
+			reason = reasonGosched
 		case trace.EvGoSleep:
 			// ev.G calls Sleep
 			gid = ev.G
 			pState = pStopG
 			state = stateInactive
-			reason = "called time.Sleep"
+			reason = reasonTimeSleep
 		case trace.EvGoPreempt:
 			// ev.G got preempted
 			gid = ev.G
 			pState = pStopG
 			state = stateInactive
-			reason = "got preempted"
+			reason = reasonPreempted
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
 			trace.EvGoBlockGC:
