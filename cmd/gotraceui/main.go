@@ -2612,7 +2612,7 @@ const (
 	colorSpanOutline
 )
 
-type schedulingState int
+type schedulingState uint8
 
 const (
 	stateNone schedulingState = iota
