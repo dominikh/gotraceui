@@ -1629,7 +1629,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		switch state := s.state; state {
 		case stateInactive:
 			label += "inactive"
-			label += "\nReason: " + reasons[s.reason]
+			label += "\nReason: " + reasonLabels[s.Reason()]
 		case stateActive:
 			label += "active"
 		case stateGCDedicated:
@@ -1795,13 +1795,28 @@ func (g *Goroutine) String() string {
 }
 
 type Span struct {
-	end    time.Duration
-	state  schedulingState
-	event  *trace.Event
+	// OPT(dh): we can probably remove the end field, and instead compute it from the next span's timestamp. this does
+	// require that the per-P view doesn't have actual gaps, and instead has spans for idle spans.
+	end time.Duration
+	// OPT(dh): we can probably remove the state field and instead compute it from the event
+	state schedulingState
+	event *trace.Event
+	// OPT(dh): we should remove the events field and instead look up relevant events on demand
 	events []*trace.Event
 	tags   spanTags
 	at     int
-	reason reason
+}
+
+var reasonByEventType = [255]reason{
+	trace.EvGoCreate:  reasonNewlyCreated,
+	trace.EvGoSched:   reasonGosched,
+	trace.EvGoSleep:   reasonTimeSleep,
+	trace.EvGoPreempt: reasonPreempted,
+}
+
+//gcassert:inline
+func (s *Span) Reason() reason {
+	return reasonByEventType[s.event.Type]
 }
 
 //gcassert:inline
@@ -1811,7 +1826,7 @@ func (s Span) Duration() time.Duration {
 
 type reason uint8
 
-var reasons = map[reason]string{
+var reasonLabels = [255]string{
 	reasonNewlyCreated: "newly created",
 	reasonGosched:      "called runtime.Gosched",
 	reasonTimeSleep:    "called time.Sleep",
@@ -1819,7 +1834,8 @@ var reasons = map[reason]string{
 }
 
 const (
-	reasonNewlyCreated reason = iota
+	reasonNone reason = iota
+	reasonNewlyCreated
 	reasonGosched
 	reasonTimeSleep
 	reasonPreempted
@@ -1969,7 +1985,6 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		}
 		var gid uint64
 		var state schedulingState
-		var reason reason
 		var pState int
 
 		const (
@@ -2002,7 +2017,6 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// there's another event then we can deduce it (we can't go from _Grunnable to _Gblocked, for example), but
 			// if there are no more events, then we cannot tell if the goroutine was always running or always runnable.
 			state = stateCreated
-			reason = reasonNewlyCreated
 		case trace.EvGoStart:
 			// ev.G starts running
 			gid = ev.G
@@ -2041,19 +2055,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			gid = ev.G
 			pState = pStopG
 			state = stateInactive
-			reason = reasonGosched
 		case trace.EvGoSleep:
 			// ev.G calls Sleep
 			gid = ev.G
 			pState = pStopG
 			state = stateInactive
-			reason = reasonTimeSleep
 		case trace.EvGoPreempt:
 			// ev.G got preempted
 			gid = ev.G
 			pState = pStopG
 			state = stateInactive
-			reason = reasonPreempted
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
 			trace.EvGoBlockGC:
@@ -2212,7 +2223,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{state: state, event: ev, reason: reason}
+		s := Span{state: state, event: ev}
 		if ev.Type == trace.EvGoSysBlock {
 			if debug && s.event.StkID != 0 {
 				panic("expected zero stack ID")
