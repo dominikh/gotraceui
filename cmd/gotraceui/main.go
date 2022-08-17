@@ -52,6 +52,8 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): button to zoom so far into a span that it no longer gets merged. this has to work recursively, because if
+//   the span splits into more merged spans, those should get unmerged, too.
 // XXX how do we have a minimum inactive span of length 0?
 // FIXME(dh): widgets draw on top of axis
 // TODO print thousands separator
@@ -1621,8 +1623,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var at string
 	if len(tt.spans) == 1 {
 		s := tt.spans[0]
-		if at == "" && s.stack > 0 {
-			at = tt.trace.PCs[tt.trace.Stacks[s.stack][s.at]].Fn
+		if at == "" && s.event.StkID > 0 {
+			at = tt.trace.PCs[tt.trace.Stacks[s.event.StkID][s.at]].Fn
 		}
 		switch state := s.state; state {
 		case stateInactive:
@@ -1798,7 +1800,6 @@ type Span struct {
 	state  schedulingState
 	event  *trace.Event
 	events []*trace.Event
-	stack  uint64
 	tags   spanTags
 	at     int
 	reason reason
@@ -2150,11 +2151,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev, stack: ev.StkID})
+			gc = append(gc, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev, stack: ev.StkID})
+			stw = append(stw, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev})
 			continue
 
 		case trace.EvGCDone:
@@ -2212,9 +2213,12 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{start: time.Duration(ev.Ts), state: state, event: ev, reason: reason, stack: ev.StkID}
+		s := Span{start: time.Duration(ev.Ts), state: state, event: ev, reason: reason}
 		if ev.Type == trace.EvGoSysBlock {
-			s.stack = lastSyscall[ev.G]
+			if debug && s.event.StkID != 0 {
+				panic("expected zero stack ID")
+			}
+			s.event.StkID = lastSyscall[ev.G]
 		}
 
 		getG(gid).spans = append(getG(gid).spans, s)
@@ -2242,7 +2246,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 					s.end = g.spans[i+1].start
 				}
 
-				stack := res.Stacks[s.stack]
+				stack := res.Stacks[s.event.StkID]
 				s = applyPatterns(s, res.PCs, stack)
 
 				// move s.At out of the runtime
