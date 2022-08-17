@@ -1796,17 +1796,17 @@ func (g *Goroutine) String() string {
 type Span struct {
 	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
 	// and filling those gaps would probably use more memory than tracking the end time.
-	end time.Duration
+	end   time.Duration
+	event *trace.Event
+	// OPT(dh): we should remove the events field and instead look up relevant events on demand
+	events []*trace.Event
+	// OPT(dh): we really don't need 32-64 bits for the at field
+	at int
 	// We track the scheduling state explicitly, instead of mapping from trace.Event.Type, because we apply pattern
 	// matching to stack traces that may result in more accurate states. For example, we can determine
 	// stateBlockedSyncOnce from the stack trace, and we would otherwise use stateBlockedSync.
 	state schedulingState
-	event *trace.Event
-	// OPT(dh): we should remove the events field and instead look up relevant events on demand
-	events []*trace.Event
-	tags   spanTags
-	// OPT(dh): we really don't need 32-64 bits for the at field
-	at int
+	tags  spanTags
 }
 
 var reasonByEventType = [255]reason{
