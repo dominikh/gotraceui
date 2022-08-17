@@ -52,6 +52,8 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
+//   time or should it display the same time, stretched to fill the new space? Tracy does the latter.
 // TODO(dh): button to zoom so far into a span that it no longer gets merged. this has to work recursively, because if
 //   the span splits into more merged spans, those should get unmerged, too.
 // XXX how do we have a minimum inactive span of length 0?
@@ -1775,9 +1777,6 @@ type Processor struct {
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
-// TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
-// time or should it display the same time, stretched to fill the new space? Tracy does the latter.
-
 type Goroutine struct {
 	id       uint64
 	function string
@@ -1795,16 +1794,19 @@ func (g *Goroutine) String() string {
 }
 
 type Span struct {
-	// OPT(dh): we can probably remove the end field, and instead compute it from the next span's timestamp. this does
-	// require that the per-P view doesn't have actual gaps, and instead has spans for idle spans.
+	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
+	// and filling those gaps would probably use more memory than tracking the end time.
 	end time.Duration
-	// OPT(dh): we can probably remove the state field and instead compute it from the event
+	// We track the scheduling state explicitly, instead of mapping from trace.Event.Type, because we apply pattern
+	// matching to stack traces that may result in more accurate states. For example, we can determine
+	// stateBlockedSyncOnce from the stack trace, and we would otherwise use stateBlockedSync.
 	state schedulingState
 	event *trace.Event
 	// OPT(dh): we should remove the events field and instead look up relevant events on demand
 	events []*trace.Event
 	tags   spanTags
-	at     int
+	// OPT(dh): we really don't need 32-64 bits for the at field
+	at int
 }
 
 var reasonByEventType = [255]reason{
