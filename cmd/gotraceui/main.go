@@ -351,7 +351,7 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.start >= tl.end
+		return time.Duration(s.event.Ts) >= tl.end
 	})
 
 	return spans[start:end]
@@ -390,7 +390,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	s := &spans[offset]
 	offset++
 
-	start := s.start
+	start := time.Duration(s.event.Ts)
 	end := s.end
 	if it.prevEnd > start {
 		// The previous span was extended and grew into this span. This shifts our start position to the right.
@@ -417,7 +417,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := nextSpan.start
+			nextStart := time.Duration(nextSpan.event.Ts)
 			nextEnd := nextSpan.end
 			if adjustedEnd > nextStart {
 				// The current span would have to grow into the next span, making it smaller
@@ -435,7 +435,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := nextSpan.start
+			nextStart := time.Duration(nextSpan.event.Ts)
 			nextEnd := nextSpan.end
 			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
@@ -474,7 +474,7 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 		if len(aw.allSpans) == 0 {
 			continue
 		}
-		if t := aw.allSpans[0].start; t < first || first == -1 {
+		if t := time.Duration(aw.allSpans[0].event.Ts); t < first || first == -1 {
 			first = t
 		}
 		if t := aw.allSpans[len(aw.allSpans)-1].end; t > last {
@@ -613,7 +613,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.activity.hoveredSpans = nil
 		for _, aw := range tl.prevFrame.displayedAws {
 			if spans := aw.clickedSpans; len(spans) > 0 {
-				start := spans[0].start
+				start := time.Duration(spans[0].event.Ts)
 				end := spans[len(spans)-1].end
 				tl.start = start
 				tl.end = end
@@ -1517,7 +1517,7 @@ type GoroutineTooltip struct {
 }
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
-	start := tt.g.spans[0].start
+	start := time.Duration(tt.g.spans[0].event.Ts)
 	end := tt.g.spans[len(tt.g.spans)-1].end
 	d := end - start
 
@@ -1748,7 +1748,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "Events: 0\n"
 		}
 	}
-	d := tt.spans[len(tt.spans)-1].end - tt.spans[0].start
+	d := tt.spans[len(tt.spans)-1].end - time.Duration(tt.spans[0].event.Ts)
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != "" {
@@ -1795,7 +1795,6 @@ func (g *Goroutine) String() string {
 }
 
 type Span struct {
-	start  time.Duration
 	end    time.Duration
 	state  schedulingState
 	event  *trace.Event
@@ -1807,7 +1806,7 @@ type Span struct {
 
 //gcassert:inline
 func (s Span) Duration() time.Duration {
-	return s.end - s.start
+	return s.end - time.Duration(s.event.Ts)
 }
 
 type reason uint8
@@ -2151,11 +2150,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev})
+			gc = append(gc, Span{state: stateActive, event: ev})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{start: time.Duration(ev.Ts), state: stateActive, event: ev})
+			stw = append(stw, Span{state: stateActive, event: ev})
 			continue
 
 		case trace.EvGCDone:
@@ -2213,7 +2212,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{start: time.Duration(ev.Ts), state: state, event: ev, reason: reason}
+		s := Span{state: state, event: ev, reason: reason}
 		if ev.Type == trace.EvGoSysBlock {
 			if debug && s.event.StkID != 0 {
 				panic("expected zero stack ID")
@@ -2226,7 +2225,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			p.spans = append(p.spans, Span{start: time.Duration(ev.Ts), state: stateRunningG, event: ev})
+			p.spans = append(p.spans, Span{state: stateRunningG, event: ev})
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
@@ -2243,7 +2242,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		go func() {
 			for i, s := range g.spans {
 				if i != len(g.spans)-1 {
-					s.end = g.spans[i+1].start
+					s.end = time.Duration(g.spans[i+1].event.Ts)
 				}
 
 				stack := res.Stacks[s.event.StkID]
@@ -3268,7 +3267,7 @@ func NewGoroutineStats(g *Goroutine) *GoroutineStats {
 		gst.mapping = append(gst.mapping, i)
 	}
 
-	gst.start = g.spans[0].start
+	gst.start = time.Duration(g.spans[0].event.Ts)
 	gst.end = g.spans[len(g.spans)-1].end
 
 	return gst
