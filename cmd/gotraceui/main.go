@@ -357,7 +357,7 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return time.Duration(tr.Event(s.event).Ts) >= tl.end
+		return time.Duration(tr.Event(s.event()).Ts) >= tl.end
 	})
 
 	return spans[start:end]
@@ -397,7 +397,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	s := &spans[offset]
 	offset++
 
-	start := time.Duration(tr.Event(s.event).Ts)
+	start := time.Duration(tr.Event(s.event()).Ts)
 	end := s.end
 	if it.prevEnd > start {
 		// The previous span was extended and grew into this span. This shifts our start position to the right.
@@ -424,7 +424,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := time.Duration(tr.Event(nextSpan.event).Ts)
+			nextStart := time.Duration(tr.Event(nextSpan.event()).Ts)
 			nextEnd := nextSpan.end
 			if adjustedEnd > nextStart {
 				// The current span would have to grow into the next span, making it smaller
@@ -442,7 +442,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := time.Duration(tr.Event(nextSpan.event).Ts)
+			nextStart := time.Duration(tr.Event(nextSpan.event()).Ts)
 			nextEnd := nextSpan.end
 			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
@@ -482,7 +482,7 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 		if len(aw.allSpans) == 0 {
 			continue
 		}
-		if t := time.Duration(tr.Event(aw.allSpans[0].event).Ts); t < first || first == -1 {
+		if t := time.Duration(tr.Event(aw.allSpans[0].event()).Ts); t < first || first == -1 {
 			first = t
 		}
 		if t := aw.allSpans[len(aw.allSpans)-1].end; t > last {
@@ -623,7 +623,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.activity.hoveredSpans = nil
 		for _, aw := range tl.prevFrame.displayedAws {
 			if spans := aw.clickedSpans; len(spans) > 0 {
-				start := time.Duration(tr.Event(spans[0].event).Ts)
+				start := time.Duration(tr.Event(spans[0].event()).Ts)
 				end := spans[len(spans)-1].end
 				tl.start = start
 				tl.end = end
@@ -1001,7 +1001,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			// OPT(dh): don't be O(n)
 			o := &tl.activity.hoveredSpans[0]
 			for i := range spans {
-				if tr.Event(spans[i].event).G == tr.Event(o.event).G {
+				if tr.Event(spans[i].event()).G == tr.Event(o.event()).G {
 					return true
 				}
 			}
@@ -1028,7 +1028,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tr.Event(tl.prevFrame.hoveredSpans[0].event).G != tr.Event(tl.activity.hoveredSpans[0].event).G {
+			if tr.Event(tl.prevFrame.hoveredSpans[0].event()).G != tr.Event(tl.activity.hoveredSpans[0].event()).G {
 				return true
 			}
 
@@ -1040,7 +1040,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			}
 			// OPT(dh): cache the strings
 			out := make([]string, 3)
-			g := aw.tl.gs[tr.Event(spans[0].event).G]
+			g := aw.tl.gs[tr.Event(spans[0].event()).G]
 			if g.function != "" {
 				out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
 			} else {
@@ -1528,7 +1528,7 @@ type GoroutineTooltip struct {
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	tr := tt.trace
-	start := time.Duration(tr.Event(tt.g.spans[0].event).Ts)
+	start := time.Duration(tr.Event(tt.g.spans[0].event()).Ts)
 	end := tt.g.spans[len(tt.g.spans)-1].end
 	d := end - start
 
@@ -1636,7 +1636,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	var at string
 	if len(tt.spans) == 1 {
 		s := &tt.spans[0]
-		ev := tr.Event(s.event)
+		ev := tr.Event(s.event())
 		if at == "" && ev.StkID > 0 {
 			at = tr.PCs[tr.Stacks[ev.StkID][s.at]].Fn
 		}
@@ -1762,7 +1762,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "Events: 0\n"
 		}
 	}
-	d := tt.spans[len(tt.spans)-1].end - time.Duration(tr.Event(tt.spans[0].event).Ts)
+	d := tt.spans[len(tt.spans)-1].end - time.Duration(tr.Event(tt.spans[0].event()).Ts)
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != "" {
@@ -1816,8 +1816,8 @@ func (g *Goroutine) String() string {
 type Span struct {
 	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
 	// and filling those gaps would probably use more memory than tracking the end time.
-	end   time.Duration
-	event EventID
+	end    time.Duration
+	event_ [5]byte
 	// at is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	at uint8
 	// We track the scheduling state explicitly, instead of mapping from trace.Event.Type, because we apply pattern
@@ -1825,6 +1825,30 @@ type Span struct {
 	// stateBlockedSyncOnce from the stack trace, and we would otherwise use stateBlockedSync.
 	state schedulingState
 	tags  spanTags
+}
+
+//gcassert:inline
+func (s *Span) event() EventID {
+	return EventID(s.event_[0]) |
+		EventID(s.event_[1])<<8 |
+		EventID(s.event_[2])<<16 |
+		EventID(s.event_[3])<<24 |
+		EventID(s.event_[4])<<32
+}
+
+//gcassert:inline
+func packEventID(id EventID) [5]byte {
+	if debug && id >= 1<<40 {
+		panic(fmt.Sprintf("id %d doesn't fit in uint40", id))
+	}
+
+	return [5]byte{
+		byte(id),
+		byte(id >> 8),
+		byte(id >> 16),
+		byte(id >> 24),
+		byte(id >> 32),
+	}
 }
 
 var reasonByEventType = [255]reason{
@@ -1836,7 +1860,7 @@ var reasonByEventType = [255]reason{
 
 //gcassert:inline
 func (t *Trace) Reason(s *Span) reason {
-	return reasonByEventType[t.Events[s.event].Type]
+	return reasonByEventType[t.Events[s.event()].Type]
 }
 
 //gcassert:inline
@@ -1846,7 +1870,7 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 
 //gcassert:inline
 func (t *Trace) Duration(s *Span) time.Duration {
-	return s.end - time.Duration(t.Event(s.event).Ts)
+	return s.end - time.Duration(t.Event(s.event()).Ts)
 }
 
 type AllEventer interface {
@@ -1868,7 +1892,7 @@ func (s *Span) Events(evs AllEventer, tr *Trace) []EventID {
 		return time.Duration(tr.Event(ev).Ts) >= s.end
 	})
 
-	sTs := tr.Event(s.event).Ts
+	sTs := tr.Event(s.event()).Ts
 
 	start := sort.Search(len(all[:end]), func(i int) bool {
 		ev := all[i]
@@ -2212,11 +2236,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{state: stateActive, event: EventID(evID)})
+			gc = append(gc, Span{state: stateActive, event_: packEventID(EventID(evID))})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{state: stateActive, event: EventID(evID)})
+			stw = append(stw, Span{state: stateActive, event_: packEventID(EventID(evID))})
 			continue
 
 		case trace.EvGCDone:
@@ -2274,12 +2298,12 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{state: state, event: EventID(evID)}
+		s := Span{state: state, event_: packEventID(EventID(evID))}
 		if ev.Type == trace.EvGoSysBlock {
-			if debug && res.Events[s.event].StkID != 0 {
+			if debug && res.Events[s.event()].StkID != 0 {
 				panic("expected zero stack ID")
 			}
-			res.Events[s.event].StkID = lastSyscall[ev.G]
+			res.Events[s.event()].StkID = lastSyscall[ev.G]
 		}
 
 		// OPT(dh): for our scarily big trace, this doesn't just result in 3.34 GB of in-use space, but also 14.67 GB of
@@ -2290,7 +2314,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case pRunG:
 			p := getP(ev.P)
 			// OPT(dh): similar to G spans above, this causes 6.41 GB of allocations to end up with 1.30 GB in-use.
-			p.spans = append(p.spans, Span{state: stateRunningG, event: EventID(evID)})
+			p.spans = append(p.spans, Span{state: stateRunningG, event_: packEventID(EventID(evID))})
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
@@ -2307,10 +2331,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		go func() {
 			for i, s := range g.spans {
 				if i != len(g.spans)-1 {
-					s.end = time.Duration(res.Events[g.spans[i+1].event].Ts)
+					s.end = time.Duration(res.Events[g.spans[i+1].event()].Ts)
 				}
 
-				stack := res.Stacks[res.Events[s.event].StkID]
+				stack := res.Stacks[res.Events[s.event()].StkID]
 				s = applyPatterns(s, res.PCs, stack)
 
 				// move s.At out of the runtime
@@ -3344,7 +3368,7 @@ func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 		gst.mapping = append(gst.mapping, i)
 	}
 
-	gst.start = time.Duration(tr.Event(g.spans[0].event).Ts)
+	gst.start = time.Duration(tr.Event(g.spans[0].event()).Ts)
 	gst.end = g.spans[len(g.spans)-1].end
 
 	return gst
