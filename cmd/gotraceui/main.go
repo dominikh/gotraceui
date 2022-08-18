@@ -2492,6 +2492,12 @@ func main() {
 	go func() {
 		commands <- Command{"setState", "loadingTrace"}
 		t, err := loadTrace(os.Args[1], commands)
+		if memprofiling {
+			f, _ := os.Create("mem_load_done.pprof")
+			runtime.GC()
+			pprof.WriteHeapProfile(f)
+			f.Close()
+		}
 		if err != nil {
 			commands <- Command{"error", fmt.Errorf("couldn't load trace: %w", err)}
 			return
@@ -2531,8 +2537,10 @@ func main() {
 			pprof.StopCPUProfile()
 		}
 		if memprofiling {
-			f, _ := os.Create("mem.pprof")
+			f, _ := os.Create("mem_quitting.pprof")
+			runtime.GC()
 			pprof.WriteHeapProfile(f)
+			f.Close()
 		}
 		os.Exit(0)
 	}()
