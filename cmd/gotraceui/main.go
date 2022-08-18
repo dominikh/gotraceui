@@ -127,6 +127,8 @@ const (
 	windowBorderDp  unit.Dp = 2
 )
 
+type EventID uint64
+
 type reusableOps struct {
 	ops op.Ops
 }
@@ -161,6 +163,7 @@ const (
 
 type Timeline struct {
 	theme *theme.Theme
+	trace *Trace
 
 	clickedGoroutineActivities []*Goroutine
 
@@ -343,6 +346,7 @@ func (tl *Timeline) activityHeight(gtx layout.Context) int {
 }
 
 func (tl *Timeline) visibleSpans(spans []Span) []Span {
+	tr := tl.trace
 	// Visible spans have to end after tl.Start and begin before tl.End
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
@@ -353,7 +357,7 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return time.Duration(s.event.Ts) >= tl.end
+		return time.Duration(tr.Event(s.event).Ts) >= tl.end
 	})
 
 	return spans[start:end]
@@ -379,6 +383,7 @@ type renderedSpansIterator struct {
 func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float32, ok bool) {
 	offset := it.offset
 	spans := it.spans
+	tr := it.tl.trace
 
 	if offset >= len(spans) {
 		return nil, 0, 0, false
@@ -392,7 +397,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	s := &spans[offset]
 	offset++
 
-	start := time.Duration(s.event.Ts)
+	start := time.Duration(tr.Event(s.event).Ts)
 	end := s.end
 	if it.prevEnd > start {
 		// The previous span was extended and grew into this span. This shifts our start position to the right.
@@ -419,7 +424,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := time.Duration(nextSpan.event.Ts)
+			nextStart := time.Duration(tr.Event(nextSpan.event).Ts)
 			nextEnd := nextSpan.end
 			if adjustedEnd > nextStart {
 				// The current span would have to grow into the next span, making it smaller
@@ -437,7 +442,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := time.Duration(nextSpan.event.Ts)
+			nextStart := time.Duration(tr.Event(nextSpan.event).Ts)
 			nextEnd := nextSpan.end
 			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
@@ -471,12 +476,13 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 }
 
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
+	tr := tl.trace
 	var first, last time.Duration = -1, -1
 	for _, aw := range tl.visibleActivities(gtx) {
 		if len(aw.allSpans) == 0 {
 			continue
 		}
-		if t := time.Duration(aw.allSpans[0].event.Ts); t < first || first == -1 {
+		if t := time.Duration(tr.Event(aw.allSpans[0].event).Ts); t < first || first == -1 {
 			first = t
 		}
 		if t := aw.allSpans[len(aw.allSpans)-1].end; t > last {
@@ -511,6 +517,8 @@ func (tl *Timeline) VisibleWidth(gtx layout.Context) int {
 }
 
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
+	tr := tl.trace
+
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
 		case key.Event:
@@ -615,7 +623,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.activity.hoveredSpans = nil
 		for _, aw := range tl.prevFrame.displayedAws {
 			if spans := aw.clickedSpans; len(spans) > 0 {
-				start := time.Duration(spans[0].event.Ts)
+				start := time.Duration(tr.Event(spans[0].event).Ts)
 				end := spans[len(spans)-1].end
 				tl.start = start
 				tl.end = end
@@ -843,7 +851,6 @@ type ActivityWidget struct {
 	highlightSpan   func(aw *ActivityWidget, spans []Span) bool
 	invalidateCache func(aw *ActivityWidget) bool
 	spanLabel       func(aw *ActivityWidget, spans []Span) []string
-	trace           *Trace
 	theme           *theme.Theme
 	tl              *Timeline
 	item            any
@@ -895,7 +902,6 @@ func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *Act
 		item:     spans,
 		label:    "GC",
 		theme:    th,
-		trace:    trace,
 	}
 }
 
@@ -906,7 +912,6 @@ func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *Ac
 		item:     spans,
 		label:    "STW",
 		theme:    th,
-		trace:    trace,
 	}
 }
 
@@ -929,7 +934,7 @@ var spanStateLabels = [...][]string{
 	stateLast:                    nil,
 }
 
-func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutine) *ActivityWidget {
+func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWidget {
 	var l string
 	if g.function != "" {
 		l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
@@ -941,7 +946,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutin
 		allSpans:   g.spans,
 		allEventer: g,
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
-			GoroutineTooltip{g, th}.Layout(gtx)
+			GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
 		},
 		spanLabel: func(aw *ActivityWidget, spans []Span) []string {
 			if len(spans) != 1 {
@@ -950,14 +955,13 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutin
 			return spanStateLabels[spans[0].state]
 		},
 		theme: th,
-		trace: trace,
 		tl:    tl,
 		item:  g,
 		label: l,
 	}
 }
 
-func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
+func (w *MainWindow) openGoroutineWindow(g *Goroutine, tr *Trace) {
 	_, ok := w.goroutineWindows[g.id]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
@@ -968,7 +972,7 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 			trace: w.trace,
 			g:     g,
 		}
-		win.stats = NewGoroutineStats(g)
+		win.stats = NewGoroutineStats(g, tr)
 		w.goroutineWindows[g.id] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
@@ -985,7 +989,8 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 	}
 }
 
-func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processor) *ActivityWidget {
+func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWidget {
+	tr := tl.trace
 	return &ActivityWidget{
 		allSpans:      p.spans,
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
@@ -994,9 +999,9 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processo
 				return false
 			}
 			// OPT(dh): don't be O(n)
-			o := tl.activity.hoveredSpans[0]
-			for _, s := range spans {
-				if s.event.G == o.event.G {
+			o := &tl.activity.hoveredSpans[0]
+			for i := range spans {
+				if tr.Event(spans[i].event).G == tr.Event(o.event).G {
 					return true
 				}
 			}
@@ -1023,7 +1028,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processo
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tl.prevFrame.hoveredSpans[0].event.G != tl.activity.hoveredSpans[0].event.G {
+			if tr.Event(tl.prevFrame.hoveredSpans[0].event).G != tr.Event(tl.activity.hoveredSpans[0].event).G {
 				return true
 			}
 
@@ -1035,7 +1040,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processo
 			}
 			// OPT(dh): cache the strings
 			out := make([]string, 3)
-			g := aw.tl.gs[spans[0].event.G]
+			g := aw.tl.gs[tr.Event(spans[0].event).G]
 			if g.function != "" {
 				out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
 			} else {
@@ -1048,13 +1053,13 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, trace *Trace, p *Processo
 		},
 		tl:    tl,
 		item:  p,
-		trace: trace,
 		label: fmt.Sprintf("Processor %d", p.id),
 		theme: th,
 	}
 }
 
 func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+	tr := aw.tl.trace
 	activityHeight := aw.tl.activityHeight(gtx)
 	activityStateHeight := gtx.Dp(activityStateHeightDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
@@ -1266,7 +1271,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		var tooltip *SpanTooltip
 		if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
 			//gcassert:noescape
-			tooltip = &SpanTooltip{dspSpans, nil, aw.trace, aw.tl, aw.theme}
+			tooltip = &SpanTooltip{dspSpans, nil, aw.tl, aw.theme}
 		}
 
 		dotRadiusX := float32(gtx.Dp(4))
@@ -1274,14 +1279,14 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpans[0].Events(aw.allEventer)
+			events := dspSpans[0].Events(aw.allEventer, tr)
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(activityStateHeight) / 2
 
 			for i := 0; i < len(events); i++ {
 				ev := events[i]
-				px := aw.tl.tsToPx(time.Duration(ev.Ts))
+				px := aw.tl.tsToPx(time.Duration(tr.Event(ev).Ts))
 
 				if px+dotRadiusX < minP.X {
 					continue
@@ -1295,7 +1300,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				oldi := i
 				for i = i + 1; i < len(events); i++ {
 					ev := events[i]
-					px := aw.tl.tsToPx(time.Duration(ev.Ts))
+					px := aw.tl.tsToPx(time.Duration(tr.Event(ev).Ts))
 					if px < end+dotRadiusX*2+dotGap {
 						end = px
 					} else {
@@ -1518,55 +1523,59 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 type GoroutineTooltip struct {
 	g     *Goroutine
 	theme *theme.Theme
+	trace *Trace
 }
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
-	start := time.Duration(tt.g.spans[0].event.Ts)
+	tr := tt.trace
+	start := time.Duration(tr.Event(tt.g.spans[0].event).Ts)
 	end := tt.g.spans[len(tt.g.spans)-1].end
 	d := end - start
 
 	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
 	var blockedD, inactiveD, runningD, gcAssistD time.Duration
-	for _, s := range tt.g.spans {
+	for i := range tt.g.spans {
+		s := &tt.g.spans[i]
+		d := tr.Duration(s)
 		switch s.state {
 		case stateInactive:
-			inactiveD += s.Duration()
+			inactiveD += d
 		case stateActive, stateGCDedicated, stateGCIdle:
-			runningD += s.Duration()
+			runningD += d
 		case stateBlocked:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedWaitingForTraceData:
-			inactiveD += s.Duration()
+			inactiveD += d
 		case stateBlockedSend:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedRecv:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedSelect:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedSync:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedSyncOnce:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedSyncTriggeringGC:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedCond:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedNet:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedGC:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateBlockedSyscall:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateStuck:
-			blockedD += s.Duration()
+			blockedD += d
 		case stateReady:
-			inactiveD += s.Duration()
+			inactiveD += d
 		case stateCreated:
-			inactiveD += s.Duration()
+			inactiveD += d
 		case stateGCMarkAssist:
-			gcAssistD += s.Duration()
+			gcAssistD += d
 		case stateGCSweep:
-			gcAssistD += s.Duration()
+			gcAssistD += d
 		case stateDone:
 		default:
 			if debug {
@@ -1606,8 +1615,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 
 type SpanTooltip struct {
 	spans  []Span
-	events []*trace.Event
-	trace  *Trace
+	events []EventID
 	tl     *Timeline
 	theme  *theme.Theme
 }
@@ -1623,17 +1631,19 @@ func dumpFrames(frames []*trace.Frame) {
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	tr := tt.tl.trace
 	label := "State: "
 	var at string
 	if len(tt.spans) == 1 {
-		s := tt.spans[0]
-		if at == "" && s.event.StkID > 0 {
-			at = tt.trace.PCs[tt.trace.Stacks[s.event.StkID][s.at]].Fn
+		s := &tt.spans[0]
+		ev := tr.Event(s.event)
+		if at == "" && ev.StkID > 0 {
+			at = tr.PCs[tr.Stacks[ev.StkID][s.at]].Fn
 		}
 		switch state := s.state; state {
 		case stateInactive:
 			label += "inactive"
-			label += "\nReason: " + reasonLabels[s.Reason()]
+			label += "\nReason: " + reasonLabels[tr.Reason(s)]
 		case stateActive:
 			label += "active"
 		case stateGCDedicated:
@@ -1674,12 +1684,12 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "GC mark assist"
 		case stateGCSweep:
 			label += "GC sweep"
-			if s.event.Link != -1 {
-				l := tt.trace.Events[s.event.Link]
+			if ev.Link != -1 {
+				l := tr.Events[ev.Link]
 				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
 		case stateRunningG:
-			label += fmt.Sprintf("running goroutine %d", s.event.G)
+			label += fmt.Sprintf("running goroutine %d", ev.G)
 		default:
 			if debug {
 				panic(fmt.Sprintf("unhandled state %d", state))
@@ -1717,9 +1727,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	label += "\n"
 	{
 		if len(tt.events) > 0 {
-			kind := tt.events[0].Type
+			kind := tr.Event(tt.events[0]).Type
 			for _, ev := range tt.events[1:] {
-				if ev.Type != kind {
+				if tr.Event(ev).Type != kind {
 					kind = 255
 				}
 			}
@@ -1729,9 +1739,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 				case trace.EvGoSysCall:
 					noun = "syscalls"
 					if len(tt.events) == 1 {
-						stk := tt.trace.Stacks[tt.events[0].StkID]
+						stk := tr.Stacks[tr.Event(tt.events[0]).StkID]
 						if len(stk) != 0 {
-							frame := tt.trace.PCs[stk[0]]
+							frame := tr.PCs[stk[0]]
 							noun += fmt.Sprintf(" (%s)", frame.Fn)
 						}
 					}
@@ -1752,7 +1762,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "Events: 0\n"
 		}
 	}
-	d := tt.spans[len(tt.spans)-1].end - time.Duration(tt.spans[0].event.Ts)
+	d := tt.spans[len(tt.spans)-1].end - time.Duration(tr.Event(tt.spans[0].event).Ts)
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != "" {
@@ -1786,10 +1796,10 @@ type Goroutine struct {
 	id       uint64
 	function string
 	spans    []Span
-	events   []*trace.Event
+	events   []EventID
 }
 
-func (g *Goroutine) AllEvents() []*trace.Event {
+func (g *Goroutine) AllEvents() []EventID {
 	return g.events
 }
 
@@ -1807,7 +1817,7 @@ type Span struct {
 	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
 	// and filling those gaps would probably use more memory than tracking the end time.
 	end   time.Duration
-	event *trace.Event
+	event EventID
 	// at is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	at uint8
 	// We track the scheduling state explicitly, instead of mapping from trace.Event.Type, because we apply pattern
@@ -1825,20 +1835,25 @@ var reasonByEventType = [255]reason{
 }
 
 //gcassert:inline
-func (s *Span) Reason() reason {
-	return reasonByEventType[s.event.Type]
+func (t *Trace) Reason(s *Span) reason {
+	return reasonByEventType[t.Events[s.event].Type]
 }
 
 //gcassert:inline
-func (s Span) Duration() time.Duration {
-	return s.end - time.Duration(s.event.Ts)
+func (t *Trace) Event(ev EventID) *trace.Event {
+	return &t.Events[ev]
+}
+
+//gcassert:inline
+func (t *Trace) Duration(s *Span) time.Duration {
+	return s.end - time.Duration(t.Event(s.event).Ts)
 }
 
 type AllEventer interface {
-	AllEvents() []*trace.Event
+	AllEvents() []EventID
 }
 
-func (s *Span) Events(evs AllEventer) []*trace.Event {
+func (s *Span) Events(evs AllEventer, tr *Trace) []EventID {
 	if evs == nil {
 		return nil
 	}
@@ -1850,12 +1865,14 @@ func (s *Span) Events(evs AllEventer) []*trace.Event {
 
 	end := sort.Search(len(all), func(i int) bool {
 		ev := all[i]
-		return time.Duration(ev.Ts) >= s.end
+		return time.Duration(tr.Event(ev).Ts) >= s.end
 	})
+
+	sTs := tr.Event(s.event).Ts
 
 	start := sort.Search(len(all[:end]), func(i int) bool {
 		ev := all[i]
-		return ev.Ts >= s.event.Ts
+		return tr.Event(ev).Ts >= sTs
 	})
 
 	return all[start:end]
@@ -1998,7 +2015,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	inMarkAssist := map[uint64]struct{}{}
 
 	// FIXME(dh): rename function. or remove it alright
-	addEventToCurrentSpan := func(gid uint64, ev *trace.Event) {
+	addEventToCurrentSpan := func(gid uint64, ev EventID) {
 		if gid == 0 {
 			// FIXME(dh): figure out why we have events for g0 when there are no spans on g0.
 			return
@@ -2007,11 +2024,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		g.events = append(g.events, ev)
 	}
 
-	for i := range res.Events {
-		ev := &res.Events[i]
-		if i%10000 == 0 {
+	for evID := range res.Events {
+		ev := &res.Events[evID]
+		if evID%10000 == 0 {
 			select {
-			case ch <- Command{"setProgress", 0.5 + (float32(i)/float32(len(res.Events)))/2}:
+			case ch <- Command{"setProgress", 0.5 + (float32(evID)/float32(len(res.Events)))/2}:
 			default:
 				// Don't let the rendering loop slow down parsing. Especially when vsync is enabled we'll only get to
 				// read commands every blanking interval.
@@ -2031,7 +2048,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvGoCreate:
 			// ev.G creates ev.Args[0]
 			if ev.G != 0 {
-				addEventToCurrentSpan(ev.G, ev)
+				addEventToCurrentSpan(ev.G, EventID(evID))
 			}
 			gid = ev.Args[0]
 			if ev.Args[1] != 0 {
@@ -2126,7 +2143,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
-			addEventToCurrentSpan(ev.G, ev)
+			addEventToCurrentSpan(ev.G, EventID(evID))
 			gid = ev.Args[0]
 			state = stateReady
 		case trace.EvGoSysCall:
@@ -2141,7 +2158,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 			// XXX guard against malformed trace
 			lastSyscall[ev.G] = ev.StkID
-			addEventToCurrentSpan(ev.G, ev)
+			addEventToCurrentSpan(ev.G, EventID(evID))
 			continue
 		case trace.EvGoSysBlock:
 			gid = ev.G
@@ -2195,11 +2212,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{state: stateActive, event: ev})
+			gc = append(gc, Span{state: stateActive, event: EventID(evID)})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{state: stateActive, event: ev})
+			stw = append(stw, Span{state: stateActive, event: EventID(evID)})
 			continue
 
 		case trace.EvGCDone:
@@ -2231,7 +2248,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			continue
 
 		case trace.EvUserLog:
-			addEventToCurrentSpan(ev.G, ev)
+			addEventToCurrentSpan(ev.G, EventID(evID))
 			continue
 
 		case trace.EvCPUSample:
@@ -2257,12 +2274,12 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 		}
 
-		s := Span{state: state, event: ev}
+		s := Span{state: state, event: EventID(evID)}
 		if ev.Type == trace.EvGoSysBlock {
-			if debug && s.event.StkID != 0 {
+			if debug && res.Events[s.event].StkID != 0 {
 				panic("expected zero stack ID")
 			}
-			s.event.StkID = lastSyscall[ev.G]
+			res.Events[s.event].StkID = lastSyscall[ev.G]
 		}
 
 		// OPT(dh): for our scarily big trace, this doesn't just result in 3.34 GB of in-use space, but also 14.67 GB of
@@ -2273,7 +2290,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case pRunG:
 			p := getP(ev.P)
 			// OPT(dh): similar to G spans above, this causes 6.41 GB of allocations to end up with 1.30 GB in-use.
-			p.spans = append(p.spans, Span{state: stateRunningG, event: ev})
+			p.spans = append(p.spans, Span{state: stateRunningG, event: EventID(evID)})
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
@@ -2290,10 +2307,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		go func() {
 			for i, s := range g.spans {
 				if i != len(g.spans)-1 {
-					s.end = time.Duration(g.spans[i+1].event.Ts)
+					s.end = time.Duration(res.Events[g.spans[i+1].event].Ts)
 				}
 
-				stack := res.Stacks[s.event.StkID]
+				stack := res.Stacks[res.Events[s.event].StkID]
 				s = applyPatterns(s, res.PCs, stack)
 
 				// move s.At out of the runtime
@@ -2468,7 +2485,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 					}
 
 					for _, g := range w.tl.clickedGoroutineActivities {
-						w.openGoroutineWindow(g)
+						w.openGoroutineWindow(g, w.trace)
 					}
 
 					key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
@@ -2846,16 +2863,17 @@ func (w *MainWindow) loadTrace(t *Trace) {
 		end:   end,
 		gs:    gsByID,
 		theme: w.theme,
+		trace: t,
 	}
 	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
 	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
 	w.tl.activities[0] = NewGCWidget(w.theme, &w.tl, t, t.gc)
 	w.tl.activities[1] = NewSTWWidget(w.theme, &w.tl, t, t.stw)
 	for _, p := range t.ps {
-		w.tl.activities = append(w.tl.activities, NewProcessorWidget(w.theme, &w.tl, t, p))
+		w.tl.activities = append(w.tl.activities, NewProcessorWidget(w.theme, &w.tl, p))
 	}
 	for _, g := range t.gs {
-		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(w.theme, &w.tl, t, g))
+		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(w.theme, &w.tl, g))
 	}
 	w.tl.prevFrame.dspSpans = map[any][]struct {
 		dspSpans []Span
@@ -3275,13 +3293,14 @@ type GoroutineStat struct {
 	values          []time.Duration
 }
 
-func NewGoroutineStats(g *Goroutine) *GoroutineStats {
+func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 	gst := &GoroutineStats{}
 
-	for _, span := range g.spans {
+	for i := range g.spans {
+		span := &g.spans[i]
 		s := &gst.stats[span.state]
 		s.count++
-		d := span.Duration()
+		d := tr.Duration(span)
 		if d > s.max {
 			s.max = d
 		}
@@ -3325,7 +3344,7 @@ func NewGoroutineStats(g *Goroutine) *GoroutineStats {
 		gst.mapping = append(gst.mapping, i)
 	}
 
-	gst.start = time.Duration(g.spans[0].event.Ts)
+	gst.start = time.Duration(tr.Event(g.spans[0].event).Ts)
 	gst.end = g.spans[len(g.spans)-1].end
 
 	return gst
@@ -3617,7 +3636,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.filter.showUserLog.Value = true
 	for _, span := range gwin.g.spans {
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.allEvents = append(events.allEvents, span.Events(gwin.g)...)
+		events.allEvents = append(events.allEvents, span.Events(gwin.g, gwin.trace)...)
 	}
 	events.updateFilter()
 
@@ -3746,14 +3765,14 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 type Events struct {
 	theme     *theme.Theme
 	trace     *Trace
-	allEvents []*trace.Event
+	allEvents []EventID
 	filter    struct {
 		showGoCreate  widget.Bool
 		showGoUnblock widget.Bool
 		showGoSysCall widget.Bool
 		showUserLog   widget.Bool
 	}
-	filteredEvents []*trace.Event
+	filteredEvents []EventID
 	grid           outlay.Grid
 }
 
@@ -3765,7 +3784,7 @@ func (evs *Events) updateFilter() {
 	evs.filteredEvents = evs.filteredEvents[:0]
 	for _, ev := range evs.allEvents {
 		var b bool
-		switch ev.Type {
+		switch evs.trace.Event(ev).Type {
 		case trace.EvGoCreate:
 			b = evs.filter.showGoCreate.Value
 		case trace.EvGoUnblock:
@@ -3775,7 +3794,7 @@ func (evs *Events) updateFilter() {
 		case trace.EvUserLog:
 			b = evs.filter.showUserLog.Value
 		default:
-			panic(fmt.Sprintf("unexpected type %v", ev.Type))
+			panic(fmt.Sprintf("unexpected type %v", evs.trace.Event(ev).Type))
 		}
 
 		if b {
@@ -3838,7 +3857,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		} else {
 			// XXX subtract padding from width
 
-			ev := evs.filteredEvents[row-1]
+			ev := evs.trace.Event(evs.filteredEvents[row-1])
 			// XXX poortext wraps our spans if the window is too small
 			var labelSpans []poortext.SpanStyle
 			switch col {
