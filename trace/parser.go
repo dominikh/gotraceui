@@ -13,9 +13,11 @@ import (
 
 // Event describes one event in the trace.
 type Event struct {
-	Ts   int64     // timestamp in nanoseconds
-	G    uint64    // G on which the event happened
-	Args [4]uint64 // event-type-specific arguments
+	Ts    int64     // timestamp in nanoseconds
+	G     uint64    // G on which the event happened
+	Args  [4]uint64 // event-type-specific arguments
+	StkID uint32    // unique stack ID
+	P     uint32    // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	// linked event (can be nil), depends on event type:
 	// for GCStart: the GCStop
 	// for GCSTWStart: the GCSTWDone
@@ -30,12 +32,35 @@ type Event struct {
 	// for GCMarkAssistStart: the associated GCMarkAssistDone
 	// for UserTaskCreate: the UserTaskEnd
 	// for UserRegion: if the start region, the corresponding UserRegion end event
-	//
-	// OPT(dh): use [5]byte for Link, just like for Span.event
-	Link  int
-	StkID uint32 // unique stack ID
-	P     uint32 // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
-	Type  byte   // one of Ev*
+	Link [5]byte
+	Type byte // one of Ev*
+}
+
+func toUint40(id int) [5]byte {
+	if id == -1 {
+		return [5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	}
+
+	uid := uint64(id)
+	return [5]byte{
+		byte(uid),
+		byte(uid >> 8),
+		byte(uid >> 16),
+		byte(uid >> 24),
+		byte(uid >> 32),
+	}
+}
+
+func fromUint40(n *[5]byte) int {
+	if *n == ([5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}) {
+		return -1
+	}
+
+	return int(uint64(n[0]) |
+		uint64(n[1])<<8 |
+		uint64(n[2])<<16 |
+		uint64(n[3])<<24 |
+		uint64(n[4])<<32)
 }
 
 // Frame is a frame in stack traces.
@@ -431,7 +456,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 			p.stacks[id] = stk
 		}
 	default:
-		e := Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: -1}
+		e := Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: toUint40(-1)}
 		var argOffset int
 		e.Ts = p.lastTs + int64(raw.args[0])
 		argOffset = 1
@@ -693,7 +718,7 @@ func postProcessTrace(ver int, events []Event) error {
 			if evGC == nil {
 				return fmt.Errorf("bogus GC end (time %v)", ev.Ts)
 			}
-			evGC.Link = evIdx
+			evGC.Link = toUint40(evIdx)
 			evGC = nil
 		case EvGCSTWStart:
 			evp := &evSTW
@@ -706,7 +731,7 @@ func postProcessTrace(ver int, events []Event) error {
 			if *evp == nil {
 				return fmt.Errorf("bogus STW end (time %v)", ev.Ts)
 			}
-			(*evp).Link = evIdx
+			(*evp).Link = toUint40(evIdx)
 			*evp = nil
 		case EvGCSweepStart:
 			if p.evSweep != nil {
@@ -722,14 +747,14 @@ func postProcessTrace(ver int, events []Event) error {
 			// Unlike most events, mark assists can be in progress when a
 			// goroutine starts tracing, so we can't report an error here.
 			if g.evMarkAssist != nil {
-				g.evMarkAssist.Link = evIdx
+				g.evMarkAssist.Link = toUint40(evIdx)
 				g.evMarkAssist = nil
 			}
 		case EvGCSweepDone:
 			if p.evSweep == nil {
 				return fmt.Errorf("bogus sweeping end (time %v)", ev.Ts)
 			}
-			p.evSweep.Link = evIdx
+			p.evSweep.Link = toUint40(evIdx)
 			p.evSweep = nil
 		case EvGoWaiting:
 			if g.state != gRunnable {
@@ -767,14 +792,14 @@ func postProcessTrace(ver int, events []Event) error {
 			}
 
 			if g.ev != nil {
-				g.ev.Link = evIdx
+				g.ev.Link = toUint40(evIdx)
 				g.ev = nil
 			}
 		case EvGoEnd, EvGoStop:
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
-			g.evStart.Link = evIdx
+			g.evStart.Link = toUint40(evIdx)
 			g.evStart = nil
 			g.state = gDead
 			p.g = 0
@@ -782,7 +807,7 @@ func postProcessTrace(ver int, events []Event) error {
 			if ev.Type == EvGoEnd { // flush all active regions
 				regions := activeRegions[ev.G]
 				for _, s := range regions {
-					s.Link = evIdx
+					s.Link = toUint40(evIdx)
 				}
 				delete(activeRegions, ev.G)
 			}
@@ -792,7 +817,7 @@ func postProcessTrace(ver int, events []Event) error {
 				return err
 			}
 			g.state = gRunnable
-			g.evStart.Link = evIdx
+			g.evStart.Link = toUint40(evIdx)
 			g.evStart = nil
 			p.g = 0
 			g.ev = ev
@@ -811,7 +836,7 @@ func postProcessTrace(ver int, events []Event) error {
 				ev.P = NetpollP
 			}
 			if g1.ev != nil {
-				g1.ev.Link = evIdx
+				g1.ev.Link = toUint40(evIdx)
 			}
 			g1.state = gRunnable
 			g1.ev = ev
@@ -826,7 +851,7 @@ func postProcessTrace(ver int, events []Event) error {
 				return err
 			}
 			g.state = gWaiting
-			g.evStart.Link = evIdx
+			g.evStart.Link = toUint40(evIdx)
 			g.evStart = nil
 			p.g = 0
 		case EvGoSysExit:
@@ -834,7 +859,7 @@ func postProcessTrace(ver int, events []Event) error {
 				return fmt.Errorf("g %v is not waiting during syscall exit (time %v)", ev.G, ev.Ts)
 			}
 			if g.ev != nil && g.ev.Type == EvGoSysCall {
-				g.ev.Link = evIdx
+				g.ev.Link = toUint40(evIdx)
 			}
 			g.state = gRunnable
 			g.ev = ev
@@ -845,7 +870,7 @@ func postProcessTrace(ver int, events []Event) error {
 			}
 			g.state = gWaiting
 			g.ev = ev
-			g.evStart.Link = evIdx
+			g.evStart.Link = toUint40(evIdx)
 			g.evStart = nil
 			p.g = 0
 		case EvUserTaskCreate:
@@ -857,7 +882,7 @@ func postProcessTrace(ver int, events []Event) error {
 		case EvUserTaskEnd:
 			taskid := ev.Args[0]
 			if taskCreateEv, ok := tasks[taskid]; ok {
-				taskCreateEv.Link = evIdx
+				taskCreateEv.Link = toUint40(evIdx)
 				delete(tasks, taskid)
 			}
 		case EvUserRegion:
@@ -873,7 +898,7 @@ func postProcessTrace(ver int, events []Event) error {
 						return fmt.Errorf("misuse of region in goroutine %d: span end %q when the inner-most active span start event is %q", ev.G, ev, s)
 					}
 					// Link region start event with span end event
-					s.Link = evIdx
+					s.Link = toUint40(evIdx)
 
 					if n > 1 {
 						activeRegions[ev.G] = regions[:n-1]

@@ -140,7 +140,7 @@ func MutatorUtilization(events []Event, res ParseResult, flags UtilFlags) [][]Mu
 				// Unblocked during assist.
 				ps[ev.P].gc++
 			}
-			block[ev.G] = &events[ev.Link]
+			block[ev.G] = &events[fromUint40(&ev.Link)]
 		default:
 			if ev != block[ev.G] {
 				continue

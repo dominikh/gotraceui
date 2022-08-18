@@ -1684,8 +1684,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "GC mark assist"
 		case stateGCSweep:
 			label += "GC sweep"
-			if ev.Link != -1 {
-				l := tr.Events[ev.Link]
+			if link := fromUint40(&ev.Link); link != -1 {
+				l := tr.Events[link]
 				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
 		case stateRunningG:
@@ -1834,6 +1834,18 @@ func (s *Span) event() EventID {
 		EventID(s.event_[2])<<16 |
 		EventID(s.event_[3])<<24 |
 		EventID(s.event_[4])<<32
+}
+
+func fromUint40(n *[5]byte) int {
+	if *n == ([5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}) {
+		return -1
+	}
+
+	return int(uint64(n[0]) |
+		uint64(n[1])<<8 |
+		uint64(n[2])<<16 |
+		uint64(n[3])<<24 |
+		uint64(n[4])<<32)
 }
 
 //gcassert:inline
