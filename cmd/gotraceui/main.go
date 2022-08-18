@@ -1771,7 +1771,10 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 }
 
 type Processor struct {
-	id    uint32
+	id uint32
+	// OPT(dh): using Span for Ps is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
+	// goroutine is running at what time. The only benefit of reusing Span is that we can use the same code for
+	// rendering Gs and Ps, but that doesn't seem worth the added cost.
 	spans []Span
 }
 
@@ -2233,11 +2236,14 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			s.event.StkID = lastSyscall[ev.G]
 		}
 
+		// OPT(dh): for our scarily big trace, this doesn't just result in 3.34 GB of in-use space, but also 14.67 GB of
+		// alloc space because of slice growing. Would it be worth to compute the capacity in advance?
 		getG(gid).spans = append(getG(gid).spans, s)
 
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
+			// OPT(dh): similar to G spans above, this causes 6.41 GB of allocations to end up with 1.30 GB in-use.
 			p.spans = append(p.spans, Span{state: stateRunningG, event: ev})
 		case pStopG:
 			// XXX guard against malformed traces
@@ -2290,6 +2296,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
 	for _, g := range gsByID {
 		if len(g.spans) != 0 {
+			// OPT(dh): preallocate gs
 			gs = append(gs, g)
 		}
 	}
@@ -2299,6 +2306,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	})
 
 	for _, p := range psByID {
+		// OPT(dh): preallocate ps
 		ps = append(ps, p)
 	}
 

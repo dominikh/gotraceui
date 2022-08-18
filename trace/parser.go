@@ -122,6 +122,7 @@ func (b *batch) add(ev Event) {
 	evs := b.events
 	last := len(evs) - 1
 	if last == -1 || len(evs[last]) == cap(evs[last]) {
+		// TODO(dh): we should probably cap the exponential growth
 		evs = append(evs, make([]Event, 0, (len(b.events)+1)*128))
 		last = len(evs) - 1
 	}

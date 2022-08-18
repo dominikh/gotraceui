@@ -67,6 +67,8 @@ func order1007(m map[uint32]*batch) (events []Event, err error) {
 		}
 		batches = append(batches, &eventBatch{v, false})
 	}
+	// OPT(dh): this approach basically needs 2x memory for loading a trace. once to parse them, and once to sort per-P
+	// batches into a linear view.
 	events = make([]Event, 0, pending)
 	gs := make(map[uint64]gState)
 	var frontier []orderEvent
