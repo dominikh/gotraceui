@@ -838,6 +838,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 type ActivityWidget struct {
 	// Inputs
 	allSpans        []Span
+	allEventer      AllEventer
 	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
 	highlightSpan   func(aw *ActivityWidget, spans []Span) bool
 	invalidateCache func(aw *ActivityWidget) bool
@@ -937,7 +938,8 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, trace *Trace, g *Goroutin
 	}
 
 	return &ActivityWidget{
-		allSpans: g.spans,
+		allSpans:   g.spans,
+		allEventer: g,
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
 			GoroutineTooltip{g, th}.Layout(gtx)
 		},
@@ -1272,7 +1274,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpans[0].events
+			events := dspSpans[0].Events(aw.allEventer)
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(activityStateHeight) / 2
@@ -1784,6 +1786,11 @@ type Goroutine struct {
 	id       uint64
 	function string
 	spans    []Span
+	events   []*trace.Event
+}
+
+func (g *Goroutine) AllEvents() []*trace.Event {
+	return g.events
 }
 
 func (g *Goroutine) String() string {
@@ -1801,8 +1808,6 @@ type Span struct {
 	// and filling those gaps would probably use more memory than tracking the end time.
 	end   time.Duration
 	event *trace.Event
-	// OPT(dh): we should remove the events field and instead look up relevant events on demand
-	events []*trace.Event
 	// OPT(dh): we really don't need 32-64 bits for the at field
 	at int
 	// We track the scheduling state explicitly, instead of mapping from trace.Event.Type, because we apply pattern
@@ -1827,6 +1832,33 @@ func (s *Span) Reason() reason {
 //gcassert:inline
 func (s Span) Duration() time.Duration {
 	return s.end - time.Duration(s.event.Ts)
+}
+
+type AllEventer interface {
+	AllEvents() []*trace.Event
+}
+
+func (s *Span) Events(evs AllEventer) []*trace.Event {
+	if evs == nil {
+		return nil
+	}
+
+	all := evs.AllEvents()
+	// AllEvents returns all events in the span's container (a goroutine), sorted by timestamp, as indices into the
+	// global list of events. Find the first and last event that overlaps with the span, and that is the set of events
+	// belonging to this span.
+
+	end := sort.Search(len(all), func(i int) bool {
+		ev := all[i]
+		return time.Duration(ev.Ts) >= s.end
+	})
+
+	start := sort.Search(len(all[:end]), func(i int) bool {
+		ev := all[i]
+		return ev.Ts >= s.event.Ts
+	})
+
+	return all[start:end]
 }
 
 type reason uint8
@@ -1965,17 +1997,14 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	lastSyscall := map[uint64]uint64{}
 	inMarkAssist := map[uint64]struct{}{}
 
+	// FIXME(dh): rename function. or remove it alright
 	addEventToCurrentSpan := func(gid uint64, ev *trace.Event) {
 		if gid == 0 {
 			// FIXME(dh): figure out why we have events for g0 when there are no spans on g0.
 			return
 		}
 		g := getG(gid)
-		if len(g.spans) == 0 {
-			panic(fmt.Sprintf("tried to add event %v, but gid %d has no spans", ev, gid))
-		}
-		s := &g.spans[len(g.spans)-1]
-		s.events = append(s.events, ev)
+		g.events = append(g.events, ev)
 	}
 
 	for i := range res.Events {
@@ -3588,7 +3617,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.filter.showUserLog.Value = true
 	for _, span := range gwin.g.spans {
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.allEvents = append(events.allEvents, span.events...)
+		events.allEvents = append(events.allEvents, span.Events(gwin.g)...)
 	}
 	events.updateFilter()
 
