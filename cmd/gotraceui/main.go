@@ -1808,8 +1808,8 @@ type Span struct {
 	// and filling those gaps would probably use more memory than tracking the end time.
 	end   time.Duration
 	event *trace.Event
-	// OPT(dh): we really don't need 32-64 bits for the at field
-	at int
+	// at is an offset from the top of the stack, skipping over uninteresting runtime frames.
+	at uint8
 	// We track the scheduling state explicitly, instead of mapping from trace.Event.Type, because we apply pattern
 	// matching to stack traces that may result in more accurate states. For example, we can determine
 	// stateBlockedSyncOnce from the stack trace, and we would otherwise use stateBlockedSync.
@@ -2297,7 +2297,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 				s = applyPatterns(s, res.PCs, stack)
 
 				// move s.At out of the runtime
-				for s.at+1 < len(stack) && strings.HasPrefix(res.PCs[stack[s.at]].Fn, "runtime.") {
+				for int(s.at+1) < len(stack) && s.at < 255 && strings.HasPrefix(res.PCs[stack[s.at]].Fn, "runtime.") {
 					s.at++
 				}
 

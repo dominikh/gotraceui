@@ -23,7 +23,7 @@ type pattern struct {
 	relFns [][]string
 
 	newState schedulingState
-	at       int
+	at       uint8
 	tags     spanTags
 }
 
@@ -245,12 +245,12 @@ patternLoop:
 			}
 		}
 
-		if p.at != 0 && p.at >= len(stack) {
+		if p.at != 0 && int(p.at) >= len(stack) {
 			continue
 		}
 
 		if p.at != 0 {
-			if p.at < len(stack) {
+			if int(p.at) < len(stack) {
 				s.at = p.at
 			} else {
 				continue
