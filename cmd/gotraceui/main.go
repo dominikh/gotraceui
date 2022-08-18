@@ -2035,7 +2035,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return p
 	}
 
-	lastSyscall := map[uint64]uint64{}
+	lastSyscall := map[uint64]uint32{}
 	inMarkAssist := map[uint64]struct{}{}
 
 	// FIXME(dh): rename function. or remove it alright
@@ -2076,7 +2076,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			}
 			gid = ev.Args[0]
 			if ev.Args[1] != 0 {
-				stack := res.Stacks[ev.Args[1]]
+				stack := res.Stacks[uint32(ev.Args[1])]
 				if len(stack) != 0 {
 					getG(gid).function = res.PCs[stack[0]].Fn
 				}

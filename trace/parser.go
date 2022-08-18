@@ -13,11 +13,9 @@ import (
 
 // Event describes one event in the trace.
 type Event struct {
-	Ts int64  // timestamp in nanoseconds
-	G  uint64 // G on which the event happened
-	// OPT(dh): can we use 32 bit for the stack ID, potentially by renumbering existing stack IDs if they're too large?
-	StkID uint64    // unique stack ID
-	Args  [4]uint64 // event-type-specific arguments
+	Ts   int64     // timestamp in nanoseconds
+	G    uint64    // G on which the event happened
+	Args [4]uint64 // event-type-specific arguments
 	// linked event (can be nil), depends on event type:
 	// for GCStart: the GCStop
 	// for GCSTWStart: the GCSTWDone
@@ -32,9 +30,12 @@ type Event struct {
 	// for GCMarkAssistStart: the associated GCMarkAssistDone
 	// for UserTaskCreate: the UserTaskEnd
 	// for UserRegion: if the start region, the corresponding UserRegion end event
-	Link int
-	P    uint32 // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
-	Type byte   // one of Ev*
+	//
+	// OPT(dh): use [5]byte for Link, just like for Span.event
+	Link  int
+	StkID uint32 // unique stack ID
+	P     uint32 // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
+	Type  byte   // one of Ev*
 }
 
 // Frame is a frame in stack traces.
@@ -60,7 +61,7 @@ type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
 	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
-	Stacks  map[uint64][]uint64
+	Stacks  map[uint32][]uint64
 	PCs     map[uint64]Frame
 	Strings map[uint64]string
 }
@@ -70,7 +71,7 @@ type parser struct {
 
 	strings     map[uint64]string
 	batches     map[uint32]*batch // events by P
-	stacks      map[uint64][]uint64
+	stacks      map[uint32][]uint64
 	stacksData  []uint64
 	timerGoids  map[uint64]bool
 	ticksPerSec int64
@@ -152,7 +153,7 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
 	p.batches = make(map[uint32]*batch)
-	p.stacks = make(map[uint64][]uint64)
+	p.stacks = make(map[uint32][]uint64)
 	p.timerGoids = make(map[uint64]bool)
 	p.lastGs = make(map[uint32]uint64)
 	p.pcs = make(map[uint64]Frame)
@@ -413,7 +414,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 			return fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want %v, got %v",
 				raw.off, want, len(raw.args))
 		}
-		id := raw.args[0]
+		id := uint32(raw.args[0])
 		if id != 0 && size > 0 {
 			stk := p.allocateStack(size)
 			for i := 0; i < int(size); i++ {
@@ -437,7 +438,7 @@ func (p *parser) parseEvent(ver int, raw rawEvent) error {
 		p.lastTs = e.Ts
 		for i := argOffset; i < narg; i++ {
 			if i == narg-1 && desc.Stack {
-				e.StkID = raw.args[i]
+				e.StkID = uint32(raw.args[i])
 			} else {
 				e.Args[i-argOffset] = raw.args[i]
 			}
@@ -761,7 +762,7 @@ func postProcessTrace(ver int, events []Event) error {
 			g.evStart = ev
 			p.g = ev.G
 			if g.evCreate != nil {
-				ev.StkID = g.evCreate.Args[1]
+				ev.StkID = uint32(g.evCreate.Args[1])
 				g.evCreate = nil
 			}
 
