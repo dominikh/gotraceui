@@ -2060,6 +2060,35 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		g.events = append(g.events, ev)
 	}
 
+	// Count the number of events per goroutine to get an estimate of spans per goroutine, to preallocate slices.
+	eventsPerG := map[uint64]int{}
+	eventsPerP := map[uint32]int{}
+	for evID := range res.Events {
+		ev := &res.Events[evID]
+		var gid uint64
+		switch ev.Type {
+		case trace.EvGoCreate, trace.EvGoUnblock:
+			gid = ev.Args[0]
+		case trace.EvGoStart, trace.EvGoStartLabel:
+			eventsPerP[ev.P]++
+			gid = ev.G
+		case trace.EvGCStart, trace.EvGCSTWStart, trace.EvGCDone, trace.EvGCSTWDone,
+			trace.EvHeapAlloc, trace.EvHeapGoal, trace.EvGomaxprocs, trace.EvUserTaskCreate,
+			trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog, trace.EvCPUSample,
+			trace.EvProcStart, trace.EvProcStop, trace.EvGoSysCall:
+			continue
+		default:
+			gid = ev.G
+		}
+		eventsPerG[gid]++
+	}
+	for gid, n := range eventsPerG {
+		getG(gid).spans = make([]Span, 0, n)
+	}
+	for pid, n := range eventsPerP {
+		getP(pid).spans = make([]Span, 0, n)
+	}
+
 	for evID := range res.Events {
 		ev := &res.Events[evID]
 		if evID%10000 == 0 {
@@ -2318,14 +2347,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			res.Events[s.event()].StkID = lastSyscall[ev.G]
 		}
 
-		// OPT(dh): for our scarily big trace, this doesn't just result in 3.34 GB of in-use space, but also 14.67 GB of
-		// alloc space because of slice growing. Would it be worth to compute the capacity in advance?
 		getG(gid).spans = append(getG(gid).spans, s)
 
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			// OPT(dh): similar to G spans above, this causes 6.41 GB of allocations to end up with 1.30 GB in-use.
 			p.spans = append(p.spans, Span{state: stateRunningG, event_: packEventID(EventID(evID))})
 		case pStopG:
 			// XXX guard against malformed traces
