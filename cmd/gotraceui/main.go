@@ -1632,7 +1632,11 @@ func dumpFrames(frames []*trace.Frame) {
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	tr := tt.tl.trace
-	label := "State: "
+	var label string
+	if debug {
+		label += fmt.Sprintf("Event ID: %d\n", tt.spans[0].event())
+	}
+	label += "State: "
 	var at string
 	if len(tt.spans) == 1 {
 		s := &tt.spans[0]
