@@ -198,7 +198,6 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 		return 0, ParseResult{}, err
 	}
 
-	events = removeFutile(events)
 	err = postProcessTrace(ver, events)
 	if err != nil {
 		return 0, ParseResult{}, err
@@ -568,75 +567,6 @@ func (p *parser) finalize() ([]Event, error) {
 	}
 
 	return events, nil
-}
-
-// removeFutile removes all constituents of futile wakeups (block, unblock, start).
-// For example, a goroutine was unblocked on a mutex, but another goroutine got
-// ahead and acquired the mutex before the first goroutine is scheduled,
-// so the first goroutine has to block again. Such wakeups happen on buffered
-// channels and sync.Mutex, but are generally not interesting for end user.
-func removeFutile(events []Event) []Event {
-	// Two non-trivial aspects:
-	// 1. A goroutine can be preempted during a futile wakeup and migrate to another P.
-	//	We want to remove all of that.
-	// 2. Tracing can start in the middle of a futile wakeup.
-	//	That is, we can see a futile wakeup event w/o the actual wakeup before it.
-	// postProcessTrace runs after us and ensures that we leave the trace in a consistent state.
-
-	// Phase 1: determine futile wakeup sequences.
-	type G struct {
-		futile    bool
-		wakeupArr [2]int
-		wakeup    []int // wakeup sequence (subject for removal)
-	}
-	gs := make(map[uint64]*G)
-	getG := func(gid uint64) *G {
-		g := gs[gid]
-		if g != nil {
-			return g
-		}
-		g = &G{}
-		g.wakeup = g.wakeupArr[:0]
-		gs[gid] = g
-		return g
-	}
-	futile := make(map[int]struct{})
-	for i := range events {
-		ev := &events[i]
-		switch ev.Type {
-		case EvGoUnblock:
-			g := getG(ev.Args[0])
-			g.wakeup = g.wakeupArr[:1]
-			g.wakeup[0] = i
-		case EvGoStart, EvGoPreempt, EvFutileWakeup:
-			g := getG(ev.G)
-			if g.wakeup == nil {
-				g.wakeup = g.wakeupArr[:0]
-			}
-			g.wakeup = append(g.wakeup, i)
-			if ev.Type == EvFutileWakeup {
-				g.futile = true
-			}
-		case EvGoBlock, EvGoBlockSend, EvGoBlockRecv, EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond:
-			g := getG(ev.G)
-			if g.futile {
-				futile[i] = struct{}{}
-				for _, ev1 := range g.wakeup {
-					futile[ev1] = struct{}{}
-				}
-			}
-			g.wakeup = g.wakeup[:0]
-		}
-	}
-
-	// Phase 2: remove futile wakeup sequences.
-	newEvents := events[:0] // overwrite the original slice
-	for i, ev := range events {
-		if _, ok := futile[i]; !ok {
-			newEvents = append(newEvents, ev)
-		}
-	}
-	return newEvents
 }
 
 // ErrTimeOrder is returned by Parse when the trace contains
