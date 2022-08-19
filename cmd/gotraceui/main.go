@@ -417,7 +417,6 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 				// Our merged span is long enough now and won't need to be extended anymore. Break out of this loop and
 				// go into a smaller loop that specializes on just collecting tiny spans, avoiding the comparisons
 				// needed for extending.
-				offset--
 				break
 			}
 
@@ -440,7 +439,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 
 		for ; offset < len(it.spans); offset++ {
 			nextSpan := &spans[offset]
-			// Assume that we stop at this span. Compute the final size and extension. Use that to see
+			// Assume that we stop at this span. Compute the final size. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
 			nextStart := time.Duration(tr.Event(nextSpan.event()).Ts)
 			nextEnd := nextSpan.end
