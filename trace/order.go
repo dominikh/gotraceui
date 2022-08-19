@@ -71,7 +71,7 @@ func order1007(m map[uint32]*batch) (events []Event, err error) {
 	// batches into a linear view.
 	events = make([]Event, 0, pending)
 	gs := make(map[uint64]gState)
-	var frontier []orderEvent
+	var frontier orderEventList
 	for ; pending != 0; pending-- {
 		for i, b := range batches {
 			if b.selected || len(b.batch.events) == 0 {
@@ -82,7 +82,7 @@ func order1007(m map[uint32]*batch) (events []Event, err error) {
 			if !transitionReady(g, gs[g], init) {
 				continue
 			}
-			frontier = append(frontier, orderEvent{ev, i, g, init, next})
+			frontier.Push(orderEvent{ev, i, g, init, next})
 			b.batch.popFront()
 			b.selected = true
 			// Get rid of "Local" events, they are intended merely for ordering.
@@ -98,10 +98,7 @@ func order1007(m map[uint32]*batch) (events []Event, err error) {
 		if len(frontier) == 0 {
 			return nil, fmt.Errorf("no consistent ordering of events possible")
 		}
-		sort.Sort((*orderEventList)(&frontier))
-		f := frontier[0]
-		frontier[0] = frontier[len(frontier)-1]
-		frontier = frontier[:len(frontier)-1]
+		f := frontier.Pop()
 		events = append(events, *f.ev)
 		transition(gs, f.g, f.init, f.next)
 		if !batches[f.batch].selected {
@@ -229,16 +226,8 @@ func transition(gs map[uint64]gState, g uint64, init, next gState) {
 
 type orderEventList []orderEvent
 
-func (l *orderEventList) Len() int {
-	return len(*l)
-}
-
 func (l *orderEventList) Less(i, j int) bool {
 	return (*l)[i].ev.Ts < (*l)[j].ev.Ts
-}
-
-func (l *orderEventList) Swap(i, j int) {
-	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
 }
 
 type eventList []Event
@@ -271,4 +260,49 @@ func (l sortBatch) Swap(i, j int) {
 	a, b := l.b.at(i), l.b.at(j)
 	l.b.set(i, b)
 	l.b.set(j, a)
+}
+
+func (h *orderEventList) Push(x orderEvent) {
+	*h = append(*h, x)
+	heapUp(h, len(*h)-1)
+}
+
+func (h *orderEventList) Pop() orderEvent {
+	n := len(*h) - 1
+	(*h)[0], (*h)[n] = (*h)[n], (*h)[0]
+	heapDown(h, 0, n)
+	x := (*h)[len(*h)-1]
+	*h = (*h)[:len(*h)-1]
+	return x
+}
+
+func heapUp(h *orderEventList, j int) {
+	for {
+		i := (j - 1) / 2 // parent
+		if i == j || !h.Less(j, i) {
+			break
+		}
+		(*h)[i], (*h)[j] = (*h)[j], (*h)[i]
+		j = i
+	}
+}
+
+func heapDown(h *orderEventList, i0, n int) bool {
+	i := i0
+	for {
+		j1 := 2*i + 1
+		if j1 >= n || j1 < 0 { // j1 < 0 after int overflow
+			break
+		}
+		j := j1 // left child
+		if j2 := j1 + 1; j2 < n && h.Less(j2, j1) {
+			j = j2 // = 2*i + 2  // right child
+		}
+		if !h.Less(j, i) {
+			break
+		}
+		(*h)[i], (*h)[j] = (*h)[j], (*h)[i]
+		i = j
+	}
+	return i > i0
 }
