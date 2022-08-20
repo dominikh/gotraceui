@@ -853,18 +853,6 @@ func (p *parser) readVal(r io.Reader) (v uint64, n int, err error) {
 	return 0, 0, errors.New("malformatted base-128 varint")
 }
 
-// Print dumps events to stdout. For debugging.
-func Print(events []*Event) {
-	for _, ev := range events {
-		PrintEvent(ev)
-	}
-}
-
-// PrintEvent dumps the event to stdout. For debugging.
-func PrintEvent(ev *Event) {
-	fmt.Printf("%s\n", ev)
-}
-
 func (ev *Event) String() string {
 	desc := EventDescriptions[ev.Type]
 	w := new(bytes.Buffer)
