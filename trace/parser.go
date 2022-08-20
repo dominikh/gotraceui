@@ -237,7 +237,6 @@ func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 }
 
 func (p *parser) readTrace(r io.Reader, ver int) error {
-	var buf [16]byte
 	var off int
 
 	// space for event args, reused between events
@@ -247,7 +246,7 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 	for {
 		// Read event type and number of arguments (1 byte).
 		var off0 int
-		n, err := r.Read(buf[:1])
+		n, err := r.Read(p.byte[:1])
 		if err == io.EOF {
 			return nil
 		}
@@ -255,8 +254,8 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 			return fmt.Errorf("failed to read trace at offset 0x%x: n=%v err=%v", off0, n, err)
 		}
 		off += n
-		typ := buf[0] << 2 >> 2
-		narg := buf[0]>>6 + 1
+		typ := p.byte[0] << 2 >> 2
+		narg := p.byte[0]>>6 + 1
 		inlineArgs := byte(4)
 		if typ == EvNone || typ >= EvCount || EventDescriptions[typ].minVersion > ver {
 			return fmt.Errorf("unknown event type %v at offset 0x%x", typ, off0)
