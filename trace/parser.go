@@ -344,7 +344,9 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 			s, off, err = p.readStr(r, off)
 			ev.sargs = append(ev.sargs, s)
 		}
-		p.parseEvent(ev)
+		if err := p.parseEvent(ev); err != nil {
+			return err
+		}
 
 		args = ev.args[:0]
 	}
