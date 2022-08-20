@@ -208,7 +208,6 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 
 // rawEvent is a helper type used during parsing.
 type rawEvent struct {
-	off   int
 	typ   byte
 	args  []uint64
 	sargs []string
@@ -217,9 +216,9 @@ type rawEvent struct {
 func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 	// Read and validate trace header.
 	var buf [16]byte
-	off, err := io.ReadFull(r, buf[:])
+	_, err = io.ReadFull(r, buf[:])
 	if err != nil {
-		return 0, fmt.Errorf("failed to read header: read %v, err %v", off, err)
+		return 0, fmt.Errorf("failed to read header: err %v", err)
 	}
 	ver, err = parseHeader(buf[:])
 	if err != nil {
@@ -237,97 +236,93 @@ func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 }
 
 func (p *parser) readTrace(r io.Reader, ver int) error {
-	var off int
-
 	// space for event args, reused between events
 	var args []uint64
 
 	// Read events.
 	for {
 		// Read event type and number of arguments (1 byte).
-		var off0 int
 		n, err := r.Read(p.byte[:1])
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil || n != 1 {
-			return fmt.Errorf("failed to read trace at offset 0x%x: n=%v err=%v", off0, n, err)
+			return fmt.Errorf("failed to read trace: n=%v err=%v", n, err)
 		}
-		off += n
 		typ := p.byte[0] << 2 >> 2
 		narg := p.byte[0]>>6 + 1
 		inlineArgs := byte(4)
 		if typ == EvNone || typ >= EvCount || EventDescriptions[typ].minVersion > ver {
-			return fmt.Errorf("unknown event type %v at offset 0x%x", typ, off0)
+			return fmt.Errorf("unknown event type %v", typ)
 		}
 		if typ == EvString {
 			// String dictionary entry [ID, length, string].
 			var id uint64
-			id, off, err = p.readVal(r, off)
+			id, _, err = p.readVal(r)
 			if err != nil {
 				return err
 			}
 			if id == 0 {
-				return fmt.Errorf("string at offset %d has invalid id 0", off)
+				return fmt.Errorf("string has invalid id 0")
 			}
 			if p.strings[id] != "" {
-				return fmt.Errorf("string at offset %d has duplicate id %v", off, id)
+				return fmt.Errorf("string has duplicate id %v", id)
 			}
 			var ln uint64
-			ln, off, err = p.readVal(r, off)
+			ln, _, err = p.readVal(r)
 			if err != nil {
 				return err
 			}
 			if ln == 0 {
-				return fmt.Errorf("string at offset %d has invalid length 0", off)
+				return fmt.Errorf("string has invalid length 0")
 			}
 			if ln > 1e6 {
-				return fmt.Errorf("string at offset %d has too large length %v", off, ln)
+				return fmt.Errorf("string has too large length %v", ln)
 			}
 			buf := make([]byte, ln)
 			var n int
 			n, err = io.ReadFull(r, buf)
 			if err != nil {
-				return fmt.Errorf("failed to read trace at offset %d: read %v, want %v, error %v", off, n, ln, err)
+				return fmt.Errorf("failed to read trace: read %v, want %v, error %v", n, ln, err)
 			}
-			off += n
 			p.strings[id] = string(buf)
 			continue
 		}
-		ev := rawEvent{typ: typ, off: off0, args: args[:0]}
+		ev := rawEvent{typ: typ, args: args[:0]}
 		if narg < inlineArgs {
 			for i := 0; i < int(narg); i++ {
 				var v uint64
-				v, off, err = p.readVal(r, off)
+				v, _, err = p.readVal(r)
 				if err != nil {
-					return fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
+					return fmt.Errorf("failed to read event %v argument (%v)", typ, err)
 				}
 				ev.args = append(ev.args, v)
 			}
 		} else {
 			// More than inlineArgs args, the first value is length of the event in bytes.
 			var v uint64
-			v, off, err = p.readVal(r, off)
+			v, _, err = p.readVal(r)
 			if err != nil {
-				return fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
+				return fmt.Errorf("failed to read event %v argument (%v)", typ, err)
 			}
+			evLenOrig := v
 			evLen := v
-			off1 := off
-			for evLen > uint64(off-off1) {
-				v, off, err = p.readVal(r, off)
+			for evLen > 0 {
+				v, n, err := p.readVal(r)
 				if err != nil {
-					return fmt.Errorf("failed to read event %v argument at offset %v (%v)", typ, off, err)
+					return fmt.Errorf("failed to read event %v argument (%v)", typ, err)
 				}
+				evLen -= uint64(n)
 				ev.args = append(ev.args, v)
 			}
-			if evLen != uint64(off-off1) {
-				return fmt.Errorf("event has wrong length at offset 0x%x: want %v, got %v", off0, evLen, off-off1)
+			if evLen != 0 {
+				return fmt.Errorf("event has wrong length: want %v, got Δ%v", evLenOrig, evLen)
 			}
 		}
 		switch ev.typ {
 		case EvUserLog: // EvUserLog records are followed by a value string of length ev.args[len(ev.args)-1]
 			var s string
-			s, off, err = p.readStr(r, off)
+			s, err = p.readStr(r)
 			if err != nil {
 				return err
 			}
@@ -341,21 +336,21 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 	}
 }
 
-func (p *parser) readStr(r io.Reader, off0 int) (s string, off int, err error) {
+func (p *parser) readStr(r io.Reader) (s string, err error) {
 	var sz uint64
-	sz, off, err = p.readVal(r, off0)
+	sz, _, err = p.readVal(r)
 	if err != nil || sz == 0 {
-		return "", off, err
+		return "", err
 	}
 	if sz > 1e6 {
-		return "", off, fmt.Errorf("string at offset %d is too large (len=%d)", off, sz)
+		return "", fmt.Errorf("string is too large (len=%d)", sz)
 	}
 	buf := make([]byte, sz)
 	n, err := io.ReadFull(r, buf)
 	if err != nil || sz != uint64(n) {
-		return "", off + n, fmt.Errorf("failed to read trace at offset %d: read %v, want %v, error %v", off, n, sz, err)
+		return "", fmt.Errorf("failed to read trace: read %v, want %v, error %v", n, sz, err)
 	}
-	return string(buf), off + n, nil
+	return string(buf), nil
 }
 
 // parseHeader parses trace header of the form "go 1.7 trace\x00\x00\x00\x00"
@@ -391,8 +386,8 @@ func (p *parser) parseEvent(raw rawEvent) error {
 	}
 	narg := argNum(raw)
 	if len(raw.args) != narg {
-		return fmt.Errorf("%v has wrong number of arguments at offset 0x%x: want %v, got %v",
-			desc.Name, raw.off, narg, len(raw.args))
+		return fmt.Errorf("%v has wrong number of arguments: want %v, got %v",
+			desc.Name, narg, len(raw.args))
 	}
 	switch raw.typ {
 	case EvBatch:
@@ -419,18 +414,15 @@ func (p *parser) parseEvent(raw rawEvent) error {
 		p.timerGoids[raw.args[0]] = true
 	case EvStack:
 		if len(raw.args) < 2 {
-			return fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want at least 2, got %v",
-				raw.off, len(raw.args))
+			return fmt.Errorf("EvStack has wrong number of arguments: want at least 2, got %v", len(raw.args))
 		}
 		size := raw.args[1]
 		if size > 1000 {
-			return fmt.Errorf("EvStack has bad number of frames at offset 0x%x: %v",
-				raw.off, size)
+			return fmt.Errorf("EvStack has bad number of frames: %v", size)
 		}
 		want := 2 + 4*size
 		if uint64(len(raw.args)) != want {
-			return fmt.Errorf("EvStack has wrong number of arguments at offset 0x%x: want %v, got %v",
-				raw.off, want, len(raw.args))
+			return fmt.Errorf("EvStack has wrong number of arguments: want %v, got %v", want, len(raw.args))
 		}
 		id := uint32(raw.args[0])
 		if id != 0 && size > 0 {
@@ -846,21 +838,19 @@ func postProcessTrace(events []Event) error {
 }
 
 // readVal reads unsigned base-128 value from r.
-func (p *parser) readVal(r io.Reader, off0 int) (v uint64, off int, err error) {
-	off = off0
+func (p *parser) readVal(r io.Reader) (v uint64, n int, err error) {
 	for i := 0; i < 10; i++ {
-		var n int
-		n, err = r.Read(p.byte[:])
-		if err != nil || n != 1 {
-			return 0, 0, fmt.Errorf("failed to read trace at offset %d: read %v, error %v", off0, n, err)
+		var b int
+		b, err = r.Read(p.byte[:])
+		if err != nil || b != 1 {
+			return 0, 0, fmt.Errorf("failed to read trace: %s", err)
 		}
-		off++
 		v |= uint64(p.byte[0]&0x7f) << (uint(i) * 7)
 		if p.byte[0]&0x80 == 0 {
-			return v, off, nil
+			return v, i + 1, err
 		}
 	}
-	return 0, 0, fmt.Errorf("bad value at offset 0x%x", off0)
+	return 0, 0, fmt.Errorf("malformatted base-128 varint")
 }
 
 // Print dumps events to stdout. For debugging.
