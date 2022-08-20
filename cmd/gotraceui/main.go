@@ -110,6 +110,9 @@ const debug = true
 const cpuprofiling = false
 const memprofiling = false
 const profiling = cpuprofiling || memprofiling
+const exitAfterLoading = false
+
+var errExitAfterLoading = errors.New("we were instructed to exit after loading")
 
 const (
 	// TODO(dh): compute min tick distance based on font size
@@ -2438,6 +2441,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return ps[i].id < ps[j].id
 	})
 
+	if exitAfterLoading {
+		return nil, errExitAfterLoading
+	}
+
 	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, ParseResult: res}, nil
 }
 
@@ -2629,6 +2636,10 @@ func main() {
 			runtime.GC()
 			pprof.WriteHeapProfile(f)
 			f.Close()
+		}
+		if err == errExitAfterLoading {
+			errs <- err
+			return
 		}
 		if err != nil {
 			commands <- Command{"error", fmt.Errorf("couldn't load trace: %w", err)}
