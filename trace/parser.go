@@ -268,6 +268,17 @@ func (p *Parser) readHeader() (ver int, err error) {
 	return ver, err
 }
 
+type proc struct {
+	pid    int32
+	events []Event
+
+	// whether an event of this P is already in the frontier
+	selected bool
+
+	// there are no more batches left
+	done bool
+}
+
 // parseRest reads per-P event batches and merges them into a single, consistent stream.
 // The high level idea is as follows. Events within an individual batch are in
 // correct order, because they are emitted by a single P. So we need to produce
@@ -278,13 +289,6 @@ func (p *Parser) readHeader() (ver int, err error) {
 // This approach ensures that we form a consistent stream even if timestamps are
 // incorrect (condition observed on some machines).
 func (p *Parser) parseRest() ([]Event, error) {
-	type P struct {
-		events []Event
-
-		// whether an event of this P is already in the frontier
-		selected bool
-	}
-	eventsPerP := map[int32]*P{}
 
 	// The ordering of CPU profile sample events in the data stream is based on
 	// when each run of the signal handler was able to acquire the spinlock,
@@ -294,17 +298,15 @@ func (p *Parser) parseRest() ([]Event, error) {
 	sort.Sort((*eventList)(&p.cpuSamples))
 
 	totalEvents := 0
+	procs := make([]proc, 0, len(p.pStates))
 	for m, pState := range p.pStates {
-		// Populate eventsPerP with entries for all Ps
-		eventsPerP[m] = &P{}
+		procs = append(procs, proc{pid: m})
 
 		for _, b := range pState.batches {
 			totalEvents += b.numEvents
 		}
 	}
-	eventsPerP[ProfileP] = &P{
-		events: p.cpuSamples,
-	}
+	procs = append(procs, proc{pid: ProfileP, events: p.cpuSamples})
 	totalEvents += len(p.cpuSamples)
 
 	events := make([]Event, 0, totalEvents)
@@ -312,22 +314,23 @@ func (p *Parser) parseRest() ([]Event, error) {
 	// Merge events as long as at least one P has more events
 	gs := make(map[uint64]gState)
 	var frontier orderEventList
-	for len(eventsPerP) != 0 {
+	for {
 		if p.Progress != nil && len(events)%100_000 == 0 {
 			p.Progress(1, uint64(len(events)), uint64(cap(events)))
 		}
 	pidLoop:
-		for pid, proc := range eventsPerP {
-			if proc.selected {
+		for i := range procs {
+			proc := &procs[i]
+			if proc.selected || proc.done {
 				continue
 			}
 
 			for len(proc.events) == 0 {
 				// Call loadBatch in a loop because sometimes batches are empty
-				evs, err := p.loadBatch(pid)
+				evs, err := p.loadBatch(proc.pid)
 				if err == io.EOF {
 					// This P has no more events
-					delete(eventsPerP, pid)
+					proc.done = true
 					continue pidLoop
 				} else if err != nil {
 					return nil, err
@@ -336,7 +339,7 @@ func (p *Parser) parseRest() ([]Event, error) {
 				}
 			}
 
-			ev := proc.events[0]
+			ev := &proc.events[0]
 			g, init, next := stateTransition(ev)
 			if !transitionReady(g, gs[g], init) {
 				continue
@@ -352,23 +355,24 @@ func (p *Parser) parseRest() ([]Event, error) {
 			case EvGoSysExitLocal:
 				ev.Type = EvGoSysExit
 			}
-			frontier.Push(orderEvent{ev, pid, g, init, next})
+			frontier.Push(orderEvent{*ev, proc, g, init, next})
 		}
 
 		if len(frontier) == 0 {
-			if len(eventsPerP) == 0 {
-				break
-			} else {
-				return nil, fmt.Errorf("no consistent ordering of events possible")
+			for i := range procs {
+				if !procs[i].done {
+					return nil, fmt.Errorf("no consistent ordering of events possible")
+				}
 			}
+			break
 		}
 		f := frontier.Pop()
 		events = append(events, f.ev)
 		transition(gs, f.g, f.init, f.next)
-		if !eventsPerP[f.pid].selected {
+		if !f.proc.selected {
 			panic("frontier batch is not selected")
 		}
-		eventsPerP[f.pid].selected = false
+		f.proc.selected = false
 	}
 
 	// At this point we have a consistent stream of events.

@@ -4,7 +4,7 @@ package trace
 
 type orderEvent struct {
 	ev   Event
-	pid  int32
+	proc *proc
 	g    uint64
 	init gState
 	next gState
@@ -31,7 +31,7 @@ const (
 
 // stateTransition returns goroutine state (sequence and status) when the event
 // becomes ready for merging (init) and the goroutine state after the event (next).
-func stateTransition(ev Event) (g uint64, init, next gState) {
+func stateTransition(ev *Event) (g uint64, init, next gState) {
 	switch ev.Type {
 	case EvGoCreate:
 		g = ev.Args[0]
