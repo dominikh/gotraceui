@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -14,7 +15,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/constraints"
@@ -1962,22 +1962,52 @@ func blockedIsInactive(fn string) bool {
 	}
 }
 
-type countingReader struct {
-	r    io.Reader
-	read int64
+type seekableBufferedReader struct {
+	r   io.ReadSeeker
+	br  *bufio.Reader
+	off int64
 }
 
-func (r *countingReader) Read(b []byte) (int, error) {
-	n, err := r.r.Read(b)
-	atomic.AddInt64(&r.read, int64(n))
+func newSeekableBufferedReader(r io.ReadSeeker) *seekableBufferedReader {
+	return &seekableBufferedReader{
+		r:  r,
+		br: bufio.NewReader(r),
+	}
+}
+
+func (r *seekableBufferedReader) Read(b []byte) (int, error) {
+	n, err := r.br.Read(b)
+	r.off += int64(n)
 	return n, err
 }
 
-func (r *countingReader) amount() int64 {
-	return atomic.LoadInt64(&r.read)
+func (r *seekableBufferedReader) Discard(n int) (int, error) {
+	n, err := r.br.Discard(n)
+	r.off += int64(n)
+	return n, err
+}
+
+func (r *seekableBufferedReader) Seek(offset int64, whence int) (int64, error) {
+	if offset == 0 && whence == io.SeekCurrent {
+		return r.off, nil
+	}
+	if whence == io.SeekCurrent {
+		return 0, errors.New("relative seeking not supported")
+	}
+
+	n, err := r.r.Seek(offset, whence)
+	if err != nil {
+		return n, err
+	}
+	r.br.Reset(r.r)
+	r.off = n
+	return n, nil
 }
 
 func loadTrace(path string, ch chan Command) (*Trace, error) {
+	const ourStages = 1
+	const totalStages = trace.Stages + ourStages
+
 	var gs []*Goroutine
 	var ps []*Processor
 	var gc []Span
@@ -1987,38 +2017,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	if err != nil {
 		return nil, err
 	}
+	r := newSeekableBufferedReader(f)
 
-	stat, err := f.Stat()
-	var r io.Reader
-	var done chan struct{}
-	if err == nil {
-		done = make(chan struct{})
-		// We wrap the counting reader in a bufio.Reader and not the other way around because the parser does many 1
-		// byte sized reads, and we don't want the overhead of tracking reads that accurately.
-		cr := &countingReader{r: f}
-		r = bufio.NewReader(cr)
-		total := stat.Size()
-		go func() {
-			t := time.NewTicker(10 * time.Millisecond)
-			defer t.Stop()
-			for {
-				select {
-				case <-t.C:
-					ch <- Command{"setProgress", (float32(cr.amount()) / float32(total)) / 2}
-				case <-done:
-					ch <- Command{"setProgress", float32(0.5)}
-					return
-				}
-			}
-		}()
-	} else {
-		r = bufio.NewReader(f)
-	}
+	p := trace.NewParser(r)
+	p.Progress = func(stage, cur, total uint64) {
+		progress := (float32(cur) / float32(total)) / totalStages
+		progress += (1.0 / totalStages) * float32(stage)
 
-	res, err := trace.Parse(r)
-	if done != nil {
-		close(done)
+		ch <- Command{"setProgress", progress}
 	}
+	res, err := p.Parse()
 	if err != nil {
 		return nil, err
 	}
@@ -2101,7 +2109,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		ev := &res.Events[evID]
 		if evID%10000 == 0 {
 			select {
-			case ch <- Command{"setProgress", 0.5 + (float32(evID)/float32(len(res.Events)))/2}:
+			case ch <- Command{"setProgress", ((1.0 / totalStages) * (trace.Stages + 0)) + (float32(evID)/float32(len(res.Events)))/totalStages}:
 			default:
 				// Don't let the rendering loop slow down parsing. Especially when vsync is enabled we'll only get to
 				// read commands every blanking interval.

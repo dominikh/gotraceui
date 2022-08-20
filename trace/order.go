@@ -1,25 +1,13 @@
 // Copyright 2016 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
 
 package trace
 
-import (
-	"fmt"
-	"sort"
-)
-
-type eventBatch struct {
-	batch    *batch
-	selected bool
-}
-
 type orderEvent struct {
-	ev    *Event
-	batch int
-	g     uint64
-	init  gState
-	next  gState
+	ev   Event
+	pid  int32
+	g    uint64
+	init gState
+	next gState
 }
 
 type gStatus int
@@ -41,116 +29,9 @@ const (
 	seqinc    = ^uint64(0) - 1
 )
 
-// order1007 merges a set of per-P event batches into a single, consistent stream.
-// The high level idea is as follows. Events within an individual batch are in
-// correct order, because they are emitted by a single P. So we need to produce
-// a correct interleaving of the batches. To do this we take first unmerged event
-// from each batch (frontier). Then choose subset that is "ready" to be merged,
-// that is, events for which all dependencies are already merged. Then we choose
-// event with the lowest timestamp from the subset, merge it and repeat.
-// This approach ensures that we form a consistent stream even if timestamps are
-// incorrect (condition observed on some machines).
-func order1007(m map[int32]*batch) (events []Event, err error) {
-	pending := 0
-	// The ordering of CPU profile sample events in the data stream is based on
-	// when each run of the signal handler was able to acquire the spinlock,
-	// with original timestamps corresponding to when ReadTrace pulled the data
-	// off of the profBuf queue. Re-sort them by the timestamp we captured
-	// inside the signal handler.
-	if b, ok := m[ProfileP]; ok {
-		sort.Stable(sortBatch{b})
-	}
-	var batches []*eventBatch
-	for _, v := range m {
-		for _, vv := range v.events {
-			pending += len(vv)
-		}
-		batches = append(batches, &eventBatch{v, false})
-	}
-	// OPT(dh): this approach basically needs 2x memory for loading a trace. once to parse them, and once to sort per-P
-	// batches into a linear view.
-	events = make([]Event, 0, pending)
-	gs := make(map[uint64]gState)
-	var frontier orderEventList
-	for ; pending != 0; pending-- {
-		for i, b := range batches {
-			if b.selected || len(b.batch.events) == 0 {
-				continue
-			}
-			ev := &b.batch.events[0][0]
-			g, init, next := stateTransition(ev)
-			if !transitionReady(g, gs[g], init) {
-				continue
-			}
-			frontier.Push(orderEvent{ev, i, g, init, next})
-			b.batch.popFront()
-			b.selected = true
-			// Get rid of "Local" events, they are intended merely for ordering.
-			switch ev.Type {
-			case EvGoStartLocal:
-				ev.Type = EvGoStart
-			case EvGoUnblockLocal:
-				ev.Type = EvGoUnblock
-			case EvGoSysExitLocal:
-				ev.Type = EvGoSysExit
-			}
-		}
-		if len(frontier) == 0 {
-			return nil, fmt.Errorf("no consistent ordering of events possible")
-		}
-		f := frontier.Pop()
-		events = append(events, *f.ev)
-		transition(gs, f.g, f.init, f.next)
-		if !batches[f.batch].selected {
-			panic("frontier batch is not selected")
-		}
-		batches[f.batch].selected = false
-	}
-
-	// At this point we have a consistent stream of events.
-	// Make sure time stamps respect the ordering.
-	// The tests will skip (not fail) the test case if they see this error.
-	if !sort.IsSorted((*eventList)(&events)) {
-		return nil, ErrTimeOrder
-	}
-
-	// The last part is giving correct timestamps to EvGoSysExit events.
-	// The problem with EvGoSysExit is that actual syscall exit timestamp (ev.Args[2])
-	// is potentially acquired long before event emission. So far we've used
-	// timestamp of event emission (ev.Ts).
-	// We could not set ev.Ts = ev.Args[2] earlier, because it would produce
-	// seemingly broken timestamps (misplaced event).
-	// We also can't simply update the timestamp and resort events, because
-	// if timestamps are broken we will misplace the event and later report
-	// logically broken trace (instead of reporting broken timestamps).
-	lastSysBlock := make(map[uint64]int64)
-	for _, ev := range events {
-		switch ev.Type {
-		case EvGoSysBlock, EvGoInSyscall:
-			lastSysBlock[ev.G] = ev.Ts
-		case EvGoSysExit:
-			ts := int64(ev.Args[2])
-			if ts == 0 {
-				continue
-			}
-			block := lastSysBlock[ev.G]
-			if block == 0 {
-				return nil, fmt.Errorf("stray syscall exit")
-			}
-			if ts < block {
-				return nil, ErrTimeOrder
-			}
-			ev.Ts = ts
-		}
-	}
-	sort.Stable((*eventList)(&events))
-
-	return
-}
-
 // stateTransition returns goroutine state (sequence and status) when the event
 // becomes ready for merging (init) and the goroutine state after the event (next).
-func stateTransition(ev *Event) (g uint64, init, next gState) {
+func stateTransition(ev Event) (g uint64, init, next gState) {
 	switch ev.Type {
 	case EvGoCreate:
 		g = ev.Args[0]
@@ -242,24 +123,6 @@ func (l *eventList) Less(i, j int) bool {
 
 func (l *eventList) Swap(i, j int) {
 	(*l)[i], (*l)[j] = (*l)[j], (*l)[i]
-}
-
-type sortBatch struct {
-	b *batch
-}
-
-func (l sortBatch) Len() int {
-	return l.b.len()
-}
-
-func (l sortBatch) Less(i, j int) bool {
-	return l.b.at(i).Ts < l.b.at(j).Ts
-}
-
-func (l sortBatch) Swap(i, j int) {
-	a, b := l.b.at(i), l.b.at(j)
-	l.b.set(i, b)
-	l.b.set(j, a)
 }
 
 func (h *orderEventList) Push(x orderEvent) {
