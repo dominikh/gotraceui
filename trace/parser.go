@@ -198,7 +198,7 @@ func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 		return 0, ParseResult{}, err
 	}
 
-	err = postProcessTrace(ver, events)
+	err = postProcessTrace(events)
 	if err != nil {
 		return 0, ParseResult{}, err
 	}
@@ -344,7 +344,7 @@ func (p *parser) readTrace(r io.Reader, ver int) (err error) {
 			s, off, err = p.readStr(r, off)
 			ev.sargs = append(ev.sargs, s)
 		}
-		p.parseEvent(ver, ev)
+		p.parseEvent(ev)
 
 		args = ev.args[:0]
 	}
@@ -394,12 +394,12 @@ func parseHeader(buf []byte) (int, error) {
 
 // parseEvent transforms raw events into events.
 // It does analyze and verify per-event-type arguments.
-func (p *parser) parseEvent(ver int, raw rawEvent) error {
+func (p *parser) parseEvent(raw rawEvent) error {
 	desc := EventDescriptions[raw.typ]
 	if desc.Name == "" {
 		return fmt.Errorf("missing description for event type %v", raw.typ)
 	}
-	narg := argNum(raw, ver)
+	narg := argNum(raw)
 	if len(raw.args) != narg {
 		return fmt.Errorf("%v has wrong number of arguments at offset 0x%x: want %v, got %v",
 			desc.Name, raw.off, narg, len(raw.args))
@@ -577,7 +577,7 @@ var ErrTimeOrder = fmt.Errorf("time stamps out of order")
 // The resulting trace is guaranteed to be consistent
 // (for example, a P does not run two Gs at the same time, or a G is indeed
 // blocked before an unblock event).
-func postProcessTrace(ver int, events []Event) error {
+func postProcessTrace(events []Event) error {
 	const (
 		gDead = iota
 		gRunnable
@@ -893,7 +893,7 @@ func (ev *Event) String() string {
 
 // argNum returns total number of args for the event accounting for timestamps,
 // sequence numbers and differences between trace format versions.
-func argNum(raw rawEvent, ver int) int {
+func argNum(raw rawEvent) int {
 	desc := EventDescriptions[raw.typ]
 	if raw.typ == EvStack {
 		return len(raw.args)
