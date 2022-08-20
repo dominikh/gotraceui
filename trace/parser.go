@@ -272,9 +272,6 @@ type proc struct {
 	pid    int32
 	events []Event
 
-	// whether an event of this P is already in the frontier
-	selected bool
-
 	// there are no more batches left
 	done bool
 }
@@ -298,15 +295,15 @@ func (p *Parser) parseRest() ([]Event, error) {
 	sort.Sort((*eventList)(&p.cpuSamples))
 
 	totalEvents := 0
-	procs := make([]proc, 0, len(p.pStates))
+	allProcs := make([]proc, 0, len(p.pStates))
 	for m, pState := range p.pStates {
-		procs = append(procs, proc{pid: m})
+		allProcs = append(allProcs, proc{pid: m})
 
 		for _, b := range pState.batches {
 			totalEvents += b.numEvents
 		}
 	}
-	procs = append(procs, proc{pid: ProfileP, events: p.cpuSamples})
+	allProcs = append(allProcs, proc{pid: ProfileP, events: p.cpuSamples})
 	totalEvents += len(p.cpuSamples)
 
 	events := make([]Event, 0, totalEvents)
@@ -314,16 +311,18 @@ func (p *Parser) parseRest() ([]Event, error) {
 	// Merge events as long as at least one P has more events
 	gs := make(map[uint64]gState)
 	var frontier orderEventList
+
+	availableProcs := make([]*proc, len(allProcs))
+	for i := range allProcs {
+		availableProcs[i] = &allProcs[i]
+	}
 	for {
 		if p.Progress != nil && len(events)%100_000 == 0 {
 			p.Progress(1, uint64(len(events)), uint64(cap(events)))
 		}
 	pidLoop:
-		for i := range procs {
-			proc := &procs[i]
-			if proc.selected || proc.done {
-				continue
-			}
+		for i := 0; i < len(availableProcs); i++ {
+			proc := availableProcs[i]
 
 			for len(proc.events) == 0 {
 				// Call loadBatch in a loop because sometimes batches are empty
@@ -331,6 +330,10 @@ func (p *Parser) parseRest() ([]Event, error) {
 				if err == io.EOF {
 					// This P has no more events
 					proc.done = true
+					availableProcs[i], availableProcs[len(availableProcs)-1] = availableProcs[len(availableProcs)-1], availableProcs[i]
+					availableProcs = availableProcs[:len(availableProcs)-1]
+					// We swapped the element at i with another proc, so look at the index again
+					i--
 					continue pidLoop
 				} else if err != nil {
 					return nil, err
@@ -345,7 +348,8 @@ func (p *Parser) parseRest() ([]Event, error) {
 				continue
 			}
 			proc.events = proc.events[1:]
-			proc.selected = true
+			availableProcs[i], availableProcs[len(availableProcs)-1] = availableProcs[len(availableProcs)-1], availableProcs[i]
+			availableProcs = availableProcs[:len(availableProcs)-1]
 			// Get rid of "Local" events, they are intended merely for ordering.
 			switch ev.Type {
 			case EvGoStartLocal:
@@ -356,11 +360,14 @@ func (p *Parser) parseRest() ([]Event, error) {
 				ev.Type = EvGoSysExit
 			}
 			frontier.Push(orderEvent{*ev, proc, g, init, next})
+
+			// We swapped the element at i with another proc, so look at the index again
+			i--
 		}
 
 		if len(frontier) == 0 {
-			for i := range procs {
-				if !procs[i].done {
+			for i := range allProcs {
+				if !allProcs[i].done {
 					return nil, fmt.Errorf("no consistent ordering of events possible")
 				}
 			}
@@ -369,10 +376,7 @@ func (p *Parser) parseRest() ([]Event, error) {
 		f := frontier.Pop()
 		events = append(events, f.ev)
 		transition(gs, f.g, f.init, f.next)
-		if !f.proc.selected {
-			panic("frontier batch is not selected")
-		}
-		f.proc.selected = false
+		availableProcs = append(availableProcs, f.proc)
 	}
 
 	// At this point we have a consistent stream of events.
