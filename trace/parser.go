@@ -6,6 +6,7 @@ package trace
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -218,7 +219,7 @@ func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 	var buf [16]byte
 	_, err = io.ReadFull(r, buf[:])
 	if err != nil {
-		return 0, fmt.Errorf("failed to read header: err %v", err)
+		return 0, fmt.Errorf("failed to read header: %w", err)
 	}
 	ver, err = parseHeader(buf[:])
 	if err != nil {
@@ -229,7 +230,7 @@ func (p *parser) readHeader(r io.Reader) (ver int, err error) {
 		// Note: When adding a new version, add canned traces
 		// from the old version to the test suite using mkcanned.bash.
 	default:
-		return 0, fmt.Errorf("unsupported trace file version %v.%v", ver/1000, ver%1000)
+		return 0, fmt.Errorf("unsupported trace file version %d.%d", ver/1000, ver%1000)
 	}
 
 	return ver, err
@@ -247,13 +248,13 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 			return nil
 		}
 		if err != nil || n != 1 {
-			return fmt.Errorf("failed to read trace: n=%v err=%v", n, err)
+			return fmt.Errorf("failed to read trace: %w", err)
 		}
 		typ := p.byte[0] << 2 >> 2
 		narg := p.byte[0]>>6 + 1
 		inlineArgs := byte(4)
 		if typ == EvNone || typ >= EvCount || EventDescriptions[typ].minVersion > ver {
-			return fmt.Errorf("unknown event type %v", typ)
+			return fmt.Errorf("unknown event type %d", typ)
 		}
 		if typ == EvString {
 			// String dictionary entry [ID, length, string].
@@ -263,10 +264,10 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 				return err
 			}
 			if id == 0 {
-				return fmt.Errorf("string has invalid id 0")
+				return errors.New("string has invalid id 0")
 			}
 			if p.strings[id] != "" {
-				return fmt.Errorf("string has duplicate id %v", id)
+				return fmt.Errorf("string has duplicate id %d", id)
 			}
 			var ln uint64
 			ln, _, err = p.readVal(r)
@@ -274,16 +275,15 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 				return err
 			}
 			if ln == 0 {
-				return fmt.Errorf("string has invalid length 0")
+				return errors.New("string has invalid length 0")
 			}
 			if ln > 1e6 {
-				return fmt.Errorf("string has too large length %v", ln)
+				return fmt.Errorf("string has too large length %d", ln)
 			}
 			buf := make([]byte, ln)
-			var n int
-			n, err = io.ReadFull(r, buf)
+			_, err = io.ReadFull(r, buf)
 			if err != nil {
-				return fmt.Errorf("failed to read trace: read %v, want %v, error %v", n, ln, err)
+				return fmt.Errorf("failed to read trace: %w", err)
 			}
 			p.strings[id] = string(buf)
 			continue
@@ -294,7 +294,7 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 				var v uint64
 				v, _, err = p.readVal(r)
 				if err != nil {
-					return fmt.Errorf("failed to read event %v argument (%v)", typ, err)
+					return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 				}
 				ev.args = append(ev.args, v)
 			}
@@ -303,20 +303,20 @@ func (p *parser) readTrace(r io.Reader, ver int) error {
 			var v uint64
 			v, _, err = p.readVal(r)
 			if err != nil {
-				return fmt.Errorf("failed to read event %v argument (%v)", typ, err)
+				return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 			}
 			evLenOrig := v
 			evLen := v
 			for evLen > 0 {
 				v, n, err := p.readVal(r)
 				if err != nil {
-					return fmt.Errorf("failed to read event %v argument (%v)", typ, err)
+					return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 				}
 				evLen -= uint64(n)
 				ev.args = append(ev.args, v)
 			}
 			if evLen != 0 {
-				return fmt.Errorf("event has wrong length: want %v, got Δ%v", evLenOrig, evLen)
+				return fmt.Errorf("event has wrong length: want %d, got Δ%d", evLenOrig, evLen)
 			}
 		}
 		switch ev.typ {
@@ -348,7 +348,7 @@ func (p *parser) readStr(r io.Reader) (s string, err error) {
 	buf := make([]byte, sz)
 	n, err := io.ReadFull(r, buf)
 	if err != nil || sz != uint64(n) {
-		return "", fmt.Errorf("failed to read trace: read %v, want %v, error %v", n, sz, err)
+		return "", fmt.Errorf("failed to read trace: %w", err)
 	}
 	return string(buf), nil
 }
@@ -357,13 +357,13 @@ func (p *parser) readStr(r io.Reader) (s string, err error) {
 // and returns parsed version as 1007.
 func parseHeader(buf []byte) (int, error) {
 	if len(buf) != 16 {
-		return 0, fmt.Errorf("bad header length")
+		return 0, errors.New("bad header length")
 	}
 	if buf[0] != 'g' || buf[1] != 'o' || buf[2] != ' ' ||
 		buf[3] < '1' || buf[3] > '9' ||
 		buf[4] != '.' ||
 		buf[5] < '1' || buf[5] > '9' {
-		return 0, fmt.Errorf("not a trace file")
+		return 0, errors.New("not a trace file")
 	}
 	ver := int(buf[5] - '0')
 	i := 0
@@ -372,7 +372,7 @@ func parseHeader(buf []byte) (int, error) {
 	}
 	ver += int(buf[3]-'0') * 1000
 	if !bytes.Equal(buf[6+i:], []byte(" trace\x00\x00\x00\x00")[:10-i]) {
-		return 0, fmt.Errorf("not a trace file")
+		return 0, errors.New("not a trace file")
 	}
 	return ver, nil
 }
@@ -382,11 +382,11 @@ func parseHeader(buf []byte) (int, error) {
 func (p *parser) parseEvent(raw rawEvent) error {
 	desc := EventDescriptions[raw.typ]
 	if desc.Name == "" {
-		return fmt.Errorf("missing description for event type %v", raw.typ)
+		return fmt.Errorf("missing description for event type %d", raw.typ)
 	}
 	narg := argNum(raw)
 	if len(raw.args) != narg {
-		return fmt.Errorf("%v has wrong number of arguments: want %v, got %v",
+		return fmt.Errorf("%s has wrong number of arguments: want %d, got %d",
 			desc.Name, narg, len(raw.args))
 	}
 	switch raw.typ {
@@ -414,15 +414,15 @@ func (p *parser) parseEvent(raw rawEvent) error {
 		p.timerGoids[raw.args[0]] = true
 	case EvStack:
 		if len(raw.args) < 2 {
-			return fmt.Errorf("EvStack has wrong number of arguments: want at least 2, got %v", len(raw.args))
+			return fmt.Errorf("EvStack has wrong number of arguments: want at least 2, got %d", len(raw.args))
 		}
 		size := raw.args[1]
 		if size > 1000 {
-			return fmt.Errorf("EvStack has bad number of frames: %v", size)
+			return fmt.Errorf("EvStack has bad number of frames: %d", size)
 		}
 		want := 2 + 4*size
 		if uint64(len(raw.args)) != want {
-			return fmt.Errorf("EvStack has wrong number of arguments: want %v, got %v", want, len(raw.args))
+			return fmt.Errorf("EvStack has wrong number of arguments: want %d, got %d", want, len(raw.args))
 		}
 		id := uint32(raw.args[0])
 		if id != 0 && size > 0 {
@@ -525,10 +525,10 @@ const (
 
 func (p *parser) finalize() ([]Event, error) {
 	if len(p.batches) == 0 {
-		return nil, fmt.Errorf("trace is empty")
+		return nil, errors.New("trace is empty")
 	}
 	if p.ticksPerSec == 0 {
-		return nil, fmt.Errorf("no EvFrequency event")
+		return nil, errors.New("no EvFrequency event")
 	}
 
 	events, err := order1007(p.batches)
@@ -557,7 +557,7 @@ func (p *parser) finalize() ([]Event, error) {
 
 // ErrTimeOrder is returned by Parse when the trace contains
 // time stamps that do not respect actual event ordering.
-var ErrTimeOrder = fmt.Errorf("time stamps out of order")
+var ErrTimeOrder = errors.New("time stamps out of order")
 
 // postProcessTrace does inter-event verification and information restoration.
 // The resulting trace is guaranteed to be consistent
@@ -593,13 +593,13 @@ func postProcessTrace(events []Event) error {
 	checkRunning := func(p pdesc, g gdesc, ev *Event, allowG0 bool) error {
 		name := EventDescriptions[ev.Type].Name
 		if g.state != gRunning {
-			return fmt.Errorf("g %v is not running while %v (time %v)", ev.G, name, ev.Ts)
+			return fmt.Errorf("g %d is not running while %s (time %d)", ev.G, name, ev.Ts)
 		}
 		if p.g != ev.G {
-			return fmt.Errorf("p %v is not running g %v while %v (time %v)", ev.P, ev.G, name, ev.Ts)
+			return fmt.Errorf("p %d is not running g %d while %s (time %d)", ev.P, ev.G, name, ev.Ts)
 		}
 		if !allowG0 && ev.G == 0 {
-			return fmt.Errorf("g 0 did %v (time %v)", EventDescriptions[ev.Type].Name, ev.Ts)
+			return fmt.Errorf("g 0 did %s (time %d)", EventDescriptions[ev.Type].Name, ev.Ts)
 		}
 		return nil
 	}
@@ -612,51 +612,51 @@ func postProcessTrace(events []Event) error {
 		switch ev.Type {
 		case EvProcStart:
 			if p.running {
-				return fmt.Errorf("p %v is running before start (time %v)", ev.P, ev.Ts)
+				return fmt.Errorf("p %d is running before start (time %d)", ev.P, ev.Ts)
 			}
 			p.running = true
 		case EvProcStop:
 			if !p.running {
-				return fmt.Errorf("p %v is not running before stop (time %v)", ev.P, ev.Ts)
+				return fmt.Errorf("p %d is not running before stop (time %d)", ev.P, ev.Ts)
 			}
 			if p.g != 0 {
-				return fmt.Errorf("p %v is running a goroutine %v during stop (time %v)", ev.P, p.g, ev.Ts)
+				return fmt.Errorf("p %d is running a goroutine %d during stop (time %d)", ev.P, p.g, ev.Ts)
 			}
 			p.running = false
 		case EvGCStart:
 			if evGC != nil {
-				return fmt.Errorf("previous GC is not ended before a new one (time %v)", ev.Ts)
+				return fmt.Errorf("previous GC is not ended before a new one (time %d)", ev.Ts)
 			}
 			evGC = ev
 			// Attribute this to the global GC state.
 			ev.P = GCP
 		case EvGCDone:
 			if evGC == nil {
-				return fmt.Errorf("bogus GC end (time %v)", ev.Ts)
+				return fmt.Errorf("bogus GC end (time %d)", ev.Ts)
 			}
 			evGC.Link = toUint40(evIdx)
 			evGC = nil
 		case EvGCSTWStart:
 			evp := &evSTW
 			if *evp != nil {
-				return fmt.Errorf("previous STW is not ended before a new one (time %v)", ev.Ts)
+				return fmt.Errorf("previous STW is not ended before a new one (time %d)", ev.Ts)
 			}
 			*evp = ev
 		case EvGCSTWDone:
 			evp := &evSTW
 			if *evp == nil {
-				return fmt.Errorf("bogus STW end (time %v)", ev.Ts)
+				return fmt.Errorf("bogus STW end (time %d)", ev.Ts)
 			}
 			(*evp).Link = toUint40(evIdx)
 			*evp = nil
 		case EvGCSweepStart:
 			if p.evSweep != nil {
-				return fmt.Errorf("previous sweeping is not ended before a new one (time %v)", ev.Ts)
+				return fmt.Errorf("previous sweeping is not ended before a new one (time %d)", ev.Ts)
 			}
 			p.evSweep = ev
 		case EvGCMarkAssistStart:
 			if g.evMarkAssist != nil {
-				return fmt.Errorf("previous mark assist is not ended before a new one (time %v)", ev.Ts)
+				return fmt.Errorf("previous mark assist is not ended before a new one (time %d)", ev.Ts)
 			}
 			g.evMarkAssist = ev
 		case EvGCMarkAssistDone:
@@ -668,19 +668,19 @@ func postProcessTrace(events []Event) error {
 			}
 		case EvGCSweepDone:
 			if p.evSweep == nil {
-				return fmt.Errorf("bogus sweeping end (time %v)", ev.Ts)
+				return fmt.Errorf("bogus sweeping end (time %d)", ev.Ts)
 			}
 			p.evSweep.Link = toUint40(evIdx)
 			p.evSweep = nil
 		case EvGoWaiting:
 			if g.state != gRunnable {
-				return fmt.Errorf("g %v is not runnable before EvGoWaiting (time %v)", ev.G, ev.Ts)
+				return fmt.Errorf("g %d is not runnable before EvGoWaiting (time %d)", ev.G, ev.Ts)
 			}
 			g.state = gWaiting
 			g.ev = ev
 		case EvGoInSyscall:
 			if g.state != gRunnable {
-				return fmt.Errorf("g %v is not runnable before EvGoInSyscall (time %v)", ev.G, ev.Ts)
+				return fmt.Errorf("g %d is not runnable before EvGoInSyscall (time %d)", ev.G, ev.Ts)
 			}
 			g.state = gWaiting
 			g.ev = ev
@@ -689,15 +689,15 @@ func postProcessTrace(events []Event) error {
 				return err
 			}
 			if _, ok := gs[ev.Args[0]]; ok {
-				return fmt.Errorf("g %v already exists (time %v)", ev.Args[0], ev.Ts)
+				return fmt.Errorf("g %d already exists (time %d)", ev.Args[0], ev.Ts)
 			}
 			gs[ev.Args[0]] = gdesc{state: gRunnable, ev: ev, evCreate: ev}
 		case EvGoStart, EvGoStartLabel:
 			if g.state != gRunnable {
-				return fmt.Errorf("g %v is not runnable before start (time %v)", ev.G, ev.Ts)
+				return fmt.Errorf("g %d is not runnable before start (time %d)", ev.G, ev.Ts)
 			}
 			if p.g != 0 {
-				return fmt.Errorf("p %v is already running g %v while start g %v (time %v)", ev.P, p.g, ev.G, ev.Ts)
+				return fmt.Errorf("p %d is already running g %d while start g %d (time %d)", ev.P, p.g, ev.G, ev.Ts)
 			}
 			g.state = gRunning
 			g.evStart = ev
@@ -739,14 +739,14 @@ func postProcessTrace(events []Event) error {
 			g.ev = ev
 		case EvGoUnblock:
 			if g.state != gRunning {
-				return fmt.Errorf("g %v is not running while unpark (time %v)", ev.G, ev.Ts)
+				return fmt.Errorf("g %d is not running while unpark (time %d)", ev.G, ev.Ts)
 			}
 			if ev.P != TimerP && p.g != ev.G {
-				return fmt.Errorf("p %v is not running g %v while unpark (time %v)", ev.P, ev.G, ev.Ts)
+				return fmt.Errorf("p %d is not running g %d while unpark (time %d)", ev.P, ev.G, ev.Ts)
 			}
 			g1 := gs[ev.Args[0]]
 			if g1.state != gWaiting {
-				return fmt.Errorf("g %v is not waiting before unpark (time %v)", ev.Args[0], ev.Ts)
+				return fmt.Errorf("g %d is not waiting before unpark (time %d)", ev.Args[0], ev.Ts)
 			}
 			if g1.ev != nil && g1.ev.Type == EvGoBlockNet && ev.P != TimerP {
 				ev.P = NetpollP
@@ -772,7 +772,7 @@ func postProcessTrace(events []Event) error {
 			p.g = 0
 		case EvGoSysExit:
 			if g.state != gWaiting {
-				return fmt.Errorf("g %v is not waiting during syscall exit (time %v)", ev.G, ev.Ts)
+				return fmt.Errorf("g %d is not waiting during syscall exit (time %d)", ev.G, ev.Ts)
 			}
 			if g.ev != nil && g.ev.Type == EvGoSysCall {
 				g.ev.Link = toUint40(evIdx)
@@ -850,7 +850,7 @@ func (p *parser) readVal(r io.Reader) (v uint64, n int, err error) {
 			return v, i + 1, err
 		}
 	}
-	return 0, 0, fmt.Errorf("malformatted base-128 varint")
+	return 0, 0, errors.New("malformatted base-128 varint")
 }
 
 // Print dumps events to stdout. For debugging.
@@ -868,9 +868,9 @@ func PrintEvent(ev *Event) {
 func (ev *Event) String() string {
 	desc := EventDescriptions[ev.Type]
 	w := new(bytes.Buffer)
-	fmt.Fprintf(w, "%v %v p=%v g=%v", ev.Ts, desc.Name, ev.P, ev.G)
+	fmt.Fprintf(w, "%d %s p=%d g=%d", ev.Ts, desc.Name, ev.P, ev.G)
 	for i, a := range desc.Args {
-		fmt.Fprintf(w, " %v=%v", a, ev.Args[i])
+		fmt.Fprintf(w, " %s=%d", a, ev.Args[i])
 	}
 	return w.String()
 }
