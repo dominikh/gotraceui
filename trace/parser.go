@@ -165,9 +165,9 @@ func (b *batch) popFront() {
 }
 
 // Parse parses, post-processes and verifies the trace.
-func Parse(r io.Reader, bin string) (ParseResult, error) {
+func Parse(r io.Reader) (ParseResult, error) {
 	p := parser{}
-	_, res, err := p.parse(r, bin)
+	_, res, err := p.parse(r)
 	if err != nil {
 		return ParseResult{}, err
 	}
@@ -176,7 +176,7 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 
 // parse parses, post-processes and verifies the trace. It returns the
 // trace version and the list of events.
-func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
+func (p *parser) parse(r io.Reader) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
 	p.batches = make(map[int32]*batch)
 	p.stacks = make(map[uint32][]uint64)

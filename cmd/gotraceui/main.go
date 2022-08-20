@@ -2015,7 +2015,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		r = bufio.NewReader(f)
 	}
 
-	res, err := trace.Parse(r, "")
+	res, err := trace.Parse(r)
 	if done != nil {
 		close(done)
 	}
