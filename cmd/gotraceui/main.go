@@ -44,6 +44,11 @@ import (
 	"gioui.org/x/poortext"
 )
 
+// A note on Ps
+//
+// Not all events have a P. For example, when sysmon wakes up the scavenger, it doesn't have a P while unblocking
+// goroutines.
+
 /*
    GC notes:
    - The only use of p=1000004 is for GCStart
@@ -1786,7 +1791,7 @@ func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
 }
 
 type Processor struct {
-	id uint32
+	id int32
 	// OPT(dh): using Span for Ps is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
 	// goroutine is running at what time. The only benefit of reusing Span is that we can use the same code for
 	// rendering Gs and Ps, but that doesn't seem worth the added cost.
@@ -2039,8 +2044,8 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		gsByID[gid] = g
 		return g
 	}
-	psByID := map[uint32]*Processor{}
-	getP := func(pid uint32) *Processor {
+	psByID := map[int32]*Processor{}
+	getP := func(pid int32) *Processor {
 		p, ok := psByID[pid]
 		if ok {
 			return p
@@ -2065,7 +2070,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 	// Count the number of events per goroutine to get an estimate of spans per goroutine, to preallocate slices.
 	eventsPerG := map[uint64]int{}
-	eventsPerP := map[uint32]int{}
+	eventsPerP := map[int32]int{}
 	for evID := range res.Events {
 		ev := &res.Events[evID]
 		var gid uint64

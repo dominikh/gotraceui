@@ -17,7 +17,7 @@ type Event struct {
 	G     uint64    // G on which the event happened
 	Args  [4]uint64 // event-type-specific arguments
 	StkID uint32    // unique stack ID
-	P     uint32    // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
+	P     int32     // P on which the event happened (can be one of TimerP, NetpollP, SyscallP)
 	// linked event (can be nil), depends on event type:
 	// for GCStart: the GCStop
 	// for GCSTWStart: the GCSTWDone
@@ -95,7 +95,7 @@ type parser struct {
 	byte [1]byte
 
 	strings     map[uint64]string
-	batches     map[uint32]*batch // events by P
+	batches     map[int32]*batch // events by P
 	stacks      map[uint32][]uint64
 	stacksData  []uint64
 	timerGoids  map[uint64]bool
@@ -105,8 +105,8 @@ type parser struct {
 	// state for parseEvent
 	lastTs       int64
 	lastG        uint64
-	lastP        uint32
-	lastGs       map[uint32]uint64 // last goroutine running on P
+	lastP        int32
+	lastGs       map[int32]uint64 // last goroutine running on P
 	logMessageID uint64
 }
 
@@ -177,10 +177,10 @@ func Parse(r io.Reader, bin string) (ParseResult, error) {
 // trace version and the list of events.
 func (p *parser) parse(r io.Reader, bin string) (int, ParseResult, error) {
 	p.strings = make(map[uint64]string)
-	p.batches = make(map[uint32]*batch)
+	p.batches = make(map[int32]*batch)
 	p.stacks = make(map[uint32][]uint64)
 	p.timerGoids = make(map[uint64]bool)
-	p.lastGs = make(map[uint32]uint64)
+	p.lastGs = make(map[int32]uint64)
 	p.pcs = make(map[uint64]Frame)
 
 	ver, err := p.readHeader(r)
@@ -407,10 +407,14 @@ func (p *parser) parseEvent(raw rawEvent) error {
 	switch raw.typ {
 	case EvBatch:
 		p.lastGs[p.lastP] = p.lastG
-		if raw.args[0] > math.MaxUint {
-			return fmt.Errorf("processor ID %d is larger than maximum of %d", raw.args[0], uint64(math.MaxUint))
+		if raw.args[0] != math.MaxUint64 && raw.args[0] > math.MaxInt32 {
+			return fmt.Errorf("processor ID %d is larger than maximum of %d", raw.args[0], uint64(math.MaxInt32))
 		}
-		p.lastP = uint32(raw.args[0])
+		if raw.args[0] == math.MaxUint64 {
+			p.lastP = -1
+		} else {
+			p.lastP = int32(raw.args[0])
+		}
 		p.lastG = p.lastGs[p.lastP]
 		p.lastTs = int64(raw.args[1])
 	case EvFrequency:
@@ -498,7 +502,7 @@ func (p *parser) parseEvent(raw rawEvent) error {
 			e.Args[3] = p.logMessageID
 		case EvCPUSample:
 			e.Ts = int64(e.Args[0])
-			e.P = uint32(e.Args[1])
+			e.P = int32(e.Args[1])
 			e.G = e.Args[2]
 			e.Args[0] = 0
 		}
@@ -598,7 +602,7 @@ func postProcessTrace(events []Event) error {
 	}
 
 	gs := make(map[uint64]gdesc)
-	ps := make(map[uint32]pdesc)
+	ps := make(map[int32]pdesc)
 	tasks := make(map[uint64]*Event)           // task id to task creation events
 	activeRegions := make(map[uint64][]*Event) // goroutine id to stack of regions
 	gs[0] = gdesc{state: gRunning}

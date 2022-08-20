@@ -50,7 +50,7 @@ const (
 // event with the lowest timestamp from the subset, merge it and repeat.
 // This approach ensures that we form a consistent stream even if timestamps are
 // incorrect (condition observed on some machines).
-func order1007(m map[uint32]*batch) (events []Event, err error) {
+func order1007(m map[int32]*batch) (events []Event, err error) {
 	pending := 0
 	// The ordering of CPU profile sample events in the data stream is based on
 	// when each run of the signal handler was able to acquire the spinlock,
