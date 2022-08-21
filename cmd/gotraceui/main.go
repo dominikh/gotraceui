@@ -1874,7 +1874,7 @@ func packEventID(id EventID) [5]byte {
 	}
 }
 
-var reasonByEventType = [255]reason{
+var reasonByEventType = [256]reason{
 	trace.EvGoCreate:  reasonNewlyCreated,
 	trace.EvGoSched:   reasonGosched,
 	trace.EvGoSleep:   reasonTimeSleep,
@@ -1927,7 +1927,7 @@ func (s *Span) Events(evs AllEventer, tr *Trace) []EventID {
 
 type reason uint8
 
-var reasonLabels = [255]string{
+var reasonLabels = [256]string{
 	reasonNewlyCreated: "newly created",
 	reasonGosched:      "called runtime.Gosched",
 	reasonTimeSleep:    "called time.Sleep",
