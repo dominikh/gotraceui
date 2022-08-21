@@ -425,6 +425,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 	var buf [16]byte
 
 	// Read events.
+	var raw rawEvent
 	for n := uint64(0); ; n++ {
 		if p.Progress != nil && n%1_000_000 == 0 {
 			off, err := p.r.Seek(0, io.SeekCurrent)
@@ -433,7 +434,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 			}
 			p.Progress(0, uint64(off), p.size)
 		}
-		raw, err := p.readRawEvent(&buf, skipArgs|skipStrings|trackBatches)
+		err := p.readRawEvent(&buf, skipArgs|skipStrings|trackBatches, &raw)
 		if err == io.EOF {
 			break
 		}
@@ -448,7 +449,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 			e := Event{Type: raw.typ}
 
 			argOffset := 1
-			narg := argNum(raw)
+			narg := argNum(&raw)
 			for i := argOffset; i < narg; i++ {
 				if i == narg-1 {
 					e.StkID = uint32(raw.args[i])
@@ -491,20 +492,20 @@ const (
 	trackBatches
 )
 
-func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
+func (p *Parser) readRawEvent(buf *[16]byte, flags uint, ev *rawEvent) error {
 	// Read event type and number of arguments (1 byte).
 	n, err := p.r.Read(buf[:1])
 	if err == io.EOF {
-		return rawEvent{}, err
+		return err
 	}
 	if err != nil || n != 1 {
-		return rawEvent{}, fmt.Errorf("failed to read trace: %w", err)
+		return fmt.Errorf("failed to read trace: %w", err)
 	}
 	typ := buf[0] << 2 >> 2
 	narg := buf[0]>>6 + 1
 	inlineArgs := byte(4)
 	if typ == EvNone || typ >= EvCount || EventDescriptions[typ].minVersion > p.ver {
-		return rawEvent{}, fmt.Errorf("unknown event type %d", typ)
+		return fmt.Errorf("unknown event type %d", typ)
 	}
 
 	switch typ {
@@ -513,67 +514,68 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
 			// String dictionary entry [ID, length, string].
 			_, _, err = p.readVal()
 			if err != nil {
-				return rawEvent{}, err
+				return err
 			}
 			var ln uint64
 			ln, _, err = p.readVal()
 			if err != nil {
-				return rawEvent{}, err
+				return err
 			}
 			if _, err := p.r.Discard(int(ln)); err != nil {
-				return rawEvent{}, fmt.Errorf("failed to read trace: %w", err)
+				return fmt.Errorf("failed to read trace: %w", err)
 			}
 		} else {
 			// String dictionary entry [ID, length, string].
 			var id uint64
 			id, _, err = p.readVal()
 			if err != nil {
-				return rawEvent{}, err
+				return err
 			}
 			if id == 0 {
-				return rawEvent{}, errors.New("string has invalid id 0")
+				return errors.New("string has invalid id 0")
 			}
 			if p.strings[id] != "" {
-				return rawEvent{}, fmt.Errorf("string has duplicate id %d", id)
+				return fmt.Errorf("string has duplicate id %d", id)
 			}
 			var ln uint64
 			ln, _, err = p.readVal()
 			if err != nil {
-				return rawEvent{}, err
+				return err
 			}
 			if ln == 0 {
-				return rawEvent{}, errors.New("string has invalid length 0")
+				return errors.New("string has invalid length 0")
 			}
 			if ln > 1e6 {
-				return rawEvent{}, fmt.Errorf("string has too large length %d", ln)
+				return fmt.Errorf("string has too large length %d", ln)
 			}
 			buf := make([]byte, ln)
 			_, err = io.ReadFull(p.r, buf)
 			if err != nil {
-				return rawEvent{}, fmt.Errorf("failed to read trace: %w", err)
+				return fmt.Errorf("failed to read trace: %w", err)
 			}
 			p.strings[id] = string(buf)
 		}
 
-		return rawEvent{}, nil
+		ev.typ = EvNone
+		return nil
 	case EvBatch:
 		if want := byte(2); narg != want {
-			return rawEvent{}, fmt.Errorf("EvBatch has wrong number of arguments: got %d, want %d", narg, want)
+			return fmt.Errorf("EvBatch has wrong number of arguments: got %d, want %d", narg, want)
 		}
 
 		off, err := p.r.Seek(0, io.SeekCurrent)
 		if err != nil {
-			return rawEvent{}, fmt.Errorf("failed to read trace: %w", err)
+			return fmt.Errorf("failed to read trace: %w", err)
 		}
 		// We already read the first byte
 		off -= 1
 
 		pid, _, err := p.readVal()
 		if err != nil {
-			return rawEvent{}, err
+			return err
 		}
 		if pid != math.MaxUint64 && pid > math.MaxInt32 {
-			return rawEvent{}, fmt.Errorf("processor ID %d is larger than maximum of %d", pid, uint64(math.MaxUint))
+			return fmt.Errorf("processor ID %d is larger than maximum of %d", pid, uint64(math.MaxUint))
 		}
 
 		var pid32 int32
@@ -590,24 +592,24 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
 
 		v, _, err := p.readVal()
 		if err != nil {
-			return rawEvent{}, err
+			return err
 		}
 
-		ev := rawEvent{typ: EvBatch, args: p.args[:0]}
+		*ev = rawEvent{typ: EvBatch, args: p.args[:0]}
 		ev.args = append(ev.args, pid, v)
-		return ev, nil
+		return nil
 	default:
 		if flags&trackBatches != 0 {
 			batches := p.pState(p.curP).batches
 			batches[len(batches)-1].numEvents++
 		}
 
-		ev := rawEvent{typ: typ, args: p.args[:0]}
+		*ev = rawEvent{typ: typ, args: p.args[:0]}
 		if narg < inlineArgs {
 			for i := 0; i < int(narg); i++ {
 				v, _, err := p.readVal()
 				if err != nil {
-					return rawEvent{}, fmt.Errorf("failed to read event %d argument: %w", typ, err)
+					return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 				}
 				if flags&skipArgs == 0 {
 					ev.args = append(ev.args, v)
@@ -618,7 +620,7 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
 			var v uint64
 			v, _, err = p.readVal()
 			if err != nil {
-				return rawEvent{}, fmt.Errorf("failed to read event %d argument: %w", typ, err)
+				return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 			}
 
 			if flags&skipArgs == 0 || typ == EvCPUSample {
@@ -626,7 +628,7 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
 				for evLen > 0 {
 					v, n, err = p.readVal()
 					if err != nil {
-						return rawEvent{}, fmt.Errorf("failed to read event %d argument: %w", typ, err)
+						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 					}
 					evLen -= uint64(n)
 					ev.args = append(ev.args, v)
@@ -635,7 +637,7 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
 				// Skip over arguments
 				_, err := p.r.Discard(int(v))
 				if err != nil {
-					return rawEvent{}, fmt.Errorf("failed to read trace: %w", err)
+					return fmt.Errorf("failed to read trace: %w", err)
 				}
 			}
 			if typ == EvUserLog {
@@ -644,25 +646,25 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint) (rawEvent, error) {
 					// Read string
 					s, err := p.readStr()
 					if err != nil {
-						return rawEvent{}, err
+						return err
 					}
 					ev.sargs = append(ev.sargs, s)
 				} else {
 					// Skip string
 					v, _, err := p.readVal()
 					if err != nil {
-						return rawEvent{}, err
+						return err
 					}
 					_, err = p.r.Discard(int(v))
 					if err != nil {
-						return rawEvent{}, err
+						return err
 					}
 				}
 			}
 		}
 
 		p.args = ev.args[:0]
-		return ev, nil
+		return nil
 	}
 }
 
@@ -691,8 +693,10 @@ func (p *Parser) loadBatch(pid int32) ([]Event, error) {
 
 	gotHeader := false
 	var buf [16]byte
+	var raw rawEvent
+	var ev Event
 	for {
-		raw, err := p.readRawEvent(&buf, 0)
+		err := p.readRawEvent(&buf, 0, &raw)
 		if err == io.EOF {
 			break
 		}
@@ -710,11 +714,11 @@ func (p *Parser) loadBatch(pid int32) ([]Event, error) {
 			}
 		}
 
-		ev, err := p.parseEvent(raw)
+		err = p.parseEvent(&raw, &ev)
 		if err != nil {
 			return nil, err
 		}
-		if ev != (Event{}) {
+		if ev.Type != EvNone {
 			events = append(events, ev)
 		}
 	}
@@ -765,21 +769,20 @@ func parseHeader(buf []byte) (int, error) {
 
 // parseEvent transforms raw events into events.
 // It does analyze and verify per-event-type arguments.
-func (p *Parser) parseEvent(raw rawEvent) (Event, error) {
-	desc := EventDescriptions[raw.typ]
+func (p *Parser) parseEvent(raw *rawEvent, ev *Event) error {
+	desc := &EventDescriptions[raw.typ]
 	if desc.Name == "" {
-		return Event{}, fmt.Errorf("missing description for event type %d", raw.typ)
+		return fmt.Errorf("missing description for event type %d", raw.typ)
 	}
 	narg := argNum(raw)
 	if len(raw.args) != narg {
-		return Event{}, fmt.Errorf("%s has wrong number of arguments: want %d, got %d",
-			desc.Name, narg, len(raw.args))
+		return fmt.Errorf("%s has wrong number of arguments: want %d, got %d", desc.Name, narg, len(raw.args))
 	}
 	switch raw.typ {
 	case EvBatch:
 		p.pState(p.lastP).lastG = p.lastG
 		if raw.args[0] != math.MaxUint64 && raw.args[0] > math.MaxInt32 {
-			return Event{}, fmt.Errorf("processor ID %d is larger than maximum of %d", raw.args[0], uint64(math.MaxInt32))
+			return fmt.Errorf("processor ID %d is larger than maximum of %d", raw.args[0], uint64(math.MaxInt32))
 		}
 		if raw.args[0] == math.MaxUint64 {
 			p.lastP = -1
@@ -794,21 +797,21 @@ func (p *Parser) parseEvent(raw rawEvent) (Event, error) {
 			// The most likely cause for this is tick skew on different CPUs.
 			// For example, solaris/amd64 seems to have wildly different
 			// ticks on different CPUs.
-			return Event{}, ErrTimeOrder
+			return ErrTimeOrder
 		}
 	case EvTimerGoroutine:
 		p.timerGoids[raw.args[0]] = true
 	case EvStack:
 		if len(raw.args) < 2 {
-			return Event{}, fmt.Errorf("EvStack has wrong number of arguments: want at least 2, got %d", len(raw.args))
+			return fmt.Errorf("EvStack has wrong number of arguments: want at least 2, got %d", len(raw.args))
 		}
 		size := raw.args[1]
 		if size > 1000 {
-			return Event{}, fmt.Errorf("EvStack has bad number of frames: %d", size)
+			return fmt.Errorf("EvStack has bad number of frames: %d", size)
 		}
 		want := 2 + 4*size
 		if uint64(len(raw.args)) != want {
-			return Event{}, fmt.Errorf("EvStack has wrong number of arguments: want %d, got %d", want, len(raw.args))
+			return fmt.Errorf("EvStack has wrong number of arguments: want %d, got %d", want, len(raw.args))
 		}
 		id := uint32(raw.args[0])
 		if id != 0 && size > 0 {
@@ -829,33 +832,33 @@ func (p *Parser) parseEvent(raw rawEvent) (Event, error) {
 	case EvCPUSample:
 		// These events get parsed during the indexing step and don't strictly belong to the batch.
 	default:
-		e := Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: toUint40(-1)}
+		*ev = Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: toUint40(-1)}
 		var argOffset int
-		e.Ts = p.lastTs + int64(raw.args[0])
+		ev.Ts = p.lastTs + int64(raw.args[0])
 		argOffset = 1
-		p.lastTs = e.Ts
+		p.lastTs = ev.Ts
 		for i := argOffset; i < narg; i++ {
 			if i == narg-1 && desc.Stack {
-				e.StkID = uint32(raw.args[i])
+				ev.StkID = uint32(raw.args[i])
 			} else {
-				e.Args[i-argOffset] = raw.args[i]
+				ev.Args[i-argOffset] = raw.args[i]
 			}
 		}
 		switch raw.typ {
 		case EvGoStart, EvGoStartLocal, EvGoStartLabel:
-			p.lastG = e.Args[0]
-			e.G = p.lastG
+			p.lastG = ev.Args[0]
+			ev.G = p.lastG
 		case EvGCSTWStart:
-			e.G = 0
+			ev.G = 0
 		case EvGCStart, EvGCDone, EvGCSTWDone:
-			e.G = 0
+			ev.G = 0
 		case EvGoEnd, EvGoStop, EvGoSched, EvGoPreempt,
 			EvGoSleep, EvGoBlock, EvGoBlockSend, EvGoBlockRecv,
 			EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond, EvGoBlockNet,
 			EvGoSysBlock, EvGoBlockGC:
 			p.lastG = 0
 		case EvGoSysExit, EvGoWaiting, EvGoInSyscall:
-			e.G = e.Args[0]
+			ev.G = ev.Args[0]
 		case EvUserTaskCreate:
 			// e.Args 0: taskID, 1:parentID, 2:nameID
 		case EvUserRegion:
@@ -869,13 +872,14 @@ func (p *Parser) parseEvent(raw rawEvent) (Event, error) {
 			// hoping runtime IDs and our IDs will never meet.
 			p.logMessageID--
 			p.strings[p.logMessageID] = raw.sargs[0]
-			e.Args[3] = p.logMessageID
+			ev.Args[3] = p.logMessageID
 		}
 
-		return e, nil
+		return nil
 	}
 
-	return Event{}, nil
+	ev.Type = EvNone
+	return nil
 }
 
 // ErrTimeOrder is returned by Parse when the trace contains
@@ -1188,7 +1192,7 @@ func (ev *Event) String() string {
 
 // argNum returns total number of args for the event accounting for timestamps,
 // sequence numbers and differences between trace format versions.
-func argNum(raw rawEvent) int {
+func argNum(raw *rawEvent) int {
 	desc := EventDescriptions[raw.typ]
 	if raw.typ == EvStack {
 		return len(raw.args)
