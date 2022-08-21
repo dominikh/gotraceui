@@ -92,14 +92,15 @@ type ParseResult struct {
 	Strings map[uint64]string
 }
 
-type ReadSeekDiscarder interface {
+type Reader interface {
 	// We experimented with accepting an io.ReadSeeker and wrapping it in a seekable buffered reader ourselves, to avoid one
-	// level of interface indirection by removing ReadSeekDiscarder. Generally speaking that's not great API design; the
+	// level of interface indirection by removing Reader. Generally speaking that's not great API design; the
 	// consumer of the reader shouldn't be the one to wrap it in a buffered reader. Also, it turned out that making the
 	// change had no measurable effect on performance.
 
 	io.ReadSeeker
 	Discard(int) (int, error)
+	ReadByte() (byte, error)
 }
 
 type batch struct {
@@ -124,10 +125,8 @@ type Parser struct {
 	Progress func(stage, cur, total uint64)
 	size     uint64
 
-	byte [1]byte
-
 	ver int
-	r   ReadSeekDiscarder
+	r   Reader
 
 	strings     map[uint64]string
 	pStates     map[int32]*pState
@@ -161,11 +160,11 @@ func (p *Parser) pState(pid int32) *pState {
 	return ps
 }
 
-func NewParser(r ReadSeekDiscarder) *Parser {
+func NewParser(r Reader) *Parser {
 	return &Parser{r: r}
 }
 
-func Parse(r ReadSeekDiscarder) (ParseResult, error) {
+func Parse(r Reader) (ParseResult, error) {
 	return NewParser(r).Parse()
 }
 
@@ -432,8 +431,6 @@ func (p *Parser) parseRest() ([]Event, error) {
 
 // indexAndPartiallyParse records the offsets of batches and parses strings and CPU samples.
 func (p *Parser) indexAndPartiallyParse() error {
-	var buf [16]byte
-
 	// Read events.
 	var raw rawEvent
 	for n := uint64(0); ; n++ {
@@ -444,7 +441,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 			}
 			p.Progress(0, uint64(off), p.size)
 		}
-		err := p.readRawEvent(&buf, skipArgs|skipStrings|trackBatches, &raw)
+		err := p.readRawEvent(skipArgs|skipStrings|trackBatches, &raw)
 		if err == io.EOF {
 			break
 		}
@@ -502,17 +499,17 @@ const (
 	trackBatches
 )
 
-func (p *Parser) readRawEvent(buf *[16]byte, flags uint, ev *rawEvent) error {
+func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	// Read event type and number of arguments (1 byte).
-	n, err := p.r.Read(buf[:1])
+	b, err := p.r.ReadByte()
 	if err == io.EOF {
 		return err
 	}
-	if err != nil || n != 1 {
+	if err != nil {
 		return fmt.Errorf("failed to read trace: %w", err)
 	}
-	typ := buf[0] << 2 >> 2
-	narg := buf[0]>>6 + 1
+	typ := b << 2 >> 2
+	narg := b>>6 + 1
 	inlineArgs := byte(4)
 	if typ == EvNone || typ >= EvCount || EventDescriptions[typ].minVersion > p.ver {
 		return fmt.Errorf("unknown event type %d", typ)
@@ -636,7 +633,7 @@ func (p *Parser) readRawEvent(buf *[16]byte, flags uint, ev *rawEvent) error {
 			if flags&skipArgs == 0 || typ == EvCPUSample {
 				evLen := v
 				for evLen > 0 {
-					v, n, err = p.readVal()
+					v, n, err := p.readVal()
 					if err != nil {
 						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 					}
@@ -702,11 +699,10 @@ func (p *Parser) loadBatch(pid int32) ([]Event, error) {
 	}
 
 	gotHeader := false
-	var buf [16]byte
 	var raw rawEvent
 	var ev Event
 	for {
-		err := p.readRawEvent(&buf, 0, &raw)
+		err := p.readRawEvent(0, &raw)
 		if err == io.EOF {
 			break
 		}
@@ -1177,13 +1173,12 @@ func postProcessTrace(events []Event) error {
 // readVal reads unsigned base-128 value from r.
 func (p *Parser) readVal() (v uint64, n int, err error) {
 	for i := 0; i < 10; i++ {
-		var b int
-		b, err = p.r.Read(p.byte[:])
-		if err != nil || b != 1 {
-			return 0, 0, fmt.Errorf("failed to read trace: %s", err)
+		b, err := p.r.ReadByte()
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to read trace: %w", err)
 		}
-		v |= uint64(p.byte[0]&0x7f) << (uint(i) * 7)
-		if p.byte[0]&0x80 == 0 {
+		v |= uint64(b&0x7f) << (uint(i) * 7)
+		if b&0x80 == 0 {
 			return v, i + 1, err
 		}
 	}

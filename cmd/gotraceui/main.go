@@ -1984,6 +1984,11 @@ func (r *seekableBufferedReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+func (r *seekableBufferedReader) ReadByte() (byte, error) {
+	r.off++
+	return r.br.ReadByte()
+}
+
 func (r *seekableBufferedReader) Discard(n int) (int, error) {
 	n, err := r.br.Discard(n)
 	r.off += int64(n)
