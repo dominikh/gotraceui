@@ -5,9 +5,6 @@ package trace
 type orderEvent struct {
 	ev   Event
 	proc *proc
-	g    uint64
-	init gState
-	next gState
 }
 
 type gStatus int

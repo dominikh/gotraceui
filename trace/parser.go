@@ -352,23 +352,14 @@ func (p *Parser) parseRest() ([]Event, error) {
 			}
 
 			ev := &proc.events[0]
-			g, init, next := stateTransition(ev)
+			g, init, _ := stateTransition(ev)
 			if !transitionReady(g, gs[g], init) {
 				continue
 			}
 			proc.events = proc.events[1:]
 			availableProcs[i], availableProcs[len(availableProcs)-1] = availableProcs[len(availableProcs)-1], availableProcs[i]
 			availableProcs = availableProcs[:len(availableProcs)-1]
-			// Get rid of "Local" events, they are intended merely for ordering.
-			switch ev.Type {
-			case EvGoStartLocal:
-				ev.Type = EvGoStart
-			case EvGoUnblockLocal:
-				ev.Type = EvGoUnblock
-			case EvGoSysExitLocal:
-				ev.Type = EvGoSysExit
-			}
-			frontier.Push(orderEvent{*ev, proc, g, init, next})
+			frontier.Push(orderEvent{*ev, proc})
 
 			// We swapped the element at i with another proc, so look at the index again
 			i--
@@ -383,8 +374,24 @@ func (p *Parser) parseRest() ([]Event, error) {
 			break
 		}
 		f := frontier.Pop()
+
+		// We're computing the state transition twice, once when computing the frontier, and now to apply the
+		// transition. This is fine because stateTransition is a pure function. Computing it again is cheaper than
+		// storing large items in the frontier.
+		g, init, next := stateTransition(&f.ev)
+
+		// Get rid of "Local" events, they are intended merely for ordering.
+		switch f.ev.Type {
+		case EvGoStartLocal:
+			f.ev.Type = EvGoStart
+		case EvGoUnblockLocal:
+			f.ev.Type = EvGoUnblock
+		case EvGoSysExitLocal:
+			f.ev.Type = EvGoSysExit
+		}
 		events = append(events, f.ev)
-		transition(gs, f.g, f.init, f.next)
+
+		transition(gs, g, init, next)
 		availableProcs = append(availableProcs, f.proc)
 	}
 
