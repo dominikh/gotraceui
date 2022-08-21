@@ -29,19 +29,24 @@ const (
 // stateTransition returns goroutine state (sequence and status) when the event
 // becomes ready for merging (init) and the goroutine state after the event (next).
 func stateTransition(ev *Event) (g uint64, init, next gState) {
+	// Note that we have an explicit return in each case, as that produces slightly better code (tested on Go 1.19).
+
 	switch ev.Type {
 	case EvGoCreate:
 		g = ev.Args[0]
 		init = gState{0, gDead}
 		next = gState{1, gRunnable}
+		return
 	case EvGoWaiting, EvGoInSyscall:
 		g = ev.G
 		init = gState{1, gRunnable}
 		next = gState{2, gWaiting}
+		return
 	case EvGoStart, EvGoStartLabel:
 		g = ev.G
 		init = gState{ev.Args[1], gRunnable}
 		next = gState{ev.Args[1] + 1, gRunning}
+		return
 	case EvGoStartLocal:
 		// noseq means that this event is ready for merging as soon as
 		// frontier reaches it (EvGoStartLocal is emitted on the same P
@@ -52,33 +57,39 @@ func stateTransition(ev *Event) (g uint64, init, next gState) {
 		g = ev.G
 		init = gState{noseq, gRunnable}
 		next = gState{seqinc, gRunning}
+		return
 	case EvGoBlock, EvGoBlockSend, EvGoBlockRecv, EvGoBlockSelect,
 		EvGoBlockSync, EvGoBlockCond, EvGoBlockNet, EvGoSleep,
 		EvGoSysBlock, EvGoBlockGC:
 		g = ev.G
 		init = gState{noseq, gRunning}
 		next = gState{noseq, gWaiting}
+		return
 	case EvGoSched, EvGoPreempt:
 		g = ev.G
 		init = gState{noseq, gRunning}
 		next = gState{noseq, gRunnable}
+		return
 	case EvGoUnblock, EvGoSysExit:
 		g = ev.Args[0]
 		init = gState{ev.Args[1], gWaiting}
 		next = gState{ev.Args[1] + 1, gRunnable}
+		return
 	case EvGoUnblockLocal, EvGoSysExitLocal:
 		g = ev.Args[0]
 		init = gState{noseq, gWaiting}
 		next = gState{seqinc, gRunnable}
+		return
 	case EvGCStart:
 		g = garbage
 		init = gState{ev.Args[0], gDead}
 		next = gState{ev.Args[0] + 1, gDead}
+		return
 	default:
 		// no ordering requirements
 		g = unordered
+		return
 	}
-	return
 }
 
 func transitionReady(g uint64, curr, init gState) bool {
