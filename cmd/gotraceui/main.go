@@ -88,8 +88,8 @@ import (
 //   EvCPUSample, and updates the trace's version to Go 1.19.
 
 const debug = true
-const cpuprofiling = true
-const memprofiling = true
+const cpuprofiling = false
+const memprofiling = false
 const profiling = cpuprofiling || memprofiling
 
 const (
