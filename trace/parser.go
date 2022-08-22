@@ -571,7 +571,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	case EvString:
 		if flags&skipStrings != 0 {
 			// String dictionary entry [ID, length, string].
-			_, err := p.readVal()
+			err := p.discardVal()
 			if err != nil {
 				return err
 			}
@@ -659,13 +659,20 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 
 		*ev = rawEvent{typ: typ, args: p.args[:0]}
 		if narg <= inlineArgs {
-			for i := 0; i < int(narg); i++ {
-				v, err := p.readVal()
-				if err != nil {
-					return fmt.Errorf("failed to read event %d argument: %w", typ, err)
-				}
-				if flags&skipArgs == 0 {
+			if flags&skipArgs == 0 {
+				for i := 0; i < int(narg); i++ {
+					v, err := p.readVal()
+					if err != nil {
+						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
+					}
 					ev.args = append(ev.args, v)
+				}
+			} else {
+				for i := 0; i < int(narg); i++ {
+					err := p.discardVal()
+					if err != nil {
+						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
+					}
 				}
 			}
 		} else {
@@ -1300,6 +1307,20 @@ func (p *Parser) readVal() (v uint64, err error) {
 		}
 	}
 	return 0, errMalformedVarint
+}
+
+//gcassert:inline
+func (p *Parser) discardVal() error {
+	for i := 0; i < 10; i++ {
+		b, ok := p.readByte()
+		if !ok {
+			return io.EOF
+		}
+		if b < 0x80 {
+			return nil
+		}
+	}
+	return errMalformedVarint
 }
 
 func readValFrom(buf []byte) (v uint64, rem []byte, err error) {
