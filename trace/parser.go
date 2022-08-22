@@ -954,7 +954,7 @@ func postProcessTrace(events []Event) error {
 			return fmt.Errorf("p %d is not running g %d while %s (time %d)", ev.P, ev.G, name, ev.Ts)
 		}
 		if !allowG0 && ev.G == 0 {
-			return fmt.Errorf("g 0 did %s (time %d)", EventDescriptions[ev.Type].Name, ev.Ts)
+			return fmt.Errorf("g 0 did %s (time %d)", name, ev.Ts)
 		}
 		return nil
 	}
@@ -1268,7 +1268,7 @@ func (p *Parser) readVal() (v uint64, n int, err error) {
 }
 
 func (ev *Event) String() string {
-	desc := EventDescriptions[ev.Type]
+	desc := &EventDescriptions[ev.Type]
 	w := new(bytes.Buffer)
 	fmt.Fprintf(w, "%d %s p=%d g=%d", ev.Ts, desc.Name, ev.P, ev.G)
 	for i, a := range desc.Args {
@@ -1280,7 +1280,7 @@ func (ev *Event) String() string {
 // argNum returns total number of args for the event accounting for timestamps,
 // sequence numbers and differences between trace format versions.
 func argNum(raw *rawEvent) int {
-	desc := EventDescriptions[raw.typ]
+	desc := &EventDescriptions[raw.typ]
 	if raw.typ == EvStack {
 		return len(raw.args)
 	}
@@ -1352,7 +1352,7 @@ const (
 	EvCount             = 50
 )
 
-var EventDescriptions = [EvCount]struct {
+var EventDescriptions = [256]struct {
 	Name       string
 	minVersion int
 	Stack      bool
