@@ -29,170 +29,184 @@ type pattern struct {
 
 // TODO(dh): implement a pattern language similar to that used in Staticcheck so that we can express ANDs and ORs
 // without having to write a bunch of Go.
-var patterns = []pattern{
-	{
-		state: stateBlocked,
-		fns: []string{
-			0: "runtime.ReadTrace",
+var patterns = [256][]pattern{
+	stateBlocked: {
+		{
+			state: stateBlocked,
+			fns: []string{
+				0: "runtime.ReadTrace",
+			},
+			newState: stateBlockedWaitingForTraceData,
 		},
-		newState: stateBlockedWaitingForTraceData,
 	},
 
-	{
-		state: stateBlockedRecv,
-		fns: []string{
-			0: "runtime.chanrecv1",
+	stateBlockedRecv: {
+		{
+			state: stateBlockedRecv,
+			fns: []string{
+				0: "runtime.chanrecv1",
+			},
+			at: 1,
 		},
-		at: 1,
-	},
-	{
-		state: stateBlockedRecv,
-		fns: []string{
-			0: "runtime.chanrecv2",
+		{
+			state: stateBlockedRecv,
+			fns: []string{
+				0: "runtime.chanrecv2",
+			},
+			at: 1,
 		},
-		at: 1,
-	},
-	{
-		state: stateBlockedSend,
-		fns: []string{
-			0: "runtime.chansend1",
-		},
-		at: 1,
 	},
 
-	{
-		state: stateBlockedSync,
-		fns: []string{
-			0: "runtime.gcStart",
+	stateBlockedSend: {
+		{
+			state: stateBlockedSend,
+			fns: []string{
+				0: "runtime.chansend1",
+			},
+			at: 1,
 		},
-		newState: stateBlockedSyncTriggeringGC,
-	},
-	{
-		state: stateBlockedSync,
-		fns: []string{
-			0: "sync.(*Mutex).Lock",
-			1: "sync.(*Once).doSlow",
-			2: "sync.(*Once).Do",
-		},
-		newState: stateBlockedSyncOnce,
-		at:       3,
 	},
 
-	{
-		state: stateBlockedCond,
-		fns: []string{
-			0: "sync.(*Cond).Wait",
+	stateBlockedSync: {
+		{
+			state: stateBlockedSync,
+			fns: []string{
+				0: "runtime.gcStart",
+			},
+			newState: stateBlockedSyncTriggeringGC,
 		},
-		at: 1,
+		{
+			state: stateBlockedSync,
+			fns: []string{
+				0: "sync.(*Mutex).Lock",
+				1: "sync.(*Once).doSlow",
+				2: "sync.(*Once).Do",
+			},
+			newState: stateBlockedSyncOnce,
+			at:       3,
+		},
 	},
 
-	{
-		state: stateBlockedNet,
-		fns: []string{
-			0: "internal/poll.(*FD).Read",
+	stateBlockedCond: {
+		{
+			state: stateBlockedCond,
+			fns: []string{
+				0: "sync.(*Cond).Wait",
+			},
+			at: 1,
 		},
-		tags: spanTagRead,
-		at:   1,
-	},
-	{
-		state: stateBlockedNet,
-		fns: []string{
-			0: "internal/poll.(*FD).Read",
-			1: "net.(*netFD).Read",
-		},
-		tags: spanTagNetwork,
-		at:   2,
 	},
 
-	{
-		state: stateBlockedNet,
-		fns: []string{
-			0: "internal/poll.(*FD).Accept",
+	stateBlockedNet: {
+		{
+			state: stateBlockedNet,
+			fns: []string{
+				0: "internal/poll.(*FD).Read",
+			},
+			tags: spanTagRead,
+			at:   1,
 		},
-		tags: spanTagAccept,
-		at:   1,
-	},
-	{
-		state: stateBlockedNet,
-		fns: []string{
-			0: "internal/poll.(*FD).Accept",
-			1: "net.(*netFD).accept",
+		{
+			state: stateBlockedNet,
+			fns: []string{
+				0: "internal/poll.(*FD).Read",
+				1: "net.(*netFD).Read",
+			},
+			tags: spanTagNetwork,
+			at:   2,
 		},
-		at:   2,
-		tags: spanTagNetwork,
-	},
-	{
-		state: stateBlockedNet,
-		fns: []string{
-			0: "internal/poll.(*FD).Accept",
-			2: "net.(*TCPListener).accept",
-			3: "net.(*TCPListener).Accept",
+		{
+			state: stateBlockedNet,
+			fns: []string{
+				0: "internal/poll.(*FD).Accept",
+			},
+			tags: spanTagAccept,
+			at:   1,
 		},
-		at:   4,
-		tags: spanTagTCP,
-	},
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"net.(*sysDialer).dialSingle"},
+		{
+			state: stateBlockedNet,
+			fns: []string{
+				0: "internal/poll.(*FD).Accept",
+				1: "net.(*netFD).accept",
+			},
+			at:   2,
+			tags: spanTagNetwork,
 		},
-		tags: spanTagDial,
-	},
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"net.(*sysDialer).dialTCP"},
+		{
+			state: stateBlockedNet,
+			fns: []string{
+				0: "internal/poll.(*FD).Accept",
+				2: "net.(*TCPListener).accept",
+				3: "net.(*TCPListener).Accept",
+			},
+			at:   4,
+			tags: spanTagTCP,
 		},
-		tags: spanTagTCP,
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"net.(*sysDialer).dialSingle"},
+			},
+			tags: spanTagDial,
+		},
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"net.(*sysDialer).dialTCP"},
+			},
+			tags: spanTagTCP,
+		},
+
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"crypto/tls.(*Conn).readFromUntil"},
+			},
+			tags: spanTagTLS,
+		},
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"crypto/tls.(*listener).Accept"},
+			},
+			tags: spanTagTLS,
+		},
+
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"net/http.(*connReader).Read"},
+			},
+			tags: spanTagHTTP,
+		},
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"net/http.(*persistConn).Read"},
+			},
+			tags: spanTagHTTP,
+		},
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"net/http.(*http2clientConnReadLoop).run"},
+			},
+			tags: spanTagHTTP,
+		},
+		{
+			state: stateBlockedNet,
+			relFns: [][]string{
+				{"net/http.(*Server).Serve"},
+			},
+			tags: spanTagHTTP,
+		},
 	},
 
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"crypto/tls.(*Conn).readFromUntil"},
+	stateBlockedSelect: {
+		{
+			state: stateBlockedSelect,
+			at:    1,
 		},
-		tags: spanTagTLS,
-	},
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"crypto/tls.(*listener).Accept"},
-		},
-		tags: spanTagTLS,
-	},
-
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"net/http.(*connReader).Read"},
-		},
-		tags: spanTagHTTP,
-	},
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"net/http.(*persistConn).Read"},
-		},
-		tags: spanTagHTTP,
-	},
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"net/http.(*http2clientConnReadLoop).run"},
-		},
-		tags: spanTagHTTP,
-	},
-	{
-		state: stateBlockedNet,
-		relFns: [][]string{
-			{"net/http.(*Server).Serve"},
-		},
-		tags: spanTagHTTP,
-	},
-
-	{
-		state: stateBlockedSelect,
-		at:    1,
 	},
 }
 
@@ -200,10 +214,7 @@ func applyPatterns(s Span, pcs map[uint64]trace.Frame, stack []uint64) Span {
 	// OPT(dh): be better than O(n)
 
 patternLoop:
-	for _, p := range patterns {
-		if s.state != p.state {
-			continue
-		}
+	for _, p := range patterns[s.state] {
 		if len(stack) < len(p.fns) {
 			continue
 		}
