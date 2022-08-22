@@ -121,7 +121,9 @@ type Parser struct {
 
 	bigArgsBuf []byte
 
-	strings     map[uint64]string
+	strings map[uint64]string
+	// OPT(dh): pStates doesn't need to be a map, as processor IDs are gapless and start at 0. We just have to change
+	// how we track fake Ps. Instead of starting them at a specific offset, give them the next free IDs.
 	pStates     map[int32]*pState
 	stacks      map[uint32][]uint64
 	stacksData  []uint64
