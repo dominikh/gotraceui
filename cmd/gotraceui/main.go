@@ -109,7 +109,9 @@ const cpuprofiling = false
 const memprofiling = false
 const profiling = cpuprofiling || memprofiling
 const exitAfterLoading = false
+const exitAfterParsing = false
 
+var errExitAfterParsing = errors.New("we were instructed to exit after parsing")
 var errExitAfterLoading = errors.New("we were instructed to exit after loading")
 
 const (
@@ -1989,6 +1991,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return nil, err
 	}
 
+	if exitAfterParsing {
+		return nil, errExitAfterParsing
+	}
+
 	var evTypeToState = [...]schedulingState{
 		trace.EvGoBlockSend:   stateBlockedSend,
 		trace.EvGoBlockRecv:   stateBlockedRecv,
@@ -2592,7 +2598,7 @@ func main() {
 			pprof.WriteHeapProfile(f)
 			f.Close()
 		}
-		if err == errExitAfterLoading {
+		if err == errExitAfterLoading || err == errExitAfterParsing {
 			errs <- err
 			return
 		}
