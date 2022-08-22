@@ -946,16 +946,20 @@ func postProcessTrace(events []Event) error {
 
 	for evIdx := range events {
 		ev := &events[evIdx]
-		g := gs[ev.G]
-		p := ps[ev.P]
 
+		// Note: each branch is responsible for retrieving P and G descriptions and writing back modifications to the
+		// maps. Deduplicating this step and pulling it outside the switch is too expensive.
 		switch ev.Type {
 		case EvProcStart:
+			p := ps[ev.P]
 			if p.running {
 				return fmt.Errorf("p %d is running before start (time %d)", ev.P, ev.Ts)
 			}
 			p.running = true
+
+			ps[ev.P] = p
 		case EvProcStop:
+			p := ps[ev.P]
 			if !p.running {
 				return fmt.Errorf("p %d is not running before stop (time %d)", ev.P, ev.Ts)
 			}
@@ -963,6 +967,8 @@ func postProcessTrace(events []Event) error {
 				return fmt.Errorf("p %d is running a goroutine %d during stop (time %d)", ev.P, p.g, ev.Ts)
 			}
 			p.running = false
+
+			ps[ev.P] = p
 		case EvGCStart:
 			if evGC != nil {
 				return fmt.Errorf("previous GC is not ended before a new one (time %d)", ev.Ts)
@@ -990,41 +996,61 @@ func postProcessTrace(events []Event) error {
 			(*evp).Link = toUint40(evIdx)
 			*evp = nil
 		case EvGCSweepStart:
+			p := ps[ev.P]
 			if p.evSweep != nil {
 				return fmt.Errorf("previous sweeping is not ended before a new one (time %d)", ev.Ts)
 			}
 			p.evSweep = ev
+
+			ps[ev.P] = p
 		case EvGCMarkAssistStart:
+			g := gs[ev.G]
 			if g.evMarkAssist != nil {
 				return fmt.Errorf("previous mark assist is not ended before a new one (time %d)", ev.Ts)
 			}
 			g.evMarkAssist = ev
+
+			gs[ev.G] = g
 		case EvGCMarkAssistDone:
 			// Unlike most events, mark assists can be in progress when a
 			// goroutine starts tracing, so we can't report an error here.
+			g := gs[ev.G]
 			if g.evMarkAssist != nil {
 				g.evMarkAssist.Link = toUint40(evIdx)
 				g.evMarkAssist = nil
 			}
+
+			gs[ev.G] = g
 		case EvGCSweepDone:
+			p := ps[ev.P]
 			if p.evSweep == nil {
 				return fmt.Errorf("bogus sweeping end (time %d)", ev.Ts)
 			}
 			p.evSweep.Link = toUint40(evIdx)
 			p.evSweep = nil
+
+			ps[ev.P] = p
 		case EvGoWaiting:
+			g := gs[ev.G]
 			if g.state != gRunnable {
 				return fmt.Errorf("g %d is not runnable before EvGoWaiting (time %d)", ev.G, ev.Ts)
 			}
 			g.state = gWaiting
 			g.ev = ev
+
+			gs[ev.G] = g
 		case EvGoInSyscall:
+			g := gs[ev.G]
 			if g.state != gRunnable {
 				return fmt.Errorf("g %d is not runnable before EvGoInSyscall (time %d)", ev.G, ev.Ts)
 			}
 			g.state = gWaiting
 			g.ev = ev
+
+			gs[ev.G] = g
 		case EvGoCreate:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if err := checkRunning(p, g, ev, true); err != nil {
 				return err
 			}
@@ -1032,7 +1058,10 @@ func postProcessTrace(events []Event) error {
 				return fmt.Errorf("g %d already exists (time %d)", ev.Args[0], ev.Ts)
 			}
 			gs[ev.Args[0]] = gdesc{state: gRunnable, ev: ev, evCreate: ev}
+
 		case EvGoStart, EvGoStartLabel:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if g.state != gRunnable {
 				return fmt.Errorf("g %d is not runnable before start (time %d)", ev.G, ev.Ts)
 			}
@@ -1051,7 +1080,12 @@ func postProcessTrace(events []Event) error {
 				g.ev.Link = toUint40(evIdx)
 				g.ev = nil
 			}
+
+			gs[ev.G] = g
+			ps[ev.P] = p
 		case EvGoEnd, EvGoStop:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
@@ -1068,7 +1102,11 @@ func postProcessTrace(events []Event) error {
 				delete(activeRegions, ev.G)
 			}
 
+			gs[ev.G] = g
+			ps[ev.P] = p
 		case EvGoSched, EvGoPreempt:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
@@ -1077,7 +1115,12 @@ func postProcessTrace(events []Event) error {
 			g.evStart = nil
 			p.g = 0
 			g.ev = ev
+
+			gs[ev.G] = g
+			ps[ev.P] = p
 		case EvGoUnblock:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if g.state != gRunning {
 				return fmt.Errorf("g %d is not running while unpark (time %d)", ev.G, ev.Ts)
 			}
@@ -1097,12 +1140,19 @@ func postProcessTrace(events []Event) error {
 			g1.state = gRunnable
 			g1.ev = ev
 			gs[ev.Args[0]] = g1
+
 		case EvGoSysCall:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
 			g.ev = ev
+
+			gs[ev.G] = g
 		case EvGoSysBlock:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
@@ -1110,7 +1160,11 @@ func postProcessTrace(events []Event) error {
 			g.evStart.Link = toUint40(evIdx)
 			g.evStart = nil
 			p.g = 0
+
+			gs[ev.G] = g
+			ps[ev.P] = p
 		case EvGoSysExit:
+			g := gs[ev.G]
 			if g.state != gWaiting {
 				return fmt.Errorf("g %d is not waiting during syscall exit (time %d)", ev.G, ev.Ts)
 			}
@@ -1119,8 +1173,12 @@ func postProcessTrace(events []Event) error {
 			}
 			g.state = gRunnable
 			g.ev = ev
+
+			gs[ev.G] = g
 		case EvGoSleep, EvGoBlock, EvGoBlockSend, EvGoBlockRecv,
 			EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond, EvGoBlockNet, EvGoBlockGC:
+			g := gs[ev.G]
+			p := ps[ev.P]
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
@@ -1129,18 +1187,23 @@ func postProcessTrace(events []Event) error {
 			g.evStart.Link = toUint40(evIdx)
 			g.evStart = nil
 			p.g = 0
+
+			gs[ev.G] = g
+			ps[ev.P] = p
 		case EvUserTaskCreate:
 			taskid := ev.Args[0]
 			if prevEv, ok := tasks[taskid]; ok {
 				return fmt.Errorf("task id conflicts (id:%d), %q vs %q", taskid, ev, prevEv)
 			}
 			tasks[ev.Args[0]] = ev
+
 		case EvUserTaskEnd:
 			taskid := ev.Args[0]
 			if taskCreateEv, ok := tasks[taskid]; ok {
 				taskCreateEv.Link = toUint40(evIdx)
 				delete(tasks, taskid)
 			}
+
 		case EvUserRegion:
 			mode := ev.Args[1]
 			regions := activeRegions[ev.G]
@@ -1166,9 +1229,6 @@ func postProcessTrace(events []Event) error {
 				return fmt.Errorf("invalid user region mode: %q", ev)
 			}
 		}
-
-		gs[ev.G] = g
-		ps[ev.P] = p
 	}
 
 	// TODO(dvyukov): restore stacks for EvGoStart events.
