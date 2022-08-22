@@ -2,7 +2,7 @@ package main
 
 import "honnef.co/go/gotraceui/trace"
 
-type spanTags uint16
+type spanTags uint8
 
 const (
 	spanTagNetwork spanTags = 1 << iota
