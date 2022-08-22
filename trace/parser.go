@@ -99,8 +99,8 @@ type Reader interface {
 	// change had no measurable effect on performance.
 
 	io.ReadSeeker
+	io.ByteReader
 	Discard(int) (int, error)
-	ReadByte() (byte, error)
 }
 
 type batch struct {
