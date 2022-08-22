@@ -13,8 +13,9 @@ import (
 
 // Event describes one event in the trace.
 type Event struct {
-	Ts    int64     // timestamp in nanoseconds
-	G     uint64    // G on which the event happened
+	Ts int64  // timestamp in nanoseconds
+	G  uint64 // G on which the event happened
+	// OPT(dh): can we use 32 bit for the stack ID, potentially by renumbering existing stack IDs if they're too large?
 	StkID uint64    // unique stack ID
 	Args  [4]uint64 // event-type-specific arguments
 	// linked event (can be nil), depends on event type:

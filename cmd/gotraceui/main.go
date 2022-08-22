@@ -53,6 +53,14 @@ import (
 */
 
 // XXX how do we have a minimum inactive span of length 0?
+// FIXME(dh): widgets draw on top of axis
+// TODO print thousands separator
+// OPT(dh): optimize drawing merged spans with millions of spans
+// OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
+// TODO(dh): allow jumping from span in per-goroutine view to corresponding goroutine span in per-processor view
+// TODO(dh): visualisation idea: goroutine family tree. in the same vein, support sorting goroutines topologically?
+// TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
+// TODO(dh): display parent goroutine in goroutine window
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // TODO(dh): add a dialog with text fields for zooming to a specific time range
 // TODO(dh): display different cursor when we're panning
