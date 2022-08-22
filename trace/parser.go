@@ -571,23 +571,21 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	case EvString:
 		if flags&skipStrings != 0 {
 			// String dictionary entry [ID, length, string].
-			err := p.discardVal()
-			if err != nil {
-				return err
+			if !p.discardVal() {
+				return errMalformedVarint
 			}
-			var ln uint64
-			ln, err = p.readVal()
-			if err != nil {
-				return err
+			ln, ok := p.readVal()
+			if !ok {
+				return errMalformedVarint
 			}
 			if !p.discard(int(ln)) {
 				return fmt.Errorf("failed to read trace: %w", io.EOF)
 			}
 		} else {
 			// String dictionary entry [ID, length, string].
-			id, err := p.readVal()
-			if err != nil {
-				return err
+			id, ok := p.readVal()
+			if !ok {
+				return errMalformedVarint
 			}
 			if id == 0 {
 				return errors.New("string has invalid id 0")
@@ -596,9 +594,9 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				return fmt.Errorf("string has duplicate id %d", id)
 			}
 			var ln uint64
-			ln, err = p.readVal()
-			if err != nil {
-				return err
+			ln, ok = p.readVal()
+			if !ok {
+				return errMalformedVarint
 			}
 			if ln == 0 {
 				return errors.New("string has invalid length 0")
@@ -623,9 +621,9 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		// -1 because we've already read the first byte of the batch
 		off := p.off - 1
 
-		pid, err := p.readVal()
-		if err != nil {
-			return err
+		pid, ok := p.readVal()
+		if !ok {
+			return errMalformedVarint
 		}
 		if pid != math.MaxUint64 && pid > math.MaxInt32 {
 			return fmt.Errorf("processor ID %d is larger than maximum of %d", pid, uint64(math.MaxUint))
@@ -643,9 +641,9 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			p.curP = pid32
 		}
 
-		v, err := p.readVal()
-		if err != nil {
-			return err
+		v, ok := p.readVal()
+		if !ok {
+			return errMalformedVarint
 		}
 
 		*ev = rawEvent{typ: EvBatch, args: p.args[:0]}
@@ -661,17 +659,16 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		if narg <= inlineArgs {
 			if flags&skipArgs == 0 {
 				for i := 0; i < int(narg); i++ {
-					v, err := p.readVal()
-					if err != nil {
-						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
+					v, ok := p.readVal()
+					if !ok {
+						return fmt.Errorf("failed to read event %d argument: %w", typ, errMalformedVarint)
 					}
 					ev.args = append(ev.args, v)
 				}
 			} else {
 				for i := 0; i < int(narg); i++ {
-					err := p.discardVal()
-					if err != nil {
-						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
+					if !p.discardVal() {
+						return fmt.Errorf("failed to read event %d argument: %w", typ, errMalformedVarint)
 					}
 				}
 			}
@@ -681,9 +678,9 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			// OPT(dh): looking at the runtime code, the length seems to be limited to < 128, i.e. a single byte. we
 			// don't have to use readVal. However, there are so few events with more than 4 arguments that calling
 			// readVal is barely noticeable.
-			v, err := p.readVal()
-			if err != nil {
-				return fmt.Errorf("failed to read event %d argument: %w", typ, err)
+			v, ok := p.readVal()
+			if !ok {
+				return fmt.Errorf("failed to read event %d argument: %w", typ, errMalformedVarint)
 			}
 
 			if flags&skipArgs == 0 || typ == EvCPUSample {
@@ -699,10 +696,10 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				}
 				for len(buf) > 0 {
 					var v uint64
-					var err error
-					v, buf, err = readValFrom(buf)
-					if err != nil {
-						return err
+					var ok bool
+					v, buf, ok = readValFrom(buf)
+					if !ok {
+						return errMalformedVarint
 					}
 					ev.args = append(ev.args, v)
 				}
@@ -723,9 +720,9 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 					ev.sargs = append(ev.sargs, s)
 				} else {
 					// Skip string
-					v, err := p.readVal()
-					if err != nil {
-						return err
+					v, ok := p.readVal()
+					if !ok {
+						return errMalformedVarint
 					}
 					if !p.discard(int(v)) {
 						return io.EOF
@@ -794,10 +791,12 @@ func (p *Parser) loadBatch(pid int32) ([]Event, error) {
 }
 
 func (p *Parser) readStr() (s string, err error) {
-	var sz uint64
-	sz, err = p.readVal()
-	if err != nil || sz == 0 {
-		return "", err
+	sz, ok := p.readVal()
+	if !ok {
+		return "", errMalformedVarint
+	}
+	if sz == 0 {
+		return "", nil
 	}
 	if sz > 1e6 {
 		return "", fmt.Errorf("string is too large (len=%d)", sz)
@@ -1295,46 +1294,47 @@ var errMalformedVarint = errors.New("malformatted base-128 varint")
 // readVal reads unsigned base-128 value from r.
 //
 //gcassert:inline
-func (p *Parser) readVal() (v uint64, err error) {
+func (p *Parser) readVal() (uint64, bool) {
+	var v uint64
 	for i := 0; i < 10; i++ {
 		b, ok := p.readByte()
 		if !ok {
-			return 0, io.EOF
+			return 0, false
 		}
 		v |= uint64(b&0x7f) << (uint(i) * 7)
 		if b < 0x80 {
-			return v, nil
+			return v, true
 		}
 	}
-	return 0, errMalformedVarint
+	return 0, false
 }
 
 //gcassert:inline
-func (p *Parser) discardVal() error {
+func (p *Parser) discardVal() bool {
 	for i := 0; i < 10; i++ {
 		b, ok := p.readByte()
 		if !ok {
-			return io.EOF
+			return false
 		}
 		if b < 0x80 {
-			return nil
+			return true
 		}
 	}
-	return errMalformedVarint
+	return false
 }
 
-func readValFrom(buf []byte) (v uint64, rem []byte, err error) {
+func readValFrom(buf []byte) (v uint64, rem []byte, ok bool) {
 	for i := 0; i < 10; i++ {
 		if i >= len(buf) {
-			return 0, nil, errors.New("malformatted base-128 varint")
+			return 0, nil, false
 		}
 		b := buf[i]
 		v |= uint64(b&0x7f) << (uint(i) * 7)
 		if b&0x80 == 0 {
-			return v, buf[i+1:], err
+			return v, buf[i+1:], true
 		}
 	}
-	return 0, nil, errors.New("malformatted base-128 varint")
+	return 0, nil, false
 }
 
 func (ev *Event) String() string {
