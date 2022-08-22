@@ -2,7 +2,6 @@
 package trace
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -93,55 +92,8 @@ type ParseResult struct {
 	Strings map[uint64]string
 }
 
-type seekableBufferedReader struct {
-	r   io.ReadSeeker
-	br  *bufio.Reader
-	off int64
-}
-
-func newSeekableBufferedReader(r io.ReadSeeker) *seekableBufferedReader {
-	return &seekableBufferedReader{
-		r:  r,
-		br: bufio.NewReader(r),
-	}
-}
-
-func (r *seekableBufferedReader) Read(b []byte) (int, error) {
-	n, err := r.br.Read(b)
-	r.off += int64(n)
-	return n, err
-}
-
-func (r *seekableBufferedReader) ReadByte() (byte, error) {
-	r.off++
-	return r.br.ReadByte()
-}
-
-func (r *seekableBufferedReader) Discard(n int) (int, error) {
-	n, err := r.br.Discard(n)
-	r.off += int64(n)
-	return n, err
-}
-
-func (r *seekableBufferedReader) Seek(offset int64, whence int) (int64, error) {
-	if offset == 0 && whence == io.SeekCurrent {
-		return r.off, nil
-	}
-	if whence == io.SeekCurrent {
-		return 0, errors.New("relative seeking not supported")
-	}
-
-	n, err := r.r.Seek(offset, whence)
-	if err != nil {
-		return n, err
-	}
-	r.br.Reset(r.r)
-	r.off = n
-	return n, nil
-}
-
 type batch struct {
-	offset    int64
+	offset    int
 	numEvents int
 }
 
@@ -159,11 +111,11 @@ type pState struct {
 const Stages = 2
 
 type Parser struct {
-	Progress func(stage, cur, total uint64)
-	size     uint64
+	Progress func(stage, cur, total int)
 
-	ver int
-	r   *seekableBufferedReader
+	ver  int
+	data []byte
+	off  int
 
 	bigArgsBuf []byte
 
@@ -199,19 +151,56 @@ func (p *Parser) pState(pid int32) *pState {
 	return ps
 }
 
-func NewParser(r io.ReadSeeker) *Parser {
-	// It would be cleaner to accept a reader that can already do everything we need, instead of wrapping it ourselves,
-	// to give users more control over things such as buffering. However, we're the only user, and removing that level
-	// of indirection saves several % of CPU time when parsing traces.
-	return &Parser{r: newSeekableBufferedReader(r)}
+func (p *Parser) discard(n int) bool {
+	if p.off+n > len(p.data) {
+		return false
+	}
+	p.off += n
+	return true
+}
+
+func NewParser(r io.Reader) (*Parser, error) {
+	var buf []byte
+	if seeker, ok := r.(io.Seeker); ok {
+		cur, err := seeker.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return nil, err
+		}
+		end, err := seeker.Seek(0, io.SeekEnd)
+		if err != nil {
+			return nil, err
+		}
+		_, err = seeker.Seek(cur, io.SeekStart)
+		if err != nil {
+			return nil, err
+		}
+
+		buf = make([]byte, end-cur)
+		_, err = io.ReadFull(r, buf)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		buf, err = io.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &Parser{data: buf}, nil
 }
 
 func Parse(r io.ReadSeeker) (ParseResult, error) {
-	return NewParser(r).Parse()
+	p, err := NewParser(r)
+	if err != nil {
+		return ParseResult{}, err
+	}
+	return p.Parse()
 }
 
 func (p *Parser) Parse() (ParseResult, error) {
 	_, res, err := p.parse()
+	p.data = nil
 	return res, err
 }
 
@@ -223,18 +212,6 @@ func (p *Parser) parse() (int, ParseResult, error) {
 	p.stacks = make(map[uint32][]uint64)
 	p.timerGoids = make(map[uint64]bool)
 	p.pcs = make(map[uint64]Frame)
-
-	if p.Progress != nil {
-		sz, err := p.r.Seek(0, io.SeekEnd)
-		if err != nil {
-			return 0, ParseResult{}, err
-		}
-		p.size = uint64(sz)
-		_, err = p.r.Seek(0, io.SeekStart)
-		if err != nil {
-			return 0, ParseResult{}, err
-		}
-	}
 
 	ver, err := p.readHeader()
 	if err != nil {
@@ -294,15 +271,14 @@ type rawEvent struct {
 
 func (p *Parser) readHeader() (ver int, err error) {
 	// Read and validate trace header.
-	var buf [headerLength]byte
-	_, err = io.ReadFull(p.r, buf[:])
-	if err != nil {
-		return 0, fmt.Errorf("failed to read header: %w", err)
+	if len(p.data) < headerLength {
+		return 0, errors.New("trace too short")
 	}
-	ver, err = parseHeader(buf[:])
+	ver, err = parseHeader(p.data[:headerLength])
 	if err != nil {
 		return 0, err
 	}
+	p.off += headerLength
 	switch ver {
 	case 1011, 1019:
 		// Note: When adding a new version, add canned traces
@@ -369,7 +345,7 @@ func (p *Parser) parseRest() ([]Event, error) {
 	}
 	for {
 		if p.Progress != nil && len(events)%100_000 == 0 {
-			p.Progress(1, uint64(len(events)), uint64(cap(events)))
+			p.Progress(1, len(events), cap(events))
 		}
 	pidLoop:
 		for i := 0; i < len(availableProcs); i++ {
@@ -484,11 +460,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 	var raw rawEvent
 	for n := uint64(0); ; n++ {
 		if p.Progress != nil && n%1_000_000 == 0 {
-			off, err := p.r.Seek(0, io.SeekCurrent)
-			if err != nil {
-				return err
-			}
-			p.Progress(0, uint64(off), p.size)
+			p.Progress(0, p.off, len(p.data))
 		}
 		err := p.readRawEvent(skipArgs|skipStrings|trackBatches, &raw)
 		if err == io.EOF {
@@ -536,7 +508,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 	}
 
 	if p.Progress != nil {
-		p.Progress(0, p.size, p.size)
+		p.Progress(0, len(p.data), len(p.data))
 	}
 
 	return nil
@@ -548,18 +520,38 @@ const (
 	trackBatches
 )
 
+//gcassert:inline
+func (p *Parser) readByte() (byte, bool) {
+	if p.off < len(p.data) && p.off >= 0 {
+		b := p.data[p.off]
+		p.off++
+		return b, true
+	} else {
+		return 0, false
+	}
+}
+
+//gcassert:inline
+func (p *Parser) readFull(b []byte) bool {
+	if p.off >= len(p.data) || p.off < 0 || p.off+len(b) > len(p.data) {
+		// p.off < 0 is impossible but makes BCE happy.
+		// We do fail outright if there's not enough data, we don't care about partial results.
+		return false
+	}
+	copy(b, p.data[p.off:])
+	p.off += len(b)
+	return true
+}
+
 func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	// The number of arguments is encoded using two bits and can thus only represent the values 0–3. The value 3 (on the
 	// wire) indicates that arguments are prefixed by their byte length, to encode >=3 arguments.
 	const inlineArgs = 3
 
 	// Read event type and number of arguments (1 byte).
-	b, err := p.r.ReadByte()
-	if err == io.EOF {
-		return err
-	}
-	if err != nil {
-		return fmt.Errorf("failed to read trace: %w", err)
+	b, ok := p.readByte()
+	if !ok {
+		return io.EOF
 	}
 	typ := b << 2 >> 2
 	// Most events have a timestamp before the actual arguments, so we add 1 and parse it like it's the first argument.
@@ -579,7 +571,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	case EvString:
 		if flags&skipStrings != 0 {
 			// String dictionary entry [ID, length, string].
-			_, err = p.readVal()
+			_, err := p.readVal()
 			if err != nil {
 				return err
 			}
@@ -588,13 +580,12 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			if err != nil {
 				return err
 			}
-			if _, err := p.r.Discard(int(ln)); err != nil {
-				return fmt.Errorf("failed to read trace: %w", err)
+			if !p.discard(int(ln)) {
+				return fmt.Errorf("failed to read trace: %w", io.EOF)
 			}
 		} else {
 			// String dictionary entry [ID, length, string].
-			var id uint64
-			id, err = p.readVal()
+			id, err := p.readVal()
 			if err != nil {
 				return err
 			}
@@ -616,9 +607,8 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				return fmt.Errorf("string has too large length %d", ln)
 			}
 			buf := make([]byte, ln)
-			_, err = io.ReadFull(p.r, buf)
-			if err != nil {
-				return fmt.Errorf("failed to read trace: %w", err)
+			if !p.readFull(buf) {
+				return fmt.Errorf("failed to read trace: %w", io.ErrUnexpectedEOF)
 			}
 			p.strings[id] = string(buf)
 		}
@@ -630,12 +620,8 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			return fmt.Errorf("EvBatch has wrong number of arguments: got %d, want %d", narg, want)
 		}
 
-		off, err := p.r.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return fmt.Errorf("failed to read trace: %w", err)
-		}
-		// We already read the first byte
-		off -= 1
+		// -1 because we've already read the first byte of the batch
+		off := p.off - 1
 
 		pid, err := p.readVal()
 		if err != nil {
@@ -688,8 +674,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			// OPT(dh): looking at the runtime code, the length seems to be limited to < 128, i.e. a single byte. we
 			// don't have to use readVal. However, there are so few events with more than 4 arguments that calling
 			// readVal is barely noticeable.
-			var v uint64
-			v, err = p.readVal()
+			v, err := p.readVal()
 			if err != nil {
 				return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 			}
@@ -702,9 +687,8 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 					buf = make([]byte, v)
 					p.bigArgsBuf = buf[:0]
 				}
-				_, err := io.ReadFull(p.r, buf)
-				if err != nil {
-					return fmt.Errorf("failed to read trace: %w", err)
+				if !p.readFull(buf) {
+					return fmt.Errorf("failed to read trace: %w", io.ErrUnexpectedEOF)
 				}
 				for len(buf) > 0 {
 					var v uint64
@@ -717,9 +701,8 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				}
 			} else {
 				// Skip over arguments
-				_, err := p.r.Discard(int(v))
-				if err != nil {
-					return fmt.Errorf("failed to read trace: %w", err)
+				if !p.discard(int(v)) {
+					return fmt.Errorf("failed to read trace: %w", io.EOF)
 				}
 			}
 			if typ == EvUserLog {
@@ -737,9 +720,8 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 					if err != nil {
 						return err
 					}
-					_, err = p.r.Discard(int(v))
-					if err != nil {
-						return err
+					if !p.discard(int(v)) {
+						return io.EOF
 					}
 				}
 			}
@@ -762,10 +744,7 @@ func (p *Parser) loadBatch(pid int32) ([]Event, error) {
 	offsets = offsets[1:]
 	pState.batches = offsets
 
-	_, err := p.r.Seek(offset, io.SeekStart)
-	if err != nil {
-		return nil, err
-	}
+	p.off = offset
 
 	events := pState.slice[:0]
 	if cap(events) < n {
@@ -817,9 +796,8 @@ func (p *Parser) readStr() (s string, err error) {
 		return "", fmt.Errorf("string is too large (len=%d)", sz)
 	}
 	buf := make([]byte, sz)
-	n, err := io.ReadFull(p.r, buf)
-	if err != nil || sz != uint64(n) {
-		return "", fmt.Errorf("failed to read trace: %w", err)
+	if !p.readFull(buf) {
+		return "", fmt.Errorf("failed to read trace: %w", io.ErrUnexpectedEOF)
 	}
 	return string(buf), nil
 }
@@ -1305,19 +1283,23 @@ func postProcessTrace(events []Event) error {
 	return nil
 }
 
+var errMalformedVarint = errors.New("malformatted base-128 varint")
+
 // readVal reads unsigned base-128 value from r.
+//
+//gcassert:inline
 func (p *Parser) readVal() (v uint64, err error) {
 	for i := 0; i < 10; i++ {
-		b, err := p.r.ReadByte()
-		if err != nil {
-			return 0, fmt.Errorf("failed to read trace: %w", err)
+		b, ok := p.readByte()
+		if !ok {
+			return 0, io.EOF
 		}
 		v |= uint64(b&0x7f) << (uint(i) * 7)
-		if b&0x80 == 0 {
-			return v, err
+		if b < 0x80 {
+			return v, nil
 		}
 	}
-	return 0, errors.New("malformatted base-128 varint")
+	return 0, errMalformedVarint
 }
 
 func readValFrom(buf []byte) (v uint64, rem []byte, err error) {

@@ -1979,8 +1979,11 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return nil, err
 	}
 
-	p := trace.NewParser(f)
-	p.Progress = func(stage, cur, total uint64) {
+	p, err := trace.NewParser(f)
+	if err != nil {
+		return nil, err
+	}
+	p.Progress = func(stage, cur, total int) {
 		progress := (float32(cur) / float32(total)) / totalStages
 		progress += (1.0 / totalStages) * float32(stage)
 
