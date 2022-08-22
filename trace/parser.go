@@ -2,6 +2,7 @@
 package trace
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -92,15 +93,51 @@ type ParseResult struct {
 	Strings map[uint64]string
 }
 
-type Reader interface {
-	// We experimented with accepting an io.ReadSeeker and wrapping it in a seekable buffered reader ourselves, to avoid one
-	// level of interface indirection by removing Reader. Generally speaking that's not great API design; the
-	// consumer of the reader shouldn't be the one to wrap it in a buffered reader. Also, it turned out that making the
-	// change had no measurable effect on performance.
+type seekableBufferedReader struct {
+	r   io.ReadSeeker
+	br  *bufio.Reader
+	off int64
+}
 
-	io.ReadSeeker
-	io.ByteReader
-	Discard(int) (int, error)
+func newSeekableBufferedReader(r io.ReadSeeker) *seekableBufferedReader {
+	return &seekableBufferedReader{
+		r:  r,
+		br: bufio.NewReader(r),
+	}
+}
+
+func (r *seekableBufferedReader) Read(b []byte) (int, error) {
+	n, err := r.br.Read(b)
+	r.off += int64(n)
+	return n, err
+}
+
+func (r *seekableBufferedReader) ReadByte() (byte, error) {
+	r.off++
+	return r.br.ReadByte()
+}
+
+func (r *seekableBufferedReader) Discard(n int) (int, error) {
+	n, err := r.br.Discard(n)
+	r.off += int64(n)
+	return n, err
+}
+
+func (r *seekableBufferedReader) Seek(offset int64, whence int) (int64, error) {
+	if offset == 0 && whence == io.SeekCurrent {
+		return r.off, nil
+	}
+	if whence == io.SeekCurrent {
+		return 0, errors.New("relative seeking not supported")
+	}
+
+	n, err := r.r.Seek(offset, whence)
+	if err != nil {
+		return n, err
+	}
+	r.br.Reset(r.r)
+	r.off = n
+	return n, nil
 }
 
 type batch struct {
@@ -126,7 +163,7 @@ type Parser struct {
 	size     uint64
 
 	ver int
-	r   Reader
+	r   *seekableBufferedReader
 
 	strings     map[uint64]string
 	pStates     map[int32]*pState
@@ -160,11 +197,14 @@ func (p *Parser) pState(pid int32) *pState {
 	return ps
 }
 
-func NewParser(r Reader) *Parser {
-	return &Parser{r: r}
+func NewParser(r io.ReadSeeker) *Parser {
+	// It would be cleaner to accept a reader that can already do everything we need, instead of wrapping it ourselves,
+	// to give users more control over things such as buffering. However, we're the only user, and removing that level
+	// of indirection saves several % of CPU time when parsing traces.
+	return &Parser{r: newSeekableBufferedReader(r)}
 }
 
-func Parse(r Reader) (ParseResult, error) {
+func Parse(r io.ReadSeeker) (ParseResult, error) {
 	return NewParser(r).Parse()
 }
 

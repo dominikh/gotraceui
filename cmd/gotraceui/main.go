@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"image"
 	"image/color"
-	"io"
 	"log"
 	"math"
 	"os"
@@ -1965,53 +1963,6 @@ func blockedIsInactive(fn string) bool {
 	}
 }
 
-type seekableBufferedReader struct {
-	r   io.ReadSeeker
-	br  *bufio.Reader
-	off int64
-}
-
-func newSeekableBufferedReader(r io.ReadSeeker) *seekableBufferedReader {
-	return &seekableBufferedReader{
-		r:  r,
-		br: bufio.NewReader(r),
-	}
-}
-
-func (r *seekableBufferedReader) Read(b []byte) (int, error) {
-	n, err := r.br.Read(b)
-	r.off += int64(n)
-	return n, err
-}
-
-func (r *seekableBufferedReader) ReadByte() (byte, error) {
-	r.off++
-	return r.br.ReadByte()
-}
-
-func (r *seekableBufferedReader) Discard(n int) (int, error) {
-	n, err := r.br.Discard(n)
-	r.off += int64(n)
-	return n, err
-}
-
-func (r *seekableBufferedReader) Seek(offset int64, whence int) (int64, error) {
-	if offset == 0 && whence == io.SeekCurrent {
-		return r.off, nil
-	}
-	if whence == io.SeekCurrent {
-		return 0, errors.New("relative seeking not supported")
-	}
-
-	n, err := r.r.Seek(offset, whence)
-	if err != nil {
-		return n, err
-	}
-	r.br.Reset(r.r)
-	r.off = n
-	return n, nil
-}
-
 func loadTrace(path string, ch chan Command) (*Trace, error) {
 	const ourStages = 1
 	const totalStages = trace.Stages + ourStages
@@ -2025,9 +1976,8 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := newSeekableBufferedReader(f)
 
-	p := trace.NewParser(r)
+	p := trace.NewParser(f)
 	p.Progress = func(stage, cur, total uint64) {
 		progress := (float32(cur) / float32(total)) / totalStages
 		progress += (1.0 / totalStages) * float32(stage)
