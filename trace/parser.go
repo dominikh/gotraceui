@@ -579,12 +579,12 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	case EvString:
 		if flags&skipStrings != 0 {
 			// String dictionary entry [ID, length, string].
-			_, _, err = p.readVal()
+			_, err = p.readVal()
 			if err != nil {
 				return err
 			}
 			var ln uint64
-			ln, _, err = p.readVal()
+			ln, err = p.readVal()
 			if err != nil {
 				return err
 			}
@@ -594,7 +594,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		} else {
 			// String dictionary entry [ID, length, string].
 			var id uint64
-			id, _, err = p.readVal()
+			id, err = p.readVal()
 			if err != nil {
 				return err
 			}
@@ -605,7 +605,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				return fmt.Errorf("string has duplicate id %d", id)
 			}
 			var ln uint64
-			ln, _, err = p.readVal()
+			ln, err = p.readVal()
 			if err != nil {
 				return err
 			}
@@ -637,7 +637,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		// We already read the first byte
 		off -= 1
 
-		pid, _, err := p.readVal()
+		pid, err := p.readVal()
 		if err != nil {
 			return err
 		}
@@ -657,7 +657,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			p.curP = pid32
 		}
 
-		v, _, err := p.readVal()
+		v, err := p.readVal()
 		if err != nil {
 			return err
 		}
@@ -674,7 +674,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		*ev = rawEvent{typ: typ, args: p.args[:0]}
 		if narg <= inlineArgs {
 			for i := 0; i < int(narg); i++ {
-				v, _, err := p.readVal()
+				v, err := p.readVal()
 				if err != nil {
 					return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 				}
@@ -689,7 +689,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			// don't have to use readVal. However, there are so few events with more than 4 arguments that calling
 			// readVal is barely noticeable.
 			var v uint64
-			v, _, err = p.readVal()
+			v, err = p.readVal()
 			if err != nil {
 				return fmt.Errorf("failed to read event %d argument: %w", typ, err)
 			}
@@ -733,7 +733,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 					ev.sargs = append(ev.sargs, s)
 				} else {
 					// Skip string
-					v, _, err := p.readVal()
+					v, err := p.readVal()
 					if err != nil {
 						return err
 					}
@@ -809,7 +809,7 @@ func (p *Parser) loadBatch(pid int32) ([]Event, error) {
 
 func (p *Parser) readStr() (s string, err error) {
 	var sz uint64
-	sz, _, err = p.readVal()
+	sz, err = p.readVal()
 	if err != nil || sz == 0 {
 		return "", err
 	}
@@ -1306,18 +1306,18 @@ func postProcessTrace(events []Event) error {
 }
 
 // readVal reads unsigned base-128 value from r.
-func (p *Parser) readVal() (v uint64, n int, err error) {
+func (p *Parser) readVal() (v uint64, err error) {
 	for i := 0; i < 10; i++ {
 		b, err := p.r.ReadByte()
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to read trace: %w", err)
+			return 0, fmt.Errorf("failed to read trace: %w", err)
 		}
 		v |= uint64(b&0x7f) << (uint(i) * 7)
 		if b&0x80 == 0 {
-			return v, i + 1, err
+			return v, err
 		}
 	}
-	return 0, 0, errors.New("malformatted base-128 varint")
+	return 0, errors.New("malformatted base-128 varint")
 }
 
 func readValFrom(buf []byte) (v uint64, rem []byte, err error) {
