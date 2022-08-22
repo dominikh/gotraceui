@@ -35,6 +35,7 @@ type Event struct {
 	Type byte // one of Ev*
 }
 
+//gcassert:inline
 func toUint40(id int) [5]byte {
 	if id == -1 {
 		return [5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
@@ -50,6 +51,7 @@ func toUint40(id int) [5]byte {
 	}
 }
 
+//gcassert:inline
 func fromUint40(n *[5]byte) int {
 	if *n == ([5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}) {
 		return -1
@@ -141,6 +143,7 @@ type Parser struct {
 	logMessageID uint64
 }
 
+//gcassert:inline
 func (p *Parser) pState(pid int32) *pState {
 	ps, ok := p.pStates[pid]
 	if ok {
@@ -151,6 +154,7 @@ func (p *Parser) pState(pid int32) *pState {
 	return ps
 }
 
+//gcassert:inline
 func (p *Parser) discard(n int) bool {
 	if p.off+n > len(p.data) {
 		return false
@@ -1323,6 +1327,7 @@ func (p *Parser) discardVal() bool {
 	return false
 }
 
+//gcassert:inline
 func readValFrom(buf []byte) (v uint64, rem []byte, ok bool) {
 	for i := 0; i < 10; i++ {
 		if i >= len(buf) {
@@ -1349,6 +1354,8 @@ func (ev *Event) String() string {
 
 // argNum returns total number of args for the event accounting for timestamps,
 // sequence numbers and differences between trace format versions.
+//
+//gcassert:inline
 func argNum(raw *rawEvent) int {
 	desc := &EventDescriptions[raw.typ]
 	if raw.typ == EvStack {
@@ -1481,6 +1488,7 @@ var EventDescriptions = [256]struct {
 	EvCPUSample:         {"CPUSample", 1019, true, []string{"ts", "p", "g"}, nil},
 }
 
+//gcassert:inline
 func (p *Parser) allocateStack(size uint64) []uint64 {
 	if size == 0 {
 		return nil
