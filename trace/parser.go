@@ -165,6 +165,8 @@ type Parser struct {
 	ver int
 	r   *seekableBufferedReader
 
+	bigArgsBuf []byte
+
 	strings     map[uint64]string
 	pStates     map[int32]*pState
 	stacks      map[uint32][]uint64
@@ -693,13 +695,24 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			}
 
 			if flags&skipArgs == 0 || typ == EvCPUSample {
-				evLen := v
-				for evLen > 0 {
-					v, n, err := p.readVal()
+				buf := p.bigArgsBuf
+				if uint64(cap(buf)) >= v {
+					buf = buf[:v]
+				} else {
+					buf = make([]byte, v)
+					p.bigArgsBuf = buf[:0]
+				}
+				_, err := io.ReadFull(p.r, buf)
+				if err != nil {
+					return fmt.Errorf("failed to read trace: %w", err)
+				}
+				for len(buf) > 0 {
+					var v uint64
+					var err error
+					v, buf, err = readValFrom(buf)
 					if err != nil {
-						return fmt.Errorf("failed to read event %d argument: %w", typ, err)
+						return err
 					}
-					evLen -= uint64(n)
 					ev.args = append(ev.args, v)
 				}
 			} else {
@@ -1305,6 +1318,20 @@ func (p *Parser) readVal() (v uint64, n int, err error) {
 		}
 	}
 	return 0, 0, errors.New("malformatted base-128 varint")
+}
+
+func readValFrom(buf []byte) (v uint64, rem []byte, err error) {
+	for i := 0; i < 10; i++ {
+		if i >= len(buf) {
+			return 0, nil, errors.New("malformatted base-128 varint")
+		}
+		b := buf[i]
+		v |= uint64(b&0x7f) << (uint(i) * 7)
+		if b&0x80 == 0 {
+			return v, buf[i+1:], err
+		}
+	}
+	return 0, nil, errors.New("malformatted base-128 varint")
 }
 
 func (ev *Event) String() string {
