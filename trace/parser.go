@@ -93,6 +93,11 @@ type ParseResult struct {
 }
 
 type ReadSeekDiscarder interface {
+	// We experimented with accepting an io.ReadSeeker and wrapping it in a seekable buffered reader ourselves, to avoid one
+	// level of interface indirection by removing ReadSeekDiscarder. Generally speaking that's not great API design; the
+	// consumer of the reader shouldn't be the one to wrap it in a buffered reader. Also, it turned out that making the
+	// change had no measurable effect on performance.
+
 	io.ReadSeeker
 	Discard(int) (int, error)
 }
@@ -310,6 +315,11 @@ func (p *Parser) parseRest() ([]Event, error) {
 
 	// Merge events as long as at least one P has more events
 	gs := make(map[uint64]gState)
+	// Note: technically we don't need a priority queue here. We're only ever interested in the earliest elligible
+	// event, which means we just have to track the smallest element. However, in practice, the priority queue performs
+	// better, because for each event we only have to compute its state transition once, not on each iteration. If it
+	// was elligible before, it'll already be in the queue. Furthermore, on average, we only have one P to look at in
+	// each iteration, because all other Ps are already in the queue.
 	var frontier orderEventList
 
 	availableProcs := make([]*proc, len(allProcs))
