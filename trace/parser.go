@@ -507,6 +507,10 @@ const (
 )
 
 func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
+	// The number of arguments is encoded using two bits and can thus only represent the values 0–3. The value 3 (on the
+	// wire) indicates that arguments are prefixed by their byte length, to encode >=3 arguments.
+	const inlineArgs = 3
+
 	// Read event type and number of arguments (1 byte).
 	b, err := p.r.ReadByte()
 	if err == io.EOF {
@@ -516,8 +520,15 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		return fmt.Errorf("failed to read trace: %w", err)
 	}
 	typ := b << 2 >> 2
+	// Most events have a timestamp before the actual arguments, so we add 1 and parse it like it's the first argument.
+	// EvString has a special format and the number of arguments doesn't matter. EvBatch writes '1' as the number of
+	// arguments, but actually has two: a pid and a timestamp, but here the timestamp is the second argument, not the
+	// first; adding 1 happens to come up with the correct number, but it doesn't matter, because EvBatch has custom
+	// logic for parsing.
+	//
+	// Note that because we're adding 1, inlineArgs == 3 describes the largest number of logical arguments that isn't
+	// length-prefixed, even though the value 3 on the wire indicates length-prefixing. For us, that becomes narg == 4.
 	narg := b>>6 + 1
-	inlineArgs := byte(4)
 	if typ == EvNone || typ >= EvCount || EventDescriptions[typ].minVersion > p.ver {
 		return fmt.Errorf("unknown event type %d", typ)
 	}
@@ -619,7 +630,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 		}
 
 		*ev = rawEvent{typ: typ, args: p.args[:0]}
-		if narg < inlineArgs {
+		if narg <= inlineArgs {
 			for i := 0; i < int(narg); i++ {
 				v, _, err := p.readVal()
 				if err != nil {
@@ -631,6 +642,10 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			}
 		} else {
 			// More than inlineArgs args, the first value is length of the event in bytes.
+			//
+			// OPT(dh): looking at the runtime code, the length seems to be limited to < 128, i.e. a single byte. we
+			// don't have to use readVal. However, there are so few events with more than 4 arguments that calling
+			// readVal is barely noticeable.
 			var v uint64
 			v, _, err = p.readVal()
 			if err != nil {
