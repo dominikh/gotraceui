@@ -903,7 +903,7 @@ func (p *Parser) parseEvent(raw *rawEvent, ev *Event) error {
 	case EvCPUSample:
 		// These events get parsed during the indexing step and don't strictly belong to the batch.
 	default:
-		*ev = Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: toUint40(-1)}
+		*ev = Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: [5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}}
 		var argOffset int
 		ev.Ts = p.lastTs + int64(raw.args[0])
 		argOffset = 1
