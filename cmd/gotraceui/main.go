@@ -1689,6 +1689,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "stuck"
 		case stateReady:
 			label += "ready"
+			label += "\nReason: " + reasonLabels[tr.Reason(s)]
 		case stateCreated:
 			label += "ready"
 		case stateGCMarkAssist:
@@ -2163,7 +2164,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			// ev.G got preempted
 			gid = ev.G
 			pState = pStopG
-			state = stateInactive
+			state = stateReady
 		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
 			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
 			trace.EvGoBlockGC:
@@ -2801,6 +2802,8 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateGCMarkAssist: true,
 	},
 	stateActive: {
+		// active -> ready occurs on preemption
+		stateReady:                      true,
 		stateInactive:                   true,
 		stateBlocked:                    true,
 		stateBlockedSend:                true,
@@ -2820,10 +2823,14 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 		stateGCSweep:                    true,
 	},
 	stateGCIdle: {
+		// active -> ready occurs on preemption
+		stateReady:       true,
 		stateInactive:    true,
 		stateBlockedSync: true,
 	},
 	stateGCDedicated: {
+		// active -> ready occurs on preemption
+		stateReady:       true,
 		stateInactive:    true,
 		stateBlockedSync: true,
 	},
@@ -2859,6 +2866,8 @@ var legalStateTransitions = [stateLast][stateLast]bool{
 	},
 
 	stateGCMarkAssist: {
+		// active -> ready occurs on preemption
+		stateReady:       true,
 		stateActive:      true, // back to the goroutine's previous state
 		stateInactive:    true, // mark assist can be preempted
 		stateBlocked:     true,
