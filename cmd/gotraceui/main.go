@@ -2763,7 +2763,7 @@ const (
 	stateLast
 )
 
-var stateColors = [stateLast]colorIndex{
+var stateColors = [256]colorIndex{
 	// per-G states
 	stateInactive:                   colorStateInactive,
 	stateActive:                     colorStateActive,
@@ -2792,7 +2792,7 @@ var stateColors = [stateLast]colorIndex{
 	stateRunningG: colorStateActive,
 }
 
-var legalStateTransitions = [stateLast][stateLast]bool{
+var legalStateTransitions = [256][stateLast]bool{
 	stateInactive: {
 		stateActive:         true,
 		stateReady:          true,
