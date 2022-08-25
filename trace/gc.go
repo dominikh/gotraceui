@@ -16,7 +16,7 @@ import (
 // time. Mutator utilization functions are represented as a
 // time-ordered []MutatorUtil.
 type MutatorUtil struct {
-	Time int64
+	Time Timestamp
 	// Util is the mean mutator utilization starting at Time. This
 	// is in the range [0, 1].
 	Util float64
@@ -224,7 +224,7 @@ func addUtil(util []MutatorUtil, mu MutatorUtil) []MutatorUtil {
 // which is also a float64.
 type totalUtil float64
 
-func totalUtilOf(meanUtil float64, dur int64) totalUtil {
+func totalUtilOf(meanUtil float64, dur time.Duration) totalUtil {
 	return totalUtil(meanUtil * float64(dur))
 }
 
@@ -247,7 +247,7 @@ type mmuSeries struct {
 	// bandDur.
 	bands []mmuBand
 	// bandDur is the duration of each band.
-	bandDur int64
+	bandDur time.Duration
 }
 
 type mmuBand struct {
@@ -283,7 +283,7 @@ func newMMUSeries(util []MutatorUtil) mmuSeries {
 	var prev MutatorUtil
 	var sum totalUtil
 	for j, u := range util {
-		sum += totalUtilOf(prev.Util, u.Time-prev.Time)
+		sum += totalUtilOf(prev.Util, time.Duration(u.Time-prev.Time))
 		sums[j] = sum
 		prev = u
 	}
@@ -300,7 +300,7 @@ func newMMUSeries(util []MutatorUtil) mmuSeries {
 		numBands = len(util)
 	}
 	dur := util[len(util)-1].Time - util[0].Time
-	bandDur := (dur + int64(numBands) - 1) / int64(numBands)
+	bandDur := time.Duration((dur + Timestamp(numBands) - 1) / Timestamp(numBands))
 	if bandDur < 1 {
 		bandDur = 1
 	}
@@ -323,9 +323,9 @@ func newMMUSeries(util []MutatorUtil) mmuSeries {
 	return s
 }
 
-func (s *mmuSeries) bandTime(i int) (start, end int64) {
-	start = int64(i)*s.bandDur + s.util[0].Time
-	end = start + s.bandDur
+func (s *mmuSeries) bandTime(i int) (start, end Timestamp) {
+	start = Timestamp(time.Duration(i)*s.bandDur) + s.util[0].Time
+	end = start + Timestamp(s.bandDur)
 	return
 }
 
@@ -365,7 +365,7 @@ func (h *bandUtilHeap) Pop() any {
 
 // UtilWindow is a specific window at Time.
 type UtilWindow struct {
-	Time int64
+	Time Timestamp
 	// MutatorUtil is the mean mutator utilization in this window.
 	MutatorUtil float64
 }
@@ -418,7 +418,7 @@ type accumulator struct {
 	preciseMass float64
 	// lastTime and lastMU are the previous point added to the
 	// windowed mutator utilization function.
-	lastTime int64
+	lastTime Timestamp
 	lastMU   float64
 }
 
@@ -436,7 +436,7 @@ func (acc *accumulator) resetTime() {
 // of time.
 //
 // It returns true if further calls to addMU would be pointless.
-func (acc *accumulator) addMU(time int64, mu float64, window time.Duration) bool {
+func (acc *accumulator) addMU(time Timestamp, mu float64, window time.Duration) bool {
 	if mu < acc.mmu {
 		acc.mmu = mu
 	}
@@ -456,7 +456,7 @@ func (acc *accumulator) addMU(time int64, mu float64, window time.Duration) bool
 		// already in the heap and keep whichever is
 		// worse.
 		for i, ui := range acc.wHeap {
-			if time+int64(window) > ui.Time && ui.Time+int64(window) > time {
+			if time+Timestamp(window) > ui.Time && ui.Time+Timestamp(window) > time {
 				if ui.MutatorUtil <= mu {
 					// Keep the first window.
 					goto keep
@@ -567,11 +567,11 @@ func (c *MMUCurve) MUD(window time.Duration, quantiles []float64) []float64 {
 	// total final mass will be the duration of the trace itself
 	// minus the window size. Using this, we can compute the mass
 	// corresponding to quantile maxQ.
-	var duration int64
+	var duration time.Duration
 	for _, s := range c.series {
-		duration1 := s.util[len(s.util)-1].Time - s.util[0].Time
-		if duration1 >= int64(window) {
-			duration += duration1 - int64(window)
+		duration1 := time.Duration(s.util[len(s.util)-1].Time - s.util[0].Time)
+		if duration1 >= window {
+			duration += duration1 - window
 		}
 	}
 	qMass := float64(duration) * maxQ
@@ -649,12 +649,12 @@ func (c *mmuSeries) mkBandUtil(series int, window time.Duration) []bandUtil {
 	// minBands is the minimum number of bands a window can span
 	// and maxBands is the maximum number of bands a window can
 	// span in any alignment.
-	minBands := int((int64(window) + c.bandDur - 1) / c.bandDur)
-	maxBands := int((int64(window) + 2*(c.bandDur-1)) / c.bandDur)
+	minBands := int((window + c.bandDur - 1) / c.bandDur)
+	maxBands := int((window + 2*(c.bandDur-1)) / c.bandDur)
 	if window > 1 && maxBands < 2 {
 		panic("maxBands < 2")
 	}
-	tailDur := int64(window) % c.bandDur
+	tailDur := window % c.bandDur
 	nUtil := len(c.bands) - maxBands + 1
 	if nUtil < 0 {
 		nUtil = 0
@@ -677,7 +677,7 @@ func (c *mmuSeries) mkBandUtil(series int, window time.Duration) []bandUtil {
 		// worst minimum and then the rest overlaps the second
 		// worst minimum.
 		if minBands == 1 {
-			util += totalUtilOf(minBand, int64(window))
+			util += totalUtilOf(minBand, window)
 		} else {
 			util += totalUtilOf(minBand, c.bandDur)
 			midBand := 0.0
@@ -727,13 +727,13 @@ func (c *mmuSeries) bandMMU(bandIdx int, window time.Duration, acc *accumulator)
 	left := c.bands[bandIdx].integrator
 	right := left
 	time, endTime := c.bandTime(bandIdx)
-	if utilEnd := util[len(util)-1].Time - int64(window); utilEnd < endTime {
+	if utilEnd := util[len(util)-1].Time - Timestamp(window); utilEnd < endTime {
 		endTime = utilEnd
 	}
 	acc.resetTime()
 	for {
 		// Advance edges to time and time+window.
-		mu := (right.advance(time+int64(window)) - left.advance(time)).mean(window)
+		mu := (right.advance(time+Timestamp(window)) - left.advance(time)).mean(window)
 		if acc.addMU(time, mu, window) {
 			break
 		}
@@ -745,12 +745,12 @@ func (c *mmuSeries) bandMMU(bandIdx int, window time.Duration, acc *accumulator)
 		// utilization function is 1/window, so we can always
 		// advance the time by at least (mu - mmu) * window
 		// without dropping below mmu.
-		minTime := time + int64((mu-acc.bound)*float64(window))
+		minTime := time + Timestamp((mu-acc.bound)*float64(window))
 
 		// Advance the window to the next time where either
 		// the left or right edge of the window encounters a
 		// change in the utilization curve.
-		if t1, t2 := left.next(time), right.next(time+int64(window))-int64(window); t1 < t2 {
+		if t1, t2 := left.next(time), right.next(time+Timestamp(window))-Timestamp(window); t1 < t2 {
 			time = t1
 		} else {
 			time = t2
@@ -777,9 +777,9 @@ type integrator struct {
 }
 
 // advance returns the integral of the utilization function from 0 to
-// time. advance must be called on monotonically increasing values of
+// ts. advance must be called on monotonically increasing values of
 // times.
-func (in *integrator) advance(time int64) totalUtil {
+func (in *integrator) advance(ts Timestamp) totalUtil {
 	util, pos := in.u.util, in.pos
 	// Advance pos until pos+1 is time's strict successor (making
 	// pos time's non-strict predecessor).
@@ -788,9 +788,9 @@ func (in *integrator) advance(time int64) totalUtil {
 	// but it may be arbitrarily far away, so we handled that
 	// efficiently, too.
 	const maxSeq = 8
-	if pos+maxSeq < len(util) && util[pos+maxSeq].Time > time {
+	if pos+maxSeq < len(util) && util[pos+maxSeq].Time > ts {
 		// Nearby. Use a linear scan.
-		for pos+1 < len(util) && util[pos+1].Time <= time {
+		for pos+1 < len(util) && util[pos+1].Time <= ts {
 			pos++
 		}
 	} else {
@@ -798,7 +798,7 @@ func (in *integrator) advance(time int64) totalUtil {
 		l, r := pos, len(util)
 		for l < r {
 			h := int(uint(l+r) >> 1)
-			if util[h].Time <= time {
+			if util[h].Time <= ts {
 				l = h + 1
 			} else {
 				r = h
@@ -808,15 +808,15 @@ func (in *integrator) advance(time int64) totalUtil {
 	}
 	in.pos = pos
 	var partial totalUtil
-	if time != util[pos].Time {
-		partial = totalUtilOf(util[pos].Util, time-util[pos].Time)
+	if ts != util[pos].Time {
+		partial = totalUtilOf(util[pos].Util, time.Duration(ts-util[pos].Time))
 	}
 	return in.u.sums[pos] + partial
 }
 
 // next returns the smallest time t' > time of a change in the
 // utilization function.
-func (in *integrator) next(time int64) int64 {
+func (in *integrator) next(time Timestamp) Timestamp {
 	for _, u := range in.u.util[in.pos:] {
 		if u.Time > time {
 			return u.Time

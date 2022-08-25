@@ -176,8 +176,8 @@ type Timeline struct {
 	clickedGoroutineActivities []*Goroutine
 
 	// The region of the timeline that we're displaying, measured in nanoseconds
-	start time.Duration
-	end   time.Duration
+	start trace.Timestamp
+	end   trace.Timestamp
 	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.y specifies the y of that infinite
 	// canvas that the activity section's y == 0 is displaying.
 	y int
@@ -192,8 +192,8 @@ type Timeline struct {
 	drag struct {
 		clickAt f32.Point
 		active  bool
-		start   time.Duration
-		end     time.Duration
+		start   trace.Timestamp
+		end     trace.Timestamp
 		startY  int
 	}
 
@@ -220,8 +220,8 @@ type Timeline struct {
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
-		start        time.Duration
-		end          time.Duration
+		start        trace.Timestamp
+		end          trace.Timestamp
 		y            int
 		nsPerPx      float32
 		compact      bool
@@ -295,8 +295,8 @@ func (tl *Timeline) endDrag() {
 
 func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
 	td := time.Duration(round32(tl.nsPerPx * (tl.drag.clickAt.X - pos.X)))
-	tl.start = tl.drag.start + td
-	tl.end = tl.drag.end + td
+	tl.start = tl.drag.start + trace.Timestamp(td)
+	tl.end = tl.drag.end + trace.Timestamp(td)
 
 	yd := int(round32(tl.drag.clickAt.Y - pos.Y))
 	tl.y = tl.drag.startY + yd
@@ -313,13 +313,13 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 		ratio := at.X / float32(gtx.Constraints.Max.X)
 		ds := time.Duration(tl.nsPerPx * 100 * ratio)
 		de := time.Duration(tl.nsPerPx * 100 * (1 - ratio))
-		tl.start += ds
-		tl.end -= de
+		tl.start += trace.Timestamp(ds)
+		tl.end -= trace.Timestamp(de)
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := at.X / float32(gtx.Constraints.Max.X)
-		ds := time.Duration(tl.nsPerPx * 100 * ratio)
-		de := time.Duration(tl.nsPerPx * 100 * (1 - ratio))
+		ds := trace.Timestamp(tl.nsPerPx * 100 * ratio)
+		de := trace.Timestamp(tl.nsPerPx * 100 * (1 - ratio))
 
 		// Make sure the user can always zoom out
 		if ds < 1 {
@@ -329,12 +329,12 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 			de = 1
 		}
 
-		start := tl.start - time.Duration(ds)
-		end := tl.end + time.Duration(de)
+		start := tl.start - ds
+		end := tl.end + de
 
 		// Limit timeline to roughly one day. There's rno reason to zoom out this far, and zooming out further will lead
 		// to edge cases and eventually overflow.
-		if end-start < 24*time.Hour {
+		if time.Duration(end-start) < 24*time.Hour {
 			tl.start = start
 			tl.end = end
 		}
@@ -365,27 +365,27 @@ func (tl *Timeline) visibleSpans(spans []Span) []Span {
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return time.Duration(tr.Event(s.event()).Ts) >= tl.end
+		return tr.Event(s.event()).Ts >= tl.end
 	})
 
 	return spans[start:end]
 }
 
 //gcassert:inline
-func (tl *Timeline) tsToPx(t time.Duration) float32 {
+func (tl *Timeline) tsToPx(t trace.Timestamp) float32 {
 	return float32(t-tl.start) / tl.nsPerPx
 }
 
 //gcassert:inline
-func (tl *Timeline) pxToTs(px float32) time.Duration {
-	return time.Duration(round32(px*tl.nsPerPx + float32(tl.start)))
+func (tl *Timeline) pxToTs(px float32) trace.Timestamp {
+	return trace.Timestamp(round32(px*tl.nsPerPx + float32(tl.start)))
 }
 
 type renderedSpansIterator struct {
 	offset  int
 	tl      *Timeline
 	spans   []Span
-	prevEnd time.Duration
+	prevEnd trace.Timestamp
 }
 
 func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float32, ok bool) {
@@ -405,22 +405,22 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	s := &spans[offset]
 	offset++
 
-	start := time.Duration(tr.Event(s.event()).Ts)
+	start := tr.Event(s.event()).Ts
 	end := s.end
 	if it.prevEnd > start {
 		// The previous span was extended and grew into this span. This shifts our start position to the right.
 		start = it.prevEnd
 	}
 
-	if end-start < minSpanWidthD {
+	if time.Duration(end-start) < minSpanWidthD {
 		// Merge all tiny spans until we find a span or gap that's big enough to stand on its own. We do not stop
 		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
 		// previously merged spans becoming visible again when zooming out.
 		for ; offset < len(it.spans); offset++ {
 			adjustedEnd := end
-			if end-start < minSpanWidthD {
-				adjustedEnd = start + minSpanWidthD
+			if time.Duration(end-start) < minSpanWidthD {
+				adjustedEnd = start + trace.Timestamp(minSpanWidthD)
 			} else {
 				// Our merged span is long enough now and won't need to be extended anymore. Break out of this loop and
 				// go into a smaller loop that specializes on just collecting tiny spans, avoiding the comparisons
@@ -431,13 +431,13 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := time.Duration(tr.Event(nextSpan.event()).Ts)
+			nextStart := tr.Event(nextSpan.event()).Ts
 			nextEnd := nextSpan.end
 			if adjustedEnd > nextStart {
 				// The current span would have to grow into the next span, making it smaller
 				nextStart = adjustedEnd
 			}
-			if nextEnd-nextStart >= minSpanWidthD || nextStart-adjustedEnd >= minSpanWidthD {
+			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-adjustedEnd) >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
 				break
 			}
@@ -449,9 +449,9 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := time.Duration(tr.Event(nextSpan.event()).Ts)
+			nextStart := tr.Event(nextSpan.event()).Ts
 			nextEnd := nextSpan.end
-			if nextEnd-nextStart >= minSpanWidthD || nextStart-end >= minSpanWidthD {
+			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-end) >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own
 				break
 			}
@@ -460,9 +460,9 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 		}
 	}
 
-	if end-start < minSpanWidthD {
+	if time.Duration(end-start) < minSpanWidthD {
 		// We're still too small, so extend the span to its minimum size.
-		end = start + minSpanWidthD
+		end = start + trace.Timestamp(minSpanWidthD)
 	}
 
 	it.offset = offset
@@ -484,12 +484,12 @@ func Stack(gtx layout.Context, widgets ...layout.Widget) {
 
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	tr := tl.trace
-	var first, last time.Duration = -1, -1
+	var first, last trace.Timestamp = -1, -1
 	for _, aw := range tl.visibleActivities(gtx) {
 		if len(aw.allSpans) == 0 {
 			continue
 		}
-		if t := time.Duration(tr.Event(aw.allSpans[0].event()).Ts); t < first || first == -1 {
+		if t := tr.Event(aw.allSpans[0].event()).Ts; t < first || first == -1 {
 			first = t
 		}
 		if t := aw.allSpans[len(aw.allSpans)-1].end; t > last {
@@ -630,7 +630,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.activity.hoveredSpans = nil
 		for _, aw := range tl.prevFrame.displayedAws {
 			if spans := aw.clickedSpans; len(spans) > 0 {
-				start := time.Duration(tr.Event(spans[0].event()).Ts)
+				start := tr.Event(spans[0].event()).Ts
 				end := spans[len(spans)-1].end
 				tl.start = start
 				tl.end = end
@@ -769,13 +769,13 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 		// TODO print thousands separator
 		labels[0] = fmt.Sprintf("%d ns", axis.tl.start)
 	} else {
-		for t := axis.tl.start; t < axis.tl.end; t += tickInterval {
+		for t := axis.tl.start; t < axis.tl.end; t += trace.Timestamp(tickInterval) {
 			if t == axis.tl.start {
 				// TODO print thousands separator
 				labels = append(labels, fmt.Sprintf("%d ns", t))
 			} else {
 				// TODO separate value and unit symbol with a space
-				labels = append(labels, fmt.Sprintf("+%s", t-axis.tl.start))
+				labels = append(labels, fmt.Sprintf("+%s", time.Duration(t-axis.tl.start)))
 			}
 		}
 		axis.prevFrame.labels = labels
@@ -794,7 +794,7 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	var ticksPath clip.Path
 	ticksPath.Begin(axis.ticksOps.get())
 	i := 0
-	for t := axis.tl.start; t < axis.tl.end; t += tickInterval {
+	for t := axis.tl.start; t < axis.tl.end; t += trace.Timestamp(tickInterval) {
 		start := axis.tl.tsToPx(t) - tickWidth/2
 		end := axis.tl.tsToPx(t) + tickWidth/2
 		rect := FRect{
@@ -804,8 +804,8 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := axis.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) - tickWidth/2
-			smallEnd := axis.tl.tsToPx(t+(tickInterval/10)*time.Duration(j)) + tickWidth/2
+			smallStart := axis.tl.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) - tickWidth/2
+			smallEnd := axis.tl.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -1293,7 +1293,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 			for i := 0; i < len(events); i++ {
 				ev := events[i]
-				px := aw.tl.tsToPx(time.Duration(tr.Event(ev).Ts))
+				px := aw.tl.tsToPx(tr.Event(ev).Ts)
 
 				if px+dotRadiusX < minP.X {
 					continue
@@ -1307,7 +1307,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				oldi := i
 				for i = i + 1; i < len(events); i++ {
 					ev := events[i]
-					px := aw.tl.tsToPx(time.Duration(tr.Event(ev).Ts))
+					px := aw.tl.tsToPx(tr.Event(ev).Ts)
 					if px < end+dotRadiusX*2+dotGap {
 						end = px
 					} else {
@@ -1535,9 +1535,9 @@ type GoroutineTooltip struct {
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	tr := tt.trace
-	start := time.Duration(tr.Event(tt.g.spans[0].event()).Ts)
+	start := (tr.Event(tt.g.spans[0].event()).Ts)
 	end := tt.g.spans[len(tt.g.spans)-1].end
-	d := end - start
+	d := time.Duration(end - start)
 
 	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
 	var blockedD, inactiveD, runningD, gcAssistD time.Duration
@@ -1774,7 +1774,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "Events: 0\n"
 		}
 	}
-	d := tt.spans[len(tt.spans)-1].end - time.Duration(tr.Event(tt.spans[0].event()).Ts)
+	d := time.Duration(tt.spans[len(tt.spans)-1].end - tr.Event(tt.spans[0].event()).Ts)
 	label += fmt.Sprintf("Duration: %s", d)
 
 	if at != "" {
@@ -1828,7 +1828,7 @@ func (g *Goroutine) String() string {
 type Span struct {
 	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
 	// and filling those gaps would probably use more memory than tracking the end time.
-	end    time.Duration
+	end    trace.Timestamp
 	event_ [5]byte
 	// at is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	at uint8
@@ -1894,7 +1894,7 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 
 //gcassert:inline
 func (t *Trace) Duration(s *Span) time.Duration {
-	return s.end - time.Duration(t.Event(s.event()).Ts)
+	return time.Duration(s.end - t.Event(s.event()).Ts)
 }
 
 type AllEventer interface {
@@ -1913,7 +1913,7 @@ func (s *Span) Events(evs AllEventer, tr *Trace) []EventID {
 
 	end := sort.Search(len(all), func(i int) bool {
 		ev := all[i]
-		return time.Duration(tr.Event(ev).Ts) >= s.end
+		return tr.Event(ev).Ts >= s.end
 	})
 
 	sTs := tr.Event(s.event()).Ts
@@ -2270,13 +2270,13 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 		case trace.EvGCDone:
 			// XXX verify that index isn't out of bounds
-			gc[len(gc)-1].end = time.Duration(ev.Ts)
+			gc[len(gc)-1].end = ev.Ts
 			continue
 
 		case trace.EvGCSTWDone:
 			// Even though STW happens as part of GC, we can see EvGCSTWDone after EvGCDone.
 			// XXX verify that index isn't out of bounds
-			stw[len(stw)-1].end = time.Duration(ev.Ts)
+			stw[len(stw)-1].end = ev.Ts
 			continue
 
 		case trace.EvHeapAlloc:
@@ -2340,7 +2340,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
-			p.spans[len(p.spans)-1].end = time.Duration(ev.Ts)
+			p.spans[len(p.spans)-1].end = ev.Ts
 		}
 	}
 
@@ -2353,7 +2353,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		go func() {
 			for i, s := range g.spans {
 				if i != len(g.spans)-1 {
-					s.end = time.Duration(res.Events[g.spans[i+1].event()].Ts)
+					s.end = res.Events[g.spans[i+1].event()].Ts
 				}
 
 				stack := res.Stacks[res.Events[s.event()].StkID]
@@ -2375,7 +2375,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 					g.spans = g.spans[:len(g.spans)-1]
 				} else {
 					// XXX somehow encode open-ended traces
-					g.spans[len(g.spans)-1].end = time.Duration(res.Events[len(res.Events)-1].Ts)
+					g.spans[len(g.spans)-1].end = res.Events[len(res.Events)-1].Ts
 				}
 			}
 
@@ -2891,7 +2891,7 @@ func toColor(c uint32) color.NRGBA {
 }
 
 func (w *MainWindow) loadTrace(t *Trace) {
-	var end time.Duration
+	var end trace.Timestamp
 	for _, g := range t.gs {
 		if len(g.spans) > 0 {
 			d := g.spans[len(g.spans)-1].end
@@ -2912,8 +2912,8 @@ func (w *MainWindow) loadTrace(t *Trace) {
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
 	// entire trace.
 	slack := float64(end) * 0.05
-	start := time.Duration(-slack)
-	end = time.Duration(float64(end) + slack)
+	start := trace.Timestamp(-slack)
+	end = trace.Timestamp(float64(end) + slack)
 
 	gsByID := map[uint64]*Goroutine{}
 	for _, g := range t.gs {
@@ -3340,7 +3340,7 @@ type GoroutineStats struct {
 	stats   [stateLast]GoroutineStat
 	mapping []int
 
-	start, end time.Duration
+	start, end trace.Timestamp
 
 	sortCol        int
 	sortDescending bool
@@ -3406,7 +3406,7 @@ func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 		gst.mapping = append(gst.mapping, i)
 	}
 
-	gst.start = time.Duration(tr.Event(g.spans[0].event()).Ts)
+	gst.start = tr.Event(g.spans[0].event()).Ts
 	gst.end = g.spans[len(g.spans)-1].end
 
 	return gst
@@ -3752,7 +3752,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%s", gwin.stats.end-gwin.stats.start)),
+				span(th, fmt.Sprintf("%s", time.Duration(gwin.stats.end-gwin.stats.start))),
 			}
 
 			layout.Flex{Axis: layout.Vertical}.Layout(gtx,

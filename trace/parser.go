@@ -10,9 +10,15 @@ import (
 	"sort"
 )
 
+type Timestamp int64
+
+func (ts Timestamp) String() string {
+	return fmt.Sprintf("%d ns", ts)
+}
+
 // Event describes one event in the trace.
 type Event struct {
-	Ts    int64     // timestamp in nanoseconds
+	Ts    Timestamp // timestamp in nanoseconds
 	G     uint64    // G on which the event happened
 	Args  [4]uint64 // event-type-specific arguments
 	StkID uint32    // unique stack ID
@@ -139,7 +145,7 @@ type Parser struct {
 	args []uint64
 
 	// state for parseEvent
-	lastTs       int64
+	lastTs       Timestamp
 	lastG        uint64
 	lastP        int32
 	logMessageID uint64
@@ -245,7 +251,7 @@ func (p *Parser) parse() (int, ParseResult, error) {
 	freq := 1e9 / float64(p.ticksPerSec)
 	for i := range events {
 		ev := &events[i]
-		ev.Ts = int64(float64(ev.Ts-minTs) * freq)
+		ev.Ts = Timestamp(float64(ev.Ts-minTs) * freq)
 		// Move timers and syscalls to separate fake Ps.
 		if p.timerGoids[ev.G] && ev.Type == EvGoUnblock {
 			ev.P = TimerP
@@ -435,13 +441,13 @@ func (p *Parser) parseRest() ([]Event, error) {
 	// We also can't simply update the timestamp and resort events, because
 	// if timestamps are broken we will misplace the event and later report
 	// logically broken trace (instead of reporting broken timestamps).
-	lastSysBlock := make(map[uint64]int64)
+	lastSysBlock := make(map[uint64]Timestamp)
 	for _, ev := range events {
 		switch ev.Type {
 		case EvGoSysBlock, EvGoInSyscall:
 			lastSysBlock[ev.G] = ev.Ts
 		case EvGoSysExit:
-			ts := int64(ev.Args[2])
+			ts := Timestamp(ev.Args[2])
 			if ts == 0 {
 				continue
 			}
@@ -492,7 +498,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 				}
 			}
 
-			e.Ts = int64(e.Args[0])
+			e.Ts = Timestamp(e.Args[0])
 			e.P = int32(e.Args[1])
 			e.G = e.Args[2]
 			e.Args[0] = 0
@@ -861,7 +867,7 @@ func (p *Parser) parseEvent(raw *rawEvent, ev *Event) error {
 			p.lastP = int32(raw.args[0])
 		}
 		p.lastG = p.pState(p.lastP).lastG
-		p.lastTs = int64(raw.args[1])
+		p.lastTs = Timestamp(raw.args[1])
 	case EvFrequency:
 		p.ticksPerSec = int64(raw.args[0])
 		if p.ticksPerSec <= 0 {
@@ -905,7 +911,7 @@ func (p *Parser) parseEvent(raw *rawEvent, ev *Event) error {
 	default:
 		*ev = Event{Type: raw.typ, P: p.lastP, G: p.lastG, Link: [5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}}
 		var argOffset int
-		ev.Ts = p.lastTs + int64(raw.args[0])
+		ev.Ts = p.lastTs + Timestamp(raw.args[0])
 		argOffset = 1
 		p.lastTs = ev.Ts
 		for i := argOffset; i < narg; i++ {

@@ -158,7 +158,7 @@ func mmuSlow(util []MutatorUtil, window time.Duration) (mmu float64) {
 
 	// muInWindow returns the mean mutator utilization between
 	// util[0].Time and end.
-	muInWindow := func(util []MutatorUtil, end int64) float64 {
+	muInWindow := func(util []MutatorUtil, end Timestamp) float64 {
 		total := 0.0
 		var prevU MutatorUtil
 		for _, u := range util {
@@ -173,10 +173,10 @@ func mmuSlow(util []MutatorUtil, window time.Duration) (mmu float64) {
 	}
 	update := func() {
 		for i, u := range util {
-			if u.Time+int64(window) > util[len(util)-1].Time {
+			if u.Time+Timestamp(window) > util[len(util)-1].Time {
 				break
 			}
-			mmu = math.Min(mmu, muInWindow(util[i:], u.Time+int64(window)))
+			mmu = math.Min(mmu, muInWindow(util[i:], u.Time+Timestamp(window)))
 		}
 	}
 
