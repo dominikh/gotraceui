@@ -60,7 +60,6 @@ import (
 // TODO(dh): button to zoom so far into a span that it no longer gets merged. this has to work recursively, because if
 //   the span splits into more merged spans, those should get unmerged, too.
 // XXX how do we have a minimum inactive span of length 0?
-// FIXME(dh): widgets draw on top of axis
 // TODO print thousands separator
 // OPT(dh): optimize drawing merged spans with millions of spans
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
@@ -1476,6 +1475,8 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 }
 
 func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
 	activityHeight := tl.activityHeight(gtx)
 	activityGap := gtx.Dp(activityGapDp)
 
