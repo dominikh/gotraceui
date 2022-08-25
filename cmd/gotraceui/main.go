@@ -18,6 +18,7 @@ import (
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/text/message"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	mywidget "honnef.co/go/gotraceui/widget"
@@ -60,7 +61,6 @@ import (
 // TODO(dh): button to zoom so far into a span that it no longer gets merged. this has to work recursively, because if
 //   the span splits into more merged spans, those should get unmerged, too.
 // XXX how do we have a minimum inactive span of length 0?
-// TODO print thousands separator
 // OPT(dh): optimize drawing merged spans with millions of spans
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
 // TODO(dh): allow jumping from span in per-goroutine view to corresponding goroutine span in per-processor view
@@ -753,13 +753,11 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 	} else if axis.tl.prevFrame.nsPerPx == axis.tl.nsPerPx {
 		// Panning only changes the first label
 		labels = axis.prevFrame.labels
-		// TODO print thousands separator
-		labels[0] = fmt.Sprintf("%d ns", axis.tl.start)
+		labels[0] = formatTimestamp(axis.tl.start)
 	} else {
 		for t := axis.tl.start; t < axis.tl.end; t += trace.Timestamp(tickInterval) {
 			if t == axis.tl.start {
-				// TODO print thousands separator
-				labels = append(labels, fmt.Sprintf("%d ns", t))
+				labels = append(labels, formatTimestamp(t))
 			} else {
 				// TODO separate value and unit symbol with a space
 				labels = append(labels, fmt.Sprintf("+%s", time.Duration(t-axis.tl.start)))
@@ -931,9 +929,9 @@ var spanStateLabels = [...][]string{
 func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWidget {
 	var l string
 	if g.function != "" {
-		l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
+		l = local.Sprintf("goroutine %d: %s", g.id, g.function)
 	} else {
-		l = fmt.Sprintf("goroutine %d", g.id)
+		l = local.Sprintf("goroutine %d", g.id)
 	}
 
 	return &ActivityWidget{
@@ -971,9 +969,9 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine, tr *Trace) {
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
 		if g.function != "" {
-			l = fmt.Sprintf("goroutine %d: %s", g.id, g.function)
+			l = local.Sprintf("goroutine %d: %s", g.id, g.function)
 		} else {
-			l = fmt.Sprintf("goroutine %d", g.id)
+			l = local.Sprintf("goroutine %d", g.id)
 		}
 		go func() {
 			// XXX handle error?
@@ -1047,7 +1045,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 		},
 		tl:    tl,
 		item:  p,
-		label: fmt.Sprintf("Processor %d", p.id),
+		label: local.Sprintf("Processor %d", p.id),
 		theme: th,
 	}
 }
@@ -1589,7 +1587,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		fnName = tt.g.function
 		line1 = "Goroutine %[1]d: %[2]s\n\n"
 	}
-	l := fmt.Sprintf(line1+
+	l := local.Sprintf(line1+
 		"Created at: %[3]s\n"+
 		"Returned at: %[4]s\n"+
 		"Lifetime: %[5]s\n"+
@@ -1598,8 +1596,8 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		"Time in GC assist: %[10]s (%.2[11]f%%)\n"+
 		"Time in running states: %[12]s (%.2[13]f%%)",
 		tt.g.id, fnName,
-		start,
-		end,
+		formatTimestamp(start),
+		formatTimestamp(end),
 		d,
 		blockedD, blockedPct,
 		inactiveD, inactivePct,
@@ -1687,10 +1685,10 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "GC sweep"
 			if link := fromUint40(&ev.Link); link != -1 {
 				l := tr.Events[link]
-				label += fmt.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
+				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
 		case stateRunningG:
-			label += fmt.Sprintf("running goroutine %d", ev.G)
+			label += local.Sprintf("running goroutine %d", ev.G)
 		default:
 			if debug {
 				panic(fmt.Sprintf("unhandled state %d", state))
@@ -1723,7 +1721,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += " (" + strings.Join(tags, ", ") + ")"
 		}
 	} else {
-		label += fmt.Sprintf("mixed (%d spans)", len(tt.spans))
+		label += local.Sprintf("mixed (%d spans)", len(tt.spans))
 	}
 	label += "\n"
 	{
@@ -1755,9 +1753,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 						panic(fmt.Sprintf("unhandled kind %d", kind))
 					}
 				}
-				label += fmt.Sprintf("Events: %d %s\n", len(tt.events), noun)
+				label += local.Sprintf("Events: %d %s\n", len(tt.events), noun)
 			} else {
-				label += fmt.Sprintf("Events: %d\n", len(tt.events))
+				label += local.Sprintf("Events: %d\n", len(tt.events))
 			}
 		} else {
 			label += "Events: 0\n"
@@ -1808,9 +1806,9 @@ func (g *Goroutine) String() string {
 	// OPT(dh): cache this. especially because it gets called a lot by the goroutine selector window.
 	if g.function == "" {
 		// At least GCSweepStart can happen on g0
-		return fmt.Sprintf("goroutine %d", g.id)
+		return local.Sprintf("goroutine %d", g.id)
 	} else {
-		return fmt.Sprintf("goroutine %d: %s", g.id, g.function)
+		return local.Sprintf("goroutine %d: %s", g.id, g.function)
 	}
 }
 
@@ -3460,7 +3458,7 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 			max = stat.count
 		}
 	}
-	size2 := shape(fmt.Sprintf("%d", max), fContent)
+	size2 := shape(local.Sprintf("%d", max), fContent)
 	if size2.X > size.X {
 		size.X = size2.X
 	}
@@ -3599,7 +3597,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				// type
 				l = stateNamesCapitalized[n]
 			case 1:
-				l = fmt.Sprintf("%d", gs.stats[n].count)
+				l = local.Sprintf("%d", gs.stats[n].count)
 				if gs.stats[n].count == 0 {
 					panic(row)
 				}
@@ -3722,7 +3720,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%d\n", gwin.g.id)),
+				span(th, local.Sprintf("%d\n", gwin.g.id)),
 
 				spanWith(th, "Function: ", func(ss poortext.SpanStyle) poortext.SpanStyle { ss.Font.Weight = text.Bold; return ss }),
 				spanWith(th, fmt.Sprintf("%s\n", gwin.g.function), func(ss poortext.SpanStyle) poortext.SpanStyle {
@@ -3735,13 +3733,13 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%d ns\n", gwin.stats.start)),
+				span(th, fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.start))),
 
 				spanWith(th, "Returned at: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%d ns\n", gwin.stats.end)),
+				span(th, fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.end))),
 
 				spanWith(th, "Lifetime: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
 					ss.Font.Weight = text.Bold
@@ -3920,7 +3918,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			switch col {
 			case 0:
 				labelSpans = []poortext.SpanStyle{
-					span(evs.theme, fmt.Sprintf("%d ns", ev.Ts)),
+					span(evs.theme, fmt.Sprintf("%s", formatTimestamp(ev.Ts))),
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
@@ -3932,7 +3930,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
 					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Created "),
-						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
+						spanWith(evs.theme, local.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
 							// XXX make clickable
 							s.Color = evs.theme.Palette.Link
 							return s
@@ -3943,7 +3941,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// goroutine
 					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Unblocked "),
-						spanWith(evs.theme, fmt.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
+						spanWith(evs.theme, local.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
 							// XXX make clickable
 							s.Color = evs.theme.Palette.Link
 							return s
@@ -4002,4 +4000,10 @@ func span(th *theme.Theme, text string) poortext.SpanStyle {
 
 func spanWith(th *theme.Theme, text string, fn func(poortext.SpanStyle) poortext.SpanStyle) poortext.SpanStyle {
 	return fn(span(th, text))
+}
+
+var local = message.NewPrinter(message.MatchLanguage("en"))
+
+func formatTimestamp(ts trace.Timestamp) string {
+	return local.Sprintf("%d ns", ts)
 }

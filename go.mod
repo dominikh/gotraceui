@@ -7,6 +7,7 @@ require (
 	gioui.org/x v0.0.0-20220812201728-6e5ccb802ed1
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/image v0.0.0-20210628002857-a66eb6448b8d
+	golang.org/x/text v0.3.7
 )
 
 require (
@@ -17,7 +18,6 @@ require (
 	github.com/go-text/typesetting v0.0.0-20220411150340-35994bc27a7b // indirect
 	golang.org/x/exp/shiny v0.0.0-20220722155223-a9213eeb770e // indirect
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
-	golang.org/x/text v0.3.7 // indirect
 )
 
 replace gioui.org/x => github.com/dominikh/gio-x v0.0.0-20220821233255-d9c5cce0b4bf

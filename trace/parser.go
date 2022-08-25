@@ -12,10 +12,6 @@ import (
 
 type Timestamp int64
 
-func (ts Timestamp) String() string {
-	return fmt.Sprintf("%d ns", ts)
-}
-
 // Event describes one event in the trace.
 type Event struct {
 	Ts    Timestamp // timestamp in nanoseconds
