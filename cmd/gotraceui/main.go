@@ -472,16 +472,6 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	return spans[startOffset:it.offset], startPx, endPx, true
 }
 
-func Stack(gtx layout.Context, widgets ...layout.Widget) {
-	// XXX we can probably replace this with layout.Flex
-	defer op.TransformOp{}.Push(gtx.Ops).Pop()
-	for _, w := range widgets {
-		dims := w(gtx)
-		gtx.Constraints.Max.Y -= dims.Size.Y
-		op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
-	}
-}
-
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	tr := tl.trace
 	var first, last trace.Timestamp = -1, -1
@@ -667,17 +657,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 		// Draw axis and goroutines
-		Stack(gtx,
-			func(gtx layout.Context) layout.Dimensions {
-				dims := tl.axis.Layout(gtx)
-				axisHeight = dims.Size.Y
-				return dims
-			},
-			func(gtx layout.Context) layout.Dimensions {
-				dims, aws := tl.layoutActivities(gtx)
-				tl.prevFrame.displayedAws = aws
-				return dims
-			})
+		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			dims := tl.axis.Layout(gtx)
+			axisHeight = dims.Size.Y
+			return dims
+		}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			dims, aws := tl.layoutActivities(gtx)
+			tl.prevFrame.displayedAws = aws
+			return dims
+		}))
 
 		// Draw zoom selection
 		if tl.zoomSelection.active {
@@ -3260,6 +3248,9 @@ func (notif *Notification) Layout(gtx layout.Context, theme *theme.Theme) layout
 func BorderedText(gtx layout.Context, th *theme.Theme, s string) layout.Dimensions {
 	return mywidget.Bordered{Color: colors[colorWindowBorder], Width: windowBorderDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
+		// rendered as part of a flex child.
+		gtx.Constraints.Min = image.Pt(0, 0)
 		var padding = gtx.Dp(windowPaddingDp)
 
 		macro := op.Record(gtx.Ops)
