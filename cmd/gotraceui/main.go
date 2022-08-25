@@ -2479,6 +2479,9 @@ func (w *MainWindow) Run(win *app.Window) error {
 				win.Invalidate()
 			}
 
+		case gid := <-w.notifyGoroutineWindowClosed:
+			delete(w.goroutineWindows, gid)
+
 		case e := <-win.Events():
 			switch ev := e.(type) {
 			case system.DestroyEvent:
