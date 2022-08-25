@@ -28,6 +28,7 @@ None of these controls are final. Users without a middle mouse button will have 
 | C                           | Toggle compact display                                                      |
 | G                           | Open a goroutine selector                                                   |
 | T                           | Toggle displaying tooltips; only spans -> none -> both spans and goroutines |
+| Ctrl + Z                    | Undo navigations (works most of the time)                                   |
 
 ## Notes
 

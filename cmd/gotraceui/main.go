@@ -168,6 +168,15 @@ const (
 	showTooltipsNone
 )
 
+// TODO(dh): is there any point in making this configurable?
+const maxLocationHistoryEntries = 1024
+
+type LocationHistoryEntry struct {
+	start trace.Timestamp
+	end   trace.Timestamp
+	y     int
+}
+
 type Timeline struct {
 	theme *theme.Theme
 	trace *Trace
@@ -179,7 +188,8 @@ type Timeline struct {
 	end   trace.Timestamp
 	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.y specifies the y of that infinite
 	// canvas that the activity section's y == 0 is displaying.
-	y int
+	y               int
+	locationHistory []LocationHistoryEntry
 	// All activities. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
 	activities []*ActivityWidget
 	scrollbar  widget.Scrollbar
@@ -233,6 +243,65 @@ type Timeline struct {
 	}
 }
 
+func (tl *Timeline) rememberLocation() {
+	e := LocationHistoryEntry{
+		start: tl.start,
+		end:   tl.end,
+		y:     tl.y,
+	}
+	if o, ok := tl.peekLocationHistory(); ok && o == e {
+		// don't record duplicate locations
+		return
+	}
+	if len(tl.locationHistory) == maxLocationHistoryEntries {
+		copy(tl.locationHistory, tl.locationHistory[1:])
+		tl.locationHistory[len(tl.locationHistory)-1] = e
+	} else {
+		tl.locationHistory = append(tl.locationHistory, e)
+	}
+}
+
+// navigateTo modifes the timeline's start, end and y values, recording the previous location in the undo stack.
+// navigateTo rejects invalid operations, like setting start = end.
+func (tl *Timeline) navigateTo(start, end trace.Timestamp, y int) {
+	// TODO(dh): implement animation
+
+	if start == tl.start && end == tl.end && y == tl.y {
+		// We're already there, do nothing. In particular, don't push to the location history.
+		return
+	}
+
+	if start == end {
+		// Cannot zoom to a zero width area
+		return
+	}
+
+	tl.rememberLocation()
+
+	tl.start = start
+	tl.end = end
+	tl.y = y
+}
+
+func (tl *Timeline) peekLocationHistory() (LocationHistoryEntry, bool) {
+	if len(tl.locationHistory) == 0 {
+		return LocationHistoryEntry{}, false
+	}
+	return tl.locationHistory[len(tl.locationHistory)-1], true
+}
+
+func (tl *Timeline) popLocationHistory() (LocationHistoryEntry, bool) {
+	// XXX support redo
+
+	if len(tl.locationHistory) == 0 {
+		return LocationHistoryEntry{}, false
+	}
+	n := len(tl.locationHistory) - 1
+	e := tl.locationHistory[n]
+	tl.locationHistory = tl.locationHistory[:n]
+	return e, true
+}
+
 func (tl *Timeline) unchanged() bool {
 	if profiling {
 		return false
@@ -276,11 +345,12 @@ func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 		return
 	}
 
-	tl.start = start
-	tl.end = end
+	tl.navigateTo(start, end, tl.y)
 }
 
 func (tl *Timeline) startDrag(pos f32.Point) {
+	tl.rememberLocation()
+
 	tl.drag.clickAt = pos
 	tl.drag.active = true
 	tl.drag.start = tl.start
@@ -306,6 +376,9 @@ func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
 }
 
 func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
+	// TODO(dh): implement location history for zooming. We shouldn't record one entry per call to zoom, and instead
+	// only record on calls that weren't immediately preceeded by other calls to zoom.
+
 	// FIXME(dh): repeatedly zooming in and out doesn't cancel each other out. Fix that.
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
@@ -488,8 +561,8 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	if first != -1 && last == -1 {
 		panic("unreachable")
 	}
-	tl.start = first
-	tl.end = last
+
+	tl.navigateTo(first, last, tl.y)
 }
 
 func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
@@ -498,7 +571,7 @@ func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	for _, og := range tl.activities {
 		if g == og.item {
 			// TODO(dh): show goroutine at center of window, not the top
-			tl.y = off
+			tl.navigateTo(tl.start, tl.end, off)
 			return
 		}
 		off += tl.activityHeight(gtx) + gtx.Dp(activityGapDp)
@@ -521,15 +594,24 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			if ev.State == key.Press {
 				switch ev.Name {
 				case key.NameHome:
+					// TODO(dh): use ev.Modifiers.Contain helper, here and elsewhere
 					switch {
 					case ev.Modifiers&key.ModCtrl != 0:
 						tl.zoomToFitCurrentView(gtx)
 					case ev.Modifiers&key.ModShift != 0:
 						d := tl.end - tl.start
-						tl.start = 0
-						tl.end = tl.start + d
+						tl.navigateTo(0, d, tl.y)
 					case ev.Modifiers == 0:
-						tl.y = 0
+						tl.navigateTo(tl.start, tl.end, 0)
+					}
+
+				case "Z":
+					if ev.Modifiers.Contain(key.ModCtrl) {
+						if e, ok := tl.popLocationHistory(); ok {
+							tl.start = e.start
+							tl.end = e.end
+							tl.y = e.y
+						}
 					}
 
 				case "X":
@@ -621,8 +703,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			if spans := aw.clickedSpans; len(spans) > 0 {
 				start := tr.Event(spans[0].event()).Ts
 				end := spans[len(spans)-1].end
-				tl.start = start
-				tl.end = end
+				tl.navigateTo(start, end, tl.y)
 				break
 			}
 		}
@@ -652,7 +733,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 			Grab:         tl.drag.active,
 		}.Add(gtx.Ops)
-		key.InputOp{Tag: tl, Keys: "C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 		// Draw axis and goroutines
