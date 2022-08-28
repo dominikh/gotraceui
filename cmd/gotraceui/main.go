@@ -181,6 +181,8 @@ type Timeline struct {
 	theme *theme.Theme
 	trace *Trace
 
+	debugWindow *DebugWindow
+
 	clickedGoroutineActivities []*Goroutine
 
 	// The region of the timeline that we're displaying, measured in nanoseconds
@@ -715,6 +717,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 
 		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)
+		tl.debugWindow.tlPxPerNs.addValue(gtx.Now, 1.0/float64(tl.nsPerPx))
 
 		if debug {
 			if tl.end < tl.start {
@@ -2495,6 +2498,8 @@ type MainWindow struct {
 
 	notifyGoroutineWindowClosed chan uint64
 	goroutineWindows            map[uint64]*GoroutineWindow
+
+	debugWindow *DebugWindow
 }
 
 func NewMainWindow() *MainWindow {
@@ -2503,6 +2508,7 @@ func NewMainWindow() *MainWindow {
 		commands:                    make(chan Command, 128),
 		notifyGoroutineWindowClosed: make(chan uint64, 16),
 		goroutineWindows:            make(map[uint64]*GoroutineWindow),
+		debugWindow:                 NewDebugWindow(),
 	}
 
 	win.tl.theme = win.theme
@@ -2522,6 +2528,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 	state := "empty"
 	var progress float32
 	var err error
+
 	for {
 		select {
 		case cmd := <-w.commands:
@@ -2557,6 +2564,25 @@ func (w *MainWindow) Run(win *app.Window) error {
 			case system.FrameEvent:
 				gtx := layout.NewContext(&ops, ev)
 				gtx.Constraints.Min = image.Point{}
+
+				for _, ev := range gtx.Events(profileTag) {
+					// Yup, profile.Event only contains a string. No structured access to data.
+					fields := strings.Fields(ev.(profile.Event).Timings)
+					if len(fields) > 0 && strings.HasPrefix(fields[0], "tot:") {
+						var s string
+						if fields[0] == "tot:" {
+							s = fields[1]
+						} else {
+							s = strings.TrimPrefix(fields[0], "tot:")
+						}
+						// Either it parses fine, or d is undefined and will likely be obvious in the debug grpah.
+						d, _ := time.ParseDuration(s)
+						// We're using gtx.Now because events don't have timestamps associated with them. Hopefully
+						// event creation isn't too far removed from this code.
+						w.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
+					}
+				}
+				profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 				// Fill background
 				paint.Fill(gtx.Ops, colors[colorBackground])
@@ -2640,19 +2666,16 @@ func (w *MainWindow) Run(win *app.Window) error {
 						}
 					}
 
-					for _, ev := range gtx.Events(profileTag) {
-						if false {
-							fmt.Println(ev)
-						}
-					}
-					profile.Op{Tag: profileTag}.Add(gtx.Ops)
-
 					w.tl.Layout(gtx)
 
 					if cpuprofiling {
 						op.InvalidateOp{}.Add(&ops)
 					}
 				}
+
+				w.debugWindow.tlStart.addValue(gtx.Now, float64(w.tl.start))
+				w.debugWindow.tlEnd.addValue(gtx.Now, float64(w.tl.end))
+				w.debugWindow.tlY.addValue(gtx.Now, float64(w.tl.y))
 
 				ev.Frame(&ops)
 			}
@@ -2662,6 +2685,11 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 func main() {
 	mwin := NewMainWindow()
+	go func() {
+		win := app.NewWindow(app.Title("gotraceui - debug window"))
+		mwin.debugWindow.Run(win)
+	}()
+
 	commands := make(chan Command, 16)
 	errs := make(chan error)
 	go func() {
@@ -2688,6 +2716,7 @@ func main() {
 		// XXX handle error
 		errs <- mwin.Run(win)
 	}()
+
 	go func() {
 		if cpuprofiling {
 			f, _ := os.Create("cpu.pprof")
@@ -2992,11 +3021,12 @@ func (w *MainWindow) loadTrace(t *Trace) {
 	}
 
 	w.tl = Timeline{
-		start: start,
-		end:   end,
-		gs:    gsByID,
-		theme: w.theme,
-		trace: t,
+		start:       start,
+		end:         end,
+		gs:          gsByID,
+		theme:       w.theme,
+		trace:       t,
+		debugWindow: w.debugWindow,
 	}
 	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
 	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
