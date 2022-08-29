@@ -104,7 +104,7 @@ import (
 // TODO(dh): Go 1.19 adds CPU samples to the execution trace (if profiling is enabled). This adds the new event
 //   EvCPUSample, and updates the trace's version to Go 1.19.
 
-const debug = true
+// TODO(dh): turn these options into command line flags
 const cpuprofiling = false
 const memprofiling = false
 const profiling = cpuprofiling || memprofiling
@@ -1819,16 +1819,6 @@ type SpanTooltip struct {
 	theme  *theme.Theme
 }
 
-// For debugging
-func dumpFrames(frames []*trace.Frame) {
-	if len(frames) == 0 {
-		fmt.Println("no frames")
-	}
-	for _, f := range frames {
-		fmt.Println(f)
-	}
-}
-
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	tr := tt.tl.trace
 	var label string
@@ -2806,10 +2796,12 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 func main() {
 	mwin := NewMainWindow()
-	go func() {
-		win := app.NewWindow(app.Title("gotraceui - debug window"))
-		mwin.debugWindow.Run(win)
-	}()
+	if debug {
+		go func() {
+			win := app.NewWindow(app.Title("gotraceui - debug window"))
+			mwin.debugWindow.Run(win)
+		}()
+	}
 
 	commands := make(chan Command, 16)
 	errs := make(chan error)

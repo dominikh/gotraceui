@@ -1,9 +1,10 @@
+//go:build debug
+
 package main
 
 import (
 	"image/color"
 	"math"
-	"sync"
 	"time"
 
 	"honnef.co/go/gotraceui/theme"
@@ -20,20 +21,8 @@ import (
 	"gioui.org/widget"
 )
 
-type debugGraph struct {
-	title           string
-	width           time.Duration
-	background      color.NRGBA
-	fixedZero       bool
-	stickyLastValue bool
-
-	mu     sync.Mutex
-	values []struct {
-		when time.Time
-		val  float64
-	}
-}
-
+const debug = true
+ 
 func (g *debugGraph) addValue(ts time.Time, val float64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -156,16 +145,6 @@ func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensio
 			}),
 		)
 	})
-}
-
-type DebugWindow struct {
-	tlStart           debugGraph
-	tlEnd             debugGraph
-	tlY               debugGraph
-	tlPxPerNs         debugGraph
-	animationProgress debugGraph
-	animationRatio    debugGraph
-	frametimes        debugGraph
 }
 
 func NewDebugWindow() *DebugWindow {
