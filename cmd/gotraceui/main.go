@@ -1051,7 +1051,7 @@ type ActivityWidget struct {
 	highlightSpan   func(aw *ActivityWidget, spans []Span) bool
 	invalidateCache func(aw *ActivityWidget) bool
 	spanLabel       func(aw *ActivityWidget, spans []Span) []string
-	spanColor       func(aw *ActivityWidget, spans []Span) colorIndex
+	spanColor       func(aw *ActivityWidget, spans []Span) [2]colorIndex
 	theme           *theme.Theme
 	tl              *Timeline
 	item            any
@@ -1068,7 +1068,7 @@ type ActivityWidget struct {
 	hoveredSpans []Span
 
 	// op lists get reused between frames to avoid generating garbage
-	ops          [colorStateLast]op.Ops
+	ops          [colorStateLast * 2]op.Ops
 	outlinesOps  reusableOps
 	highlightOps reusableOps
 	eventsOps    reusableOps
@@ -1135,11 +1135,18 @@ var spanStateLabels = [...][]string{
 	stateLast:                    nil,
 }
 
-func defaultSpanColor(aw *ActivityWidget, spans []Span) colorIndex {
+func defaultSpanColor(aw *ActivityWidget, spans []Span) [2]colorIndex {
 	if len(spans) == 1 {
-		return stateColors[spans[0].state]
+		return [2]colorIndex{stateColors[spans[0].state], 0}
 	} else {
-		return colorStateMerged
+		c := stateColors[spans[0].state]
+		for _, s := range spans[1:] {
+			cc := stateColors[s.state]
+			if cc != c {
+				return [2]colorIndex{colorStateMerged, 0}
+			}
+		}
+		return [2]colorIndex{c, colorStateMerged}
 	}
 }
 
@@ -1260,30 +1267,42 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			return out
 
 		},
-		spanColor: func(aw *ActivityWidget, spans []Span) colorIndex {
-			if len(spans) != 1 {
-				return colorStateMerged
-			}
-			gid := tl.trace.Events[spans[0].event()].G
-			idx, found := sort.Find(len(tl.trace.gs), func(idx int) int {
-				ogid := tl.trace.gs[idx].id
-				if gid > ogid {
-					return 1
-				} else if gid == ogid {
-					return 0
-				} else {
-					return -1
+		spanColor: func(aw *ActivityWidget, spans []Span) [2]colorIndex {
+			do := func(aw *ActivityWidget, s Span) colorIndex {
+				gid := aw.tl.trace.Events[s.event()].G
+				idx, found := sort.Find(len(aw.tl.trace.gs), func(idx int) int {
+					ogid := aw.tl.trace.gs[idx].id
+					if gid > ogid {
+						return 1
+					} else if gid == ogid {
+						return 0
+					} else {
+						return -1
+					}
+				})
+				if !found {
+					panic(fmt.Sprintf("couldn't find goroutine %d", gid))
 				}
-			})
-			if !found {
-				panic(fmt.Sprintf("couldn't find goroutine %d", gid))
+				switch fn := aw.tl.trace.gs[idx].function; fn {
+				case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
+					return colorStateGC
+				default:
+					// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
+					return stateColors[s.state]
+				}
 			}
-			switch fn := tl.trace.gs[idx].function; fn {
-			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
-				return colorStateGC
-			default:
-				// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
-				return defaultSpanColor(aw, spans)
+
+			if len(spans) == 1 {
+				return [2]colorIndex{do(aw, spans[0]), 0}
+			} else {
+				c := do(aw, spans[0])
+				for _, s := range spans[1:] {
+					cc := do(aw, s)
+					if cc != c {
+						return [2]colorIndex{colorStateMerged, 0}
+					}
+				}
+				return [2]colorIndex{c, colorStateMerged}
 			}
 		},
 		tl:    tl,
@@ -1431,8 +1450,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	for i := range aw.ops {
 		aw.ops[i].Reset()
 	}
+	// one path per single-color span and one path per merged+color gradient
+	//
 	//gcassert:noescape
-	paths := [colorStateLast]clip.Path{}
+	paths := [colorStateLast * 2]clip.Path{}
 
 	var outlinesPath clip.Path
 	var highlightPath clip.Path
@@ -1459,11 +1480,15 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			aw.hoveredSpans = dspSpans
 		}
 
-		var c colorIndex
+		var cs [2]colorIndex
 		if aw.spanColor != nil {
-			c = aw.spanColor(aw, dspSpans)
+			cs = aw.spanColor(aw, dspSpans)
 		} else {
-			c = defaultSpanColor(aw, dspSpans)
+			cs = defaultSpanColor(aw, dspSpans)
+		}
+
+		if cs[1] != 0 && cs[1] != colorStateMerged {
+			panic(fmt.Sprintf("two-color spans are only supported with color₁ == colorStateMerged, got %v", cs))
 		}
 
 		var minP f32.Point
@@ -1496,7 +1521,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 		maxP.Y -= float32(spanBorderWidth)
 
-		p := &paths[c]
+		pathID := cs[0]
+		if cs[1] != 0 {
+			pathID += colorStateLast
+		}
+		p := &paths[pathID]
 		p.MoveTo(minP)
 		p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
 		p.LineTo(maxP)
@@ -1669,7 +1698,19 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	// Then draw the spans
 	for cIdx := range paths {
 		p := &paths[cIdx]
-		paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
+		if cIdx < int(colorStateLast) {
+			paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
+		} else {
+			stack := clip.Outline{Path: p.End()}.Op().Push(gtx.Ops)
+			paint.LinearGradientOp{
+				Stop1:  f32.Pt(0, 5),
+				Color1: colors[cIdx-int(colorStateLast)],
+				Stop2:  f32.Pt(0, 20),
+				Color2: colors[colorStateMerged],
+			}.Add(gtx.Ops)
+			paint.PaintOp{}.Add(gtx.Ops)
+			stack.Pop()
+		}
 	}
 	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: highlightPath.End()}.Op())
 	paint.FillShape(gtx.Ops, toColor(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
@@ -2951,7 +2992,7 @@ var colors = [...]color.NRGBA{
 	colorSpanOutline:    toColor(0x000000FF),
 }
 
-type colorIndex int
+type colorIndex uint8
 
 const (
 	colorStateUnknown colorIndex = iota
