@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -16,10 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/exp/constraints"
-	"golang.org/x/exp/slices"
-	"golang.org/x/image/math/fixed"
-	"golang.org/x/text/message"
+	mylayout "honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	mywidget "honnef.co/go/gotraceui/widget"
@@ -39,9 +35,12 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
-	"gioui.org/x/eventx"
 	"gioui.org/x/outlay"
 	"gioui.org/x/poortext"
+	"golang.org/x/exp/constraints"
+	"golang.org/x/exp/slices"
+	"golang.org/x/image/math/fixed"
+	"golang.org/x/text/message"
 )
 
 // A note on Ps
@@ -117,9 +116,6 @@ var (
 // TODO(dh): make configurable. 0, 250ms and 500ms would make for good presets.
 const animateLength = 250 * time.Millisecond
 
-var errExitAfterParsing = errors.New("we were instructed to exit after parsing")
-var errExitAfterLoading = errors.New("we were instructed to exit after loading")
-
 const (
 	// TODO(dh): compute min tick distance based on font size
 	minTickDistanceDp      unit.Dp = 20
@@ -136,9 +132,6 @@ const (
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
 	spanBorderWidthDp unit.Dp = 1
-
-	windowPaddingDp unit.Dp = 2
-	windowBorderDp  unit.Dp = 2
 )
 
 type EventID uint64
@@ -1888,7 +1881,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		gcAssistD, gcAssistPct,
 		runningD, runningPct)
 
-	return Tooltip{theme: tt.theme}.Layout(gtx, l)
+	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
 }
 
 type SpanTooltip struct {
@@ -2044,15 +2037,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += fmt.Sprintf("\nIn: %s", at)
 	}
 
-	return Tooltip{theme: tt.theme}.Layout(gtx, label)
-}
-
-type Tooltip struct {
-	theme *theme.Theme
-}
-
-func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
-	return BorderedText(gtx, tt.theme, l)
+	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, label)
 }
 
 type Processor struct {
@@ -2711,7 +2696,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 	profileTag := new(int)
 	var ops op.Ops
 
-	var ww *ListWindow[*Goroutine]
+	var ww *theme.ListWindow[*Goroutine]
 	var shortcuts int
 
 	// TODO(dh): use enum for state
@@ -2810,9 +2795,9 @@ func (w *MainWindow) Run(win *app.Window) error {
 						switch ev := ev.(type) {
 						case key.Event:
 							if ev.State == key.Press && ev.Name == "G" && ww == nil {
-								ww = NewListWindow[*Goroutine](w.theme)
+								ww = theme.NewListWindow[*Goroutine](w.theme)
 								ww.SetItems(w.trace.gs)
-								ww.filter = func(item *Goroutine, f string) bool {
+								ww.Filter = func(item *Goroutine, f string) bool {
 									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
 									// and allows matching goroutines by ID.
 									return strings.Contains(item.function, f)
@@ -2975,14 +2960,11 @@ var colors = [...]color.NRGBA{
 	colorStateMerged:  toColor(0xB9BB63FF),
 	colorStateUnknown: toColor(0xFFFF00FF),
 
-	colorBackground:       toColor(0xffffeaFF),
-	colorZoomSelection:    toColor(0xeeee9e99),
-	colorCursor:           toColor(0x000000FF),
-	colorTick:             toColor(0x000000FF),
-	colorTickLabel:        toColor(0x000000FF),
-	colorWindowText:       toColor(0x000000FF),
-	colorWindowBackground: toColor(0xEEFFEEFF),
-	colorWindowBorder:     toColor(0x57A8A8FF),
+	colorBackground:    toColor(0xffffeaFF),
+	colorZoomSelection: toColor(0xeeee9e99),
+	colorCursor:        toColor(0x000000FF),
+	colorTick:          toColor(0x000000FF),
+	colorTickLabel:     toColor(0x000000FF),
 
 	colorActivityLabel:  toColor(0x888888FF),
 	colorActivityBorder: toColor(0xDDDDDDFF),
@@ -3019,10 +3001,6 @@ const (
 	colorCursor
 	colorTick
 	colorTickLabel
-
-	colorWindowText
-	colorWindowBackground
-	colorWindowBorder
 
 	colorActivityLabel
 	colorActivityBorder
@@ -3294,205 +3272,6 @@ func round32(f float32) float32 {
 	return float32(math.Round(float64(f)))
 }
 
-type listWindowItem[T any] struct {
-	index int
-	item  T
-	s     string
-	click widget.Clickable
-}
-
-type ListWindow[T fmt.Stringer] struct {
-	filter func(item T, f string) bool
-
-	items []listWindowItem[T]
-
-	filtered []int
-	// index of the selected item in the filtered list
-	index     int
-	done      bool
-	cancelled bool
-
-	theme *theme.Theme
-	input widget.Editor
-	list  widget.List
-}
-
-func NewListWindow[T fmt.Stringer](th *theme.Theme) *ListWindow[T] {
-	return &ListWindow[T]{
-		theme: th,
-		input: widget.Editor{
-			SingleLine: true,
-			Submit:     true,
-		},
-		list: widget.List{
-			List: layout.List{
-				Axis: layout.Vertical,
-			},
-		},
-	}
-}
-
-func (w *ListWindow[T]) SetItems(items []T) {
-	w.items = make([]listWindowItem[T], len(items))
-	w.filtered = make([]int, len(items))
-	for i, item := range items {
-		w.items[i] = listWindowItem[T]{
-			item:  item,
-			index: i,
-			s:     item.String(),
-		}
-		w.filtered[i] = i
-	}
-}
-
-func (w *ListWindow[T]) Cancelled() bool { return w.cancelled }
-func (w *ListWindow[T]) Confirmed() (T, bool) {
-	if !w.done {
-		var zero T
-		return zero, false
-	}
-	w.done = false
-	return w.items[w.filtered[w.index]].item, true
-}
-
-func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-
-	key.InputOp{Tag: w, Keys: "↓|↑|⎋"}.Add(gtx.Ops)
-
-	var spy *eventx.Spy
-
-	dims := mywidget.Bordered{Color: colors[colorWindowBorder], Width: windowBorderDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-		spy, gtx = eventx.Enspy(gtx)
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-
-		paint.Fill(gtx.Ops, w.theme.Palette.Background)
-
-		fn2 := func(gtx layout.Context) layout.Dimensions {
-			return theme.List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
-				// XXX use constants for colors
-				item := &w.items[w.filtered[index]]
-				return item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					var c color.NRGBA
-					if index == w.index {
-						// XXX make this pretty, don't just change the font color
-						c = toColor(0xFF0000FF)
-					} else if item.click.Hovered() {
-						// XXX make this pretty, don't just change the font color
-						c = toColor(0xFF00FFFF)
-					} else {
-						c = toColor(0x000000FF)
-					}
-					return mywidget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.s)
-				})
-			})
-		}
-
-		flex := layout.Flex{
-			Axis: layout.Vertical,
-		}
-		editor := theme.Editor(w.theme, &w.input, "")
-		editor.Editor.Focus()
-		return flex.Layout(gtx, layout.Rigid(editor.Layout), layout.Flexed(1, fn2))
-	})
-
-	// The editor widget selectively handles the up and down arrow keys, depending on the contents of the text field and
-	// the position of the cursor. This means that our own InputOp won't always be getting all events. But due to the
-	// selectiveness of the editor's InputOp, we can't fully rely on it, either. We need to combine the events of the
-	// two.
-	//
-	// To be consistent, we handle all events after layout of the nested widgets, to have the same frame latency for all
-	// events.
-	handleKey := func(ev key.Event) {
-		if ev.State == key.Press {
-			firstVisible := w.list.Position.First
-			lastVisible := w.list.Position.First + w.list.Position.Count - 1
-			if w.list.Position.Offset > 0 {
-				// The last element might be barely visible, even just one pixel. and we still want to scroll in that
-				// case
-				firstVisible++
-			}
-			if w.list.Position.OffsetLast < 0 {
-				// The last element might be barely visible, even just one pixel. and we still want to scroll in that
-				// case
-				lastVisible--
-			}
-			visibleCount := lastVisible - firstVisible + 1
-
-			switch ev.Name {
-			case "↑":
-				w.index--
-				if w.index < firstVisible {
-					// XXX compute the correct position. the user might have scrolled the list via its scrollbar.
-					w.list.Position.First--
-				}
-				if w.index < 0 {
-					w.index = len(w.filtered) - 1
-					w.list.Position.First = w.index - visibleCount + 1
-				}
-			case "↓":
-				w.index++
-				if w.index > lastVisible {
-					// XXX compute the correct position. the user might have scrolled the list via its scrollbar.
-					w.list.Position.First++
-				}
-				if w.index >= len(w.filtered) {
-					w.index = 0
-					w.list.Position.First = 0
-					w.list.Position.Offset = 0
-				}
-			case "⎋": // Escape
-				w.cancelled = true
-			}
-		}
-	}
-	for _, evs := range spy.AllEvents() {
-		for _, ev := range evs.Items {
-			if ev, ok := ev.(key.Event); ok {
-				handleKey(ev)
-			}
-		}
-	}
-	for _, ev := range w.input.Events() {
-		switch ev.(type) {
-		case widget.ChangeEvent:
-			w.filtered = w.filtered[:0]
-			f := w.input.Text()
-			for _, item := range w.items {
-				if w.filter(item.item, f) {
-					w.filtered = append(w.filtered, item.index)
-				}
-			}
-			// TODO(dh): if the previously selected entry hasn't been filtered away, then it should stay selected.
-			if w.index >= len(w.filtered) {
-				// XXX if there are no items, then this sets w.index to -1, causing two bugs: hitting return will panic,
-				// and once there are items again, none of them will be selected
-				w.index = len(w.filtered) - 1
-			}
-		case widget.SubmitEvent:
-			if len(w.filtered) != 0 {
-				w.done = true
-			}
-		}
-	}
-	for i, idx := range w.filtered {
-		if w.items[idx].click.Clicked() {
-			w.index = i
-			w.done = true
-		}
-	}
-
-	for _, ev := range gtx.Events(w) {
-		switch ev := ev.(type) {
-		case key.Event:
-			handleKey(ev)
-		}
-	}
-
-	return dims
-}
-
 /*
    Goroutine window, things to display:
 
@@ -3514,13 +3293,6 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
    - Maybe something about MMU?
 */
 
-func Constrain(gtx layout.Context, c clip.Rect, w layout.Widget) layout.Dimensions {
-	defer c.Push(gtx.Ops).Pop()
-	gtx.Constraints.Max.X = c.Max.X - c.Min.X
-	gtx.Constraints.Max.Y = c.Max.Y - c.Min.Y
-	return w(gtx)
-}
-
 //gcassert:inline
 func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 	gtx.Ops = ops
@@ -3537,7 +3309,7 @@ func (notif *Notification) Show(gtx layout.Context, msg string) {
 	notif.shownAt = gtx.Now
 }
 
-func (notif *Notification) Layout(gtx layout.Context, theme *theme.Theme) layout.Dimensions {
+func (notif *Notification) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	if gtx.Now.After(notif.shownAt.Add(1000 * time.Millisecond)) {
 		return layout.Dimensions{}
 	}
@@ -3547,7 +3319,7 @@ func (notif *Notification) Layout(gtx layout.Context, theme *theme.Theme) layout
 	ngtx := gtx
 	ngtx.Constraints.Max.X = 500
 	macro := op.Record(gtx.Ops)
-	dims := BorderedText(ngtx, theme, notif.message)
+	dims := theme.BorderedText(ngtx, th, notif.message)
 	call := macro.Stop()
 
 	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
@@ -3556,90 +3328,6 @@ func (notif *Notification) Layout(gtx layout.Context, theme *theme.Theme) layout
 	op.InvalidateOp{At: notif.shownAt.Add(1000 * time.Millisecond)}.Add(gtx.Ops)
 
 	return dims
-}
-
-func BorderedText(gtx layout.Context, th *theme.Theme, s string) layout.Dimensions {
-	return mywidget.Bordered{Color: colors[colorWindowBorder], Width: windowBorderDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
-		// rendered as part of a flex child.
-		gtx.Constraints.Min = image.Pt(0, 0)
-		var padding = gtx.Dp(windowPaddingDp)
-
-		macro := op.Record(gtx.Ops)
-		paint.ColorOp{Color: colors[colorWindowText]}.Add(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, th.Shaper, text.Font{}, th.TextSize, s)
-		call := macro.Stop()
-
-		total := clip.Rect{
-			Min: image.Pt(0, 0),
-			Max: image.Pt(dims.Size.X+2*padding, dims.Size.Y+2*padding),
-		}
-
-		paint.FillShape(gtx.Ops, colors[colorWindowBackground], total.Op())
-
-		stack := op.Offset(image.Pt(padding, padding)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		stack.Pop()
-
-		return layout.Dimensions{
-			Baseline: dims.Baseline,
-			Size:     total.Max,
-		}
-	})
-}
-
-type SmallGrid struct {
-	Grid          outlay.Grid
-	RowPadding    int
-	ColumnPadding int
-}
-
-func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, sizeEstimator outlay.Cell, cellFunc outlay.Cell) layout.Dimensions {
-	colWidths := make([]int, cols)
-	// Storing dims isn't strictly necessarily, since we only need to know the row height (which Grid assumes is the
-	// same for each row) and the column widths, as outlay.Grid passes an exact constraint to the cell function with
-	// those dimensions. However, as written, the code depends less on implementation details.
-	dims := make([]layout.Dimensions, rows*cols)
-
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
-			dim := sizeEstimator(gtx, row, col)
-			dims[row*cols+col] = dim
-			if dim.Size.X > colWidths[col] {
-				colWidths[col] = dim.Size.X
-			}
-		}
-	}
-
-	dimmer := func(axis layout.Axis, index, constraint int) int {
-		switch axis {
-		case layout.Vertical:
-			// outlay.Grid doesn't support different row heights, so we can return any of them
-			return dims[0].Size.Y + sg.RowPadding
-		case layout.Horizontal:
-			return colWidths[index] + sg.ColumnPadding
-		default:
-			panic("unreachable")
-		}
-	}
-
-	// outlay.Grid fills the Max constraint
-	height := rows*(dims[0].Size.Y+sg.RowPadding) - sg.RowPadding
-	var width int
-	for _, cw := range colWidths {
-		width += cw + sg.ColumnPadding
-	}
-	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(width, height))
-	wrapper := func(gtx layout.Context, row, col int) layout.Dimensions {
-		ogtx := gtx
-		gtx.Constraints.Min.X -= sg.ColumnPadding
-		gtx.Constraints.Max.X -= sg.ColumnPadding
-		dims := cellFunc(gtx, row, col)
-		dims.Size = ogtx.Constraints.Constrain(dims.Size)
-		return dims
-	}
-	return sg.Grid.Layout(gtx, rows, cols, dimmer, wrapper)
 }
 
 type GoroutineStats struct {
@@ -3843,7 +3531,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 		}
 	}
 
-	grid := SmallGrid{
+	grid := mylayout.SmallGrid{
 		RowPadding:    0,
 		ColumnPadding: gtx.Dp(15),
 	}
@@ -4010,11 +3698,11 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.updateFilter()
 
 	var ops op.Ops
-	statsFoldable := Foldable{
+	statsFoldable := theme.Foldable{
 		Title: "Statistics",
 		Theme: gwin.theme,
 	}
-	eventsFoldable := Foldable{
+	eventsFoldable := theme.Foldable{
 		Title: "Events",
 		Theme: gwin.theme,
 	}
@@ -4085,50 +3773,6 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	}
 
 	return nil
-}
-
-type Foldable struct {
-	Theme  *theme.Theme
-	Title  string
-	Closed widget.Bool
-}
-
-func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dimensions {
-	var size image.Point
-	dims := f.Closed.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		// TODO(dh): show an icon indicating state of the foldable. We tried using ▶ and ▼ but the Go font only has ▼…
-		var l string
-		if f.Closed.Value {
-			l = "[C] " + f.Title
-		} else {
-			l = "[O] " + f.Title
-		}
-		gtx.Constraints.Min.Y = 0
-		paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
-		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, f.Theme.Shaper, text.Font{Weight: text.Bold}, f.Theme.TextSize, l)
-
-	})
-	size = dims.Size
-
-	if !f.Closed.Value {
-		defer op.Offset(image.Pt(0, size.Y)).Push(gtx.Ops).Pop()
-		gtx.Constraints.Max.Y -= size.Y
-		dims := contents(gtx)
-
-		max := func(a, b int) int {
-			if a >= b {
-				return a
-			} else {
-				return b
-			}
-		}
-		size.X = max(size.X, dims.Size.X)
-		size.Y += dims.Size.Y
-	}
-
-	size = gtx.Constraints.Constrain(size)
-	return layout.Dimensions{Size: size}
 }
 
 type Events struct {

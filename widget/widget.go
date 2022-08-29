@@ -14,6 +14,8 @@ import (
 	"gioui.org/widget"
 )
 
+// TODO(dh): Bordered, Border, and TextLine probably belong in the theme package instead.
+
 // Bordered renders a widget and then draws a border around it, with constraints adjusted to make sure there is room for
 // the border.
 type Bordered struct {

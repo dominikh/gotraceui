@@ -7,6 +7,7 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -21,18 +22,27 @@ type Theme struct {
 	Palette       Palette
 	TextSize      unit.Sp
 	TextSizeLarge unit.Sp
+
+	WindowPadding unit.Dp
+	WindowBorder  unit.Dp
 }
 
 type Palette struct {
 	Background color.NRGBA
 	Foreground color.NRGBA
 	Link       color.NRGBA
+
+	WindowBorder     color.NRGBA
+	WindowBackground color.NRGBA
 }
 
 var DefaultPalette = Palette{
 	Background: rgba(0xFFFFEAFF),
 	Foreground: rgba(0x000000FF),
 	Link:       rgba(0x0000FFFF),
+
+	WindowBorder:     rgba(0x000000FF),
+	WindowBackground: rgba(0xEEFFEEFF),
 }
 
 func NewTheme(fontCollection []text.FontFace) *Theme {
@@ -41,6 +51,9 @@ func NewTheme(fontCollection []text.FontFace) *Theme {
 		Shaper:        text.NewCache(fontCollection),
 		TextSize:      12,
 		TextSizeLarge: 14,
+
+		WindowPadding: 2,
+		WindowBorder:  1,
 	}
 }
 
@@ -199,4 +212,89 @@ func clamp1(v float32) float32 {
 func mulAlpha(c color.NRGBA, alpha uint8) color.NRGBA {
 	c.A = uint8(uint32(c.A) * uint32(alpha) / 0xFF)
 	return c
+}
+
+type Foldable struct {
+	// TODO(dh): move state into widget package
+
+	Theme  *Theme
+	Title  string
+	Closed widget.Bool
+}
+
+func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dimensions {
+	var size image.Point
+	dims := f.Closed.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// TODO(dh): show an icon indicating state of the foldable. We tried using ▶ and ▼ but the Go font only has ▼…
+		var l string
+		if f.Closed.Value {
+			l = "[C] " + f.Title
+		} else {
+			l = "[O] " + f.Title
+		}
+		gtx.Constraints.Min.Y = 0
+		paint.ColorOp{Color: f.Theme.Palette.Foreground}.Add(gtx.Ops)
+		pointer.CursorPointer.Add(gtx.Ops)
+		return widget.Label{MaxLines: 1}.Layout(gtx, f.Theme.Shaper, text.Font{Weight: text.Bold}, f.Theme.TextSize, l)
+
+	})
+	size = dims.Size
+
+	if !f.Closed.Value {
+		defer op.Offset(image.Pt(0, size.Y)).Push(gtx.Ops).Pop()
+		gtx.Constraints.Max.Y -= size.Y
+		dims := contents(gtx)
+
+		max := func(a, b int) int {
+			if a >= b {
+				return a
+			} else {
+				return b
+			}
+		}
+		size.X = max(size.X, dims.Size.X)
+		size.Y += dims.Size.Y
+	}
+
+	size = gtx.Constraints.Constrain(size)
+	return layout.Dimensions{Size: size}
+}
+
+type Tooltip struct {
+	Theme *Theme
+}
+
+func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
+	return BorderedText(gtx, tt.Theme, l)
+}
+
+func BorderedText(gtx layout.Context, th *Theme, s string) layout.Dimensions {
+	return mywidget.Bordered{Color: th.Palette.WindowBorder, Width: th.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
+		// rendered as part of a flex child.
+		gtx.Constraints.Min = image.Pt(0, 0)
+		var padding = gtx.Dp(th.WindowPadding)
+
+		macro := op.Record(gtx.Ops)
+		paint.ColorOp{Color: th.Palette.Foreground}.Add(gtx.Ops)
+		dims := widget.Label{}.Layout(gtx, th.Shaper, text.Font{}, th.TextSize, s)
+		call := macro.Stop()
+
+		total := clip.Rect{
+			Min: image.Pt(0, 0),
+			Max: image.Pt(dims.Size.X+2*padding, dims.Size.Y+2*padding),
+		}
+
+		paint.FillShape(gtx.Ops, th.Palette.WindowBackground, total.Op())
+
+		stack := op.Offset(image.Pt(padding, padding)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		stack.Pop()
+
+		return layout.Dimensions{
+			Baseline: dims.Baseline,
+			Size:     total.Max,
+		}
+	})
 }

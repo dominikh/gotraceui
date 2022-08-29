@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"os"
@@ -10,6 +11,11 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/trace"
+)
+
+var (
+	errExitAfterParsing = errors.New("we were instructed to exit after parsing")
+	errExitAfterLoading = errors.New("we were instructed to exit after loading")
 )
 
 type debugGraph struct {
