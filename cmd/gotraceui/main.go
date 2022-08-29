@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"image"
 	"image/color"
@@ -104,12 +105,14 @@ import (
 // TODO(dh): Go 1.19 adds CPU samples to the execution trace (if profiling is enabled). This adds the new event
 //   EvCPUSample, and updates the trace's version to Go 1.19.
 
-// TODO(dh): turn these options into command line flags
-const cpuprofiling = false
-const memprofiling = false
-const profiling = cpuprofiling || memprofiling
-const exitAfterLoading = false
-const exitAfterParsing = false
+var (
+	cpuprofile       string
+	memprofileLoad   string
+	memprofileExit   string
+	disableCaching   bool
+	exitAfterLoading bool
+	exitAfterParsing bool
+)
 
 // TODO(dh): make configurable. 0, 250ms and 500ms would make for good presets.
 const animateLength = 250 * time.Millisecond
@@ -354,7 +357,7 @@ func (tl *Timeline) popLocationHistory() (LocationHistoryEntry, bool) {
 }
 
 func (tl *Timeline) unchanged() bool {
-	if profiling {
+	if disableCaching {
 		return false
 	}
 
@@ -2779,7 +2782,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 					w.tl.Layout(gtx)
 
-					if cpuprofiling {
+					if cpuprofile != "" {
 						op.InvalidateOp{}.Add(&ops)
 					}
 				}
@@ -2795,6 +2798,19 @@ func (w *MainWindow) Run(win *app.Window) error {
 }
 
 func main() {
+	flag.StringVar(&cpuprofile, "debug.cpuprofile", "", "write CPU profile to this file")
+	flag.StringVar(&memprofileLoad, "debug.memprofile-load", "", "write memory profile to this file after loading trace")
+	flag.StringVar(&memprofileExit, "debug.memprofile-exit", "", "write meory profile to this file when exiting")
+	flag.BoolVar(&disableCaching, "debug.disable-caching", false, "Disable caching")
+	flag.BoolVar(&exitAfterLoading, "debug.exit-after-loading", false, "Exit after parsing and processing trace")
+	flag.BoolVar(&exitAfterParsing, "debug.exit-after-parsing", false, "Exit after parsing trace")
+	flag.Parse()
+
+	if len(flag.Args()) != 1 {
+		fmt.Fprintln(os.Stderr, "need one argument: path to trace")
+		os.Exit(1)
+	}
+
 	mwin := NewMainWindow()
 	if debug {
 		go func() {
@@ -2807,12 +2823,9 @@ func main() {
 	errs := make(chan error)
 	go func() {
 		commands <- Command{"setState", "loadingTrace"}
-		t, err := loadTrace(os.Args[1], commands)
-		if memprofiling {
-			f, _ := os.Create("mem_load_done.pprof")
-			runtime.GC()
-			pprof.WriteHeapProfile(f)
-			f.Close()
+		t, err := loadTrace(flag.Args()[0], commands)
+		if memprofileLoad != "" {
+			writeMemprofile(memprofileLoad)
 		}
 		if err == errExitAfterLoading || err == errExitAfterParsing {
 			errs <- err
@@ -2831,9 +2844,13 @@ func main() {
 	}()
 
 	go func() {
-		if cpuprofiling {
-			f, _ := os.Create("cpu.pprof")
-			pprof.StartCPUProfile(f)
+		if cpuprofile != "" {
+			f, err := os.Create(cpuprofile)
+			if err == nil {
+				pprof.StartCPUProfile(f)
+			} else {
+				fmt.Fprintln(os.Stderr, "couldn't write CPU profile:", err)
+			}
 		}
 
 	loop:
@@ -2854,14 +2871,11 @@ func main() {
 			}
 		}
 
-		if cpuprofiling {
+		if cpuprofile != "" {
 			pprof.StopCPUProfile()
 		}
-		if memprofiling {
-			f, _ := os.Create("mem_quitting.pprof")
-			runtime.GC()
-			pprof.WriteHeapProfile(f)
-			f.Close()
+		if memprofileExit != "" {
+			writeMemprofile(memprofileExit)
 		}
 		os.Exit(0)
 	}()

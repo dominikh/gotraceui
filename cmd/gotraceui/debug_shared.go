@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"image/color"
+	"os"
+	"runtime"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -42,5 +45,18 @@ func dumpFrames(frames []*trace.Frame) {
 	}
 	for _, f := range frames {
 		fmt.Println(f)
+	}
+}
+
+func writeMemprofile(s string) {
+	f, err := os.Create(s)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "couldn't write memory profile:", err)
+		return
+	}
+	defer f.Close()
+	runtime.GC()
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		fmt.Fprintln(os.Stderr, "couldn't write memory profile:", err)
 	}
 }
