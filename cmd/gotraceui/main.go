@@ -56,6 +56,7 @@ import (
    - The second GCSTWDone can happen after GCDone
 */
 
+// TODO(dh): disable navigation keybindings such as Home when we're dragging
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
 //   time or should it display the same time, stretched to fill the new space? Tracy does the latter.
 // TODO(dh): button to zoom so far into a span that it no longer gets merged. this has to work recursively, because if
@@ -109,6 +110,9 @@ const memprofiling = false
 const profiling = cpuprofiling || memprofiling
 const exitAfterLoading = false
 const exitAfterParsing = false
+
+// TODO(dh): make configurable. 0, 250ms and 500ms would make for good presets.
+const animateLength = 250 * time.Millisecond
 
 var errExitAfterParsing = errors.New("we were instructed to exit after parsing")
 var errExitAfterLoading = errors.New("we were instructed to exit after loading")
@@ -190,7 +194,22 @@ type Timeline struct {
 	end   trace.Timestamp
 	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.y specifies the y of that infinite
 	// canvas that the activity section's y == 0 is displaying.
-	y               int
+	y int
+
+	animateTo struct {
+		animating bool
+
+		initialStart trace.Timestamp
+		initialEnd   trace.Timestamp
+		initialY     int
+
+		targetStart trace.Timestamp
+		targetEnd   trace.Timestamp
+		targetY     int
+
+		startedAt time.Time
+	}
+
 	locationHistory []LocationHistoryEntry
 	// All activities. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
 	activities []*ActivityWidget
@@ -263,26 +282,56 @@ func (tl *Timeline) rememberLocation() {
 	}
 }
 
-// navigateTo modifes the timeline's start, end and y values, recording the previous location in the undo stack.
-// navigateTo rejects invalid operations, like setting start = end.
-func (tl *Timeline) navigateTo(start, end trace.Timestamp, y int) {
-	// TODO(dh): implement animation
-
+func (tl *Timeline) navigateToChecks(gtx layout.Context, start, end trace.Timestamp, y int) bool {
 	if start == tl.start && end == tl.end && y == tl.y {
 		// We're already there, do nothing. In particular, don't push to the location history.
-		return
+		return false
 	}
 
 	if start == end {
 		// Cannot zoom to a zero width area
+		return false
+	}
+
+	return true
+}
+
+func (tl *Timeline) cancelNavigation() {
+	tl.animateTo.animating = false
+}
+
+// navigateTo modifes the timeline's start, end and y values, recording the previous location in the undo stack.
+// navigateTo rejects invalid operations, like setting start = end.
+func (tl *Timeline) navigateTo(gtx layout.Context, start, end trace.Timestamp, y int) {
+	if !tl.navigateToChecks(gtx, start, end, y) {
 		return
 	}
 
 	tl.rememberLocation()
+	tl.navigateToImpl(gtx, start, end, y)
+}
 
-	tl.start = start
-	tl.end = end
-	tl.y = y
+func (tl *Timeline) navigateToNoHistory(gtx layout.Context, start, end trace.Timestamp, y int) {
+	if !tl.navigateToChecks(gtx, start, end, y) {
+		return
+	}
+
+	tl.navigateToImpl(gtx, start, end, y)
+}
+
+func (tl *Timeline) navigateToImpl(gtx layout.Context, start, end trace.Timestamp, y int) {
+	tl.animateTo.animating = true
+
+	tl.animateTo.initialStart = tl.start
+	tl.animateTo.initialEnd = tl.end
+	tl.animateTo.initialY = tl.y
+
+	tl.animateTo.targetStart = start
+	tl.animateTo.targetEnd = end
+	tl.animateTo.targetY = y
+
+	tl.animateTo.startedAt = gtx.Now
+	op.InvalidateOp{}.Add(gtx.Ops)
 }
 
 func (tl *Timeline) peekLocationHistory() (LocationHistoryEntry, bool) {
@@ -347,10 +396,11 @@ func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 		return
 	}
 
-	tl.navigateTo(start, end, tl.y)
+	tl.navigateTo(gtx, start, end, tl.y)
 }
 
 func (tl *Timeline) startDrag(pos f32.Point) {
+	tl.cancelNavigation()
 	tl.rememberLocation()
 
 	tl.drag.clickAt = pos
@@ -564,7 +614,7 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 		panic("unreachable")
 	}
 
-	tl.navigateTo(first, last, tl.y)
+	tl.navigateTo(gtx, first, last, tl.y)
 }
 
 func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
@@ -573,7 +623,7 @@ func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	for _, og := range tl.activities {
 		if g == og.item {
 			// TODO(dh): show goroutine at center of window, not the top
-			tl.navigateTo(tl.start, tl.end, off)
+			tl.navigateTo(gtx, tl.start, tl.end, off)
 			return
 		}
 		off += tl.activityHeight(gtx) + gtx.Dp(activityGapDp)
@@ -587,8 +637,75 @@ func (tl *Timeline) VisibleWidth(gtx layout.Context) int {
 	return gtx.Constraints.Max.X - sbWidth
 }
 
+func easeOutQuart(progress float64) float64 {
+	return 1 - math.Pow(1-progress, 4)
+}
+
+func easeInQuart(progress float64) float64 {
+	return progress * progress * progress * progress
+}
+
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	tr := tl.trace
+
+	if tl.animateTo.animating {
+		// XXX animation really makes it obvious that our span merging algorithm is unstable
+
+		dt := gtx.Now.Sub(tl.animateTo.startedAt)
+		if dt >= animateLength {
+			tl.start = tl.animateTo.targetStart
+			tl.end = tl.animateTo.targetEnd
+			tl.y = tl.animateTo.targetY
+
+			tl.debugWindow.animationProgress.addValue(gtx.Now, 1)
+			tl.debugWindow.animationRatio.addValue(gtx.Now, 1)
+			tl.animateTo.animating = false
+		} else {
+			timeRatio := float64(dt) / float64(animateLength)
+			var r float64
+
+			{
+				initialStart := float64(tl.animateTo.initialStart)
+				initialEnd := float64(tl.animateTo.initialEnd)
+				targetStart := float64(tl.animateTo.targetStart)
+				targetEnd := float64(tl.animateTo.targetEnd)
+
+				initialWidth := initialEnd - initialStart
+				targetWidth := targetEnd - targetStart
+
+				var ease func(float64) float64
+				if targetWidth <= initialWidth {
+					// Zooming in (or not zooming at all)
+					ease = easeOutQuart
+				} else {
+					// Zooming out
+					ease = easeInQuart
+				}
+				r = ease(timeRatio)
+
+				tl.debugWindow.animationProgress.addValue(gtx.Now, timeRatio)
+				tl.debugWindow.animationRatio.addValue(gtx.Now, r)
+
+				curStart := initialStart + (targetStart-initialStart)*r
+				curEnd := initialEnd + (targetEnd-initialEnd)*r
+
+				tl.start = trace.Timestamp(curStart)
+				tl.end = trace.Timestamp(curEnd)
+			}
+
+			// XXX this looks bad when we panned in both X and Y, because the two animations don't run at the same speed
+			// if the distances are different.
+
+			{
+				initialY := float64(tl.animateTo.initialY)
+				targetY := float64(tl.animateTo.targetY)
+
+				tl.y = int(initialY + (targetY-initialY)*r)
+			}
+
+			op.InvalidateOp{}.Add(gtx.Ops)
+		}
+	}
 
 	for _, ev := range gtx.Events(tl) {
 		switch ev := ev.(type) {
@@ -602,17 +719,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						tl.zoomToFitCurrentView(gtx)
 					case ev.Modifiers&key.ModShift != 0:
 						d := tl.end - tl.start
-						tl.navigateTo(0, d, tl.y)
+						tl.navigateTo(gtx, 0, d, tl.y)
 					case ev.Modifiers == 0:
-						tl.navigateTo(tl.start, tl.end, 0)
+						tl.navigateTo(gtx, tl.start, tl.end, 0)
 					}
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModCtrl) {
 						if e, ok := tl.popLocationHistory(); ok {
-							tl.start = e.start
-							tl.end = e.end
-							tl.y = e.y
+							tl.navigateToNoHistory(gtx, e.start, e.end, e.y)
 						}
 					}
 
@@ -693,6 +808,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			activityGap := gtx.Dp(activityGapDp)
 			// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 			d := tl.scrollbar.ScrollDistance()
+			if d != 0 {
+				// TODO(dh): because scroll amounts are relative even when the user clicks on a specific spot on the
+				// scrollbar, and because we've already executed this frame's navigation animation step, applying the
+				// delta to tl.y can leave it in a different position than where the user clicked.
+				tl.cancelNavigation()
+			}
 			totalHeight := float32(len(tl.activities) * (activityHeight + activityGap))
 			tl.y += int(round32(d * totalHeight))
 			if tl.y < 0 {
@@ -705,7 +826,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			if spans := aw.clickedSpans; len(spans) > 0 {
 				start := tr.Event(spans[0].event()).Ts
 				end := spans[len(spans)-1].end
-				tl.navigateTo(start, end, tl.y)
+				tl.navigateTo(gtx, start, end, tl.y)
 				break
 			}
 		}
