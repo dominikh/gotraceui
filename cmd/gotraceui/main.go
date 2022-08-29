@@ -1263,20 +1263,8 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 		spanColor: func(aw *ActivityWidget, spans []Span) [2]colorIndex {
 			do := func(aw *ActivityWidget, s Span) colorIndex {
 				gid := aw.tl.trace.Events[s.event()].G
-				idx, found := sort.Find(len(aw.tl.trace.gs), func(idx int) int {
-					ogid := aw.tl.trace.gs[idx].id
-					if gid > ogid {
-						return 1
-					} else if gid == ogid {
-						return 0
-					} else {
-						return -1
-					}
-				})
-				if !found {
-					panic(fmt.Sprintf("couldn't find goroutine %d", gid))
-				}
-				switch fn := aw.tl.trace.gs[idx].function; fn {
+				g := aw.tl.trace.getG(gid)
+				switch fn := g.function; fn {
 				case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
 					return colorStateGC
 				default:
@@ -1955,7 +1943,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
 			}
 		case stateRunningG:
+			g := tt.tl.trace.getG(ev.G)
 			label += local.Sprintf("running goroutine %d", ev.G)
+			label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.function) + label
 		default:
 			if debug {
 				panic(fmt.Sprintf("unhandled state %d", state))
@@ -2657,6 +2647,23 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	}
 
 	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, ParseResult: res}, nil
+}
+
+func (tr *Trace) getG(gid uint64) *Goroutine {
+	idx, found := sort.Find(len(tr.gs), func(idx int) int {
+		ogid := tr.gs[idx].id
+		if gid > ogid {
+			return 1
+		} else if gid == ogid {
+			return 0
+		} else {
+			return -1
+		}
+	})
+	if !found {
+		panic(fmt.Sprintf("couldn't find goroutine %d", gid))
+	}
+	return tr.gs[idx]
 }
 
 type Command struct {
