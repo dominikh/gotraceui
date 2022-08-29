@@ -3983,7 +3983,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					ss.Font.Weight = text.Bold
 					return ss
 				}),
-				span(th, fmt.Sprintf("%s", time.Duration(gwin.stats.end-gwin.stats.start))),
+				span(th, time.Duration(gwin.stats.end-gwin.stats.start).String()),
 			}
 
 			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -4156,7 +4156,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			switch col {
 			case 0:
 				labelSpans = []poortext.SpanStyle{
-					span(evs.theme, fmt.Sprintf("%s", formatTimestamp(ev.Ts))),
+					span(evs.theme, formatTimestamp(ev.Ts)),
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
