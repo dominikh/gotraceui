@@ -1051,6 +1051,7 @@ type ActivityWidget struct {
 	highlightSpan   func(aw *ActivityWidget, spans []Span) bool
 	invalidateCache func(aw *ActivityWidget) bool
 	spanLabel       func(aw *ActivityWidget, spans []Span) []string
+	spanColor       func(aw *ActivityWidget, spans []Span) colorIndex
 	theme           *theme.Theme
 	tl              *Timeline
 	item            any
@@ -1132,6 +1133,14 @@ var spanStateLabels = [...][]string{
 	stateGCSweep:                 {"GC sweep", "S"},
 	stateStuck:                   {"stuck"},
 	stateLast:                    nil,
+}
+
+func defaultSpanColor(aw *ActivityWidget, spans []Span) colorIndex {
+	if len(spans) == 1 {
+		return stateColors[spans[0].state]
+	} else {
+		return colorStateMerged
+	}
 }
 
 func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWidget {
@@ -1250,6 +1259,32 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			out[2] = ""
 			return out
 
+		},
+		spanColor: func(aw *ActivityWidget, spans []Span) colorIndex {
+			if len(spans) != 1 {
+				return colorStateMerged
+			}
+			gid := tl.trace.Events[spans[0].event()].G
+			idx, found := sort.Find(len(tl.trace.gs), func(idx int) int {
+				ogid := tl.trace.gs[idx].id
+				if gid > ogid {
+					return 1
+				} else if gid == ogid {
+					return 0
+				} else {
+					return -1
+				}
+			})
+			if !found {
+				panic(fmt.Sprintf("couldn't find goroutine %d", gid))
+			}
+			switch fn := tl.trace.gs[idx].function; fn {
+			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
+				return colorStateGC
+			default:
+				// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
+				return defaultSpanColor(aw, spans)
+			}
 		},
 		tl:    tl,
 		item:  p,
@@ -1425,10 +1460,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 
 		var c colorIndex
-		if len(dspSpans) == 1 {
-			c = stateColors[dspSpans[0].state]
+		if aw.spanColor != nil {
+			c = aw.spanColor(aw, dspSpans)
 		} else {
-			c = colorStateMerged
+			c = defaultSpanColor(aw, dspSpans)
 		}
 
 		var minP f32.Point
