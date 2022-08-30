@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -2774,6 +2775,79 @@ func NewMainWindow() *MainWindow {
 	return win
 }
 
+type goroutineFilter struct {
+	invalid bool
+	parts   []struct {
+		prefix string
+		value  struct {
+			s string
+			n uint64
+		}
+	}
+}
+
+func newGoroutineFilter(s string) theme.Filter[*Goroutine] {
+	out := &goroutineFilter{}
+	for _, field := range strings.Fields(s) {
+		prefix, value, found := strings.Cut(field, ":")
+		if !found {
+			prefix, value = value, prefix
+		}
+
+		var v struct {
+			s string
+			n uint64
+		}
+		switch prefix {
+		case "gid":
+			var err error
+			v.n, err = strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				out.invalid = true
+			}
+		default:
+			v.s = value
+		}
+
+		out.parts = append(out.parts, struct {
+			prefix string
+			value  struct {
+				s string
+				n uint64
+			}
+		}{prefix, v})
+	}
+	return out
+}
+
+func (f *goroutineFilter) Filter(item *Goroutine) bool {
+	if f.invalid {
+		return false
+	}
+
+	for _, p := range f.parts {
+		switch p.prefix {
+		case "gid":
+			if item.id != p.value.n {
+				return false
+			}
+
+		case "":
+			// TODO(dh): support case insensitive search
+			if !strings.Contains(item.function, p.value.s) {
+				return false
+			}
+
+		default:
+			return false
+		}
+	}
+	return true
+
+	// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
+	// and allows matching goroutines by ID.
+}
+
 func (w *MainWindow) Run(win *app.Window) error {
 	profileTag := new(int)
 	var ops op.Ops
@@ -2879,11 +2953,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							if ev.State == key.Press && ev.Name == "G" && ww == nil {
 								ww = theme.NewListWindow[*Goroutine](w.theme)
 								ww.SetItems(w.trace.gs)
-								ww.Filter = func(item *Goroutine, f string) bool {
-									// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
-									// and allows matching goroutines by ID.
-									return strings.Contains(item.function, f)
-								}
+								ww.BuildFilter = newGoroutineFilter
 							}
 						}
 					}

@@ -21,8 +21,12 @@ type listWindowItem[T any] struct {
 	click widget.Clickable
 }
 
+type Filter[T any] interface {
+	Filter(item T) bool
+}
+
 type ListWindow[T fmt.Stringer] struct {
-	Filter func(item T, f string) bool
+	BuildFilter func(string) Filter[T]
 
 	items []listWindowItem[T]
 
@@ -178,9 +182,9 @@ func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 		switch ev.(type) {
 		case widget.ChangeEvent:
 			w.filtered = w.filtered[:0]
-			f := w.input.Text()
+			f := w.BuildFilter(w.input.Text())
 			for _, item := range w.items {
-				if w.Filter(item.item, f) {
+				if f.Filter(item.item) {
 					w.filtered = append(w.filtered, item.index)
 				}
 			}
