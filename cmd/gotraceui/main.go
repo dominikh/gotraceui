@@ -890,30 +890,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
-		// Draw axis and goroutines
-		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			dims := tl.axis.Layout(gtx)
-			axisHeight = dims.Size.Y
-			return dims
-		}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			dims, aws := tl.layoutActivities(gtx)
-			tl.prevFrame.displayedAws = aws
-			return dims
-		}))
-
-		// Draw zoom selection
-		if tl.zoomSelection.active {
-			one := tl.zoomSelection.clickAt.X
-			two := tl.activity.cursorPos.X
-			rect := FRect{
-				Min: f32.Pt(min(one, two), 0),
-				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
-			}
-			paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
-		}
-
-		// Draw STW and GC regions
-		drawRegionOverlays := func(spans []Span, c color.NRGBA) {
+		drawRegionOverlays := func(spans []Span, c color.NRGBA, height int) {
 			for _, s := range tl.visibleSpans(spans) {
 				start := tl.trace.Events[s.event()].Ts
 				end := s.end
@@ -934,16 +911,47 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				rect := FRect{
 					// TODO(dh): should the overlay start at the top of the screen, or after the axis?
 					Min: f32.Pt(xMin, 0),
-					Max: f32.Pt(xMax, float32(gtx.Constraints.Max.Y)),
+					Max: f32.Pt(xMax, float32(height)),
 				}
 				paint.FillShape(gtx.Ops, c, rect.Op(gtx.Ops))
 			}
 		}
+
+		// Draw axis and goroutines
+		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// Draw STW and GC regions
+			// TODO(dh): make this be optional
+			tickHeight := gtx.Dp(tickHeightDp)
+			drawRegionOverlays(tl.trace.gc, colors[colorStateGC], tickHeight)
+			drawRegionOverlays(tl.trace.stw, colors[colorStateBlocked], tickHeight)
+
+			dims := tl.axis.Layout(gtx)
+			axisHeight = dims.Size.Y
+
+			return dims
+		}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			dims, aws := tl.layoutActivities(gtx)
+			tl.prevFrame.displayedAws = aws
+			return dims
+		}))
+
+		// Draw zoom selection
+		if tl.zoomSelection.active {
+			one := tl.zoomSelection.clickAt.X
+			two := tl.activity.cursorPos.X
+			rect := FRect{
+				Min: f32.Pt(min(one, two), 0),
+				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
+			}
+			paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
+		}
+
+		// Draw STW and GC overlays
 		if tl.activity.showGCOverlays >= showGCOverlaysBoth {
-			drawRegionOverlays(tl.trace.gc, toColor(0x9C6FD633))
+			drawRegionOverlays(tl.trace.gc, toColor(0x9C6FD633), gtx.Constraints.Max.Y)
 		}
 		if tl.activity.showGCOverlays >= showGCOverlaysSTW {
-			drawRegionOverlays(tl.trace.stw, toColor(0xBA414133))
+			drawRegionOverlays(tl.trace.stw, toColor(0xBA414133), gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
