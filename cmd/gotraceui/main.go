@@ -904,8 +904,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 				xMin := tl.tsToPx(start)
 				xMax := tl.tsToPx(end)
-				if xMax-xMin < float32(gtx.Dp(minSpanWidthDp)) {
-					// Don't draw regions that are smaller than span we had to grow to its minimum size.
+				if xMax-xMin < 1 {
 					continue
 				}
 				rect := FRect{
