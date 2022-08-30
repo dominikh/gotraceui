@@ -54,6 +54,19 @@ import (
    - GCDone happens on other procs, probably whichever proc was running the background worker that determined that we're done
    - A similar thing applies to GCSTWStart and GCSTWDone
    - The second GCSTWDone can happen after GCDone
+
+   GC can get started by normal user goroutines, when they allocate and detect that the GC trigger condition has been
+   met. The lucky goroutine will be responsible for running the runtime code that stops the world, sets up write
+   barriers and so on. It returns to the user's code once the first STW phase is over and the concurrent mark phase has
+   started. Since multiple goroutines may allocate in parallel, multiple goroutines might detect the GC trigger and
+   attempt to start GC. All but one will block trying to acquire the semaphore, then not start GC once they unblock.
+
+   The GCStart and the first pair of STWStart + STWStop will be sent from that goroutine, but note that these events
+   form a timeline separate from normal goroutine events. In particular, seeing STWStart on the goroutine doesn't mean
+   that its previous GoStart has been superseded, and we'll not see another GoStart after we see STWStop.
+
+   The second STW phase and GCDone are sent from another goroutine, probably the background mark worker that determined
+   that we're done.
 */
 
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
