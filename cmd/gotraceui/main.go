@@ -70,6 +70,11 @@ import (
    that we're done.
 */
 
+// TODO(dh): pan timeline with WASD
+// TODO(dh): scroll timeline with PgpUp/PgpDown
+// FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
+//   will be selected, and pressing enter will panic, trying to access index -1
+// FIXME(dh): shift+arrow keys selects text in our instances of widget.Editor, but the selected text doesn't look selected
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
 //   time or should it display the same time, stretched to fill the new space? Tracy does the latter.
