@@ -921,10 +921,6 @@ func (p *Parser) parseEvent(raw *rawEvent, ev *Event) error {
 		case EvGoStart, EvGoStartLocal, EvGoStartLabel:
 			p.lastG = ev.Args[0]
 			ev.G = p.lastG
-		case EvGCSTWStart:
-			ev.G = 0
-		case EvGCStart, EvGCDone, EvGCSTWDone:
-			ev.G = 0
 		case EvGoEnd, EvGoStop, EvGoSched, EvGoPreempt,
 			EvGoSleep, EvGoBlock, EvGoBlockSend, EvGoBlockRecv,
 			EvGoBlockSelect, EvGoBlockSync, EvGoBlockCond, EvGoBlockNet,
