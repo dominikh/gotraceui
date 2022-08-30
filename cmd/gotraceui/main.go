@@ -94,7 +94,6 @@ import (
 // TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
 //   highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
 //   span could highlight all the spans it unblocks.
-// TODO(dh): toggleable overlay that shows STW and GC phases
 // TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
 //   looking at an arbitrary goroutine.
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
@@ -168,6 +167,14 @@ const (
 	showTooltipsNone
 )
 
+type showGCOverlays uint8
+
+const (
+	showGCOverlaysNone = iota
+	showGCOverlaysSTW
+	showGCOverlaysBoth
+)
+
 // TODO(dh): is there any point in making this configurable?
 const maxLocationHistoryEntries = 1024
 
@@ -236,8 +243,10 @@ type Timeline struct {
 		displayAllLabels bool
 		compact          bool
 		// Should tooltips be shown?
-		showTooltips             showTooltips
-		showTooltipsNotification Notification
+		showTooltips showTooltips
+		// Should GC overlays be shown?
+		showGCOverlays            showGCOverlays
+		toggleSettingNotification Notification
 
 		hoveredSpans []Span
 		cursorPos    f32.Point
@@ -735,7 +744,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					tl.activity.compact = !tl.activity.compact
 
 				case "T":
-					// TODO(dh): show an onscreen hint what setting we changed to
 					tl.activity.showTooltips = (tl.activity.showTooltips + 1) % (showTooltipsNone + 1)
 					var s string
 					switch tl.activity.showTooltips {
@@ -746,7 +754,20 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					case showTooltipsNone:
 						s = "Showing no tooltips"
 					}
-					tl.activity.showTooltipsNotification.Show(gtx, s)
+					tl.activity.toggleSettingNotification.Show(gtx, s)
+
+				case "O":
+					tl.activity.showGCOverlays = (tl.activity.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
+					var s string
+					switch tl.activity.showGCOverlays {
+					case showGCOverlaysBoth:
+						s = "Showing STW and GC overlays"
+					case showGCOverlaysSTW:
+						s = "Showing STW overlays"
+					case showGCOverlaysNone:
+						s = "Showing no overlays"
+					}
+					tl.activity.toggleSettingNotification.Show(gtx, s)
 
 				}
 			}
@@ -853,7 +874,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 			Grab:         tl.drag.active,
 		}.Add(gtx.Ops)
-		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 		// Draw axis and goroutines
@@ -878,6 +899,40 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
 		}
 
+		// Draw STW and GC regions
+		drawRegionOverlays := func(spans []Span, c color.NRGBA) {
+			for _, s := range tl.visibleSpans(spans) {
+				start := tl.trace.Events[s.event()].Ts
+				end := s.end
+
+				if start < tl.start {
+					start = tl.start
+				}
+				if end > tl.end {
+					end = tl.end
+				}
+
+				xMin := tl.tsToPx(start)
+				xMax := tl.tsToPx(end)
+				if xMax-xMin < float32(gtx.Dp(minSpanWidthDp)) {
+					// Don't draw regions that are smaller than span we had to grow to its minimum size.
+					continue
+				}
+				rect := FRect{
+					// TODO(dh): should the overlay start at the top of the screen, or after the axis?
+					Min: f32.Pt(xMin, 0),
+					Max: f32.Pt(xMax, float32(gtx.Constraints.Max.Y)),
+				}
+				paint.FillShape(gtx.Ops, c, rect.Op(gtx.Ops))
+			}
+		}
+		if tl.activity.showGCOverlays >= showGCOverlaysBoth {
+			drawRegionOverlays(tl.trace.gc, toColor(0x9C6FD633))
+		}
+		if tl.activity.showGCOverlays >= showGCOverlaysSTW {
+			drawRegionOverlays(tl.trace.stw, toColor(0xBA414133))
+		}
+
 		// Draw cursor
 		rect := clip.Rect{
 			Min: image.Pt(int(round32(tl.activity.cursorPos.X)), 0),
@@ -885,7 +940,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-		tl.activity.showTooltipsNotification.Layout(gtx, tl.theme)
+		tl.activity.toggleSettingNotification.Layout(gtx, tl.theme)
 
 		tl.prevFrame.start = tl.start
 		tl.prevFrame.end = tl.end
