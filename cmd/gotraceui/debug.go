@@ -22,7 +22,7 @@ import (
 )
 
 const debug = true
- 
+
 func (g *debugGraph) addValue(ts time.Time, val float64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
