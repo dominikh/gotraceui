@@ -3524,6 +3524,36 @@ func (notif *Notification) Layout(gtx layout.Context, th *theme.Theme) layout.Di
 	return dims
 }
 
+type durationNumberFormat uint8
+
+const (
+	durationNumberFormatSI durationNumberFormat = iota
+	durationNumberFormatScientific
+	durationNumberFormatExact
+)
+
+func (nf durationNumberFormat) format(d time.Duration) string {
+	switch nf {
+	case durationNumberFormatScientific:
+		return scientificDuration(d, 2)
+	case durationNumberFormatSI:
+		switch {
+		case d == 0:
+			return "0"
+		case d < time.Millisecond:
+			return d.String()
+		case d < time.Second:
+			return d.Round(time.Microsecond).String()
+		default:
+			return d.Round(time.Millisecond).String()
+		}
+	case durationNumberFormatExact:
+		return fmt.Sprintf("%.9f", d.Seconds())
+	default:
+		panic("unreachable")
+	}
+}
+
 type GoroutineStats struct {
 	g       *Goroutine
 	stats   [stateLast]GoroutineStat
@@ -3533,6 +3563,9 @@ type GoroutineStats struct {
 
 	sortCol        int
 	sortDescending bool
+
+	// TODO(dh): expose this as an option
+	numberFormat durationNumberFormat
 
 	columnClicks [7]gesture.Click
 }
@@ -3636,7 +3669,7 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	}
 
 	// Column 1 contains strings, so the width is that of the widest shaped string
-	size := shape(statLabels[0+numStatLabels], fLabel)
+	size := shape(statLabels[gs.numberFormat][0+numStatLabels], fLabel)
 	for _, name := range stateNamesCapitalized {
 		size2 := shape(name, fContent)
 		if size2.X > size.X {
@@ -3647,7 +3680,7 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 
 	// Column 2 contains numbers, so the width is either that of the column label or the widest number. Digits all have
 	// the same width, so we only need to shape the largest number.
-	size = shape(statLabels[1+numStatLabels], fLabel)
+	size = shape(statLabels[gs.numberFormat][1+numStatLabels], fLabel)
 	max := 0
 	for _, stat := range gs.stats {
 		if stat.count > max {
@@ -3660,17 +3693,52 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	}
 	columnSizes[1] = size
 
-	// The remaining columns contain numbers in scientific notation with fixed precision, so the width is either that of
-	// the column label or that of "1.23E+99".
-	size = shape("1.23E+99", fContent)
-	for i := 2; i < numStatLabels; i++ {
-		size2 := shape(statLabels[i+numStatLabels], fLabel)
-		if size2.X > size.X {
-			size.X = size2.X
+	switch gs.numberFormat {
+	case durationNumberFormatScientific:
+		// The remaining columns contain numbers in scientific notation with fixed precision, so the width is either that of
+		// the column label or that of "1.23E+99". We give all remaining columns the same size.
+		size = shape("1.23E+99", fContent)
+		for i := 2; i < numStatLabels; i++ {
+			size2 := shape(statLabels[gs.numberFormat][i+numStatLabels], fLabel)
+			if size2.X > size.X {
+				size.X = size2.X
+			}
 		}
-	}
-	for i := 2; i < numStatLabels; i++ {
-		columnSizes[i] = size
+		for i := 2; i < numStatLabels; i++ {
+			columnSizes[i] = size
+		}
+
+	default:
+		// Format and shape each value to find the widest one. Unlike scientific notation, each column is sized
+		// individually, in case one of them is much wider than the others.
+		//
+		// OPT(dh): we have to format and shape again in the Layout function. However, the number of rows are so few it
+		// probably doesn't matter.
+
+		for i := 2; i < numStatLabels; i++ {
+			size = shape(statLabels[gs.numberFormat][i+numStatLabels], fLabel)
+			for _, stat := range gs.stats {
+				var v time.Duration
+				switch i {
+				case 2:
+					v = stat.total
+				case 3:
+					v = stat.min
+				case 4:
+					v = stat.max
+				case 5:
+					v = time.Duration(stat.avg)
+				case 6:
+					v = time.Duration(stat.p50)
+				default:
+					panic("unreachable")
+				}
+				if size2 := shape(gs.numberFormat.format(v), fContent); size2.X > size.X {
+					size.X = size2.X
+				}
+			}
+			columnSizes[i] = size
+		}
 	}
 
 	return columnSizes
@@ -3737,7 +3805,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 		f := goFonts[0].Font
 		f.Weight = text.Bold
 
-		l := statLabels[i]
+		l := statLabels[gs.numberFormat][i]
 		lines := th.Shaper.LayoutString(f, fixed.I(gtx.Sp(th.TextSize)), gtx.Constraints.Max.X, gtx.Locale, l)
 		firstLine := lines[0]
 		spanWidth := firstLine.Width.Ceil()
@@ -3767,12 +3835,12 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 			var l string
 			if col == gs.sortCol {
 				if gs.sortDescending {
-					l = statLabels[col+numStatLabels]
+					l = statLabels[gs.numberFormat][col+numStatLabels]
 				} else {
-					l = statLabels[col+numStatLabels*2]
+					l = statLabels[gs.numberFormat][col+numStatLabels*2]
 				}
 			} else {
-				l = statLabels[col]
+				l = statLabels[gs.numberFormat][col]
 			}
 
 			s := spanWith(th, l, func(ss poortext.SpanStyle) poortext.SpanStyle {
@@ -3799,19 +3867,19 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				}
 			case 2:
 				// total
-				l = scientificDuration(gs.stats[n].total, 2)
+				l = gs.numberFormat.format(gs.stats[n].total)
 			case 3:
 				// min
-				l = scientificDuration(gs.stats[n].min, 2)
+				l = gs.numberFormat.format(gs.stats[n].min)
 			case 4:
 				// max
-				l = scientificDuration(gs.stats[n].max, 2)
+				l = gs.numberFormat.format(gs.stats[n].max)
 			case 5:
 				// avg
-				l = scientificDuration(time.Duration(gs.stats[n].avg), 2)
+				l = gs.numberFormat.format(time.Duration(gs.stats[n].avg))
 			case 6:
 				// p50
-				l = scientificDuration(time.Duration(gs.stats[n].p50), 2)
+				l = gs.numberFormat.format(time.Duration(gs.stats[n].p50))
 			default:
 				panic("unreachable")
 			}
@@ -3831,10 +3899,22 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 
 const numStatLabels = 7
 
-var statLabels = [...]string{
-	"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
-	"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
-	"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
+var statLabels = [...][numStatLabels * 3]string{
+	durationNumberFormatScientific: [...]string{
+		"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
+		"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
+		"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
+	},
+	durationNumberFormatExact: [...]string{
+		"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
+		"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
+		"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
+	},
+	durationNumberFormatSI: [...]string{
+		"State", "Count", "Total", "Min", "Max", "Avg", "p50",
+		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
+		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
+	},
 }
 
 var stateNamesCapitalized = [stateLast]string{
