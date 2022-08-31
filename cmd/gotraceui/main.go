@@ -2005,7 +2005,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		switch state := s.state; state {
 		case stateInactive:
 			label += "inactive"
-			label += "\nReason: " + reasonLabels[tr.Reason(s)]
 		case stateActive:
 			label += "active"
 		case stateGCDedicated:
@@ -2040,7 +2039,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "stuck"
 		case stateReady:
 			label += "ready"
-			label += "\nReason: " + reasonLabels[tr.Reason(s)]
 		case stateCreated:
 			label += "ready"
 		case stateGCMarkAssist:
@@ -2091,6 +2089,12 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	}
 	label += "\n"
 
+	if len(tt.spans) == 1 {
+		if reason := reasonLabels[tr.Reason(&tt.spans[0])]; reason != "" {
+			label += "Reason: " + reason + "\n"
+		}
+	}
+
 	if at != "" {
 		// TODO(dh): document what In represents. If possible, it is the last frame in user space that triggered this
 		// state. We try to pattern match away the runtime when it makes sense.
@@ -2100,7 +2104,9 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	d := time.Duration(tt.spans[len(tt.spans)-1].end - tr.Event(tt.spans[0].event()).Ts)
 	label += fmt.Sprintf("Duration: %s\n", d)
 
-	label += local.Sprintf("Events in span: %d\n", len(tt.events))
+	if len(tt.events) > 0 {
+		label += local.Sprintf("Events in span: %d\n", len(tt.events))
+	}
 
 	if len(tt.eventsUnderCursor) > 0 {
 		kind := tr.Event(tt.eventsUnderCursor[0]).Type
@@ -2135,8 +2141,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		} else {
 			label += local.Sprintf("Events under cursor: %d\n", len(tt.eventsUnderCursor))
 		}
-	} else {
-		label += "Events under cursor: 0\n"
 	}
 
 	if n := len(label) - 1; label[n] == '\n' {
