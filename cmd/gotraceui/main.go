@@ -265,7 +265,7 @@ type Timeline struct {
 		showGCOverlays            showGCOverlays
 		toggleSettingNotification Notification
 
-		hoveredSpans []Span
+		hoveredSpans MergedSpans
 		cursorPos    f32.Point
 	}
 
@@ -279,10 +279,10 @@ type Timeline struct {
 		compact      bool
 		displayedAws []*ActivityWidget
 		dspSpans     map[any][]struct {
-			dspSpans       []Span
+			dspSpans       MergedSpans
 			startPx, endPx float32
 		}
-		hoveredSpans []Span
+		hoveredSpans MergedSpans
 	}
 }
 
@@ -499,7 +499,7 @@ func (tl *Timeline) activityHeight(gtx layout.Context) int {
 	}
 }
 
-func (tl *Timeline) visibleSpans(spans []Span) []Span {
+func (tl *Timeline) visibleSpans(spans Spans) Spans {
 	tr := tl.trace
 	// Visible spans have to end after tl.Start and begin before tl.End
 	start := sort.Search(len(spans), func(i int) bool {
@@ -530,11 +530,11 @@ func (tl *Timeline) pxToTs(px float32) trace.Timestamp {
 type renderedSpansIterator struct {
 	offset  int
 	tl      *Timeline
-	spans   []Span
+	spans   Spans
 	prevEnd trace.Timestamp
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, startPx, endPx float32, ok bool) {
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans, startPx, endPx float32, ok bool) {
 	offset := it.offset
 	spans := it.spans
 	tr := it.tl.trace
@@ -615,7 +615,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut []Span, star
 	it.prevEnd = end
 	startPx = float32(start-tlStart) / nsPerPx
 	endPx = float32(end-tlStart) / nsPerPx
-	return spans[startOffset:it.offset], startPx, endPx, true
+	return MergedSpans(spans[startOffset:it.offset]), startPx, endPx, true
 }
 
 func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
@@ -625,10 +625,11 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 		if len(aw.allSpans) == 0 {
 			continue
 		}
-		if t := tr.Event(aw.allSpans[0].event()).Ts; t < first || first == -1 {
+
+		if t := aw.allSpans.Start(tr); t < first || first == -1 {
 			first = t
 		}
-		if t := aw.allSpans[len(aw.allSpans)-1].end; t > last {
+		if t := aw.allSpans.End(); t > last {
 			last = t
 		}
 	}
@@ -858,8 +859,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.activity.hoveredSpans = nil
 		for _, aw := range tl.prevFrame.displayedAws {
 			if spans := aw.clickedSpans; len(spans) > 0 {
-				start := tr.Event(spans[0].event()).Ts
-				end := spans[len(spans)-1].end
+				start := spans.Start(tr)
+				end := spans.End()
 				tl.navigateTo(gtx, start, end, tl.y)
 				break
 			}
@@ -894,7 +895,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
-		drawRegionOverlays := func(spans []Span, c color.NRGBA, height int) {
+		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
 			for _, s := range tl.visibleSpans(spans) {
 				start := tl.trace.Events[s.event()].Ts
 				end := s.end
@@ -1117,13 +1118,13 @@ func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
 
 type ActivityWidget struct {
 	// Inputs
-	allSpans        []Span
+	allSpans        Spans
 	allEventer      AllEventer
 	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
-	highlightSpan   func(aw *ActivityWidget, spans []Span) bool
+	highlightSpan   func(aw *ActivityWidget, spans MergedSpans) bool
 	invalidateCache func(aw *ActivityWidget) bool
-	spanLabel       func(aw *ActivityWidget, spans []Span) []string
-	spanColor       func(aw *ActivityWidget, spans []Span) [2]colorIndex
+	spanLabel       func(aw *ActivityWidget, spans MergedSpans) []string
+	spanColor       func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex
 	theme           *theme.Theme
 	tl              *Timeline
 	item            any
@@ -1136,8 +1137,8 @@ type ActivityWidget struct {
 	hoveredActivity bool
 	hoveredLabel    bool
 
-	clickedSpans []Span
-	hoveredSpans []Span
+	clickedSpans MergedSpans
+	hoveredSpans MergedSpans
 
 	// op lists get reused between frames to avoid generating garbage
 	ops          [colorStateLast * 2]op.Ops
@@ -1168,7 +1169,7 @@ func (aw *ActivityWidget) LabelClicked() bool {
 	}
 }
 
-func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *ActivityWidget {
+func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
 		allSpans: spans,
 		tl:       tl,
@@ -1178,7 +1179,7 @@ func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *Act
 	}
 }
 
-func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans []Span) *ActivityWidget {
+func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
 		allSpans: spans,
 		tl:       tl,
@@ -1207,7 +1208,7 @@ var spanStateLabels = [...][]string{
 	stateLast:                    nil,
 }
 
-func defaultSpanColor(aw *ActivityWidget, spans []Span) [2]colorIndex {
+func defaultSpanColor(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
 	if len(spans) == 1 {
 		return [2]colorIndex{stateColors[spans[0].state], 0}
 	} else {
@@ -1236,7 +1237,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
 			GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
 		},
-		spanLabel: func(aw *ActivityWidget, spans []Span) []string {
+		spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
 			if len(spans) != 1 {
 				return nil
 			}
@@ -1282,7 +1283,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 	return &ActivityWidget{
 		allSpans:      p.spans,
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
-		highlightSpan: func(aw *ActivityWidget, spans []Span) bool {
+		highlightSpan: func(aw *ActivityWidget, spans MergedSpans) bool {
 			if len(tl.activity.hoveredSpans) != 1 {
 				return false
 			}
@@ -1322,7 +1323,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 
 			return false
 		},
-		spanLabel: func(aw *ActivityWidget, spans []Span) []string {
+		spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
 			if len(spans) != 1 {
 				return nil
 			}
@@ -1339,7 +1340,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			return out
 
 		},
-		spanColor: func(aw *ActivityWidget, spans []Span) [2]colorIndex {
+		spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
 			do := func(aw *ActivityWidget, s Span) colorIndex {
 				gid := aw.tl.trace.Events[s.event()].G
 				g := aw.tl.trace.getG(gid)
@@ -1426,7 +1427,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				}
 
 				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-					aw.clickedSpans = aw.allSpans
+					aw.clickedSpans = MergedSpans(aw.allSpans)
 				}
 			}
 		}
@@ -1531,7 +1532,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	first := true
 
 	var prevEndPx float32
-	doSpans := func(dspSpans []Span, startPx, endPx float32) {
+	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
 		if aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
 			if trackClick {
 				aw.clickedSpans = dspSpans
@@ -1594,32 +1595,15 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 		var tooltip *SpanTooltip
 		if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
-			var allEvents []EventID
+			var events []EventID
 			if aw.allEventer != nil {
-				all := aw.allEventer.AllEvents()
-				if len(all) > 0 {
-					// TODO(dh): this code is duplicated with Span.Events, because we are operating on multiple spans
-					// here. We can deduplicate the code once we introduce a MergedSpan type.
-					end := sort.Search(len(all), func(i int) bool {
-						ev := all[i]
-						return aw.tl.trace.Event(ev).Ts >= dspSpans[len(dspSpans)-1].end
-					})
-
-					sTs := tr.Event(dspSpans[0].event()).Ts
-
-					start := sort.Search(len(all[:end]), func(i int) bool {
-						ev := all[i]
-						return aw.tl.trace.Event(ev).Ts >= sTs
-					})
-
-					allEvents = all[start:end]
-				}
+				events = dspSpans.Events(aw.allEventer.AllEvents(), aw.tl.trace)
 			}
 
 			//gcassert:noescape
 			tooltip = &SpanTooltip{
 				spans:  dspSpans,
-				events: allEvents,
+				events: events,
 				tl:     aw.tl,
 				theme:  aw.theme,
 			}
@@ -1630,7 +1614,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpans[0].Events(aw.allEventer, tr)
+			var events []EventID
+			if aw.allEventer != nil {
+				events = dspSpans[0].Events(aw.allEventer.AllEvents(), tr)
+			}
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(activityStateHeight) / 2
@@ -1768,7 +1755,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				break
 			}
 			allDspSpans = append(allDspSpans, struct {
-				dspSpans       []Span
+				dspSpans       MergedSpans
 				startPx, endPx float32
 			}{dspSpans, startPx, endPx})
 			doSpans(dspSpans, startPx, endPx)
@@ -1893,8 +1880,8 @@ type GoroutineTooltip struct {
 
 func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	tr := tt.trace
-	start := (tr.Event(tt.g.spans[0].event()).Ts)
-	end := tt.g.spans[len(tt.g.spans)-1].end
+	start := tt.g.spans.Start(tr)
+	end := tt.g.spans.End()
 	d := time.Duration(end - start)
 
 	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
@@ -1979,7 +1966,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type SpanTooltip struct {
-	spans             []Span
+	spans             MergedSpans
 	events            []EventID
 	eventsUnderCursor []EventID
 	tl                *Timeline
@@ -2099,8 +2086,7 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += fmt.Sprintf("In: %s\n", at)
 	}
 
-	d := time.Duration(tt.spans[len(tt.spans)-1].end - tr.Event(tt.spans[0].event()).Ts)
-	label += fmt.Sprintf("Duration: %s\n", d)
+	label += fmt.Sprintf("Duration: %s\n", tt.spans.Duration(tr))
 
 	if len(tt.events) > 0 {
 		label += local.Sprintf("Events in span: %d\n", len(tt.events))
@@ -2153,7 +2139,7 @@ type Processor struct {
 	// OPT(dh): using Span for Ps is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
 	// goroutine is running at what time. The only benefit of reusing Span is that we can use the same code for
 	// rendering Gs and Ps, but that doesn't seem worth the added cost.
-	spans []Span
+	spans Spans
 }
 
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
@@ -2161,7 +2147,7 @@ type Processor struct {
 type Goroutine struct {
 	id       uint64
 	function string
-	spans    []Span
+	spans    Spans
 	events   []EventID
 }
 
@@ -2177,6 +2163,57 @@ func (g *Goroutine) String() string {
 	} else {
 		return local.Sprintf("goroutine %d: %s", g.id, g.function)
 	}
+}
+
+// MergedSpans and Spans have the same functionality. The two different types are used to make APIs easier to read, to
+// be able to tell apart functions that operate on multiple spans as if they were individual items and functions that
+// treat them as one unit, because they get merged during rendering.
+
+// MergedSpans represents a list of consecutive spans from a shared timeline, which were merged during display.
+//
+// OPT(dh): we could theoretically save 8 bytes by storing the start and end indices instead of a slice, as merged
+// spans have to be consecutive. It would also prevent potential misuse of MergedSpans, e.g. by creating an entirely
+// new slice, instead of slicing an existing one. However, a slice is easier to access and iterate over.
+type MergedSpans []Span
+
+// Spans represents a list of consecutive spans from a shared timeline.
+type Spans []Span
+
+func (ms MergedSpans) Start(tr *Trace) trace.Timestamp           { return Spans(ms).Start(tr) }
+func (ms MergedSpans) End() trace.Timestamp                      { return Spans(ms).End() }
+func (ms MergedSpans) Duration(tr *Trace) time.Duration          { return Spans(ms).Duration(tr) }
+func (ms MergedSpans) Events(all []EventID, tr *Trace) []EventID { return Spans(ms).Events(all, tr) }
+
+func (spans Spans) Start(tr *Trace) trace.Timestamp {
+	return tr.Events[spans[0].event()].Ts
+}
+
+func (spans Spans) End() trace.Timestamp {
+	return spans[len(spans)-1].end
+}
+
+func (spans Spans) Duration(tr *Trace) time.Duration {
+	return time.Duration(spans.End() - spans.Start(tr))
+}
+
+func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
+	if len(all) == 0 {
+		return nil
+	}
+
+	end := sort.Search(len(all), func(i int) bool {
+		ev := all[i]
+		return tr.Event(ev).Ts >= spans.End()
+	})
+
+	sTs := spans.Start(tr)
+
+	start := sort.Search(len(all[:end]), func(i int) bool {
+		ev := all[i]
+		return tr.Event(ev).Ts >= sTs
+	})
+
+	return all[start:end]
 }
 
 type Span struct {
@@ -2255,12 +2292,14 @@ type AllEventer interface {
 	AllEvents() []EventID
 }
 
-func (s *Span) Events(evs AllEventer, tr *Trace) []EventID {
-	if evs == nil {
+func (s *Span) Events(all []EventID, tr *Trace) []EventID {
+	// TODO(dh): this code is virtually identical to the code in MergedSpans.Events, but we cannot reuse that without
+	// allocating.
+
+	if len(all) == 0 {
 		return nil
 	}
 
-	all := evs.AllEvents()
 	// AllEvents returns all events in the span's container (a goroutine), sorted by timestamp, as indices into the
 	// global list of events. Find the first and last event that overlaps with the span, and that is the set of events
 	// belonging to this span.
@@ -2300,8 +2339,8 @@ const (
 type Trace struct {
 	gs  []*Goroutine
 	ps  []*Processor
-	gc  []Span
-	stw []Span
+	gc  Spans
+	stw Spans
 	trace.ParseResult
 }
 
@@ -2326,8 +2365,8 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 	var gs []*Goroutine
 	var ps []*Processor
-	var gc []Span
-	var stw []Span
+	var gc Spans
+	var stw Spans
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -2421,10 +2460,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		eventsPerG[gid]++
 	}
 	for gid, n := range eventsPerG {
-		getG(gid).spans = make([]Span, 0, n)
+		getG(gid).spans = make(Spans, 0, n)
 	}
 	for pid, n := range eventsPerP {
-		getP(pid).spans = make([]Span, 0, n)
+		getP(pid).spans = make(Spans, 0, n)
 	}
 
 	for evID := range res.Events {
@@ -3369,16 +3408,14 @@ func (w *MainWindow) loadTrace(t *Trace) {
 	var end trace.Timestamp
 	for _, g := range t.gs {
 		if len(g.spans) > 0 {
-			d := g.spans[len(g.spans)-1].end
-			if d > end {
+			if d := g.spans.End(); d > end {
 				end = d
 			}
 		}
 	}
 	for _, p := range t.ps {
 		if len(p.spans) > 0 {
-			d := p.spans[len(p.spans)-1].end
-			if d > end {
+			if d := p.spans.End(); d > end {
 				end = d
 			}
 		}
@@ -3414,7 +3451,7 @@ func (w *MainWindow) loadTrace(t *Trace) {
 		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(w.theme, &w.tl, g))
 	}
 	w.tl.prevFrame.dspSpans = map[any][]struct {
-		dspSpans []Span
+		dspSpans MergedSpans
 		startPx  float32
 		endPx    float32
 	}{}
@@ -3628,8 +3665,8 @@ func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 		gst.mapping = append(gst.mapping, i)
 	}
 
-	gst.start = tr.Event(g.spans[0].event()).Ts
-	gst.end = g.spans[len(g.spans)-1].end
+	gst.start = g.spans.Start(tr)
+	gst.end = g.spans.End()
 
 	return gst
 }
@@ -3967,7 +4004,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.filter.showUserLog.Value = true
 	for _, span := range gwin.g.spans {
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.allEvents = append(events.allEvents, span.Events(gwin.g, gwin.trace)...)
+		events.allEvents = append(events.allEvents, span.Events(gwin.g.AllEvents(), gwin.trace)...)
 	}
 	events.updateFilter()
 
