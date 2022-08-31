@@ -90,8 +90,6 @@ import (
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // TODO(dh): add a dialog with text fields for zooming to a specific time range
 // TODO(dh): display different cursor when we're panning
-// TODO(dh): processor timeline span tooltip should show goroutine function name
-// TODO(dh): color GC-related goroutines in the per-P timeline
 // TODO(dh): display number of spans in goroutine tooltip
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
@@ -114,7 +112,7 @@ import (
 //   highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
 //   span could highlight all the spans it unblocks.
 // TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
-//   looking at an arbitrary goroutine.
+//   looking at an arbitrary goroutine (although this is less useful now that we show GC/STW in the axis.)
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 //   GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
 //   leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
