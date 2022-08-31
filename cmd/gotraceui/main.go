@@ -1596,8 +1596,35 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 		var tooltip *SpanTooltip
 		if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx {
+			var allEvents []EventID
+			if aw.allEventer != nil {
+				all := aw.allEventer.AllEvents()
+				if len(all) > 0 {
+					// TODO(dh): this code is duplicated with Span.Events, because we are operating on multiple spans
+					// here. We can deduplicate the code once we introduce a MergedSpan type.
+					end := sort.Search(len(all), func(i int) bool {
+						ev := all[i]
+						return aw.tl.trace.Event(ev).Ts >= dspSpans[len(dspSpans)-1].end
+					})
+
+					sTs := tr.Event(dspSpans[0].event()).Ts
+
+					start := sort.Search(len(all[:end]), func(i int) bool {
+						ev := all[i]
+						return aw.tl.trace.Event(ev).Ts >= sTs
+					})
+
+					allEvents = all[start:end]
+				}
+			}
+
 			//gcassert:noescape
-			tooltip = &SpanTooltip{dspSpans, nil, aw.tl, aw.theme}
+			tooltip = &SpanTooltip{
+				spans:  dspSpans,
+				events: allEvents,
+				tl:     aw.tl,
+				theme:  aw.theme,
+			}
 		}
 
 		dotRadiusX := float32(gtx.Dp(4))
@@ -1654,7 +1681,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				eventsPath.Close()
 
 				if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= minX && aw.pointerAt.X < maxX {
-					tooltip.events = events[oldi : i+1]
+					tooltip.eventsUnderCursor = events[oldi : i+1]
 				}
 			}
 		}
@@ -1954,10 +1981,11 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type SpanTooltip struct {
-	spans  []Span
-	events []EventID
-	tl     *Timeline
-	theme  *theme.Theme
+	spans             []Span
+	events            []EventID
+	eventsUnderCursor []EventID
+	tl                *Timeline
+	theme             *theme.Theme
 }
 
 func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
@@ -2062,43 +2090,46 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += local.Sprintf("mixed (%d spans)", len(tt.spans))
 	}
 	label += "\n"
-	{
-		if len(tt.events) > 0 {
-			kind := tr.Event(tt.events[0]).Type
-			for _, ev := range tt.events[1:] {
-				if tr.Event(ev).Type != kind {
-					kind = 255
-				}
+
+	label += local.Sprintf("Events in span: %d\n", len(tt.events))
+
+	if len(tt.eventsUnderCursor) > 0 {
+		kind := tr.Event(tt.eventsUnderCursor[0]).Type
+		for _, ev := range tt.eventsUnderCursor[1:] {
+			if tr.Event(ev).Type != kind {
+				kind = 255
+				break
 			}
-			if kind != 255 {
-				var noun string
-				switch kind {
-				case trace.EvGoSysCall:
-					noun = "syscalls"
-					if len(tt.events) == 1 {
-						stk := tr.Stacks[tr.Event(tt.events[0]).StkID]
-						if len(stk) != 0 {
-							frame := tr.PCs[stk[0]]
-							noun += fmt.Sprintf(" (%s)", frame.Fn)
-						}
-					}
-				case trace.EvGoCreate:
-					noun = "goroutine creations"
-				case trace.EvGoUnblock:
-					noun = "goroutine unblocks"
-				default:
-					if debug {
-						panic(fmt.Sprintf("unhandled kind %d", kind))
-					}
-				}
-				label += local.Sprintf("Events: %d %s\n", len(tt.events), noun)
-			} else {
-				label += local.Sprintf("Events: %d\n", len(tt.events))
-			}
-		} else {
-			label += "Events: 0\n"
 		}
+		if kind != 255 {
+			var noun string
+			switch kind {
+			case trace.EvGoSysCall:
+				noun = "syscalls"
+				if len(tt.eventsUnderCursor) == 1 {
+					stk := tr.Stacks[tr.Event(tt.eventsUnderCursor[0]).StkID]
+					if len(stk) != 0 {
+						frame := tr.PCs[stk[0]]
+						noun += fmt.Sprintf(" (%s)", frame.Fn)
+					}
+				}
+			case trace.EvGoCreate:
+				noun = "goroutine creations"
+			case trace.EvGoUnblock:
+				noun = "goroutine unblocks"
+			default:
+				if debug {
+					panic(fmt.Sprintf("unhandled kind %d", kind))
+				}
+			}
+			label += local.Sprintf("Events under cursor: %d %s\n", len(tt.eventsUnderCursor), noun)
+		} else {
+			label += local.Sprintf("Events under cursor: %d\n", len(tt.eventsUnderCursor))
+		}
+	} else {
+		label += "Events under cursor: 0\n"
 	}
+
 	d := time.Duration(tt.spans[len(tt.spans)-1].end - tr.Event(tt.spans[0].event()).Ts)
 	label += fmt.Sprintf("Duration: %s", d)
 
