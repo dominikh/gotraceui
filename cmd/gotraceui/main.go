@@ -2091,6 +2091,15 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	}
 	label += "\n"
 
+	if at != "" {
+		// TODO(dh): document what In represents. If possible, it is the last frame in user space that triggered this
+		// state. We try to pattern match away the runtime when it makes sense.
+		label += fmt.Sprintf("In: %s\n", at)
+	}
+
+	d := time.Duration(tt.spans[len(tt.spans)-1].end - tr.Event(tt.spans[0].event()).Ts)
+	label += fmt.Sprintf("Duration: %s\n", d)
+
 	label += local.Sprintf("Events in span: %d\n", len(tt.events))
 
 	if len(tt.eventsUnderCursor) > 0 {
@@ -2130,13 +2139,8 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		label += "Events under cursor: 0\n"
 	}
 
-	d := time.Duration(tt.spans[len(tt.spans)-1].end - tr.Event(tt.spans[0].event()).Ts)
-	label += fmt.Sprintf("Duration: %s", d)
-
-	if at != "" {
-		// TODO(dh): document what In represents. If possible, it is the last frame in user space that triggered this
-		// state. We try to pattern match away the runtime when it makes sense.
-		label += fmt.Sprintf("\nIn: %s", at)
+	if n := len(label) - 1; label[n] == '\n' {
+		label = label[:n]
 	}
 
 	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, label)
