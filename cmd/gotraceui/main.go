@@ -1931,8 +1931,6 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			runningD += d
 		case stateBlocked:
 			blockedD += d
-		case stateBlockedWaitingForTraceData:
-			inactiveD += d
 		case stateBlockedSend:
 			blockedD += d
 		case stateBlockedRecv:
@@ -2035,8 +2033,6 @@ func (tt SpanTooltip) Layout(gtx layout.Context) layout.Dimensions {
 			label += "blocked"
 		case stateBlockedSend:
 			label += "blocked on channel send"
-		case stateBlockedWaitingForTraceData:
-			label += "waiting for trace data"
 		case stateBlockedRecv:
 			label += "blocked on channel recv"
 		case stateBlockedSelect:
@@ -2948,28 +2944,27 @@ var statLabels = [...][numStatLabels * 3]string{
 }
 
 var stateNamesCapitalized = [stateLast]string{
-	stateInactive:                   "Inactive",
-	stateActive:                     "Active",
-	stateGCIdle:                     "GC (idle)",
-	stateGCDedicated:                "GC (dedicated)",
-	stateBlocked:                    "Blocked",
-	stateBlockedWaitingForTraceData: "Blocked (runtime/trace)",
-	stateBlockedSend:                "Blocked (channel send)",
-	stateBlockedRecv:                "Blocked (channel receive)",
-	stateBlockedSelect:              "Blocked (select)",
-	stateBlockedSync:                "Blocked (sync)",
-	stateBlockedSyncOnce:            "Blocked (sync.Once)",
-	stateBlockedSyncTriggeringGC:    "Blocked (triggering GC)",
-	stateBlockedCond:                "Blocked (sync.Cond)",
-	stateBlockedNet:                 "Blocked (pollable I/O)",
-	stateBlockedGC:                  "Blocked (GC)",
-	stateBlockedSyscall:             "Blocking syscall",
-	stateStuck:                      "Stuck",
-	stateReady:                      "Ready",
-	stateCreated:                    "Created",
-	stateDone:                       "Done",
-	stateGCMarkAssist:               "GC (mark assist)",
-	stateGCSweep:                    "GC (sweep assist)",
+	stateInactive:                "Inactive",
+	stateActive:                  "Active",
+	stateGCIdle:                  "GC (idle)",
+	stateGCDedicated:             "GC (dedicated)",
+	stateBlocked:                 "Blocked",
+	stateBlockedSend:             "Blocked (channel send)",
+	stateBlockedRecv:             "Blocked (channel receive)",
+	stateBlockedSelect:           "Blocked (select)",
+	stateBlockedSync:             "Blocked (sync)",
+	stateBlockedSyncOnce:         "Blocked (sync.Once)",
+	stateBlockedSyncTriggeringGC: "Blocked (triggering GC)",
+	stateBlockedCond:             "Blocked (sync.Cond)",
+	stateBlockedNet:              "Blocked (pollable I/O)",
+	stateBlockedGC:               "Blocked (GC)",
+	stateBlockedSyscall:          "Blocking syscall",
+	stateStuck:                   "Stuck",
+	stateReady:                   "Ready",
+	stateCreated:                 "Created",
+	stateDone:                    "Done",
+	stateGCMarkAssist:            "GC (mark assist)",
+	stateGCSweep:                 "GC (sweep assist)",
 }
 
 func scientificDuration(d time.Duration, digits int) string {

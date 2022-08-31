@@ -23,7 +23,6 @@ const (
 	stateGCIdle
 	stateGCDedicated
 	stateBlocked
-	stateBlockedWaitingForTraceData
 	stateBlockedSend
 	stateBlockedRecv
 	stateBlockedSelect
@@ -58,24 +57,23 @@ var legalStateTransitions = [256][stateLast]bool{
 	},
 	stateActive: {
 		// active -> ready occurs on preemption
-		stateReady:                      true,
-		stateInactive:                   true,
-		stateBlocked:                    true,
-		stateBlockedSend:                true,
-		stateBlockedRecv:                true,
-		stateBlockedSelect:              true,
-		stateBlockedSync:                true,
-		stateBlockedSyncOnce:            true,
-		stateBlockedSyncTriggeringGC:    true,
-		stateBlockedWaitingForTraceData: true,
-		stateBlockedCond:                true,
-		stateBlockedNet:                 true,
-		stateBlockedGC:                  true,
-		stateBlockedSyscall:             true,
-		stateStuck:                      true,
-		stateDone:                       true,
-		stateGCMarkAssist:               true,
-		stateGCSweep:                    true,
+		stateReady:                   true,
+		stateInactive:                true,
+		stateBlocked:                 true,
+		stateBlockedSend:             true,
+		stateBlockedRecv:             true,
+		stateBlockedSelect:           true,
+		stateBlockedSync:             true,
+		stateBlockedSyncOnce:         true,
+		stateBlockedSyncTriggeringGC: true,
+		stateBlockedCond:             true,
+		stateBlockedNet:              true,
+		stateBlockedGC:               true,
+		stateBlockedSyscall:          true,
+		stateStuck:                   true,
+		stateDone:                    true,
+		stateGCMarkAssist:            true,
+		stateGCSweep:                 true,
 	},
 	stateGCIdle: {
 		// active -> ready occurs on preemption
@@ -105,17 +103,16 @@ var legalStateTransitions = [256][stateLast]bool{
 		stateGCIdle:       true,
 		stateGCDedicated:  true,
 	},
-	stateBlocked:                    {stateReady: true},
-	stateBlockedSend:                {stateReady: true},
-	stateBlockedRecv:                {stateReady: true},
-	stateBlockedSelect:              {stateReady: true},
-	stateBlockedSync:                {stateReady: true},
-	stateBlockedSyncOnce:            {stateReady: true},
-	stateBlockedSyncTriggeringGC:    {stateReady: true},
-	stateBlockedWaitingForTraceData: {stateReady: true},
-	stateBlockedCond:                {stateReady: true},
-	stateBlockedNet:                 {stateReady: true},
-	stateBlockedGC:                  {stateReady: true},
+	stateBlocked:                 {stateReady: true},
+	stateBlockedSend:             {stateReady: true},
+	stateBlockedRecv:             {stateReady: true},
+	stateBlockedSelect:           {stateReady: true},
+	stateBlockedSync:             {stateReady: true},
+	stateBlockedSyncOnce:         {stateReady: true},
+	stateBlockedSyncTriggeringGC: {stateReady: true},
+	stateBlockedCond:             {stateReady: true},
+	stateBlockedNet:              {stateReady: true},
+	stateBlockedGC:               {stateReady: true},
 	stateBlockedSyscall: {
 		stateReady: true,
 	},

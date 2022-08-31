@@ -6,13 +6,12 @@ var colors = [...]color.NRGBA{
 	colorStateInactive: toColor(0x888888FF),
 	colorStateActive:   toColor(0x448844FF),
 
-	colorStateBlocked:                    toColor(0xBA4141FF),
-	colorStateBlockedWaitingForTraceData: toColor(0xBA4141FF),
-	colorStateBlockedHappensBefore:       toColor(0xBB6363FF),
-	colorStateBlockedNet:                 toColor(0xBB5D5DFF),
-	colorStateBlockedGC:                  toColor(0x9C6FD6FF),
-	colorStateBlockedSyscall:             toColor(0xBA4F41FF),
-	colorStateGC:                         toColor(0x9C6FD6FF),
+	colorStateBlocked:              toColor(0xBA4141FF),
+	colorStateBlockedHappensBefore: toColor(0xBB6363FF),
+	colorStateBlockedNet:           toColor(0xBB5D5DFF),
+	colorStateBlockedGC:            toColor(0x9C6FD6FF),
+	colorStateBlockedSyscall:       toColor(0xBA4F41FF),
+	colorStateGC:                   toColor(0x9C6FD6FF),
 
 	colorStateReady:   toColor(0x4BACB8FF),
 	colorStateStuck:   toColor(0x000000FF),
@@ -47,7 +46,6 @@ const (
 	colorStateBlockedGC
 	colorStateBlockedSyscall
 	colorStateGC
-	colorStateBlockedWaitingForTraceData
 
 	colorStateReady
 	colorStateStuck
@@ -70,28 +68,27 @@ const (
 
 var stateColors = [256]colorIndex{
 	// per-G states
-	stateInactive:                   colorStateInactive,
-	stateActive:                     colorStateActive,
-	stateBlocked:                    colorStateBlocked,
-	stateBlockedWaitingForTraceData: colorStateBlockedWaitingForTraceData,
-	stateBlockedSend:                colorStateBlockedHappensBefore,
-	stateBlockedRecv:                colorStateBlockedHappensBefore,
-	stateBlockedSelect:              colorStateBlockedHappensBefore,
-	stateBlockedSync:                colorStateBlockedHappensBefore,
-	stateBlockedCond:                colorStateBlockedHappensBefore,
-	stateBlockedNet:                 colorStateBlockedNet,
-	stateBlockedGC:                  colorStateBlockedGC,
-	stateBlockedSyscall:             colorStateBlockedSyscall,
-	stateStuck:                      colorStateStuck,
-	stateReady:                      colorStateReady,
-	stateCreated:                    colorStateReady,
-	stateGCMarkAssist:               colorStateGC,
-	stateGCSweep:                    colorStateGC,
-	stateGCIdle:                     colorStateGC,
-	stateGCDedicated:                colorStateGC,
-	stateBlockedSyncOnce:            colorStateBlockedHappensBefore,
-	stateBlockedSyncTriggeringGC:    colorStateGC,
-	stateDone:                       colorStateUnknown, // no span with this state should be rendered
+	stateInactive:                colorStateInactive,
+	stateActive:                  colorStateActive,
+	stateBlocked:                 colorStateBlocked,
+	stateBlockedSend:             colorStateBlockedHappensBefore,
+	stateBlockedRecv:             colorStateBlockedHappensBefore,
+	stateBlockedSelect:           colorStateBlockedHappensBefore,
+	stateBlockedSync:             colorStateBlockedHappensBefore,
+	stateBlockedCond:             colorStateBlockedHappensBefore,
+	stateBlockedNet:              colorStateBlockedNet,
+	stateBlockedGC:               colorStateBlockedGC,
+	stateBlockedSyscall:          colorStateBlockedSyscall,
+	stateStuck:                   colorStateStuck,
+	stateReady:                   colorStateReady,
+	stateCreated:                 colorStateReady,
+	stateGCMarkAssist:            colorStateGC,
+	stateGCSweep:                 colorStateGC,
+	stateGCIdle:                  colorStateGC,
+	stateGCDedicated:             colorStateGC,
+	stateBlockedSyncOnce:         colorStateBlockedHappensBefore,
+	stateBlockedSyncTriggeringGC: colorStateGC,
+	stateDone:                    colorStateUnknown, // no span with this state should be rendered
 
 	// per-P states
 	stateRunningG: colorStateActive,

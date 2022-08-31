@@ -36,7 +36,7 @@ var patterns = [256][]pattern{
 			fns: []string{
 				0: "runtime.ReadTrace",
 			},
-			newState: stateBlockedWaitingForTraceData,
+			newState: stateInactive,
 		},
 	},
 
