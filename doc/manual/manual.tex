@@ -1,0 +1,242 @@
+\mainlanguage[en]
+% enable hyperlinks, don't give them a different color, don't automatically switch to "fit page" mode when clicking a
+% link
+\setupinteraction[state=start,color=,contrastcolor=,focus=standard]
+% automatically create bookmarks for the items in the first argument, automatically expand the tree for the items in the
+% second argument.
+\placebookmarks[chapter,section,subsection][chapter,section]
+% expand macros in titles used in bookmarks
+\enabledirectives[references.bookmarks.preroll]
+% TODO add document metadata to PDF (title, author, …)
+\setuplanguage[en][spacing=packed]
+\setuppapersize[A4]
+\setuphead[chapter][style=\bfc]
+% Place an empty line between paragraphs
+\setupwhitespace[line]
+
+\definecolor[stateActive][x=448844]
+\definecolor[stateBlockedGC][x=9C6FD6]
+\definecolor[stateBlockedHappensBefore][x=BB6363]
+\definecolor[stateBlockedNet][x=BB5D5D]
+\definecolor[stateBlockedSyscall][x=BA4F41]
+\definecolor[stateBlocked][x=BA4141]
+\definecolor[stateGC][x=9C6FD6]
+\definecolor[stateInactive][x=888888]
+\definecolor[stateReady][x=4BACB8]
+\definecolor[stateStuck][x=000000]
+
+\define[2]\traceState{\inframed[background=color,backgroundcolor=#2]{#1}}
+
+\definemargindata[intodo][right][margin=margin,width=\rightmarginwidth,align=flushleft,color=red,style=]
+
+\definestartstop[todo][color=red]
+
+\define[1]\code{{\tt\unhyphenated{#1}}}
+
+
+\definefontfeature[default][default][expansion=quality,protrusion=quality]
+\usetypescript[modern-base]
+% Make sure to use setupbodyfont after definefontfeature so the features actually get used
+\setupbodyfont[modern,12pt]
+\setupalign[hz,hanging]
+
+\showframe
+
+\starttext
+
+% TODO(dh): add a title page.
+
+\intodo{Most of these titles are placeholders, as is the overall structure}
+\completecontent
+
+\startchapter[title=\todo{Something about our UI}]
+  \startsection[title=Color coding]
+  \stopsection
+
+  \startsection[title=Middle click]
+  \stopsection
+
+  \startsection[title=Goroutine states]
+    \starttodo
+    Something about how a goroutine will be in one of several states.
+    States have colors, some of them have labels, different labels at different zoom levels.
+    \stoptodo
+
+    Some of these states are actual states in the Go runtime, while other states are introduced by gotraceui to increase
+    the level of detail.
+
+    \startitemize
+    \item \traceState{created}{stateReady} Newly created goroutines will be in this state before they get scheduled for the first time.
+      It is a special case of the ready state.
+
+    \item \traceState{active}{stateActive} Active goroutines are those that are currently running.
+
+    \item \traceState{send}{stateBlockedHappensBefore}, \traceState{recv}{stateBlockedHappensBefore},
+      \traceState{select}{stateBlockedHappensBefore} These states describe the three ways in which goroutines can be blocked on channel communication.
+
+    \item \traceState{sync}{stateBlockedHappensBefore} This state is used by goroutines that are blocked on sync primitives, such as \code{sync.Mutex}.
+
+    \item \traceState{sync.Once}{stateBlockedHappensBefore} Blocked on a \code{sync.Once}.
+      This is a special case of the sync state and detected by gotraceui based on stack traces.
+
+    \item \traceState{sync.Cond}{stateBlockedHappensBefore} Blocked on a condition variable (\code{sync.Cond}.)
+
+    \item \traceState{I/O}{stateBlockedNet} This state is entered by goroutines that are waiting for pollable I/O to complete.
+      See \about[netpoller] for more information.
+
+    \item \traceState{syscall}{stateBlockedSyscall} Goroutines enter this state when they invoke a blocking syscall.
+      See \about[syscalls] for an explanation of the difference between blocking and non-blocking syscalls in the context of Go.
+
+    \item \traceState{blocked}{stateBlocked} Blocked goroutines are waiting for something to happen, but we don't know what.
+      This usually happens for goroutines of the runtime that don't emit more accurate information.
+      User goroutines will usually have more specific states such as \quote{send}.
+
+    \item \traceState{inactive}{stateInactive} This state is one of gotraceui's custom states and is used for
+      goroutines that are blocked or ready to run, but aren't actually eager to run.
+      For blocked goroutines, this is exclusively used by goroutines of the runtime that block on some lock to pace the amount of work they do.
+      Goroutines that are technically in the ready state but are marked inactive are those that called runtime.Gosched,
+      as this indicates that they willingly gave up part of their share in CPU time, and their time spent waiting shouldn't be considered scheduler latency.
+
+      \intodo{We still need to describe this state}
+    \item \traceState{BlockedGC}{stateGC}
+
+    \item \traceState{ready}{stateReady} A goroutine in this state isn't blocked on anything anymore and can start running as soon as it gets scheduled.
+      A goroutine can be in this state because there aren't any free Ps to run it,
+      or simply because the scheduler hasn't gotten around to starting it yet.
+      Goroutines can transition into this state from the active state if they get preempted,
+      or from any of the various blocked states once they get unblocked.
+      Time spent in this state is commonly called scheduler latency.
+
+      \intodo{We still need to describe these states}
+    \item \traceState{GC (idle)}{stateGC}
+
+    \item \traceState{GC (dedicated)}{stateGC}
+
+    \item \traceState{GC mark assist}{stateGC} Goroutines in the \quote{GC mark assist} state are assisting the mark phase.
+      See \about[gc] to learn more about the garbage collector.
+
+    \item \traceState{GC sweep}{stateGC} Goroutines in the \quote{GC sweep} state are sweeping memory.
+      See \about[gc] to learn more about the garbage collector.
+
+      \intodo{Drawing black on black isn't brilliant}
+
+    \item \traceState{stuck}{stateStuck} Goroutiens in this state are stuck and can never make progress.
+      This happens, for example, when receiving from a nil channel or using \code{select} with no cases.
+
+    \stopitemize
+
+
+  \stopsection
+
+  \startsection[title=Tags]
+    Gotraceui will annotate spans with tags, which further describe the states goroutines are in.
+    These tags are produced by automatically parsing stack traces,
+    and for example deducing that a goroutine that's blocked on pollable I/O got to that state by making a TLS-encrypted HTTP request over TCP,
+    which provides a lot more information than just \quotation{I/O}.
+
+    Being based on stack trace parsing, tags are provided on a best-effort basis.
+    Without a matching, hand-written pattern, tags will not be recognized.
+    The author of the software adds new patterns as he notices them and tries to keep them in sync with new releases of Go.
+
+    The following tags exist:
+
+    \startitemize
+    \item HTTP, for I/O related to HTTP
+    \item TCP, for I/O related to TCP
+    \item TLS, for I/O related to TLS
+    \item accept, for blocking on \goto{accept(2)}[url(https://man7.org/linux/man-pages/man2/accept.2.html)]ing on a network connection
+    \item dial, for blocking on dialing a network connection
+    \item network, for network I/O
+    \item read, for read I/O
+    \stopitemize
+  \stopsection
+\stopchapter
+
+\startchapter[title=The \code{runtime/trace} package]
+  \startsection[title=Adding tracing to your application]
+    \todo{TODO}
+  \stopsection
+
+  \startsection[title=User annotations]
+    \todo{TODO}
+  \stopsection
+
+  \startsection[title=\todo{Tracing in tests or something}]
+    \todo{TODO}
+  \stopsection
+
+\stopchapter
+
+\startchapter[title=Understanding the Go runtime]
+
+  \startsection[title=Introduction]
+    \todo{TODO}
+  \stopsection
+
+  \startsection[title=The scheduler]
+    Go programs can have very many goroutines, up to millions.
+    Because it wouldn't be feasible to map one goroutine to one OS level thread,
+    Go has to distribute goroutines over a smaller number of threads.
+    To do so, the scheduler has to decide which goroutines to run when,
+    part of which involves tracking which goroutines {\em can} run.
+    The activity related to this makes up a large part of what the runtime trace captures and gotraceui visualizes.
+    It is thus helpful to understand how the scheduler works.
+
+    \startsubsection[title={Ms, Ps, and Gs}]
+      \starttodo
+      M = OS threads
+      P = token/internal state, GOMAXPROCS of them
+      G = goroutines
+
+      Many Gs run on many Ms, at most len(P) of them. Blocking syscalls etc get their own M.
+
+      LockOSThread locks a G to an M; it's still free to jump between Ps.
+
+      https://docs.google.com/document/d/1TTj4T2JO42uD5ID9e89oa0sLKhJYD0Y_kqxDv3I3XMw/edit
+      https://morsmachine.dk/go-scheduler
+      \stoptodo
+    \stopsubsection
+
+    \startsubsection[title=Syscalls,reference=syscalls]
+    \todo{TODO}
+    \stopsubsection
+
+    \startsubsection[title=Gosched]
+    \todo{TODO}
+    \stopsubsection
+
+    \startsubsection[title=Pollable vs. unpollable I/O,reference=netpoller]
+    \todo{TODO}
+    \stopsubsection
+  \stopsection
+
+  \startsection[title=Garbage collection,reference=gc]
+    Go uses a concurrent mark and sweep garbage collector.
+    Its activity will interact with the scheduling of your goroutines in various ways,
+    which we'll explore in this section.
+    We will focus on the details that matter for understanding runtime traces.
+    There are many more details to how the GC works and you're encouraged to read the \goto{official documentation}[url(https://go.dev/doc/gc-guide)] to learn more about it.
+
+    \startsubsection[title=\todo{Something about mark, sweep, mark assist, STW, how GC gets triggered, etc}]
+    \stopsubsection
+  \stopsection
+
+  \startsection[title=The runtime's goroutines]
+    The runtime spawns several of its own goroutines that will show up in most traces.
+    Most of these exist to help with the concurrent garbage collector.
+
+    \startitemize
+    \item \todo{bgsweep}
+    \item \todo{bgscavenger}
+    \item \todo{gcBgMarkWorker}
+    \item \code{forcegchelper} periodically gets woken up and forces a garbage collection cycle to start.
+      This ensures that garbage gets collected regularly even if the program isn't allocating enough memory to hit the heap target.
+    \item \code{runfinq} is the goroutine that is responsible for running finalizers.
+      That means that this runtime goroutine will execute code provided by the user via \code{runtime.SetFinalizer}.
+    \stopitemize
+
+  \stopsection
+
+  \stopchapter
+
+\stoptext
