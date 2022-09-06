@@ -1313,6 +1313,17 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine, tr *Trace) {
 	}
 }
 
+func (w *MainWindow) openHeatmap() {
+	win := &HeatmapWindow{
+		theme: w.theme,
+		trace: w.trace,
+	}
+	go func() {
+		// XXX handle error?
+		win.Run(app.NewWindow(app.Title("gotraceui - heatmap")))
+	}()
+}
+
 func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
