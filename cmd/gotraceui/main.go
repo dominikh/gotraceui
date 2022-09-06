@@ -1285,6 +1285,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 	}
 }
 
+// TODO(dh): MainWindow has a reference to Trace, we don't need it as an argument
 func (w *MainWindow) openGoroutineWindow(g *Goroutine, tr *Trace) {
 	_, ok := w.goroutineWindows[g.id]
 	if ok {
