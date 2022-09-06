@@ -94,7 +94,7 @@
     \item \traceState{inactive}{stateInactive} This state is one of gotraceui's custom states and is used for
       goroutines that are blocked or ready to run, but aren't actually eager to run.
       For blocked goroutines, this is exclusively used by goroutines of the runtime that block on some lock to pace the amount of work they do.
-      Goroutines that are technically in the ready state but are marked inactive are those that called runtime.Gosched,
+      Goroutines that are technically in the ready state but are marked inactive are those that called runtime.Gosched or time.Sleep,
       as this indicates that they willingly gave up part of their share in CPU time, and their time spent waiting shouldn't be considered scheduler latency.
 
       \intodo{We still need to describe this state}
