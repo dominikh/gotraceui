@@ -237,7 +237,7 @@ func (s *Span) Events(all []EventID, tr *Trace) []EventID {
 		return nil
 	}
 
-	// AllEvents returns all events in the span's container (a goroutine), sorted by timestamp, as indices into the
+	// The all argument contains all events in the span's container (a goroutine), sorted by timestamp, as indices into the
 	// global list of events. Find the first and last event that overlaps with the span, and that is the set of events
 	// belonging to this span.
 
@@ -308,10 +308,6 @@ type Goroutine struct {
 	spans       Spans
 	userRegions []Spans
 	events      []EventID
-}
-
-func (g *Goroutine) AllEvents() []EventID {
-	return g.events
 }
 
 func (g *Goroutine) String() string {

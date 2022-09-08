@@ -1182,9 +1182,8 @@ type SpanTooltipState struct {
 
 type ActivityWidgetTrack struct {
 	// TODO(dh): rename allSpans to spans
-	allSpans Spans
-	// TODO(dh): rename allEventer to eventer; better yet, replace it with a slice
-	allEventer AllEventer
+	allSpans  Spans
+	allEvents []EventID
 
 	// XXX these callbacks should probably get a reference to the track, too
 	highlightSpan func(aw *ActivityWidget, spans MergedSpans) bool
@@ -1471,8 +1470,8 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 
 	aw := &ActivityWidget{
 		tracks: []ActivityWidgetTrack{{
-			allSpans:   g.spans,
-			allEventer: g,
+			allSpans:  g.spans,
+			allEvents: g.events,
 			spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
 				if len(spans) != 1 {
 					return nil
@@ -1897,10 +1896,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 			var spanTooltipState SpanTooltipState
 			if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx && aw.pointerAt.Y >= float32(yOffset) && aw.pointerAt.Y < float32(yOffset+activityStateHeight) {
-				var events []EventID
-				if track.allEventer != nil {
-					events = dspSpans.Events(track.allEventer.AllEvents(), aw.tl.trace)
-				}
+				events := dspSpans.Events(track.allEvents, aw.tl.trace)
 
 				spanTooltipState = SpanTooltipState{
 					spans:  dspSpans,
@@ -1913,10 +1909,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
 				// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 				// zoom in, causing dots to disappear and reappearappear and disappear.
-				var events []EventID
-				if track.allEventer != nil {
-					events = dspSpans[0].Events(track.allEventer.AllEvents(), tr)
-				}
+				events := dspSpans[0].Events(track.allEvents, tr)
 
 				dotGap := float32(gtx.Dp(4))
 				centerY := float32(activityStateHeight) / 2
@@ -2269,11 +2262,6 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		runningD, runningPct)
 
 	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
-}
-
-// TODO(dh): do we need this abstraction? can't we just pass slices around?
-type AllEventer interface {
-	AllEvents() []EventID
 }
 
 type Command struct {
@@ -3094,7 +3082,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.filter.showUserLog.Value = true
 	for _, span := range gwin.g.spans {
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.allEvents = append(events.allEvents, span.Events(gwin.g.AllEvents(), gwin.trace)...)
+		events.allEvents = append(events.allEvents, span.Events(gwin.g.events, gwin.trace)...)
 	}
 	events.updateFilter()
 
