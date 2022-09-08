@@ -2471,10 +2471,15 @@ func (w *MainWindow) Run(win *app.Window) error {
 					for _, ev := range gtx.Events(&shortcuts) {
 						switch ev := ev.(type) {
 						case key.Event:
-							if ev.State == key.Press && ev.Name == "G" && ww == nil {
-								ww = theme.NewListWindow[*Goroutine](w.theme)
-								ww.SetItems(w.trace.gs)
-								ww.BuildFilter = newGoroutineFilter
+							if ev.State == key.Press {
+								switch ev.Name {
+								case "G":
+									ww = theme.NewListWindow[*Goroutine](w.theme)
+									ww.SetItems(w.trace.gs)
+									ww.BuildFilter = newGoroutineFilter
+								case "H":
+									w.openHeatmap()
+								}
 							}
 						}
 					}
@@ -2483,7 +2488,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 						w.openGoroutineWindow(g, w.trace)
 					}
 
-					key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
+					key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
 
 					if ww != nil {
 						if item, ok := ww.Confirmed(); ok {
