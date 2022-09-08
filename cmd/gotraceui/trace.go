@@ -655,10 +655,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			gid := ev.G
 			if mode := ev.Args[1]; mode == regionStart {
 				endID := int(ev.Link[0]) | int(ev.Link[1])<<8 | int(ev.Link[2])<<16 | int(ev.Link[3])<<24 | int(ev.Link[4])<<32
+				var end trace.Timestamp
+				if endID != 0xFFFFFFFFFF {
+					end = res.Events[endID].Ts
+				} else {
+					end = -1
+				}
 				s := Span{
 					event_: packEventID(EventID(evID)),
 					state:  stateUserRegion,
-					end:    res.Events[endID].Ts,
+					end:    end,
 				}
 				g := getG(ev.G)
 				depth := userRegionDepths[gid]
@@ -764,6 +770,28 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 				} else {
 					// XXX somehow encode open-ended traces
 					g.spans[len(g.spans)-1].end = res.Events[len(res.Events)-1].Ts
+				}
+			}
+
+			for depth, spans := range g.userRegions {
+				if len(spans) != 0 {
+					if last := &spans[len(spans)-1]; last.end == -1 {
+						// The user region wasn't closed before the trace ended; give it the maximum length possible,
+						// that of the parent user region, or the goroutine if this is the top-most user region.
+
+						if depth == 0 {
+							last.end = g.spans.End()
+						} else {
+							// OPT(dh): use binary search
+							for _, parent := range g.userRegions[depth-1] {
+								// The first parent user region that ends after our region starts has to be our parent.
+								if parent.end >= res.Events[last.event()].Ts {
+									last.end = parent.end
+									break
+								}
+							}
+						}
+					}
 				}
 			}
 
