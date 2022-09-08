@@ -668,14 +668,14 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	var first, last trace.Timestamp = -1, -1
 	for _, aw := range tl.visibleActivities(gtx) {
 		for _, track := range aw.tracks {
-			if len(track.allSpans) == 0 {
+			if len(track.spans) == 0 {
 				continue
 			}
 
-			if t := track.allSpans.Start(tr); t < first || first == -1 {
+			if t := track.spans.Start(tr); t < first || first == -1 {
 				first = t
 			}
-			if t := track.allSpans.End(); t > last {
+			if t := track.spans.End(); t > last {
 				last = t
 			}
 		}
@@ -1181,9 +1181,8 @@ type SpanTooltipState struct {
 }
 
 type ActivityWidgetTrack struct {
-	// TODO(dh): rename allSpans to spans
-	allSpans  Spans
-	allEvents []EventID
+	spans  Spans
+	events []EventID
 
 	// XXX these callbacks should probably get a reference to the track, too
 	highlightSpan func(aw *ActivityWidget, spans MergedSpans) bool
@@ -1251,7 +1250,7 @@ func (aw *ActivityWidget) LabelClicked() bool {
 
 func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
-		tracks: []ActivityWidgetTrack{{allSpans: spans}},
+		tracks: []ActivityWidgetTrack{{spans: spans}},
 		tl:     tl,
 		item:   spans,
 		label:  "GC",
@@ -1261,7 +1260,7 @@ func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *Acti
 
 func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
-		tracks: []ActivityWidgetTrack{{allSpans: spans}},
+		tracks: []ActivityWidgetTrack{{spans: spans}},
 		tl:     tl,
 		item:   spans,
 		label:  "STW",
@@ -1470,8 +1469,8 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 
 	aw := &ActivityWidget{
 		tracks: []ActivityWidgetTrack{{
-			allSpans:  g.spans,
-			allEvents: g.events,
+			spans:  g.spans,
+			events: g.events,
 			spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
 				if len(spans) != 1 {
 					return nil
@@ -1491,7 +1490,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 
 	for _, ug := range g.userRegions {
 		aw.tracks = append(aw.tracks, ActivityWidgetTrack{
-			allSpans: ug,
+			spans: ug,
 			spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
 				if len(spans) != 1 {
 					return nil
@@ -1569,7 +1568,7 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 	tr := tl.trace
 	return &ActivityWidget{
 		tracks: []ActivityWidgetTrack{{
-			allSpans: p.spans,
+			spans: p.spans,
 			highlightSpan: func(aw *ActivityWidget, spans MergedSpans) bool {
 				if len(tl.activity.hoveredSpans) != 1 {
 					return false
@@ -1728,7 +1727,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
 					// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 					// assumption to make.
-					aw.clickedSpans = MergedSpans(aw.tracks[0].allSpans)
+					aw.clickedSpans = MergedSpans(aw.tracks[0].spans)
 				}
 			}
 		}
@@ -1896,7 +1895,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 			var spanTooltipState SpanTooltipState
 			if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx && aw.pointerAt.Y >= float32(yOffset) && aw.pointerAt.Y < float32(yOffset+activityStateHeight) {
-				events := dspSpans.Events(track.allEvents, aw.tl.trace)
+				events := dspSpans.Events(track.events, aw.tl.trace)
 
 				spanTooltipState = SpanTooltipState{
 					spans:  dspSpans,
@@ -1909,7 +1908,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
 				// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 				// zoom in, causing dots to disappear and reappearappear and disappear.
-				events := dspSpans[0].Events(track.allEvents, tr)
+				events := dspSpans[0].Events(track.events, tr)
 
 				dotGap := float32(gtx.Dp(4))
 				centerY := float32(activityStateHeight) / 2
@@ -2039,7 +2038,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			allDspSpans := track.prevFrame.dspSpans[:0]
 			it := renderedSpansIterator{
 				tl:    aw.tl,
-				spans: aw.tl.visibleSpans(track.allSpans),
+				spans: aw.tl.visibleSpans(track.spans),
 			}
 			for {
 				dspSpans, startPx, endPx, ok := it.next(gtx)
