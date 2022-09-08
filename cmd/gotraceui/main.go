@@ -132,7 +132,6 @@ const (
 	activityLabelHeightDp unit.Dp = 20
 	activityStateHeightDp unit.Dp = 16
 	activityGapDp         unit.Dp = 5
-	activityHeightDp      unit.Dp = activityStateHeightDp + activityLabelHeightDp
 
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
@@ -545,14 +544,6 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (tl *Timeline) activityHeight(gtx layout.Context) int {
-	if tl.activity.compact {
-		return gtx.Dp(activityHeightDp) - gtx.Dp(activityLabelHeightDp)
-	} else {
-		return gtx.Dp(activityHeightDp)
-	}
-}
-
 func (tl *Timeline) visibleSpans(spans Spans) Spans {
 	tr := tl.trace
 	// Visible spans have to end after tl.Start and begin before tl.End
@@ -697,13 +688,13 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 	// OPT(dh): don't be O(n)
 	off := 0
-	for _, og := range tl.activities {
-		if g == og.item {
+	for _, aw := range tl.activities {
+		if g == aw.item {
 			// TODO(dh): show goroutine at center of window, not the top
 			tl.navigateTo(gtx, tl.start, tl.end, off)
 			return
 		}
-		off += tl.activityHeight(gtx) + gtx.Dp(activityGapDp)
+		off += aw.Height(gtx) + gtx.Dp(activityGapDp)
 	}
 	panic("unreachable")
 }
@@ -893,7 +884,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
 
 		{
-			activityHeight := tl.activityHeight(gtx)
 			activityGap := gtx.Dp(activityGapDp)
 			// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 			d := tl.scrollbar.ScrollDistance()
@@ -903,8 +893,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				// delta to tl.y can leave it in a different position than where the user clicked.
 				tl.cancelNavigation()
 			}
-			totalHeight := float32(len(tl.activities) * (activityHeight + activityGap))
-			tl.y += int(round32(d * totalHeight))
+			var totalHeight int
+			for _, aw := range tl.activities {
+				// OPT(dh): cache this value
+				totalHeight += activityGap + aw.Height(gtx)
+			}
+			tl.y += int(round32(d * float32(totalHeight)))
 			if tl.y < 0 {
 				tl.y = 0
 			}
@@ -1034,12 +1028,20 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		defer op.Offset(image.Pt(tl.VisibleWidth(gtx), axisHeight)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= axisHeight
 
-		activityHeight := tl.activityHeight(gtx)
 		activityGap := gtx.Dp(activityGapDp)
 
-		totalHeight := float32((len(tl.activities) + 1) * (activityHeight + activityGap))
-		fraction := float32(gtx.Constraints.Max.Y) / totalHeight
-		offset := float32(tl.y) / totalHeight
+		var totalHeight int
+		for _, aw := range tl.activities {
+			// OPT(dh): cache this value
+			totalHeight += aw.Height(gtx) + activityGap
+		}
+		if len(tl.activities) > 0 {
+			// Allow scrolling past the last goroutine
+			totalHeight += tl.activities[len(tl.activities)-1].Height(gtx) + activityGap
+		}
+
+		fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
+		offset := float32(tl.y) / float32(totalHeight)
 		sb := theme.Scrollbar(tl.theme, &tl.scrollbar)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 	}(gtx)
@@ -1420,9 +1422,19 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 	}
 }
 
+func (aw *ActivityWidget) Height(gtx layout.Context) int {
+	// XXX activity height is dynamic now, thanks to a variable number of user regions per goroutine
+	const activityHeightDp unit.Dp = activityStateHeightDp + activityLabelHeightDp
+	if aw.tl.activity.compact {
+		return gtx.Dp(activityHeightDp) - gtx.Dp(activityLabelHeightDp)
+	} else {
+		return gtx.Dp(activityHeightDp)
+	}
+}
+
 func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	tr := aw.tl.trace
-	activityHeight := aw.tl.activityHeight(gtx)
+	activityHeight := aw.Height(gtx)
 	activityStateHeight := gtx.Dp(activityStateHeightDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
@@ -1843,17 +1855,17 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 }
 
 func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
-	activityHeight := tl.activityHeight(gtx)
 	activityGap := gtx.Dp(activityGapDp)
 
 	start := -1
 	end := -1
-	// OPT(dh): at least use binary search to find the range of activities we need to draw
-	// OPT(dh): we can probably compute the indices directly
-	for i := range tl.activities {
-		y := (activityHeight+activityGap)*int(i) - tl.y
+	// OPT(dh): at least use binary search to find the range of activities we need to draw. now that activity heights
+	// aren't constant anymore, however, this is more complicated.
+	y := -tl.y
+	for i, aw := range tl.activities {
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
-		if y < -activityHeight {
+		if y < -aw.Height(gtx) {
+			y += activityGap + aw.Height(gtx)
 			continue
 		}
 		if start == -1 {
@@ -1863,6 +1875,7 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 			end = i
 			break
 		}
+		y += activityGap + aw.Height(gtx)
 	}
 
 	if start == -1 {
@@ -1880,21 +1893,22 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	activityHeight := tl.activityHeight(gtx)
 	activityGap := gtx.Dp(activityGapDp)
 
-	// OPT(dh): at least use binary search to find the range of activities we need to draw
+	// OPT(dh): at least use binary search to find the range of activities we need to draw. now that activity heights
+	// aren't constant anymore, however, this is more complicated.
 	start := -1
 	end := -1
+	y := -tl.y
 	for i, aw := range tl.activities {
 		if aw.LabelClicked() {
 			if g, ok := aw.item.(*Goroutine); ok {
 				tl.clickedGoroutineActivities = append(tl.clickedGoroutineActivities, g)
 			}
 		}
-		y := (activityHeight+activityGap)*int(i) - tl.y
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
-		if y < -activityHeight {
+		if y < -aw.Height(gtx) {
+			y += activityGap + aw.Height(gtx)
 			continue
 		}
 		if y > gtx.Constraints.Max.Y {
@@ -1909,6 +1923,8 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 		topBorder := i > 0 && tl.activities[i-1].hovered
 		aw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
 		stack.Pop()
+
+		y += activityGap + aw.Height(gtx)
 	}
 
 	var out []*ActivityWidget
