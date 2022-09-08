@@ -40,6 +40,9 @@ const (
 	stateGCMarkAssist
 	stateGCSweep
 
+	// Special state used by user regions
+	stateUserRegion
+
 	// Processor states
 	stateRunningG
 
@@ -300,10 +303,11 @@ type Processor struct {
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
 type Goroutine struct {
-	id       uint64
-	function string
-	spans    Spans
-	events   []EventID
+	id          uint64
+	function    string
+	spans       Spans
+	userRegions []Spans
+	events      []EventID
 }
 
 func (g *Goroutine) AllEvents() []EventID {
@@ -427,6 +431,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		getP(pid).spans = make(Spans, 0, n)
 	}
 
+	userRegionDepths := map[uint64]int{}
 	for evID := range res.Events {
 		ev := &res.Events[evID]
 		if evID%10000 == 0 {
@@ -645,12 +650,45 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvGomaxprocs:
 			// TODO(dh): graph GOMAXPROCS
 			continue
-		case trace.EvUserTaskCreate, trace.EvUserTaskEnd, trace.EvUserRegion:
+		case trace.EvUserTaskCreate, trace.EvUserTaskEnd:
 			// TODO(dh): implement a per-task timeline
-			// TODO(dh): incorporate regions and logs in per-goroutine timeline
+			continue
+
+		case trace.EvUserRegion:
+			const regionStart = 0
+			gid := ev.G
+			if mode := ev.Args[1]; mode == regionStart {
+				endID := int(ev.Link[0]) | int(ev.Link[1])<<8 | int(ev.Link[2])<<16 | int(ev.Link[3])<<24 | int(ev.Link[4])<<32
+				s := Span{
+					event_: packEventID(EventID(evID)),
+					state:  stateUserRegion,
+					end:    res.Events[endID].Ts,
+				}
+				g := getG(ev.G)
+				depth := userRegionDepths[gid]
+				if depth >= len(g.userRegions) {
+					if depth < cap(g.userRegions) {
+						g.userRegions = g.userRegions[:depth+1]
+					} else {
+						s := make([]Spans, depth+1)
+						copy(s, g.userRegions)
+						g.userRegions = s
+					}
+				}
+				g.userRegions[depth] = append(g.userRegions[depth], s)
+				userRegionDepths[gid]++
+			} else {
+				d := userRegionDepths[gid] - 1
+				if d > 0 {
+					userRegionDepths[gid] = d
+				} else {
+					delete(userRegionDepths, gid)
+				}
+			}
 			continue
 
 		case trace.EvUserLog:
+			// TODO(dh): incorporate logs in per-goroutine timeline
 			addEventToCurrentSpan(ev.G, EventID(evID))
 			continue
 

@@ -13,10 +13,11 @@ var colors = [...]color.NRGBA{
 	colorStateBlockedSyscall:       toColor(0xBA4F41FF),
 	colorStateGC:                   toColor(0x9C6FD6FF),
 
-	colorStateReady:   toColor(0x4BACB8FF),
-	colorStateStuck:   toColor(0x000000FF),
-	colorStateMerged:  toColor(0xB9BB63FF),
-	colorStateUnknown: toColor(0xFFFF00FF),
+	colorStateReady:      toColor(0x4BACB8FF),
+	colorStateStuck:      toColor(0x000000FF),
+	colorStateMerged:     toColor(0xB9BB63FF),
+	colorStateUnknown:    toColor(0xFFFF00FF),
+	colorStateUserRegion: toColor(0xC1CF94FF),
 
 	colorBackground:    toColor(0xffffeaFF),
 	colorZoomSelection: toColor(0xeeee9e99),
@@ -50,6 +51,7 @@ const (
 	colorStateReady
 	colorStateStuck
 	colorStateMerged
+	colorStateUserRegion
 
 	colorStateLast
 
@@ -88,6 +90,7 @@ var stateColors = [256]colorIndex{
 	stateGCDedicated:             colorStateGC,
 	stateBlockedSyncOnce:         colorStateBlockedHappensBefore,
 	stateBlockedSyncTriggeringGC: colorStateGC,
+	stateUserRegion:              colorStateUserRegion,
 	stateDone:                    colorStateUnknown, // no span with this state should be rendered
 
 	// per-P states
