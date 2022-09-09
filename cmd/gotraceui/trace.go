@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/trace"
 )
 
@@ -136,10 +137,12 @@ var legalStateTransitions = [256][stateLast]bool{
 }
 
 type Trace struct {
-	gs  []*Goroutine
-	ps  []*Processor
-	gc  Spans
-	stw Spans
+	// OPT(dh): can we get rid of all these pointers?
+	gs    []*Goroutine
+	ps    []*Processor
+	gc    Spans
+	stw   Spans
+	tasks []*Task
 	trace.ParseResult
 }
 
@@ -156,6 +159,23 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 //gcassert:inline
 func (t *Trace) Duration(s *Span) time.Duration {
 	return time.Duration(s.end - t.Event(s.event()).Ts)
+}
+
+func (t *Trace) Task(id uint64) *Task {
+	idx, found := sort.Find(len(t.tasks), func(i int) int {
+		oid := t.tasks[i].id
+		if id == oid {
+			return 0
+		} else if id < oid {
+			return -1
+		} else {
+			return 1
+		}
+	})
+	if !found {
+		panic("couldn't find task")
+	}
+	return t.tasks[idx]
 }
 
 func (tr *Trace) getG(gid uint64) *Goroutine {
@@ -320,6 +340,14 @@ func (g *Goroutine) String() string {
 	}
 }
 
+type Task struct {
+	// OPT(dh): Technically we only need the EventID field, everything else can be extracted from the event on demand.
+	// But there are probably not enough tasks to make that worth it.
+	id    uint64
+	name  string
+	event EventID
+}
+
 func loadTrace(path string, ch chan Command) (*Trace, error) {
 	const ourStages = 1
 	const totalStages = trace.Stages + ourStages
@@ -328,6 +356,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	var ps []*Processor
 	var gc Spans
 	var stw Spans
+	var tasks []*Task
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -646,8 +675,16 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvGomaxprocs:
 			// TODO(dh): graph GOMAXPROCS
 			continue
-		case trace.EvUserTaskCreate, trace.EvUserTaskEnd:
-			// TODO(dh): implement a per-task timeline
+
+		case trace.EvUserTaskCreate:
+			t := &Task{
+				id:    ev.Args[0],
+				name:  res.Strings[ev.Args[2]],
+				event: EventID(evID),
+			}
+			tasks = append(tasks, t)
+			continue
+		case trace.EvUserTaskEnd:
 			continue
 
 		case trace.EvUserRegion:
@@ -826,7 +863,10 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		return nil, errExitAfterLoading
 	}
 
-	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, ParseResult: res}, nil
+	slices.SortFunc(tasks, func(a, b *Task) bool {
+		return a.id < b.id
+	})
+	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, tasks: tasks, ParseResult: res}, nil
 }
 
 // Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this

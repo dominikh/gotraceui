@@ -1451,7 +1451,7 @@ func userRegionSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanToo
 		if s.state != stateUserRegion {
 			panic(fmt.Sprintf("unexpected state %d", s.state))
 		}
-		label = local.Sprintf("User region: %s\n", tr.Strings[ev.Args[2]])
+		label = local.Sprintf("User region: %s\nTask: %s\n", tr.Strings[ev.Args[2]], tr.Task(ev.Args[0]).name)
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
