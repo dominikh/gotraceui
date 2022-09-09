@@ -68,11 +68,6 @@ import (
    that we're done.
 */
 
-// TODO(dh): runtime/trace tells you to use a limited number of labels for regions, and suggests using runtime/trace's
-//   logging to add additional metadata. it'd be nice if we could support that as a first class feature and turn logs into
-//   actual metadata for user regions. the tricky part is that not all logging is metadata; some is just logging.
-// TODO(dh): pan timeline with WASD
-// TODO(dh): scroll timeline with PgpUp/PgpDown
 // FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
 //   will be selected, and pressing enter will panic, trying to access index -1
 // FIXME(dh): shift+arrow keys selects text in our instances of widget.Editor, but the selected text doesn't look selected
@@ -85,7 +80,6 @@ import (
 // OPT(dh): optimize drawing merged spans with millions of spans
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
 // TODO(dh): allow jumping from span in per-goroutine view to corresponding goroutine span in per-processor view
-// TODO(dh): visualisation idea: goroutine family tree. in the same vein, support sorting goroutines topologically?
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
 // TODO(dh): display parent goroutine in goroutine window
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
@@ -95,11 +89,6 @@ import (
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
 // TODO(dh): add tooltip for processor timelines
-// TODO(dh): provide different sortings for goroutines. One user requested sorting by "amount of activity" but couldn't
-//   define that. Maybe time spent scheduled? Another sorting would be by earliest timestamp, which would be almost like
-//   sorted by gid, but would work around gids being allocated to Ps in groups of 16. also interesting might be sorted by
-//   "relatedness", keeping goroutines that interact a lot close together. But I reckon that'll require a lot of tuning
-//   and experimentation to get right, especially once more than 2 goroutines interact.
 // TODO(dh): implement popup windows that can be used to customize UI settings. e.g. instead of needing different
 //   shortcuts for toggling labels, compact mode, tooltips etc, have one shortcut that opens a menu that allows toggling
 //   these features. maybe even use a radial menu? (probably not.)
@@ -107,19 +96,14 @@ import (
 // TODO(dh): hovering over spans in the goroutine timelines highlights goroutines in the processor timelines. that's a
 //   happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
 //   some events, like unblocking, that's the wrong G.
-// TODO(dh): use the GC-purple color in the GC and STW timelines, as well as for the GC goroutines in the per-P
-//   timelines.
+// TODO(dh): use the GC-purple color in the GC and STW timelines
 // TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
 //   highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
 //   span could highlight all the spans it unblocks.
-// TODO(dh): support pinning activity widgets at the top. for example it might be useful to see the GC and STW while
-//   looking at an arbitrary goroutine (although this is less useful now that we show GC/STW in the axis.)
 // TODO(dh): the Event.Stk is meaningless for goroutines that already existed when tracing started, i.e. ones that get a
 //   GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
 //   leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
 //   goroutine. To avoid confusion, we should remove those stacks altogether.
-// TODO(dh): Go 1.19 adds CPU samples to the execution trace (if profiling is enabled). This adds the new event
-//   EvCPUSample, and updates the trace's version to Go 1.19.
 
 // TODO(dh): make configurable. 0, 250ms and 500ms would make for good presets.
 const animateLength = 250 * time.Millisecond
