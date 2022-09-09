@@ -1492,8 +1492,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 	return aw
 }
 
-// TODO(dh): MainWindow has a reference to Trace, we don't need it as an argument
-func (w *MainWindow) openGoroutineWindow(g *Goroutine, tr *Trace) {
+func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 	_, ok := w.goroutineWindows[g.id]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
@@ -1504,7 +1503,7 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine, tr *Trace) {
 			trace: w.trace,
 			g:     g,
 		}
-		win.stats = NewGoroutineStats(g, tr)
+		win.stats = NewGoroutineStats(g, w.trace)
 		w.goroutineWindows[g.id] = win
 		// XXX computing the label is duplicated with rendering the activity widget
 		var l string
@@ -2471,7 +2470,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 					}
 
 					for _, g := range w.tl.clickedGoroutineActivities {
-						w.openGoroutineWindow(g, w.trace)
+						w.openGoroutineWindow(g)
 					}
 
 					key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
