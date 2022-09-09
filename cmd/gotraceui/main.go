@@ -1340,7 +1340,8 @@ func goroutineSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTool
 			label += "GC sweep"
 			if link := fromUint40(&ev.Link); link != -1 {
 				l := tr.Events[link]
-				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes", l.Args[0], l.Args[1])
+				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes",
+					l.Args[trace.ArgGCSweepDoneSwept], l.Args[trace.ArgGCSweepDoneReclaimed])
 			}
 		case stateRunningG:
 			g := aw.tl.trace.getG(ev.G)
@@ -1451,7 +1452,8 @@ func userRegionSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanToo
 		if s.state != stateUserRegion {
 			panic(fmt.Sprintf("unexpected state %d", s.state))
 		}
-		label = local.Sprintf("User region: %s\nTask: %s\n", tr.Strings[ev.Args[2]], tr.Task(ev.Args[0]).name)
+		label = local.Sprintf("User region: %s\nTask: %s\n",
+			tr.Strings[ev.Args[trace.ArgUserRegionTypeID]], tr.Task(ev.Args[trace.ArgUserRegionTaskID]).name)
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
@@ -1496,7 +1498,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 					return nil
 				}
 				// OPT(dh): avoid this allocation
-				s := tl.trace.Strings[tl.trace.Events[spans[0].event()].Args[2]]
+				s := tl.trace.Strings[tl.trace.Events[spans[0].event()].Args[trace.ArgUserRegionTypeID]]
 				return []string{s}
 			},
 			spanTooltip: userRegionSpanTooltip,
@@ -3271,7 +3273,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 				}
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[1]])}
+					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])}
 				}
 			case 2:
 				switch ev.Type {
@@ -3279,7 +3281,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
 					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Created "),
-						spanWith(evs.theme, local.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
+						spanWith(evs.theme, local.Sprintf("goroutine %d",
+							ev.Args[trace.ArgGoCreateG]), func(s poortext.SpanStyle) poortext.SpanStyle {
 							// XXX make clickable
 							s.Color = evs.theme.Palette.Link
 							return s
@@ -3290,7 +3293,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					// goroutine
 					labelSpans = []poortext.SpanStyle{
 						span(evs.theme, "Unblocked "),
-						spanWith(evs.theme, local.Sprintf("goroutine %d", ev.Args[0]), func(s poortext.SpanStyle) poortext.SpanStyle {
+						spanWith(evs.theme, local.Sprintf("goroutine %d",
+							ev.Args[trace.ArgGoUnblockG]), func(s poortext.SpanStyle) poortext.SpanStyle {
 							// XXX make clickable
 							s.Color = evs.theme.Palette.Link
 							return s
@@ -3303,7 +3307,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 						span(evs.theme, "Syscall"),
 					}
 				case trace.EvUserLog:
-					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[3]])}
+					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])}
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}

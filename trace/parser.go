@@ -1504,3 +1504,19 @@ func (p *Parser) allocateStack(size uint64) []uint64 {
 	p.stacksData = out[size:]
 	return out[:size:size]
 }
+
+const (
+	ArgGCSweepDoneReclaimed = 1
+	ArgGCSweepDoneSwept     = 0
+	ArgGoCreateG            = 0
+	ArgGoCreateStack        = 1
+	ArgGoStartLabelLabelID  = 2
+	ArgGoUnblockG           = 0
+	ArgUserLogKeyID         = 1
+	ArgUserLogMessage       = 3
+	ArgUserRegionMode       = 1
+	ArgUserRegionTaskID     = 0
+	ArgUserRegionTypeID     = 2
+	ArgUserTaskCreateTaskID = 0
+	ArgUserTaskCreateTypeID = 2
+)

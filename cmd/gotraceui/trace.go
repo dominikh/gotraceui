@@ -483,9 +483,9 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			if ev.G != 0 {
 				addEventToCurrentSpan(ev.G, EventID(evID))
 			}
-			gid = ev.Args[0]
-			if ev.Args[1] != 0 {
-				stack := res.Stacks[uint32(ev.Args[1])]
+			gid = ev.Args[trace.ArgGoCreateG]
+			if stkID := ev.Args[trace.ArgGoCreateStack]; stkID != 0 {
+				stack := res.Stacks[uint32(stkID)]
 				if len(stack) != 0 {
 					getG(gid).function = res.PCs[stack[0]].Fn
 				}
@@ -518,7 +518,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 			pState = pRunG
 			state = stateActive
 
-			switch res.Strings[ev.Args[2]] {
+			switch res.Strings[ev.Args[trace.ArgGoStartLabelLabelID]] {
 			case "GC (dedicated)":
 				state = stateGCDedicated
 			case "GC (idle)":
@@ -577,7 +577,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvGoUnblock:
 			// ev.G is unblocking ev.Args[0]
 			addEventToCurrentSpan(ev.G, EventID(evID))
-			gid = ev.Args[0]
+			gid = ev.Args[trace.ArgGoUnblockG]
 			state = stateReady
 		case trace.EvGoSysCall:
 			// From the runtime's documentation:
@@ -678,8 +678,8 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 
 		case trace.EvUserTaskCreate:
 			t := &Task{
-				id:    ev.Args[0],
-				name:  res.Strings[ev.Args[2]],
+				id:    ev.Args[trace.ArgUserTaskCreateTaskID],
+				name:  res.Strings[ev.Args[trace.ArgUserTaskCreateTypeID]],
 				event: EventID(evID),
 			}
 			tasks = append(tasks, t)
@@ -690,7 +690,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		case trace.EvUserRegion:
 			const regionStart = 0
 			gid := ev.G
-			if mode := ev.Args[1]; mode == regionStart {
+			if mode := ev.Args[trace.ArgUserRegionMode]; mode == regionStart {
 				endID := int(ev.Link[0]) | int(ev.Link[1])<<8 | int(ev.Link[2])<<16 | int(ev.Link[3])<<24 | int(ev.Link[4])<<32
 				var end trace.Timestamp
 				if endID != 0xFFFFFFFFFF {
