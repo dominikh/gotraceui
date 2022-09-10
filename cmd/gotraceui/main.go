@@ -42,6 +42,33 @@ import (
 	"golang.org/x/text/message"
 )
 
+/*
+   Notes on trace consistency
+
+   Tracing can start and stop in the middle of the program's lifetime, repeatedly. The following corner cases can arise
+   due to this (not an exhaustive list):
+
+   - The user stops tracing before ending a user region or user task. This means we can't rely on all create events
+     having valid links to end events.
+
+   - The user stops tracing before all goroutines have ended. This happens virtually all the time for the runtime.main
+     goroutine.
+
+   - User task IDs are not reset between traces.
+
+   - The user starts a region before starting tracing, and ends it after starting tracing. runtime/trace handles this
+     for us; StartRegion returns a "no-op region" if tracing isn't enabled, ending which doesn't emit any event.
+
+   - The user starts tracing, starts a region, stops tracing, starts tracing, stops the region. If we only look at the
+     second trace, then we see that the region ends, but we never see its creation.
+
+   - The same tracing states as in the previous two examples, but starting and ending tasks instead of regions. For
+     tasks, we can see the end of unknown tasks in both cases, because there are no "no-op tasks".
+
+   - The user creates a task with a parent task that we didn't see, either because tracing wasn't enabled or because the
+     parent was enabled in a previous trace.
+*/
+
 // A note on Ps
 //
 // Not all events have a P. For example, when sysmon wakes up the scavenger, it doesn't have a P while unblocking

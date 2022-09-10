@@ -1421,7 +1421,7 @@ const (
 	EvGoBlockGC         = 42 // goroutine blocks on GC assist [timestamp, stack]
 	EvGCMarkAssistStart = 43 // GC mark assist start [timestamp, stack]
 	EvGCMarkAssistDone  = 44 // GC mark assist done [timestamp]
-	EvUserTaskCreate    = 45 // trace.NewContext [timestamp, internal task id, internal parent id, stack, name string]
+	EvUserTaskCreate    = 45 // trace.NewTask [timestamp, internal task id, internal parent id, stack, name string]
 	EvUserTaskEnd       = 46 // end of task [timestamp, internal task id, stack]
 	EvUserRegion        = 47 // trace.WithRegion [timestamp, internal task id, mode(0:start, 1:end), stack, name string]
 	EvUserLog           = 48 // trace.Log [timestamp, internal id, key string id, stack, value string]
