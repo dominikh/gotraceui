@@ -2083,7 +2083,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 		} else {
 			stack := clip.Outline{Path: p.End()}.Op().Push(gtx.Ops)
 			paint.LinearGradientOp{
-				Stop1:  f32.Pt(0, 5),
+				Stop1:  f32.Pt(0, 10),
 				Color1: colors[cIdx-int(colorStateLast)],
 				Stop2:  f32.Pt(0, 20),
 				Color2: colors[colorStateMerged],
