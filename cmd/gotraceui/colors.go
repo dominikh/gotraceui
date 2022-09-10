@@ -17,7 +17,7 @@ var colors = [...]color.NRGBA{
 	colorStateStuck:      toColor(0x000000FF),
 	colorStateMerged:     toColor(0xB9BB63FF),
 	colorStateUnknown:    toColor(0xFFFF00FF),
-	colorStateUserRegion: toColor(0xC1CF94FF),
+	colorStateUserRegion: toColor(0xF2A2E8FF),
 
 	colorBackground:    toColor(0xffffeaFF),
 	colorZoomSelection: toColor(0xeeee9e99),
