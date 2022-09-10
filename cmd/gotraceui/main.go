@@ -2582,6 +2582,8 @@ func (w *MainWindow) loadTrace(t *Trace) {
 		trace:       t,
 		debugWindow: w.debugWindow,
 	}
+	w.tl.activity.displayAllLabels = true
+
 	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
 	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
 	w.tl.activities[0] = NewGCWidget(w.theme, &w.tl, t, t.gc)
