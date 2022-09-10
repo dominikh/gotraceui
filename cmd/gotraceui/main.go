@@ -117,7 +117,7 @@ const (
 
 	// XXX the label height depends on the font used
 	activityLabelHeightDp unit.Dp = 20
-	activityStateHeightDp unit.Dp = 16
+	activityTrackHeightDp unit.Dp = 16
 	activityGapDp         unit.Dp = 5
 	activityTrackGapDp    unit.Dp = 2
 
@@ -1174,6 +1174,16 @@ type ActivityWidgetTrack struct {
 	spanColor     func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex
 	spanTooltip   func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState)
 
+	// op lists get reused between frames to avoid generating garbage
+	ops          [colorStateLast * 2]op.Ops
+	outlinesOps  reusableOps
+	highlightOps reusableOps
+	eventsOps    reusableOps
+	labelsOps    reusableOps
+
+	pointerAt f32.Point
+	hovered   bool
+
 	// cached state
 	prevFrame struct {
 		dspSpans []struct {
@@ -1195,31 +1205,21 @@ type ActivityWidget struct {
 
 	labelClicks int
 
-	pointerAt       f32.Point
-	hovered         bool
-	hoveredActivity bool
-	hoveredLabel    bool
+	pointerAt    f32.Point
+	hovered      bool
+	hoveredLabel bool
 
 	clickedSpans MergedSpans
 	hoveredSpans MergedSpans
 
-	// op lists get reused between frames to avoid generating garbage
-	ops          [colorStateLast * 2]op.Ops
-	outlinesOps  reusableOps
-	highlightOps reusableOps
-	eventsOps    reusableOps
-	labelsOps    reusableOps
-
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
-		hovered         bool
-		hoveredActivity bool
-		hoveredLabel    bool
-		forceLabel      bool
-		compact         bool
-		topBorder       bool
-		ops             reusableOps
-		call            op.CallOp
+		hovered    bool
+		forceLabel bool
+		compact    bool
+		topBorder  bool
+		ops        reusableOps
+		call       op.CallOp
 	}
 }
 
@@ -1649,48 +1649,45 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 
 func (aw *ActivityWidget) Height(gtx layout.Context) int {
 	if aw.tl.activity.compact {
-		return (gtx.Dp(activityStateHeightDp) + gtx.Dp(activityTrackGapDp)) * len(aw.tracks)
+		return (gtx.Dp(activityTrackHeightDp) + gtx.Dp(activityTrackGapDp)) * len(aw.tracks)
 	} else {
-		return (gtx.Dp(activityStateHeightDp)+gtx.Dp(activityTrackGapDp))*len(aw.tracks) + gtx.Dp(activityLabelHeightDp)
+		return (gtx.Dp(activityTrackHeightDp)+gtx.Dp(activityTrackGapDp))*len(aw.tracks) + gtx.Dp(activityLabelHeightDp)
 	}
 }
 
 func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
-	tr := aw.tl.trace
+	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
+	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
+	// and pointer input. When we reuse the previous frame and need to return dimensions, we should use a stored value
+	// of the height. Making the change isn't currently worth it, though, because we still need ActivityWidget.Height to
+	// exist so we can compute the scrollbar, and so we can jump to goroutines, which needs to compute an offset. In
+	// both cases we don't want to lay out every widget to figure out its size.
 	activityHeight := aw.Height(gtx)
-	activityStateHeight := gtx.Dp(activityStateHeightDp)
 	activityTrackGap := gtx.Dp(activityTrackGapDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
-	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
-	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	aw.clickedSpans = nil
 	aw.hoveredSpans = nil
 
-	var trackClick bool
+	var widgetClicked bool
 
-	for _, e := range gtx.Events(&aw.hoveredActivity) {
+	for _, e := range gtx.Events(aw) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Enter, pointer.Move:
-			aw.hoveredActivity = true
+			aw.hovered = true
 			aw.pointerAt = ev.Position
 		case pointer.Drag:
 			aw.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
-			aw.hoveredActivity = false
-		case pointer.Press:
-			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
-				trackClick = true
-			}
-		}
-	}
-	for _, ev := range gtx.Events(&aw.hovered) {
-		switch ev.(pointer.Event).Type {
-		case pointer.Enter, pointer.Move:
-			aw.hovered = true
-		case pointer.Leave, pointer.Cancel:
 			aw.hovered = false
+		case pointer.Press:
+			// If any part of the widget has been clicked then don't reuse the cached macro; we have to figure out what
+			// was clicked and react to it.
+			//
+			// OPT(dh): if it was the label that was clicked, then we can reuse the macro
+
+			widgetClicked = true
 		}
 	}
 
@@ -1701,7 +1698,6 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			switch ev.Type {
 			case pointer.Enter, pointer.Move:
 				aw.hoveredLabel = true
-				aw.pointerAt = ev.Position
 			case pointer.Leave, pointer.Cancel:
 				aw.hoveredLabel = false
 			case pointer.Press:
@@ -1718,12 +1714,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 	}
 
-	if !trackClick &&
+	if !widgetClicked &&
 		aw.tl.unchanged() &&
-		!aw.hoveredActivity &&
-		!aw.prevFrame.hoveredActivity &&
-		!aw.hoveredLabel &&
-		!aw.prevFrame.hoveredLabel &&
 		!aw.hovered &&
 		!aw.prevFrame.hovered &&
 		forceLabel == aw.prevFrame.forceLabel &&
@@ -1738,8 +1730,6 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}
 
 	aw.prevFrame.hovered = aw.hovered
-	aw.prevFrame.hoveredActivity = aw.hoveredActivity
-	aw.prevFrame.hoveredLabel = aw.hoveredLabel
 	aw.prevFrame.forceLabel = forceLabel
 	aw.prevFrame.compact = compact
 	aw.prevFrame.topBorder = topBorder
@@ -1754,7 +1744,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}()
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, activityHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: &aw.hovered, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel}.Add(gtx.Ops)
+	pointer.InputOp{Tag: aw, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 
 	if !compact {
 		if aw.hovered || forceLabel || topBorder {
@@ -1763,7 +1753,9 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 
 		if aw.hovered || forceLabel {
-			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(gtx, aw.theme.Shaper, text.Font{}, aw.theme.TextSize, aw.label)
+			labelGtx := gtx
+			labelGtx.Constraints.Min = image.Point{}
+			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(labelGtx, aw.theme.Shaper, text.Font{}, aw.theme.TextSize, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
@@ -1785,16 +1777,50 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		defer op.Offset(image.Pt(0, activityLabelHeight)).Push(gtx.Ops).Pop()
 	}
 
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, (activityStateHeight+activityTrackGap)*len(aw.tracks)+1)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: &aw.hoveredActivity, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Move | pointer.Drag | pointer.Cancel}.Add(gtx.Ops)
+	stack := op.TransformOp{}.Push(gtx.Ops)
+	for i := range aw.tracks {
+		dims := aw.tracks[i].Layout(gtx, aw)
+		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
+	}
+	stack.Pop()
+
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
+}
+
+func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+	tr := aw.tl.trace
+	trackHeight := gtx.Dp(activityTrackHeightDp)
+	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
+	minSpanWidth := gtx.Dp(minSpanWidthDp)
+
+	trackClicked := false
+	for _, e := range gtx.Events(track) {
+		ev := e.(pointer.Event)
+		switch ev.Type {
+		case pointer.Enter, pointer.Move:
+			track.hovered = true
+			track.pointerAt = ev.Position
+		case pointer.Drag:
+			track.pointerAt = ev.Position
+		case pointer.Leave, pointer.Cancel:
+			track.hovered = false
+		case pointer.Press:
+			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
+				trackClicked = true
+			}
+		}
+	}
+
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 
 	// Draw activity lifetimes
 	//
 	// We batch draw operations by color to avoid making thousands of draw calls. See
 	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
 	//
-	for i := range aw.ops {
-		aw.ops[i].Reset()
+	for i := range track.ops {
+		track.ops[i].Reset()
 	}
 	// one path per single-color span and one path per merged+color gradient
 	//
@@ -1804,244 +1830,237 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	var outlinesPath clip.Path
 	var highlightPath clip.Path
 	var eventsPath clip.Path
-	outlinesPath.Begin(aw.outlinesOps.get())
-	highlightPath.Begin(aw.highlightOps.get())
-	eventsPath.Begin(aw.eventsOps.get())
-	labelsOps := aw.labelsOps.get()
+	outlinesPath.Begin(track.outlinesOps.get())
+	highlightPath.Begin(track.highlightOps.get())
+	eventsPath.Begin(track.eventsOps.get())
+	labelsOps := track.labelsOps.get()
 	labelsMacro := op.Record(labelsOps)
 
 	for i := range paths {
-		paths[i].Begin(&aw.ops[i])
+		paths[i].Begin(&track.ops[i])
 	}
 
-	doTrack := func(track *ActivityWidgetTrack, yOffset int) {
-		first := true
-		var prevEndPx float32
-		doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
-			if aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx && aw.pointerAt.Y >= float32(yOffset) && aw.pointerAt.Y < float32(yOffset+activityStateHeight) {
-				if trackClick {
-					aw.clickedSpans = dspSpans
-					trackClick = false
-				}
-				aw.hoveredSpans = dspSpans
+	first := true
+	var prevEndPx float32
+	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
+		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+			if trackClicked {
+				aw.clickedSpans = dspSpans
 			}
-
-			var cs [2]colorIndex
-			if track.spanColor != nil {
-				cs = track.spanColor(aw, dspSpans)
-			} else {
-				cs = defaultSpanColor(aw, dspSpans)
-			}
-
-			if cs[1] != 0 && cs[1] != colorStateMerged {
-				panic(fmt.Sprintf("two-color spans are only supported with color₁ == colorStateMerged, got %v", cs))
-			}
-
-			var minP f32.Point
-			var maxP f32.Point
-			minP = f32.Pt((max(startPx, 0)), float32(yOffset))
-			maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(activityStateHeight+yOffset))
-
-			// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
-			//
-			// OPT(dh): for activities that have no gaps between any of the spans this can be drawn as a single rectangle
-			// covering all spans.
-			outlinesPath.MoveTo(minP)
-			outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			outlinesPath.LineTo(maxP)
-			outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			outlinesPath.Close()
-
-			if first && startPx < 0 {
-				// Never draw a left border for spans truncated spans
-			} else if !first && startPx == prevEndPx {
-				// Don't draw left border if it'd touch a right border
-			} else {
-				minP.X += float32(spanBorderWidth)
-			}
-			prevEndPx = endPx
-
-			minP.Y += float32(spanBorderWidth)
-			if endPx <= float32(gtx.Constraints.Max.X) {
-				maxP.X -= float32(spanBorderWidth)
-			}
-			maxP.Y -= float32(spanBorderWidth)
-
-			pathID := cs[0]
-			if cs[1] != 0 {
-				pathID += colorStateLast
-			}
-			p := &paths[pathID]
-			p.MoveTo(minP)
-			p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			p.LineTo(maxP)
-			p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			p.Close()
-
-			var spanTooltipState SpanTooltipState
-			if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= startPx && aw.pointerAt.X < endPx && aw.pointerAt.Y >= float32(yOffset) && aw.pointerAt.Y < float32(yOffset+activityStateHeight) {
-				events := dspSpans.Events(track.events, aw.tl.trace)
-
-				spanTooltipState = SpanTooltipState{
-					spans:  dspSpans,
-					events: events,
-				}
-			}
-
-			dotRadiusX := float32(gtx.Dp(4))
-			dotRadiusY := float32(gtx.Dp(3))
-			if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
-				// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
-				// zoom in, causing dots to disappear and reappearappear and disappear.
-				events := dspSpans[0].Events(track.events, tr)
-
-				dotGap := float32(gtx.Dp(4))
-				centerY := float32(activityStateHeight) / 2
-
-				for i := 0; i < len(events); i++ {
-					ev := events[i]
-					px := aw.tl.tsToPx(tr.Event(ev).Ts)
-
-					if px+dotRadiusX < minP.X {
-						continue
-					}
-					if px-dotRadiusX > maxP.X {
-						break
-					}
-
-					start := px
-					end := px
-					oldi := i
-					for i = i + 1; i < len(events); i++ {
-						ev := events[i]
-						px := aw.tl.tsToPx(tr.Event(ev).Ts)
-						if px < end+dotRadiusX*2+dotGap {
-							end = px
-						} else {
-							break
-						}
-					}
-					i--
-
-					if minP.X != 0 && start-dotRadiusX < minP.X {
-						start = minP.X + dotRadiusX
-					}
-					if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
-						end = maxP.X - dotRadiusX
-					}
-
-					minX := start - dotRadiusX
-					minY := centerY - dotRadiusY + float32(yOffset)
-					maxX := end + dotRadiusX
-					maxY := centerY + dotRadiusY + float32(yOffset)
-
-					eventsPath.MoveTo(f32.Pt(minX, minY))
-					eventsPath.LineTo(f32.Pt(maxX, minY))
-					eventsPath.LineTo(f32.Pt(maxX, maxY))
-					eventsPath.LineTo(f32.Pt(minX, maxY))
-					eventsPath.Close()
-
-					if aw.tl.activity.showTooltips < showTooltipsNone && aw.hoveredActivity && aw.pointerAt.X >= minX && aw.pointerAt.X < maxX && aw.pointerAt.Y >= float32(yOffset) && aw.pointerAt.Y < float32(yOffset+activityStateHeight) {
-						spanTooltipState.eventsUnderCursor = events[oldi : i+1]
-					}
-				}
-			}
-
-			if spanTooltipState.spans != nil && track.spanTooltip != nil {
-				// TODO have a gap between the cursor and the tooltip
-				// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-				macro := op.Record(gtx.Ops)
-				stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
-				track.spanTooltip(gtx, aw, spanTooltipState)
-				stack.Pop()
-				call := macro.Stop()
-				op.Defer(gtx.Ops, call)
-			}
-
-			if track.highlightSpan != nil && track.highlightSpan(aw, dspSpans) {
-				minP := minP
-				maxP := maxP
-				minP.Y += float32((activityStateHeight - spanBorderWidth*2) / 2)
-
-				highlightPath.MoveTo(minP)
-				highlightPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-				highlightPath.LineTo(maxP)
-				highlightPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-				highlightPath.Close()
-			}
-
-			if len(dspSpans) == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
-				// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
-				// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
-				// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
-				// empty string to effectively display no label.
-				//
-				// We don't try to render a label for very small spans.
-				if labels := track.spanLabel(aw, dspSpans); len(labels) > 0 {
-					for i, label := range labels {
-						if label == "" {
-							continue
-						}
-
-						macro := op.Record(labelsOps)
-						dims := mywidget.TextLine{Color: aw.theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), aw.theme.Shaper, text.Font{Weight: text.ExtraBold}, aw.theme.TextSize, label)
-						if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
-							// This label doesn't fit. If the callback provided more labels, try those instead.
-							macro.Stop()
-							continue
-						}
-
-						call := macro.Stop()
-						middleOfSpan := startPx + (endPx-startPx)/2
-						left := middleOfSpan - float32(dims.Size.X)/2
-						if left+float32(dims.Size.X) > maxP.X {
-							left = maxP.X - float32(dims.Size.X)
-						}
-						if left < minP.X {
-							left = minP.X
-						}
-						stack := op.Offset(image.Pt(int(left), yOffset)).Push(labelsOps)
-						// XXX use constant for color
-						paint.ColorOp{Color: toColor(0x000000FF)}.Add(labelsOps)
-						stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
-						call.Add(labelsOps)
-						stack2.Pop()
-						stack.Pop()
-						break
-					}
-				}
-			}
-
-			first = false
+			aw.hoveredSpans = dspSpans
 		}
 
-		if aw.tl.unchanged() {
-			for _, prevSpans := range track.prevFrame.dspSpans {
-				doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
-			}
+		var cs [2]colorIndex
+		if track.spanColor != nil {
+			cs = track.spanColor(aw, dspSpans)
 		} else {
-			allDspSpans := track.prevFrame.dspSpans[:0]
-			it := renderedSpansIterator{
-				tl:    aw.tl,
-				spans: aw.tl.visibleSpans(track.spans),
+			cs = defaultSpanColor(aw, dspSpans)
+		}
+
+		if cs[1] != 0 && cs[1] != colorStateMerged {
+			panic(fmt.Sprintf("two-color spans are only supported with color₁ == colorStateMerged, got %v", cs))
+		}
+
+		var minP f32.Point
+		var maxP f32.Point
+		minP = f32.Pt((max(startPx, 0)), 0)
+		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(trackHeight))
+
+		// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
+		//
+		// OPT(dh): for activities that have no gaps between any of the spans this can be drawn as a single rectangle
+		// covering all spans.
+		outlinesPath.MoveTo(minP)
+		outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		outlinesPath.LineTo(maxP)
+		outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		outlinesPath.Close()
+
+		if first && startPx < 0 {
+			// Never draw a left border for spans truncated spans
+		} else if !first && startPx == prevEndPx {
+			// Don't draw left border if it'd touch a right border
+		} else {
+			minP.X += float32(spanBorderWidth)
+		}
+		prevEndPx = endPx
+
+		minP.Y += float32(spanBorderWidth)
+		if endPx <= float32(gtx.Constraints.Max.X) {
+			maxP.X -= float32(spanBorderWidth)
+		}
+		maxP.Y -= float32(spanBorderWidth)
+
+		pathID := cs[0]
+		if cs[1] != 0 {
+			pathID += colorStateLast
+		}
+		p := &paths[pathID]
+		p.MoveTo(minP)
+		p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		p.LineTo(maxP)
+		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		p.Close()
+
+		var spanTooltipState SpanTooltipState
+		if aw.tl.activity.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+			events := dspSpans.Events(track.events, tr)
+
+			spanTooltipState = SpanTooltipState{
+				spans:  dspSpans,
+				events: events,
 			}
-			for {
-				dspSpans, startPx, endPx, ok := it.next(gtx)
-				if !ok {
+		}
+
+		dotRadiusX := float32(gtx.Dp(4))
+		dotRadiusY := float32(gtx.Dp(3))
+		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
+			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
+			// zoom in, causing dots to disappear and reappearappear and disappear.
+			events := dspSpans[0].Events(track.events, tr)
+
+			dotGap := float32(gtx.Dp(4))
+			centerY := float32(trackHeight) / 2
+
+			for i := 0; i < len(events); i++ {
+				ev := events[i]
+				px := aw.tl.tsToPx(tr.Event(ev).Ts)
+
+				if px+dotRadiusX < minP.X {
+					continue
+				}
+				if px-dotRadiusX > maxP.X {
 					break
 				}
-				allDspSpans = append(allDspSpans, struct {
-					dspSpans       MergedSpans
-					startPx, endPx float32
-				}{dspSpans, startPx, endPx})
-				doSpans(dspSpans, startPx, endPx)
+
+				start := px
+				end := px
+				oldi := i
+				for i = i + 1; i < len(events); i++ {
+					ev := events[i]
+					px := aw.tl.tsToPx(tr.Event(ev).Ts)
+					if px < end+dotRadiusX*2+dotGap {
+						end = px
+					} else {
+						break
+					}
+				}
+				i--
+
+				if minP.X != 0 && start-dotRadiusX < minP.X {
+					start = minP.X + dotRadiusX
+				}
+				if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
+					end = maxP.X - dotRadiusX
+				}
+
+				minX := start - dotRadiusX
+				minY := centerY - dotRadiusY
+				maxX := end + dotRadiusX
+				maxY := centerY + dotRadiusY
+
+				eventsPath.MoveTo(f32.Pt(minX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, maxY))
+				eventsPath.LineTo(f32.Pt(minX, maxY))
+				eventsPath.Close()
+
+				if aw.tl.activity.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= minX && track.pointerAt.X < maxX {
+					spanTooltipState.eventsUnderCursor = events[oldi : i+1]
+				}
 			}
-			track.prevFrame.dspSpans = allDspSpans
 		}
+
+		if spanTooltipState.spans != nil && track.spanTooltip != nil {
+			// TODO have a gap between the cursor and the tooltip
+			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
+			macro := op.Record(gtx.Ops)
+			stack := op.Offset(track.pointerAt.Round()).Push(gtx.Ops)
+			track.spanTooltip(gtx, aw, spanTooltipState)
+			stack.Pop()
+			call := macro.Stop()
+			op.Defer(gtx.Ops, call)
+		}
+
+		if track.highlightSpan != nil && track.highlightSpan(aw, dspSpans) {
+			minP := minP
+			maxP := maxP
+			minP.Y += float32((trackHeight - spanBorderWidth*2) / 2)
+
+			highlightPath.MoveTo(minP)
+			highlightPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			highlightPath.LineTo(maxP)
+			highlightPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			highlightPath.Close()
+		}
+
+		if len(dspSpans) == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
+			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
+			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
+			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
+			// empty string to effectively display no label.
+			//
+			// We don't try to render a label for very small spans.
+			if labels := track.spanLabel(aw, dspSpans); len(labels) > 0 {
+				for i, label := range labels {
+					if label == "" {
+						continue
+					}
+
+					macro := op.Record(labelsOps)
+					dims := mywidget.TextLine{Color: aw.theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), aw.theme.Shaper, text.Font{Weight: text.ExtraBold}, aw.theme.TextSize, label)
+					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
+						// This label doesn't fit. If the callback provided more labels, try those instead.
+						macro.Stop()
+						continue
+					}
+
+					call := macro.Stop()
+					middleOfSpan := startPx + (endPx-startPx)/2
+					left := middleOfSpan - float32(dims.Size.X)/2
+					if left+float32(dims.Size.X) > maxP.X {
+						left = maxP.X - float32(dims.Size.X)
+					}
+					if left < minP.X {
+						left = minP.X
+					}
+					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
+					// XXX use constant for color
+					paint.ColorOp{Color: toColor(0x000000FF)}.Add(labelsOps)
+					stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
+					call.Add(labelsOps)
+					stack2.Pop()
+					stack.Pop()
+					break
+				}
+			}
+		}
+
+		first = false
 	}
 
-	for i := range aw.tracks {
-		doTrack(&aw.tracks[i], i*(activityStateHeight+activityTrackGap))
+	if aw.tl.unchanged() {
+		for _, prevSpans := range track.prevFrame.dspSpans {
+			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
+		}
+	} else {
+		allDspSpans := track.prevFrame.dspSpans[:0]
+		it := renderedSpansIterator{
+			tl:    aw.tl,
+			spans: aw.tl.visibleSpans(track.spans),
+		}
+		for {
+			dspSpans, startPx, endPx, ok := it.next(gtx)
+			if !ok {
+				break
+			}
+			allDspSpans = append(allDspSpans, struct {
+				dspSpans       MergedSpans
+				startPx, endPx float32
+			}{dspSpans, startPx, endPx})
+			doSpans(dspSpans, startPx, endPx)
+		}
+		track.prevFrame.dspSpans = allDspSpans
 	}
 
 	// First draw the outlines. We draw these as solid rectangles and let the spans overlay them.
@@ -2073,7 +2092,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	// Finally print labels on top
 	labelsMacro.Stop().Add(gtx.Ops)
 
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, trackHeight)}
 }
 
 func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
