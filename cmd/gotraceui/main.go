@@ -767,11 +767,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			if ev.State == key.Press {
 				switch ev.Name {
 				case key.NameHome:
-					// TODO(dh): use ev.Modifiers.Contain helper, here and elsewhere
 					switch {
-					case ev.Modifiers&key.ModCtrl != 0:
+					case ev.Modifiers.Contain(key.ModCtrl):
 						tl.zoomToFitCurrentView(gtx)
-					case ev.Modifiers&key.ModShift != 0:
+					case ev.Modifiers.Contain(key.ModShift):
 						d := tl.end - tl.start
 						tl.navigateTo(gtx, 0, d, tl.y)
 					case ev.Modifiers == 0:
@@ -823,8 +822,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		case pointer.Event:
 			switch ev.Type {
 			case pointer.Press:
-				if ev.Buttons&pointer.ButtonTertiary != 0 {
-					if ev.Modifiers&key.ModShift != 0 {
+				if ev.Buttons.Contain(pointer.ButtonTertiary) {
+					if ev.Modifiers.Contain(key.ModShift) {
 						tl.startZoomSelection(ev.Position)
 					} else if ev.Modifiers == 0 {
 						tl.startDrag(ev.Position)
@@ -846,7 +845,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			case pointer.Release:
 				// For pointer.Release, ev.Buttons contains the buttons still being pressed, not the ones that have been
 				// released.
-				if ev.Buttons&pointer.ButtonTertiary == 0 {
+				if !ev.Buttons.Contain(pointer.ButtonTertiary) {
 					if tl.drag.active {
 						tl.endDrag()
 					} else if tl.zoomSelection.active {
@@ -1701,11 +1700,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 			case pointer.Leave, pointer.Cancel:
 				aw.hoveredLabel = false
 			case pointer.Press:
-				if ev.Buttons&pointer.ButtonPrimary != 0 && ev.Modifiers == 0 {
+				if ev.Buttons.Contain(pointer.ButtonPrimary) && ev.Modifiers == 0 {
 					aw.labelClicks++
 				}
 
-				if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
+				if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
 					// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 					// assumption to make.
 					aw.clickedSpans = MergedSpans(aw.tracks[0].spans)
@@ -1805,7 +1804,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 		case pointer.Leave, pointer.Cancel:
 			track.hovered = false
 		case pointer.Press:
-			if ev.Buttons&pointer.ButtonTertiary != 0 && ev.Modifiers&key.ModCtrl != 0 {
+			if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
 				trackClicked = true
 			}
 		}
