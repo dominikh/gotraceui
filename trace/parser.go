@@ -257,7 +257,7 @@ func (p *Parser) parse() (int, ParseResult, error) {
 		}
 	}
 
-	if err := postProcessTrace(events); err != nil {
+	if err := p.postProcessTrace(events); err != nil {
 		return 0, ParseResult{}, err
 	}
 
@@ -959,7 +959,7 @@ var ErrTimeOrder = errors.New("time stamps out of order")
 // The resulting trace is guaranteed to be consistent
 // (for example, a P does not run two Gs at the same time, or a G is indeed
 // blocked before an unblock event).
-func postProcessTrace(events []Event) error {
+func (p *Parser) postProcessTrace(events []Event) error {
 	const (
 		gDead = iota
 		gRunnable
@@ -1284,6 +1284,13 @@ func postProcessTrace(events []Event) error {
 			} else {
 				return fmt.Errorf("invalid user region mode: %q", ev)
 			}
+		}
+
+		if ev.StkID != 0 && len(p.stacks[ev.StkID]) == 0 {
+			// Make sure events don't refer to stacks that don't exist or to stacks with zero frames. Neither of these
+			// should be possible, but better be safe than sorry.
+
+			ev.StkID = 0
 		}
 	}
 
