@@ -3298,6 +3298,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
+
 		if row == 0 {
 			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
 			return widget.Label{MaxLines: 1}.Layout(gtx, evs.theme.Shaper, text.Font{Weight: text.Bold}, evs.theme.TextSize, columns[col])
@@ -3342,10 +3344,16 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 						}),
 					}
 				case trace.EvGoSysCall:
-					// XXX track syscalls in a separate list
-					// XXX try to extract syscall name from stack trace
-					labelSpans = []poortext.SpanStyle{
-						span(evs.theme, "Syscall"),
+					if ev.StkID != 0 {
+						frames := evs.trace.Stacks[ev.StkID]
+						fn := evs.trace.PCs[frames[0]].Fn
+						labelSpans = []poortext.SpanStyle{
+							span(evs.theme, fmt.Sprintf("Syscall (%s)", fn)),
+						}
+					} else {
+						labelSpans = []poortext.SpanStyle{
+							span(evs.theme, "Syscall"),
+						}
 					}
 				case trace.EvUserLog:
 					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])}
