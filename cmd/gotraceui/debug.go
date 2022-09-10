@@ -58,7 +58,7 @@ func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensio
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = 0
-				paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+				paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
 				return widget.Label{Alignment: text.Middle}.Layout(gtx, th.Shaper, text.Font{}, 12, g.title)
 			}),
 
@@ -152,13 +152,13 @@ func NewDebugWindow() *DebugWindow {
 	dwin := &DebugWindow{}
 
 	bgs := []color.NRGBA{
-		toColor(0xFFEBEFFF),
-		toColor(0xEFFFFFFF),
-		toColor(0xFFFFEFFF),
-		toColor(0xEFFFEFFF),
-		toColor(0xC6EBFFFF),
-		toColor(0xEFEFEFFF),
-		toColor(0xFFEBEFFF),
+		rgba(0xFFEBEFFF),
+		rgba(0xEFFFFFFF),
+		rgba(0xFFFFEFFF),
+		rgba(0xEFFFEFFF),
+		rgba(0xC6EBFFFF),
+		rgba(0xEFEFEFFF),
+		rgba(0xFFEBEFFF),
 	}
 
 	dwin.tlStart = debugGraph{

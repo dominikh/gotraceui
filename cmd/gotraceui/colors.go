@@ -3,34 +3,34 @@ package main
 import "image/color"
 
 var colors = [...]color.NRGBA{
-	colorStateInactive: toColor(0x888888FF),
-	colorStateActive:   toColor(0x448844FF),
+	colorStateInactive: rgba(0x888888FF),
+	colorStateActive:   rgba(0x448844FF),
 
-	colorStateBlocked:              toColor(0xBA4141FF),
-	colorStateBlockedHappensBefore: toColor(0xBB6363FF),
-	colorStateBlockedNet:           toColor(0xBB5D5DFF),
-	colorStateBlockedGC:            toColor(0x9C6FD6FF),
-	colorStateBlockedSyscall:       toColor(0xBA4F41FF),
-	colorStateGC:                   toColor(0x9C6FD6FF),
+	colorStateBlocked:              rgba(0xBA4141FF),
+	colorStateBlockedHappensBefore: rgba(0xBB6363FF),
+	colorStateBlockedNet:           rgba(0xBB5D5DFF),
+	colorStateBlockedGC:            rgba(0x9C6FD6FF),
+	colorStateBlockedSyscall:       rgba(0xBA4F41FF),
+	colorStateGC:                   rgba(0x9C6FD6FF),
 
-	colorStateReady:      toColor(0x4BACB8FF),
-	colorStateStuck:      toColor(0x000000FF),
-	colorStateMerged:     toColor(0xB9BB63FF),
-	colorStateUnknown:    toColor(0xFFFF00FF),
-	colorStateUserRegion: toColor(0xF2A2E8FF),
+	colorStateReady:      rgba(0x4BACB8FF),
+	colorStateStuck:      rgba(0x000000FF),
+	colorStateMerged:     rgba(0xB9BB63FF),
+	colorStateUnknown:    rgba(0xFFFF00FF),
+	colorStateUserRegion: rgba(0xF2A2E8FF),
 
-	colorBackground:    toColor(0xffffeaFF),
-	colorZoomSelection: toColor(0xeeee9e99),
-	colorCursor:        toColor(0x000000FF),
-	colorTick:          toColor(0x000000FF),
-	colorTickLabel:     toColor(0x000000FF),
+	colorBackground:    rgba(0xffffeaFF),
+	colorZoomSelection: rgba(0xeeee9e99),
+	colorCursor:        rgba(0x000000FF),
+	colorTick:          rgba(0x000000FF),
+	colorTickLabel:     rgba(0x000000FF),
 
-	colorActivityLabel:  toColor(0x888888FF),
-	colorActivityBorder: toColor(0xDDDDDDFF),
+	colorActivityLabel:  rgba(0x888888FF),
+	colorActivityBorder: rgba(0xDDDDDDFF),
 
 	// TODO(dh): find a nice color for this
-	colorSpanWithEvents: toColor(0xFF00FFFF),
-	colorSpanOutline:    toColor(0x000000FF),
+	colorSpanWithEvents: rgba(0xFF00FFFF),
+	colorSpanOutline:    rgba(0x000000FF),
 }
 
 type colorIndex uint8
@@ -97,7 +97,7 @@ var stateColors = [256]colorIndex{
 	stateRunningG: colorStateActive,
 }
 
-func toColor(c uint32) color.NRGBA {
+func rgba(c uint32) color.NRGBA {
 	// XXX does endianness matter?
 	return color.NRGBA{
 		A: uint8(c & 0xFF),

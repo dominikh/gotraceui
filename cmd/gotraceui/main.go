@@ -985,10 +985,10 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		// Draw STW and GC overlays
 		if tl.activity.showGCOverlays >= showGCOverlaysBoth {
-			drawRegionOverlays(tl.trace.gc, toColor(0x9C6FD633), gtx.Constraints.Max.Y)
+			drawRegionOverlays(tl.trace.gc, rgba(0x9C6FD633), gtx.Constraints.Max.Y)
 		}
 		if tl.activity.showGCOverlays >= showGCOverlaysSTW {
-			drawRegionOverlays(tl.trace.stw, toColor(0xBA414133), gtx.Constraints.Max.Y)
+			drawRegionOverlays(tl.trace.stw, rgba(0xBA414133), gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
@@ -2092,7 +2092,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 		}
 	}
 	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: highlightPath.End()}.Op())
-	paint.FillShape(gtx.Ops, toColor(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
+	paint.FillShape(gtx.Ops, rgba(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
 
 	// Finally print labels on top
 	labelsMacro.Stop().Add(gtx.Ops)
@@ -2512,7 +2512,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							// outside of it.
 							//
 							// XXX use constant for color
-							paint.Fill(gtx.Ops, toColor(0x000000DD))
+							paint.Fill(gtx.Ops, rgba(0x000000DD))
 							pointer.InputOp{Tag: ww}.Add(gtx.Ops)
 
 							offset := image.Pt(gtx.Constraints.Max.X/2-1000/2, gtx.Constraints.Max.Y/2-500/2)

@@ -283,7 +283,7 @@ func (hm *Heatmap) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions
 			Width: float32(gtx.Dp(1)),
 		}.Op()
 		// XXX use constant or theme for the color
-		paint.FillShape(gtx.Ops, toColor(0x0000FFFF), stroke)
+		paint.FillShape(gtx.Ops, rgba(0x0000FFFF), stroke)
 
 		idx := x*hm.numYBuckets + y
 		hm.hovered = HeatmapBucket{
