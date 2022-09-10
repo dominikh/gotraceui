@@ -2031,8 +2031,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 						left = minP.X
 					}
 					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
-					// XXX use constant for color
-					paint.ColorOp{Color: toColor(0x000000FF)}.Add(labelsOps)
+					paint.ColorOp{Color: aw.theme.Palette.Foreground}.Add(labelsOps)
 					stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
 					call.Add(labelsOps)
 					stack2.Pop()
@@ -2453,7 +2452,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 				case "empty":
 
 				case "error":
-					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+					paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
 					m := op.Record(gtx.Ops)
 					dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("Error: %s", err))
 					call := m.Stop()
@@ -2461,7 +2460,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 					call.Add(gtx.Ops)
 
 				case "loadingTrace":
-					paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+					paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
 					m := op.Record(gtx.Ops)
 					dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, "Loading trace...")
 					op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
@@ -3268,7 +3267,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
-			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
 			return widget.Label{MaxLines: 1}.Layout(gtx, evs.theme.Shaper, text.Font{Weight: text.Bold}, evs.theme.TextSize, columns[col])
 		} else {
 			// XXX subtract padding from width
@@ -3326,7 +3325,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			}
 			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
-			paint.ColorOp{Color: toColor(0x000000FF)}.Add(gtx.Ops)
+			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
 			txt := poortext.Text(evs.theme.Shaper, labelSpans...)
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
