@@ -111,7 +111,6 @@ import (
 // TODO(dh): display parent goroutine in goroutine window
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // TODO(dh): add a dialog with text fields for zooming to a specific time range
-// TODO(dh): display different cursor when we're panning
 // TODO(dh): display number of spans in goroutine tooltip
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
@@ -864,9 +863,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			case pointer.Drag:
 				tl.activity.cursorPos = ev.Position
 				if tl.drag.active {
-					if tl.drag.active {
-						tl.dragTo(gtx, ev.Position)
-					}
+					tl.dragTo(gtx, ev.Position)
 				}
 
 			case pointer.Release:
@@ -952,6 +949,9 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 			Grab:         tl.drag.active,
 		}.Add(gtx.Ops)
+		if tl.drag.active {
+			pointer.CursorAllScroll.Add(gtx.Ops)
+		}
 		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
