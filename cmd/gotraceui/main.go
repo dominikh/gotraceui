@@ -2304,17 +2304,18 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
 }
 
-type Command struct {
-	// TODO(dh): use an enum
-	command string
-	data    any
-}
-
 type MainWindow struct {
 	tl       Timeline
 	theme    *theme.Theme
 	trace    *Trace
-	commands chan Command
+	commands chan func(*MainWindow)
+
+	win *app.Window
+	// TODO(dh): use enum for state
+	state    string
+	progress float32
+	ww       *theme.ListWindow[*Goroutine]
+	err      error
 
 	notifyGoroutineWindowClosed chan uint64
 	goroutineWindows            map[uint64]*GoroutineWindow
@@ -2325,7 +2326,7 @@ type MainWindow struct {
 func NewMainWindow() *MainWindow {
 	win := &MainWindow{
 		theme:                       theme.NewTheme(gofont.Collection()),
-		commands:                    make(chan Command, 128),
+		commands:                    make(chan func(*MainWindow), 128),
 		notifyGoroutineWindowClosed: make(chan uint64, 16),
 		goroutineWindows:            make(map[uint64]*GoroutineWindow),
 		debugWindow:                 NewDebugWindow(),
@@ -2405,47 +2406,64 @@ func (f *goroutineFilter) Filter(item *Goroutine) bool {
 		}
 	}
 	return true
+}
 
-	// XXX implement a much better filtering function that can do case-insensitive fuzzy search,
-	// and allows matching goroutines by ID.
+func (mwin *MainWindow) setState(state string) {
+	mwin.state = state
+	mwin.progress = 0.0
+	mwin.ww = nil
+	mwin.win.Invalidate()
+}
+
+func (mwin *MainWindow) SetState(state string) {
+	mwin.commands <- func(mwin *MainWindow) {
+		mwin.setState(state)
+	}
+}
+
+func (mwin *MainWindow) SetError(err error) {
+	mwin.commands <- func(mwin *MainWindow) {
+		mwin.err = err
+		mwin.setState("error")
+	}
+}
+
+func (mwin *MainWindow) SetProgress(p float32) {
+	mwin.commands <- func(mwin *MainWindow) {
+		mwin.progress = p
+		mwin.win.Invalidate()
+	}
+}
+
+func (mwin *MainWindow) SetProgressLossy(p float32) {
+	fn := func(mwin *MainWindow) {
+		mwin.progress = p
+		mwin.win.Invalidate()
+	}
+	select {
+	case mwin.commands <- fn:
+	default:
+	}
+}
+
+func (mwin *MainWindow) LoadTrace(tr *Trace) {
+	mwin.commands <- func(mwin *MainWindow) {
+		mwin.loadTraceImpl(tr)
+		mwin.setState("main")
+	}
 }
 
 func (w *MainWindow) Run(win *app.Window) error {
+	w.win = win
+
 	profileTag := new(int)
 	var ops op.Ops
-
-	var ww *theme.ListWindow[*Goroutine]
 	var shortcuts int
-
-	// TODO(dh): use enum for state
-	state := "empty"
-	var progress float32
-	var err error
 
 	for {
 		select {
 		case cmd := <-w.commands:
-			switch cmd.command {
-			case "setState":
-				state = cmd.data.(string)
-				progress = 0.0
-				win.Invalidate()
-			case "setProgress":
-				progress = cmd.data.(float32)
-				win.Invalidate()
-			case "loadTrace":
-				w.loadTrace(cmd.data.(*Trace))
-
-				state = "main"
-				progress = 0.0
-				win.Invalidate()
-				ww = nil
-			case "error":
-				state = "error"
-				err = cmd.data.(error)
-				progress = 0.0
-				win.Invalidate()
-			}
+			cmd(w)
 
 		case gid := <-w.notifyGoroutineWindowClosed:
 			delete(w.goroutineWindows, gid)
@@ -2480,13 +2498,13 @@ func (w *MainWindow) Run(win *app.Window) error {
 				// Fill background
 				paint.Fill(gtx.Ops, colors[colorBackground])
 
-				switch state {
+				switch w.state {
 				case "empty":
 
 				case "error":
 					paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
 					m := op.Record(gtx.Ops)
-					dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("Error: %s", err))
+					dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("Error: %s", w.err))
 					call := m.Stop()
 					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
 					call.Add(gtx.Ops)
@@ -2501,7 +2519,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 						gtx := gtx
 						gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						theme.ProgressBar(w.theme, progress).Layout(gtx)
+						theme.ProgressBar(w.theme, w.progress).Layout(gtx)
 					}()
 
 					call := m.Stop()
@@ -2515,9 +2533,9 @@ func (w *MainWindow) Run(win *app.Window) error {
 							if ev.State == key.Press {
 								switch ev.Name {
 								case "G":
-									ww = theme.NewListWindow[*Goroutine](w.theme)
-									ww.SetItems(w.trace.gs)
-									ww.BuildFilter = newGoroutineFilter
+									w.ww = theme.NewListWindow[*Goroutine](w.theme)
+									w.ww.SetItems(w.trace.gs)
+									w.ww.BuildFilter = newGoroutineFilter
 								case "H":
 									w.openHeatmap()
 								}
@@ -2531,12 +2549,12 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 					key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
 
-					if ww != nil {
-						if item, ok := ww.Confirmed(); ok {
+					if w.ww != nil {
+						if item, ok := w.ww.Confirmed(); ok {
 							w.tl.scrollToGoroutine(gtx, item)
-							ww = nil
-						} else if ww.Cancelled() {
-							ww = nil
+							w.ww = nil
+						} else if w.ww.Cancelled() {
+							w.ww = nil
 						} else {
 							macro := op.Record(gtx.Ops)
 
@@ -2545,7 +2563,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							//
 							// XXX use constant for color
 							paint.Fill(gtx.Ops, rgba(0x000000DD))
-							pointer.InputOp{Tag: ww}.Add(gtx.Ops)
+							pointer.InputOp{Tag: w.ww}.Add(gtx.Ops)
 
 							offset := image.Pt(gtx.Constraints.Max.X/2-1000/2, gtx.Constraints.Max.Y/2-500/2)
 							stack := op.Offset(offset).Push(gtx.Ops)
@@ -2554,7 +2572,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							// XXX also set a minimum width
 							gtx.Constraints.Max.X = 1000
 							gtx.Constraints.Max.Y = 500
-							ww.Layout(gtx)
+							w.ww.Layout(gtx)
 							stack.Pop()
 							op.Defer(gtx.Ops, macro.Stop())
 						}
@@ -2577,7 +2595,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 	}
 }
 
-func (w *MainWindow) loadTrace(t *Trace) {
+func (w *MainWindow) loadTraceImpl(t *Trace) {
 	var end trace.Timestamp
 	for _, g := range t.gs {
 		if len(g.spans) > 0 {
@@ -3432,11 +3450,10 @@ func main() {
 		}()
 	}
 
-	commands := make(chan Command, 16)
 	errs := make(chan error)
 	go func() {
-		commands <- Command{"setState", "loadingTrace"}
-		t, err := loadTrace(flag.Args()[0], commands)
+		mwin.SetState("loadingTrace")
+		t, err := loadTrace(flag.Args()[0], mwin)
 		if memprofileLoad != "" {
 			writeMemprofile(memprofileLoad)
 		}
@@ -3445,10 +3462,10 @@ func main() {
 			return
 		}
 		if err != nil {
-			commands <- Command{"error", fmt.Errorf("couldn't load trace: %w", err)}
+			mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
 			return
 		}
-		commands <- Command{"loadTrace", t}
+		mwin.LoadTrace(t)
 	}()
 	go func() {
 		win := app.NewWindow(app.Title("gotraceui"))
@@ -3466,22 +3483,9 @@ func main() {
 			}
 		}
 
-	loop:
-		for {
-			select {
-			case cmd := <-commands:
-				switch cmd.command {
-				case "setState", "setProgress", "loadTrace", "error":
-					mwin.commands <- cmd
-				default:
-					panic(fmt.Sprintf("unknown command %s", cmd.command))
-				}
-			case err := <-errs:
-				if err != nil {
-					log.Println(err)
-				}
-				break loop
-			}
+		err := <-errs
+		if err != nil {
+			log.Println(err)
 		}
 
 		if cpuprofile != "" {

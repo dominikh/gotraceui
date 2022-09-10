@@ -348,7 +348,7 @@ type Task struct {
 	event EventID
 }
 
-func loadTrace(path string, ch chan Command) (*Trace, error) {
+func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 	const ourStages = 1
 	const totalStages = trace.Stages + ourStages
 
@@ -371,7 +371,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 		progress := (float32(cur) / float32(total)) / totalStages
 		progress += (1.0 / totalStages) * float32(stage)
 
-		ch <- Command{"setProgress", progress}
+		mwin.SetProgress(progress)
 	}
 	res, err := p.Parse()
 	if err != nil {
@@ -460,12 +460,7 @@ func loadTrace(path string, ch chan Command) (*Trace, error) {
 	for evID := range res.Events {
 		ev := &res.Events[evID]
 		if evID%10000 == 0 {
-			select {
-			case ch <- Command{"setProgress", ((1.0 / totalStages) * (trace.Stages + 0)) + (float32(evID)/float32(len(res.Events)))/totalStages}:
-			default:
-				// Don't let the rendering loop slow down parsing. Especially when vsync is enabled we'll only get to
-				// read commands every blanking interval.
-			}
+			mwin.SetProgressLossy(((1.0 / totalStages) * (trace.Stages + 0)) + (float32(evID)/float32(len(res.Events)))/totalStages)
 		}
 		var gid uint64
 		var state schedulingState
