@@ -1485,6 +1485,13 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 				return []string{s}
 			},
 			spanTooltip: userRegionSpanTooltip,
+			spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
+				if len(spans) == 1 {
+					return [2]colorIndex{colorStateUserRegion, 0}
+				} else {
+					return [2]colorIndex{colorStateUserRegion, colorStateMerged}
+				}
+			},
 		})
 	}
 
