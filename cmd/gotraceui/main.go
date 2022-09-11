@@ -1538,6 +1538,7 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 		win := &GoroutineWindow{
 			// Note that we cannot use a.theme, because text.Shaper isn't safe for concurrent use.
 			theme: theme.NewTheme(gofont.Collection()),
+			mwin:  w,
 			trace: w.trace,
 			g:     g,
 		}
@@ -2453,6 +2454,18 @@ func (mwin *MainWindow) LoadTrace(tr *Trace) {
 	}
 }
 
+func (mwin *MainWindow) OpenLink(l Link) {
+	mwin.commands <- func(mwin *MainWindow) {
+		// TODO(dh): links should probably have a method that take a MainWindow and run the appropriate commands on it
+		switch l := l.(type) {
+		case *GoroutineLink:
+			mwin.openGoroutineWindow(mwin.trace.getG(l.Goroutine))
+		default:
+			panic(l)
+		}
+	}
+}
+
 func (w *MainWindow) Run(win *app.Window) error {
 	w.win = win
 
@@ -3133,6 +3146,7 @@ type Window interface {
 
 type GoroutineWindow struct {
 	theme *theme.Theme
+	mwin  *MainWindow
 	trace *Trace
 	g     *Goroutine
 
@@ -3167,6 +3181,10 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		case system.FrameEvent:
 			gtx := layout.NewContext(&ops, ev)
 			gtx.Constraints.Min = image.Point{}
+
+			if link := events.clickedLink; link != nil {
+				gwin.mwin.OpenLink(link)
+			}
 
 			paint.Fill(gtx.Ops, colors[colorBackground])
 
@@ -3229,6 +3247,14 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	return nil
 }
 
+type Link interface{ isLink() }
+
+type GoroutineLink struct {
+	Goroutine uint64
+}
+
+func (*GoroutineLink) isLink() {}
+
 type Events struct {
 	theme     *theme.Theme
 	trace     *Trace
@@ -3241,6 +3267,10 @@ type Events struct {
 	}
 	filteredEvents []EventID
 	grid           outlay.Grid
+
+	goroutineLinks slicesSlice[GoroutineLink]
+	links          slicesSlice[Link]
+	clickedLink    Link
 }
 
 func (evs *Events) updateFilter() {
@@ -3270,6 +3300,19 @@ func (evs *Events) updateFilter() {
 
 func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	// XXX draw grid scrollbars
+
+	evs.clickedLink = nil
+	for i := 0; i < evs.links.Len(); i++ {
+		link := evs.links.Get(i)
+		for _, e := range gtx.Events(link) {
+			if e, ok := e.(pointer.Event); ok && e.Type == pointer.Press && e.Buttons == pointer.ButtonPrimary && e.Modifiers == 0 {
+				evs.clickedLink = link
+			}
+		}
+	}
+
+	evs.goroutineLinks.Reset()
+	evs.links.Reset()
 
 	if evs.filter.showGoCreate.Changed() ||
 		evs.filter.showGoUnblock.Changed() ||
@@ -3315,7 +3358,15 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		"Time", "Category", "Message",
 	}
 
+	type labelSpan struct {
+		linkType  uint8
+		linkValue uint64
+	}
+	var spans []poortext.SpanStyle
+	var spansMetadata []labelSpan
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		spans = spans[:0]
+		spansMetadata = spansMetadata[:0]
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		if row == 0 {
@@ -3326,55 +3377,45 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 
 			ev := evs.trace.Event(evs.filteredEvents[row-1])
 			// XXX poortext wraps our spans if the window is too small
-			var labelSpans []poortext.SpanStyle
+
+			addSpan := func(label string) {
+				spans = append(spans, span(evs.theme, label))
+				spansMetadata = append(spansMetadata, labelSpan{})
+			}
+
+			addSpanG := func(gid uint64) {
+				spans = append(spans, spanWith(evs.theme, local.Sprintf("goroutine %d", gid), func(s poortext.SpanStyle) poortext.SpanStyle {
+					s.Color = evs.theme.Palette.Link
+					return s
+				}))
+				spansMetadata = append(spansMetadata, labelSpan{linkType: 1, linkValue: gid})
+			}
+
 			switch col {
 			case 0:
-				labelSpans = []poortext.SpanStyle{
-					span(evs.theme, formatTimestamp(ev.Ts)),
-				}
+				addSpan(formatTimestamp(ev.Ts))
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])}
+					addSpan(evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
 				}
 			case 2:
 				switch ev.Type {
 				case trace.EvGoCreate:
-					// XXX linkify goroutine ID; clicking it should scroll to first event in the goroutine
-					labelSpans = []poortext.SpanStyle{
-						span(evs.theme, "Created "),
-						spanWith(evs.theme, local.Sprintf("goroutine %d",
-							ev.Args[trace.ArgGoCreateG]), func(s poortext.SpanStyle) poortext.SpanStyle {
-							// XXX make clickable
-							s.Color = evs.theme.Palette.Link
-							return s
-						}),
-					}
+					addSpan("Created ")
+					addSpanG(ev.Args[trace.ArgGoCreateG])
 				case trace.EvGoUnblock:
-					// XXX linkify goroutine ID, clicking it should scroll to the corresponding event in the unblocked
-					// goroutine
-					labelSpans = []poortext.SpanStyle{
-						span(evs.theme, "Unblocked "),
-						spanWith(evs.theme, local.Sprintf("goroutine %d",
-							ev.Args[trace.ArgGoUnblockG]), func(s poortext.SpanStyle) poortext.SpanStyle {
-							// XXX make clickable
-							s.Color = evs.theme.Palette.Link
-							return s
-						}),
-					}
+					addSpan("Unblocked ")
+					addSpanG(ev.Args[trace.ArgGoUnblockG])
 				case trace.EvGoSysCall:
 					if ev.StkID != 0 {
 						frames := evs.trace.Stacks[ev.StkID]
 						fn := evs.trace.PCs[frames[0]].Fn
-						labelSpans = []poortext.SpanStyle{
-							span(evs.theme, fmt.Sprintf("Syscall (%s)", fn)),
-						}
+						addSpan(fmt.Sprintf("Syscall (%s)", fn))
 					} else {
-						labelSpans = []poortext.SpanStyle{
-							span(evs.theme, "Syscall"),
-						}
+						addSpan("Syscall")
 					}
 				case trace.EvUserLog:
-					labelSpans = []poortext.SpanStyle{span(evs.theme, evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])}
+					addSpan(evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}
@@ -3384,11 +3425,20 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
 			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
-			txt := poortext.Text(evs.theme.Shaper, labelSpans...)
+			txt := poortext.Text(evs.theme.Shaper, spans...)
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
 			}
-			return txt.Layout(gtx, nil)
+			return txt.Layout(gtx, func(spanIdx int) {
+				m := spansMetadata[spanIdx]
+				if m.linkType != 0 {
+					evs.goroutineLinks.Push(GoroutineLink{m.linkValue})
+					link := evs.goroutineLinks.Ptr(evs.goroutineLinks.Len() - 1)
+					evs.links.Push(link)
+					pointer.InputOp{Tag: link, Types: pointer.Press}.Add(gtx.Ops)
+					pointer.CursorPointer.Add(gtx.Ops)
+				}
+			})
 		}
 	}
 
@@ -3497,4 +3547,50 @@ func main() {
 		os.Exit(0)
 	}()
 	app.Main()
+}
+
+const slicesSliceBucketSize = 64
+
+type slicesSlice[T any] struct {
+	n       int
+	buckets [][]T
+}
+
+func (l *slicesSlice[T]) Push(v T) {
+	a, _ := l.index(l.n)
+	if a >= len(l.buckets) {
+		l.buckets = append(l.buckets, make([]T, 0, slicesSliceBucketSize))
+	}
+	l.buckets[a] = append(l.buckets[a], v)
+	l.n++
+}
+
+func (l *slicesSlice[T]) index(i int) (int, int) {
+	return i / slicesSliceBucketSize, i % slicesSliceBucketSize
+}
+
+func (l *slicesSlice[T]) Ptr(i int) *T {
+	a, b := l.index(i)
+	return &l.buckets[a][b]
+}
+
+func (l *slicesSlice[T]) Get(i int) T {
+	a, b := l.index(i)
+	return l.buckets[a][b]
+}
+
+func (l *slicesSlice[T]) Set(i int, v T) {
+	a, b := l.index(i)
+	l.buckets[a][b] = v
+}
+
+func (l *slicesSlice[T]) Len() int {
+	return l.n
+}
+
+func (l *slicesSlice[T]) Reset() {
+	for i := range l.buckets {
+		l.buckets[i] = l.buckets[i][:0]
+	}
+	l.n = 0
 }
