@@ -6,7 +6,6 @@ import (
 	"math"
 
 	"gioui.org/layout"
-	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
@@ -16,29 +15,15 @@ import (
 
 // TODO(dh): Bordered, Border, and TextLine probably belong in the theme package instead.
 
-// Bordered renders a widget and then draws a border around it, with constraints adjusted to make sure there is room for
-// the border.
+// Bordered is like Border, but automatically applys an inset the side of the border.
 type Bordered struct {
 	Color color.NRGBA
 	Width unit.Dp
 }
 
 func (b Bordered) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
-	border := gtx.Dp(b.Width)
-
-	// XXX handle Max going negative or Max going smaller than Min
-	ngtx := gtx
-	ngtx.Constraints.Max.X -= 2 * border
-	ngtx.Constraints.Max.Y -= 2 * border
-
-	macro := op.Record(gtx.Ops)
-	dims := w(ngtx)
-	call := macro.Stop()
-
-	gtx.Constraints.Min = dims.Size.Add(image.Pt(2*border, 2*border))
-	return Border{Color: b.Color, Width: b.Width}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		call.Add(gtx.Ops)
-		return layout.Dimensions{Size: gtx.Constraints.Min}
+	return Border(b).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(b.Width).Layout(gtx, w)
 	})
 }
 
@@ -49,22 +34,21 @@ type Border struct {
 }
 
 func (b Border) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
-	width := gtx.Dp(b.Width)
+	dims := w(gtx)
+	sz := dims.Size
+	bwidth := gtx.Dp(b.Width)
 
-	mx := gtx.Constraints.Min.X
-	my := gtx.Constraints.Min.Y
-
-	nwne := clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(mx, width)}.Op()
-	nese := clip.Rect{Min: image.Pt(mx-width, width), Max: image.Pt(mx, my-width)}.Op()
-	nwsw := clip.Rect{Min: image.Pt(0, width), Max: image.Pt(width, my)}.Op()
-	swse := clip.Rect{Min: image.Pt(width, my-width), Max: image.Pt(mx, my)}.Op()
+	nwne := clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(sz.X, bwidth)}.Op()
+	nese := clip.Rect{Min: image.Pt(sz.X-bwidth, bwidth), Max: image.Pt(sz.X, sz.Y-bwidth)}.Op()
+	nwsw := clip.Rect{Min: image.Pt(0, bwidth), Max: image.Pt(bwidth, sz.Y)}.Op()
+	swse := clip.Rect{Min: image.Pt(bwidth, sz.Y-bwidth), Max: image.Pt(sz.X, sz.Y)}.Op()
 
 	paint.FillShape(gtx.Ops, b.Color, nwne)
 	paint.FillShape(gtx.Ops, b.Color, nese)
 	paint.FillShape(gtx.Ops, b.Color, nwsw)
 	paint.FillShape(gtx.Ops, b.Color, swse)
 
-	return layout.UniformInset(b.Width).Layout(gtx, w)
+	return dims
 }
 
 type TextLine struct {
