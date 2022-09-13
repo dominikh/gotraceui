@@ -3319,7 +3319,7 @@ type Events struct {
 	grid           outlay.Grid
 
 	goroutineLinks slicesSlice[GoroutineLink]
-	links          slicesSlice[Link]
+	links          []Link
 	clickedLink    Link
 }
 
@@ -3352,8 +3352,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	// XXX draw grid scrollbars
 
 	evs.clickedLink = nil
-	for i := 0; i < evs.links.Len(); i++ {
-		link := evs.links.Get(i)
+	for _, link := range evs.links {
 		for _, e := range gtx.Events(link) {
 			if e, ok := e.(pointer.Event); ok && e.Type == pointer.Press && e.Buttons == pointer.ButtonPrimary && e.Modifiers == 0 {
 				evs.clickedLink = link
@@ -3362,7 +3361,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	evs.goroutineLinks.Reset()
-	evs.links.Reset()
+	evs.links = evs.links[:0]
 
 	if evs.filter.showGoCreate.Changed() ||
 		evs.filter.showGoUnblock.Changed() ||
@@ -3408,15 +3407,11 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		"Time", "Category", "Message",
 	}
 
-	type labelSpan struct {
-		linkType  uint8
-		linkValue uint64
-	}
 	var spans []poortext.SpanStyle
-	var spansMetadata []labelSpan
+	var spanLinks []Link
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		spans = spans[:0]
-		spansMetadata = spansMetadata[:0]
+		spanLinks = spanLinks[:0]
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		if row == 0 {
@@ -3430,7 +3425,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 
 			addSpan := func(label string) {
 				spans = append(spans, span(evs.theme, label))
-				spansMetadata = append(spansMetadata, labelSpan{})
+				spanLinks = append(spanLinks, nil)
 			}
 
 			addSpanG := func(gid uint64) {
@@ -3438,7 +3433,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					s.Color = evs.theme.Palette.Link
 					return s
 				}))
-				spansMetadata = append(spansMetadata, labelSpan{linkType: 1, linkValue: gid})
+				spanLinks = append(spanLinks,
+					evs.goroutineLinks.Push(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
 			}
 
 			switch col {
@@ -3480,11 +3476,9 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 				txt.Alignment = text.End
 			}
 			return txt.Layout(gtx, func(spanIdx int) {
-				m := spansMetadata[spanIdx]
-				if m.linkType != 0 {
-					evs.goroutineLinks.Push(GoroutineLink{evs.trace.getG(m.linkValue), GoroutineLinkKindOpenWindow})
-					link := evs.goroutineLinks.Ptr(evs.goroutineLinks.Len() - 1)
-					evs.links.Push(link)
+				link := spanLinks[spanIdx]
+				if link != nil {
+					evs.links = append(evs.links, link)
 					pointer.InputOp{Tag: link, Types: pointer.Press}.Add(gtx.Ops)
 					pointer.CursorPointer.Add(gtx.Ops)
 				}
@@ -3606,13 +3600,15 @@ type slicesSlice[T any] struct {
 	buckets [][]T
 }
 
-func (l *slicesSlice[T]) Push(v T) {
+func (l *slicesSlice[T]) Push(v T) *T {
 	a, _ := l.index(l.n)
 	if a >= len(l.buckets) {
 		l.buckets = append(l.buckets, make([]T, 0, slicesSliceBucketSize))
 	}
 	l.buckets[a] = append(l.buckets[a], v)
+	ptr := &l.buckets[a][len(l.buckets[a])-1]
 	l.n++
+	return ptr
 }
 
 func (l *slicesSlice[T]) index(i int) (int, int) {
