@@ -2305,11 +2305,13 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
 }
 
+type Command func(*MainWindow, layout.Context)
+
 type MainWindow struct {
 	tl       Timeline
 	theme    *theme.Theme
 	trace    *Trace
-	commands chan func(*MainWindow)
+	commands chan Command
 
 	win *app.Window
 	// TODO(dh): use enum for state
@@ -2327,7 +2329,7 @@ type MainWindow struct {
 func NewMainWindow() *MainWindow {
 	win := &MainWindow{
 		theme:                       theme.NewTheme(gofont.Collection()),
-		commands:                    make(chan func(*MainWindow), 128),
+		commands:                    make(chan Command, 128),
 		notifyGoroutineWindowClosed: make(chan uint64, 16),
 		goroutineWindows:            make(map[uint64]*GoroutineWindow),
 		debugWindow:                 NewDebugWindow(),
@@ -2413,33 +2415,30 @@ func (mwin *MainWindow) setState(state string) {
 	mwin.state = state
 	mwin.progress = 0.0
 	mwin.ww = nil
-	mwin.win.Invalidate()
 }
 
 func (mwin *MainWindow) SetState(state string) {
-	mwin.commands <- func(mwin *MainWindow) {
+	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.setState(state)
 	}
 }
 
 func (mwin *MainWindow) SetError(err error) {
-	mwin.commands <- func(mwin *MainWindow) {
+	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.err = err
 		mwin.setState("error")
 	}
 }
 
 func (mwin *MainWindow) SetProgress(p float32) {
-	mwin.commands <- func(mwin *MainWindow) {
+	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.progress = p
-		mwin.win.Invalidate()
 	}
 }
 
 func (mwin *MainWindow) SetProgressLossy(p float32) {
-	fn := func(mwin *MainWindow) {
+	fn := func(mwin *MainWindow, _ layout.Context) {
 		mwin.progress = p
-		mwin.win.Invalidate()
 	}
 	select {
 	case mwin.commands <- fn:
@@ -2448,18 +2447,25 @@ func (mwin *MainWindow) SetProgressLossy(p float32) {
 }
 
 func (mwin *MainWindow) LoadTrace(tr *Trace) {
-	mwin.commands <- func(mwin *MainWindow) {
+	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.loadTraceImpl(tr)
 		mwin.setState("main")
 	}
 }
 
 func (mwin *MainWindow) OpenLink(l Link) {
-	mwin.commands <- func(mwin *MainWindow) {
+	mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
 		// TODO(dh): links should probably have a method that take a MainWindow and run the appropriate commands on it
 		switch l := l.(type) {
 		case *GoroutineLink:
-			mwin.openGoroutineWindow(mwin.trace.getG(l.Goroutine))
+			switch l.Kind {
+			case GoroutineLinkKindOpenWindow:
+				mwin.openGoroutineWindow(l.Goroutine)
+			case GoroutineLinkKindScroll:
+				mwin.tl.scrollToGoroutine(gtx, l.Goroutine)
+			default:
+				panic(l.Kind)
+			}
 		default:
 			panic(l)
 		}
@@ -2473,10 +2479,12 @@ func (w *MainWindow) Run(win *app.Window) error {
 	var ops op.Ops
 	var shortcuts int
 
+	var lastCommand Command
 	for {
 		select {
 		case cmd := <-w.commands:
-			cmd(w)
+			lastCommand = cmd
+			w.win.Invalidate()
 
 		case gid := <-w.notifyGoroutineWindowClosed:
 			delete(w.goroutineWindows, gid)
@@ -2488,6 +2496,21 @@ func (w *MainWindow) Run(win *app.Window) error {
 			case system.FrameEvent:
 				gtx := layout.NewContext(&ops, ev)
 				gtx.Constraints.Min = image.Point{}
+
+				if lastCommand != nil {
+					lastCommand(w, gtx)
+					lastCommand = nil
+				}
+
+			commandLoop:
+				for {
+					select {
+					case cmd := <-w.commands:
+						cmd(w, gtx)
+					default:
+						break commandLoop
+					}
+				}
 
 				for _, ev := range gtx.Events(profileTag) {
 					// Yup, profile.Event only contains a string. No structured access to data.
@@ -3174,6 +3197,8 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		Title: "Events",
 		Theme: gwin.theme,
 	}
+
+	var scrollToGoroutine widget.Clickable
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
@@ -3184,6 +3209,10 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 
 			if link := events.clickedLink; link != nil {
 				gwin.mwin.OpenLink(link)
+			}
+
+			for scrollToGoroutine.Clicked() {
+				gwin.mwin.OpenLink(&GoroutineLink{Goroutine: gwin.g, Kind: GoroutineLinkKindScroll})
 			}
 
 			paint.Fill(gtx.Ops, colors[colorBackground])
@@ -3222,23 +3251,36 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 				span(th, time.Duration(gwin.stats.end-gwin.stats.start).String()),
 			}
 
-			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return poortext.Text(gwin.theme.Shaper, spans...).Layout(gtx, nil)
-				}),
-				// XXX ideally the spacing would be one line high
-				layout.Rigid(layout.Spacer{Height: 10}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return statsFoldable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return gwin.stats.Layout(gtx, gwin.theme)
-					})
-				}),
-				// XXX ideally the spacing would be one line high
-				layout.Rigid(layout.Spacer{Height: 10}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return eventsFoldable.Layout(gtx, events.Layout)
-				}),
-			)
+			layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return theme.Button(gwin.theme, &scrollToGoroutine, "Scroll to goroutine").Layout(gtx)
+							}),
+							layout.Rigid(layout.Spacer{Width: 5}.Layout),
+						)
+					}),
+
+					layout.Rigid(layout.Spacer{Height: 5}.Layout),
+
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return poortext.Text(gwin.theme.Shaper, spans...).Layout(gtx, nil)
+					}),
+					// XXX ideally the spacing would be one line high
+					layout.Rigid(layout.Spacer{Height: 10}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return statsFoldable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return gwin.stats.Layout(gtx, gwin.theme)
+						})
+					}),
+					// XXX ideally the spacing would be one line high
+					layout.Rigid(layout.Spacer{Height: 10}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return eventsFoldable.Layout(gtx, events.Layout)
+					}),
+				)
+			})
 
 			ev.Frame(gtx.Ops)
 		}
@@ -3249,8 +3291,16 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 
 type Link interface{ isLink() }
 
+type GoroutineLinkKind uint8
+
+const (
+	GoroutineLinkKindOpenWindow GoroutineLinkKind = iota
+	GoroutineLinkKindScroll
+)
+
 type GoroutineLink struct {
-	Goroutine uint64
+	Goroutine *Goroutine
+	Kind      GoroutineLinkKind
 }
 
 func (*GoroutineLink) isLink() {}
@@ -3432,7 +3482,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			return txt.Layout(gtx, func(spanIdx int) {
 				m := spansMetadata[spanIdx]
 				if m.linkType != 0 {
-					evs.goroutineLinks.Push(GoroutineLink{m.linkValue})
+					evs.goroutineLinks.Push(GoroutineLink{evs.trace.getG(m.linkValue), GoroutineLinkKindOpenWindow})
 					link := evs.goroutineLinks.Ptr(evs.goroutineLinks.Len() - 1)
 					evs.links.Push(link)
 					pointer.InputOp{Tag: link, Types: pointer.Press}.Add(gtx.Ops)

@@ -298,3 +298,38 @@ func BorderedText(gtx layout.Context, th *Theme, s string) layout.Dimensions {
 		}
 	})
 }
+
+type ButtonStyle struct {
+	Text   string
+	Button *widget.Clickable
+	shaper text.Shaper
+}
+
+func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
+	return ButtonStyle{
+		Text:   txt,
+		Button: button,
+		shaper: th.Shaper,
+	}
+}
+
+func (b ButtonStyle) Layout(gtx layout.Context) layout.Dimensions {
+	return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return mywidget.Bordered{Color: rgba(0x000000FF), Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Stack{Alignment: layout.Center}.Layout(gtx,
+				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+					if b.Button.Pressed() {
+						paint.FillShape(gtx.Ops, rgba(0xFFFF00FF), clip.Rect{Max: gtx.Constraints.Min}.Op())
+					} else {
+						paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: gtx.Constraints.Min}.Op())
+					}
+					return layout.Dimensions{Size: gtx.Constraints.Min}
+				}),
+				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+					paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
+					return widget.Label{Alignment: text.Middle}.Layout(gtx, b.shaper, text.Font{}, 12, b.Text)
+				}),
+			)
+		})
+	})
+}
