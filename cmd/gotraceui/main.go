@@ -3318,7 +3318,7 @@ type Events struct {
 	filteredEvents []EventID
 	grid           outlay.Grid
 
-	goroutineLinks slicesSlice[GoroutineLink]
+	goroutineLinks allocator[GoroutineLink]
 	links          []Link
 	clickedLink    Link
 }
@@ -3434,7 +3434,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					return s
 				}))
 				spanLinks = append(spanLinks,
-					evs.goroutineLinks.Push(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
+					evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
 			}
 
 			switch col {
@@ -3593,17 +3593,17 @@ func main() {
 	app.Main()
 }
 
-const slicesSliceBucketSize = 64
+const allocatorBucketSize = 64
 
-type slicesSlice[T any] struct {
+type allocator[T any] struct {
 	n       int
 	buckets [][]T
 }
 
-func (l *slicesSlice[T]) Push(v T) *T {
+func (l *allocator[T]) Allocate(v T) *T {
 	a, _ := l.index(l.n)
 	if a >= len(l.buckets) {
-		l.buckets = append(l.buckets, make([]T, 0, slicesSliceBucketSize))
+		l.buckets = append(l.buckets, make([]T, 0, allocatorBucketSize))
 	}
 	l.buckets[a] = append(l.buckets[a], v)
 	ptr := &l.buckets[a][len(l.buckets[a])-1]
@@ -3611,30 +3611,30 @@ func (l *slicesSlice[T]) Push(v T) *T {
 	return ptr
 }
 
-func (l *slicesSlice[T]) index(i int) (int, int) {
-	return i / slicesSliceBucketSize, i % slicesSliceBucketSize
+func (l *allocator[T]) index(i int) (int, int) {
+	return i / allocatorBucketSize, i % allocatorBucketSize
 }
 
-func (l *slicesSlice[T]) Ptr(i int) *T {
+func (l *allocator[T]) Ptr(i int) *T {
 	a, b := l.index(i)
 	return &l.buckets[a][b]
 }
 
-func (l *slicesSlice[T]) Get(i int) T {
+func (l *allocator[T]) Get(i int) T {
 	a, b := l.index(i)
 	return l.buckets[a][b]
 }
 
-func (l *slicesSlice[T]) Set(i int, v T) {
+func (l *allocator[T]) Set(i int, v T) {
 	a, b := l.index(i)
 	l.buckets[a][b] = v
 }
 
-func (l *slicesSlice[T]) Len() int {
+func (l *allocator[T]) Len() int {
 	return l.n
 }
 
-func (l *slicesSlice[T]) Reset() {
+func (l *allocator[T]) Reset() {
 	for i := range l.buckets {
 		l.buckets[i] = l.buckets[i][:0]
 	}
