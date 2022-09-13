@@ -35,7 +35,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/x/outlay"
-	"gioui.org/x/poortext"
+	"gioui.org/x/styledtext"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
 	"golang.org/x/image/math/fixed"
@@ -2466,6 +2466,13 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			default:
 				panic(l.Kind)
 			}
+		case *TimestampLink:
+			d := mwin.tl.end - mwin.tl.start
+			if l.AlignRight {
+				mwin.tl.navigateTo(gtx, l.Ts-d, l.Ts, mwin.tl.y)
+			} else {
+				mwin.tl.navigateTo(gtx, l.Ts, l.Ts+d, mwin.tl.y)
+			}
 		default:
 			panic(l)
 		}
@@ -3060,11 +3067,12 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				l = statLabels[gs.numberFormat][col]
 			}
 
-			s := spanWith(th, l, func(ss poortext.SpanStyle) poortext.SpanStyle {
+			s := spanWith(th, l, func(ss styledtext.SpanStyle) styledtext.SpanStyle {
 				ss.Font.Weight = text.Bold
 				return ss
 			})
-			poortext.Text(th.Shaper, s).Layout(gtx, func(i int) {
+			styledtext.Text(th.Shaper, s).Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 				pointer.CursorPointer.Add(gtx.Ops)
 				gs.columnClicks[col].Add(gtx.Ops)
 			})
@@ -3101,7 +3109,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				panic("unreachable")
 			}
 
-			txt := poortext.Text(th.Shaper, span(th, l))
+			txt := styledtext.Text(th.Shaper, span(th, l))
 			if col != 0 {
 				txt.Alignment = text.End
 			}
@@ -3176,6 +3184,13 @@ type GoroutineWindow struct {
 	stats *GoroutineStats
 }
 
+type TimestampLink struct {
+	Ts         trace.Timestamp
+	AlignRight bool
+}
+
+func (*TimestampLink) isLink() {}
+
 func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events := Events{trace: gwin.trace, theme: gwin.theme}
 	events.filter.showGoCreate.Value = true
@@ -3198,6 +3213,32 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		Theme: gwin.theme,
 	}
 
+	txt := Text{
+		theme: gwin.theme,
+	}
+	{
+		txt.Bold("Goroutine: ")
+		txt.Span(local.Sprintf("%d\n", gwin.g.id))
+
+		txt.Bold("Function: ")
+		txt.Span(fmt.Sprintf("%s\n", gwin.g.function))
+
+		txt.Bold("Created at: ")
+		txt.Link(
+			fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.start)),
+			&TimestampLink{gwin.stats.start, false},
+		)
+
+		txt.Bold("Returned at: ")
+		txt.Link(
+			fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.end)),
+			&TimestampLink{gwin.stats.end, true},
+		)
+
+		txt.Bold("Lifetime: ")
+		txt.Span(time.Duration(gwin.stats.end - gwin.stats.start).String())
+	}
+
 	var scrollToGoroutine widget.Clickable
 	for e := range win.Events() {
 		switch ev := e.(type) {
@@ -3206,6 +3247,12 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		case system.FrameEvent:
 			gtx := layout.NewContext(&ops, ev)
 			gtx.Constraints.Min = image.Point{}
+
+			for i := range txt.Spans {
+				for txt.Spans[i].Clickable.Clicked() {
+					gwin.mwin.OpenLink(txt.Spans[i].Link)
+				}
+			}
 
 			if link := events.clickedLink; link != nil {
 				gwin.mwin.OpenLink(link)
@@ -3216,40 +3263,6 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 			}
 
 			paint.Fill(gtx.Ops, colors[colorBackground])
-
-			th := gwin.theme
-			spans := []poortext.SpanStyle{
-				spanWith(th, "Goroutine: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
-					ss.Font.Weight = text.Bold
-					return ss
-				}),
-				span(th, local.Sprintf("%d\n", gwin.g.id)),
-
-				spanWith(th, "Function: ", func(ss poortext.SpanStyle) poortext.SpanStyle { ss.Font.Weight = text.Bold; return ss }),
-				spanWith(th, fmt.Sprintf("%s\n", gwin.g.function), func(ss poortext.SpanStyle) poortext.SpanStyle {
-					// XXX make function clickable
-					ss.Color = th.Palette.Link
-					return ss
-				}),
-
-				spanWith(th, "Created at: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
-					ss.Font.Weight = text.Bold
-					return ss
-				}),
-				span(th, fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.start))),
-
-				spanWith(th, "Returned at: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
-					ss.Font.Weight = text.Bold
-					return ss
-				}),
-				span(th, fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.end))),
-
-				spanWith(th, "Lifetime: ", func(ss poortext.SpanStyle) poortext.SpanStyle {
-					ss.Font.Weight = text.Bold
-					return ss
-				}),
-				span(th, time.Duration(gwin.stats.end-gwin.stats.start).String()),
-			}
 
 			layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -3265,7 +3278,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					layout.Rigid(layout.Spacer{Height: 5}.Layout),
 
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return poortext.Text(gwin.theme.Shaper, spans...).Layout(gtx, nil)
+						return txt.Layout(gtx)
 					}),
 					// XXX ideally the spacing would be one line high
 					layout.Rigid(layout.Spacer{Height: 10}.Layout),
@@ -3318,6 +3331,7 @@ type Events struct {
 	filteredEvents []EventID
 	grid           outlay.Grid
 
+	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
 	links          []Link
 	clickedLink    Link
@@ -3360,6 +3374,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	evs.timestampLinks.Reset()
 	evs.goroutineLinks.Reset()
 	evs.links = evs.links[:0]
 
@@ -3407,7 +3422,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		"Time", "Category", "Message",
 	}
 
-	var spans []poortext.SpanStyle
+	var spans []styledtext.SpanStyle
 	var spanLinks []Link
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		spans = spans[:0]
@@ -3421,7 +3436,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// XXX subtract padding from width
 
 			ev := evs.trace.Event(evs.filteredEvents[row-1])
-			// XXX poortext wraps our spans if the window is too small
+			// XXX styledtext wraps our spans if the window is too small
 
 			addSpan := func(label string) {
 				spans = append(spans, span(evs.theme, label))
@@ -3429,7 +3444,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			}
 
 			addSpanG := func(gid uint64) {
-				spans = append(spans, spanWith(evs.theme, local.Sprintf("goroutine %d", gid), func(s poortext.SpanStyle) poortext.SpanStyle {
+				spans = append(spans, spanWith(evs.theme, local.Sprintf("goroutine %d", gid), func(s styledtext.SpanStyle) styledtext.SpanStyle {
 					s.Color = evs.theme.Palette.Link
 					return s
 				}))
@@ -3437,9 +3452,18 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 					evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
 			}
 
+			addSpanTs := func(ts trace.Timestamp) {
+				spans = append(spans, spanWith(evs.theme, formatTimestamp(ts), func(s styledtext.SpanStyle) styledtext.SpanStyle {
+					s.Color = evs.theme.Palette.Link
+					return s
+				}))
+				spanLinks = append(spanLinks,
+					evs.timestampLinks.Allocate(TimestampLink{ts, false}))
+			}
+
 			switch col {
 			case 0:
-				addSpan(formatTimestamp(ev.Ts))
+				addSpanTs(ev.Ts)
 			case 1:
 				if ev.Type == trace.EvUserLog {
 					addSpan(evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
@@ -3471,11 +3495,11 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
 			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
-			txt := poortext.Text(evs.theme.Shaper, spans...)
+			txt := styledtext.Text(evs.theme.Shaper, spans...)
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
 			}
-			return txt.Layout(gtx, func(spanIdx int) {
+			return txt.Layout(gtx, func(_ layout.Context, spanIdx int, _ layout.Dimensions) {
 				link := spanLinks[spanIdx]
 				if link != nil {
 					evs.links = append(evs.links, link)
@@ -3503,8 +3527,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
 }
 
-func span(th *theme.Theme, text string) poortext.SpanStyle {
-	return poortext.SpanStyle{
+func span(th *theme.Theme, text string) styledtext.SpanStyle {
+	return styledtext.SpanStyle{
 		Content: text,
 		Size:    th.TextSize,
 		Color:   th.Palette.Foreground,
@@ -3512,7 +3536,7 @@ func span(th *theme.Theme, text string) poortext.SpanStyle {
 	}
 }
 
-func spanWith(th *theme.Theme, text string, fn func(poortext.SpanStyle) poortext.SpanStyle) poortext.SpanStyle {
+func spanWith(th *theme.Theme, text string, fn func(styledtext.SpanStyle) styledtext.SpanStyle) styledtext.SpanStyle {
 	return fn(span(th, text))
 }
 
@@ -3639,4 +3663,65 @@ func (l *allocator[T]) Reset() {
 		l.buckets[i] = l.buckets[i][:0]
 	}
 	l.n = 0
+}
+
+type Text struct {
+	theme  *theme.Theme
+	styles []styledtext.SpanStyle
+	Spans  []TextSpan
+}
+
+type TextSpan struct {
+	*styledtext.SpanStyle
+	Link Link
+
+	Clickable widget.Clickable
+}
+
+func (txt *Text) Span(label string) *TextSpan {
+	style := styledtext.SpanStyle{
+		Content: label,
+		Size:    txt.theme.TextSize,
+		Color:   txt.theme.Palette.Foreground,
+		Font:    goFonts[0].Font,
+	}
+	txt.styles = append(txt.styles, style)
+	txt.Spans = append(txt.Spans, TextSpan{SpanStyle: &txt.styles[len(txt.styles)-1]})
+	return &txt.Spans[len(txt.Spans)-1]
+}
+
+func (txt *Text) SpanWith(label string, fn func(s *TextSpan)) *TextSpan {
+	s := txt.Span(label)
+	fn(s)
+	return s
+}
+
+func (txt *Text) Bold(label string) *TextSpan {
+	s := txt.Span(label)
+	s.Font.Weight = text.Bold
+	return s
+}
+
+func (txt *Text) Link(label string, link Link) *TextSpan {
+	s := txt.Span(label)
+	s.Color = txt.theme.Palette.Link
+	s.Link = link
+	return s
+}
+
+func (txt *Text) Reset() {
+	txt.styles = txt.styles[:0]
+	txt.Spans = txt.Spans[:0]
+}
+
+func (txt *Text) Layout(gtx layout.Context) layout.Dimensions {
+	return styledtext.Text(txt.theme.Shaper, txt.styles...).Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
+		s := &txt.Spans[i]
+		if s.Link != nil {
+			s.Clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				pointer.CursorPointer.Add(gtx.Ops)
+				return dims
+			})
+		}
+	})
 }
