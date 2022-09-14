@@ -3723,6 +3723,7 @@ func (txt *Text) Link(label string, link Link) *TextSpan {
 func (txt *Text) Reset() {
 	txt.styles = txt.styles[:0]
 	txt.Spans = txt.Spans[:0]
+	txt.Alignment = 0
 }
 
 func (txt *Text) Layout(gtx layout.Context) layout.Dimensions {
