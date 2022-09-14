@@ -697,18 +697,22 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	tl.navigateTo(gtx, first, last, tl.y)
 }
 
-func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
+func (tl *Timeline) goroutineY(gtx layout.Context, g *Goroutine) int {
 	// OPT(dh): don't be O(n)
 	off := 0
 	for _, aw := range tl.activities {
 		if g == aw.item {
 			// TODO(dh): show goroutine at center of window, not the top
-			tl.navigateTo(gtx, tl.start, tl.end, off)
-			return
+			return off
 		}
 		off += aw.Height(gtx) + gtx.Dp(activityGapDp)
 	}
 	panic("unreachable")
+}
+
+func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
+	off := tl.goroutineY(gtx, g)
+	tl.navigateTo(gtx, tl.start, tl.end, off)
 }
 
 // The width in pixels of the visible portion of the timeline, i.e. the part that isn't occupied by the scrollbar.
@@ -2463,6 +2467,9 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				mwin.openGoroutineWindow(l.Goroutine)
 			case GoroutineLinkKindScroll:
 				mwin.tl.scrollToGoroutine(gtx, l.Goroutine)
+			case GoroutineLinkKindZoom:
+				y := mwin.tl.goroutineY(gtx, l.Goroutine)
+				mwin.tl.navigateTo(gtx, l.Goroutine.spans.Start(mwin.trace), l.Goroutine.spans.End(), y)
 			default:
 				panic(l.Kind)
 			}
@@ -3234,7 +3241,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		txt.Span(time.Duration(gwin.stats.end - gwin.stats.start).String())
 	}
 
-	var scrollToGoroutine widget.Clickable
+	var scrollToGoroutine, zoomToGoroutine widget.Clickable
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
@@ -3258,6 +3265,9 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 			for scrollToGoroutine.Clicked() {
 				gwin.mwin.OpenLink(&GoroutineLink{Goroutine: gwin.g, Kind: GoroutineLinkKindScroll})
 			}
+			for zoomToGoroutine.Clicked() {
+				gwin.mwin.OpenLink(&GoroutineLink{Goroutine: gwin.g, Kind: GoroutineLinkKindZoom})
+			}
 
 			paint.Fill(gtx.Ops, colors[colorBackground])
 
@@ -3265,10 +3275,14 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+							// TODO(dh): these buttons should reflow into multiple rows if the window is too small
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return theme.Button(gwin.theme, &scrollToGoroutine, "Scroll to goroutine").Layout(gtx)
 							}),
 							layout.Rigid(layout.Spacer{Width: 5}.Layout),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return theme.Button(gwin.theme, &zoomToGoroutine, "Zoom to goroutine").Layout(gtx)
+							}),
 						)
 					}),
 
@@ -3306,6 +3320,7 @@ type GoroutineLinkKind uint8
 const (
 	GoroutineLinkKindOpenWindow GoroutineLinkKind = iota
 	GoroutineLinkKindScroll
+	GoroutineLinkKindZoom
 )
 
 type GoroutineLink struct {
