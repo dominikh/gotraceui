@@ -3333,7 +3333,7 @@ type Events struct {
 
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
-	links          []Link
+	texts          allocator[Text]
 	clickedLink    Link
 }
 
@@ -3365,18 +3365,8 @@ func (evs *Events) updateFilter() {
 func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	// XXX draw grid scrollbars
 
-	evs.clickedLink = nil
-	for _, link := range evs.links {
-		for _, e := range gtx.Events(link) {
-			if e, ok := e.(pointer.Event); ok && e.Type == pointer.Press && e.Buttons == pointer.ButtonPrimary && e.Modifiers == 0 {
-				evs.clickedLink = link
-			}
-		}
-	}
-
 	evs.timestampLinks.Reset()
 	evs.goroutineLinks.Reset()
-	evs.links = evs.links[:0]
 
 	if evs.filter.showGoCreate.Changed() ||
 		evs.filter.showGoUnblock.Changed() ||
@@ -3422,11 +3412,18 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 		"Time", "Category", "Message",
 	}
 
-	var spans []styledtext.SpanStyle
-	var spanLinks []Link
+	var txtCnt int
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
-		spans = spans[:0]
-		spanLinks = spanLinks[:0]
+		var txt *Text
+		if txtCnt < evs.texts.Len() {
+			txt = evs.texts.Ptr(txtCnt)
+			txt.Reset()
+			txtCnt++
+		} else {
+			txt = evs.texts.Allocate(Text{theme: evs.theme})
+			txtCnt++
+		}
+
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		if row == 0 {
@@ -3438,27 +3435,12 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			ev := evs.trace.Event(evs.filteredEvents[row-1])
 			// XXX styledtext wraps our spans if the window is too small
 
-			addSpan := func(label string) {
-				spans = append(spans, span(evs.theme, label))
-				spanLinks = append(spanLinks, nil)
-			}
-
 			addSpanG := func(gid uint64) {
-				spans = append(spans, spanWith(evs.theme, local.Sprintf("goroutine %d", gid), func(s styledtext.SpanStyle) styledtext.SpanStyle {
-					s.Color = evs.theme.Palette.Link
-					return s
-				}))
-				spanLinks = append(spanLinks,
-					evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
+				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
 			}
 
 			addSpanTs := func(ts trace.Timestamp) {
-				spans = append(spans, spanWith(evs.theme, formatTimestamp(ts), func(s styledtext.SpanStyle) styledtext.SpanStyle {
-					s.Color = evs.theme.Palette.Link
-					return s
-				}))
-				spanLinks = append(spanLinks,
-					evs.timestampLinks.Allocate(TimestampLink{ts, false}))
+				txt.Link(formatTimestamp(ts), evs.timestampLinks.Allocate(TimestampLink{ts, false}))
 			}
 
 			switch col {
@@ -3466,47 +3448,37 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 				addSpanTs(ev.Ts)
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					addSpan(evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
+					txt.Span(evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
 				}
 			case 2:
 				switch ev.Type {
 				case trace.EvGoCreate:
-					addSpan("Created ")
+					txt.Span("Created ")
 					addSpanG(ev.Args[trace.ArgGoCreateG])
 				case trace.EvGoUnblock:
-					addSpan("Unblocked ")
+					txt.Span("Unblocked ")
 					addSpanG(ev.Args[trace.ArgGoUnblockG])
 				case trace.EvGoSysCall:
 					if ev.StkID != 0 {
 						frames := evs.trace.Stacks[ev.StkID]
 						fn := evs.trace.PCs[frames[0]].Fn
-						addSpan(fmt.Sprintf("Syscall (%s)", fn))
+						txt.Span(fmt.Sprintf("Syscall (%s)", fn))
 					} else {
-						addSpan("Syscall")
+						txt.Span("Syscall")
 					}
 				case trace.EvUserLog:
-					addSpan(evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])
+					txt.Span(evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}
 			default:
 				panic("unreachable")
 			}
-			// TODO(dh): clicking the entry should jump to it on the timeline
 			// TODO(dh): hovering the entry should highlight the corresponding span marker
-			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
-			txt := styledtext.Text(evs.theme.Shaper, spans...)
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
 			}
-			return txt.Layout(gtx, func(_ layout.Context, spanIdx int, _ layout.Dimensions) {
-				link := spanLinks[spanIdx]
-				if link != nil {
-					evs.links = append(evs.links, link)
-					pointer.InputOp{Tag: link, Types: pointer.Press}.Add(gtx.Ops)
-					pointer.CursorPointer.Add(gtx.Ops)
-				}
-			})
+			return txt.Layout(gtx)
 		}
 	}
 
@@ -3524,7 +3496,46 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	)
 
 	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
-	return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
+	ret := evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
+	evs.texts.Truncate(txtCnt)
+
+	// We have to handle these events at the end of Layout instead of the beginning because we ourselves expose events
+	// and need to detect widget.Clickable events within two frames. On input, Gio renders two frames, assuming that the
+	// first frame updates state according to events, and on the second frame sees the new state and draws an up to date
+	// UI. This allows for Layout methods to also handle events, introducing one frame of latency.
+	//
+	// This means that after laying out a widget, querying the widget has to return all events. Because we ourselves are
+	// a widget that returns events, we need to know about all events at the end of the call to Layout, which means we
+	// cannot update our state at the beginning of Layout, as that would introduce another frame of latency, compounding
+	// with the latency of calling widget.Clickable.Layout.
+	//
+	// Consider this sequence of events:
+	// 1. user clicks on span
+	// 2. our parent's Layout gets called
+	// 3. our parent asks us if there are any events -> nope.
+	// 4. our parent lays us out
+	// 5. we ask widget.Clickable if there are any events -> nope.
+	// 6. we lay out widget.Clickable
+	// 7. our parent's Layout gets called
+	// 8. our parent asks us if there are any events -> nope.
+	// 9. our parent lays us out
+	// 10. we ask widget.Clickable if there are any events -> yup.
+	//
+	// At step 10, it's too late. Our parent has already queried the state twice and won't do so a third time until
+	// another frame gets scheduled, which won't happen immediately.
+	evs.clickedLink = nil
+	for i := 0; i < evs.texts.Len(); i++ {
+		txt := evs.texts.Ptr(i)
+		for j := range txt.Spans {
+			s := &txt.Spans[j]
+			for s.Clickable.Clicked() {
+				// XXX can multiple links be clicked in one frame?
+				evs.clickedLink = s.Link
+			}
+		}
+	}
+
+	return ret
 }
 
 func span(th *theme.Theme, text string) styledtext.SpanStyle {
@@ -3665,10 +3676,23 @@ func (l *allocator[T]) Reset() {
 	l.n = 0
 }
 
+func (l *allocator[T]) Truncate(n int) {
+	if n >= l.n {
+		return
+	}
+	a, b := l.index(n)
+	l.buckets[a] = l.buckets[a][:b]
+	for i := a + 1; i < len(l.buckets); i++ {
+		l.buckets[i] = l.buckets[i][:0]
+	}
+	l.n = n
+}
+
 type Text struct {
-	theme  *theme.Theme
-	styles []styledtext.SpanStyle
-	Spans  []TextSpan
+	theme     *theme.Theme
+	styles    []styledtext.SpanStyle
+	Spans     []TextSpan
+	Alignment text.Alignment
 }
 
 type TextSpan struct {
@@ -3686,7 +3710,17 @@ func (txt *Text) Span(label string) *TextSpan {
 		Font:    goFonts[0].Font,
 	}
 	txt.styles = append(txt.styles, style)
-	txt.Spans = append(txt.Spans, TextSpan{SpanStyle: &txt.styles[len(txt.styles)-1]})
+	if cap(txt.Spans) > len(txt.Spans) {
+		// Reuse widget.Clickable state across calls to Text.Reset
+		txt.Spans = txt.Spans[:len(txt.Spans)+1]
+		s := &txt.Spans[len(txt.Spans)-1]
+		*s = TextSpan{
+			SpanStyle: &txt.styles[len(txt.styles)-1],
+			Clickable: s.Clickable,
+		}
+	} else {
+		txt.Spans = append(txt.Spans, TextSpan{SpanStyle: &txt.styles[len(txt.styles)-1]})
+	}
 	return &txt.Spans[len(txt.Spans)-1]
 }
 
@@ -3715,7 +3749,9 @@ func (txt *Text) Reset() {
 }
 
 func (txt *Text) Layout(gtx layout.Context) layout.Dimensions {
-	return styledtext.Text(txt.theme.Shaper, txt.styles...).Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
+	ptxt := styledtext.Text(txt.theme.Shaper, txt.styles...)
+	ptxt.Alignment = txt.Alignment
+	return ptxt.Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
 		s := &txt.Spans[i]
 		if s.Link != nil {
 			s.Clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
