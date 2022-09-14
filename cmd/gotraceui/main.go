@@ -3244,8 +3244,10 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 			gtx.Constraints.Min = image.Point{}
 
 			for i := range txt.Spans {
-				for txt.Spans[i].Clickable.Clicked() {
-					gwin.mwin.OpenLink(txt.Spans[i].Link)
+				if s := &txt.Spans[i]; s.Clickable != nil {
+					for s.Clickable.Clicked() {
+						gwin.mwin.OpenLink(txt.Spans[i].Link)
+					}
 				}
 			}
 
@@ -3366,9 +3368,10 @@ func (evs *Events) ClickedLinks() []Link {
 	for i := 0; i < evs.texts.Len(); i++ {
 		txt := evs.texts.Ptr(i)
 		for j := range txt.Spans {
-			s := &txt.Spans[j]
-			for s.Clickable.Clicked() {
-				out = append(out, s.Link)
+			if s := &txt.Spans[j]; s.Clickable != nil {
+				for s.Clickable.Clicked() {
+					out = append(out, s.Link)
+				}
 			}
 		}
 	}
@@ -3671,13 +3674,18 @@ type Text struct {
 	styles    []styledtext.SpanStyle
 	Spans     []TextSpan
 	Alignment text.Alignment
+
+	// Clickables we use for spans and reuse between frames. We allocate them one by one because it really doesn't
+	// matter; we have hundreds of these at most. This won't make the GC sweat, and it avoids us having to do a bunch of
+	// semi-manual memory management.
+	clickables []*widget.Clickable
 }
 
 type TextSpan struct {
 	*styledtext.SpanStyle
 	Link Link
 
-	Clickable widget.Clickable
+	Clickable *widget.Clickable
 }
 
 func (txt *Text) Span(label string) *TextSpan {
@@ -3688,17 +3696,10 @@ func (txt *Text) Span(label string) *TextSpan {
 		Font:    goFonts[0].Font,
 	}
 	txt.styles = append(txt.styles, style)
-	if cap(txt.Spans) > len(txt.Spans) {
-		// Reuse widget.Clickable state across calls to Text.Reset
-		txt.Spans = txt.Spans[:len(txt.Spans)+1]
-		s := &txt.Spans[len(txt.Spans)-1]
-		*s = TextSpan{
-			SpanStyle: &txt.styles[len(txt.styles)-1],
-			Clickable: s.Clickable,
-		}
-	} else {
-		txt.Spans = append(txt.Spans, TextSpan{SpanStyle: &txt.styles[len(txt.styles)-1]})
+	s := TextSpan{
+		SpanStyle: &txt.styles[len(txt.styles)-1],
 	}
+	txt.Spans = append(txt.Spans, s)
 	return &txt.Spans[len(txt.Spans)-1]
 }
 
@@ -3727,6 +3728,23 @@ func (txt *Text) Reset() {
 }
 
 func (txt *Text) Layout(gtx layout.Context) layout.Dimensions {
+	var clickableIdx int
+	for i := range txt.Spans {
+		s := &txt.Spans[i]
+		if s.Link != nil {
+			var clk *widget.Clickable
+			if clickableIdx < len(txt.clickables) {
+				clk = txt.clickables[clickableIdx]
+				clickableIdx++
+			} else {
+				clk = &widget.Clickable{}
+				txt.clickables = append(txt.clickables, clk)
+				clickableIdx++
+			}
+			s.Clickable = clk
+		}
+	}
+
 	ptxt := styledtext.Text(txt.theme.Shaper, txt.styles...)
 	ptxt.Alignment = txt.Alignment
 	return ptxt.Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
