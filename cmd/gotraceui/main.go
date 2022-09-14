@@ -3329,7 +3329,6 @@ type Events struct {
 	grid           outlay.Grid
 
 	// slice used by ClickedLinks
-	clickedLinks []Link
 
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
@@ -3361,10 +3360,10 @@ func (evs *Events) updateFilter() {
 	}
 }
 
-// ClickedLinks returns all links that have been clicked since the last call to the method. The returned slice is only
-// valid until the next call to ClickedLinks.
+// ClickedLinks returns all links that have been clicked since the last call to the method.
 func (evs *Events) ClickedLinks() []Link {
-	out := evs.clickedLinks[:0]
+	// This only allocates when links have been clicked, which is a very low frequency event.
+	var out []Link
 	for i := 0; i < evs.texts.Len(); i++ {
 		txt := evs.texts.Ptr(i)
 		for j := range txt.Spans {
@@ -3375,7 +3374,6 @@ func (evs *Events) ClickedLinks() []Link {
 			}
 		}
 	}
-	evs.clickedLinks = out[:0]
 	return out
 }
 
