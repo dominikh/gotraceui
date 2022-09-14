@@ -2468,11 +2468,7 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			}
 		case *TimestampLink:
 			d := mwin.tl.end - mwin.tl.start
-			if l.AlignRight {
-				mwin.tl.navigateTo(gtx, l.Ts-d, l.Ts, mwin.tl.y)
-			} else {
-				mwin.tl.navigateTo(gtx, l.Ts, l.Ts+d, mwin.tl.y)
-			}
+			mwin.tl.navigateTo(gtx, l.Ts, l.Ts+d, mwin.tl.y)
 		default:
 			panic(l)
 		}
@@ -3185,8 +3181,7 @@ type GoroutineWindow struct {
 }
 
 type TimestampLink struct {
-	Ts         trace.Timestamp
-	AlignRight bool
+	Ts trace.Timestamp
 }
 
 func (*TimestampLink) isLink() {}
@@ -3226,13 +3221,13 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		txt.Bold("Created at: ")
 		txt.Link(
 			fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.start)),
-			&TimestampLink{gwin.stats.start, false},
+			&TimestampLink{gwin.stats.start},
 		)
 
 		txt.Bold("Returned at: ")
 		txt.Link(
 			fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.end)),
-			&TimestampLink{gwin.stats.end, true},
+			&TimestampLink{gwin.stats.end},
 		)
 
 		txt.Bold("Lifetime: ")
@@ -3459,7 +3454,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			}
 
 			addSpanTs := func(ts trace.Timestamp) {
-				txt.Link(formatTimestamp(ts), evs.timestampLinks.Allocate(TimestampLink{ts, false}))
+				txt.Link(formatTimestamp(ts), evs.timestampLinks.Allocate(TimestampLink{ts}))
 			}
 
 			switch col {
