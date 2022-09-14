@@ -3254,7 +3254,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 				}
 			}
 
-			if link := events.clickedLink; link != nil {
+			for _, link := range events.ClickedLinks() {
 				gwin.mwin.OpenLink(link)
 			}
 
@@ -3331,10 +3331,12 @@ type Events struct {
 	filteredEvents []EventID
 	grid           outlay.Grid
 
+	// slice used by ClickedLinks
+	clickedLinks []Link
+
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
 	texts          allocator[Text]
-	clickedLink    Link
 }
 
 func (evs *Events) updateFilter() {
@@ -3360,6 +3362,23 @@ func (evs *Events) updateFilter() {
 			evs.filteredEvents = append(evs.filteredEvents, ev)
 		}
 	}
+}
+
+// ClickedLinks returns all links that have been clicked since the last call to the method. The returned slice is only
+// valid until the next call to ClickedLinks.
+func (evs *Events) ClickedLinks() []Link {
+	out := evs.clickedLinks[:0]
+	for i := 0; i < evs.texts.Len(); i++ {
+		txt := evs.texts.Ptr(i)
+		for j := range txt.Spans {
+			s := &txt.Spans[j]
+			for s.Clickable.Clicked() {
+				out = append(out, s.Link)
+			}
+		}
+	}
+	evs.clickedLinks = out[:0]
+	return out
 }
 
 func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
@@ -3498,42 +3517,6 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
 	ret := evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
 	evs.texts.Truncate(txtCnt)
-
-	// We have to handle these events at the end of Layout instead of the beginning because we ourselves expose events
-	// and need to detect widget.Clickable events within two frames. On input, Gio renders two frames, assuming that the
-	// first frame updates state according to events, and on the second frame sees the new state and draws an up to date
-	// UI. This allows for Layout methods to also handle events, introducing one frame of latency.
-	//
-	// This means that after laying out a widget, querying the widget has to return all events. Because we ourselves are
-	// a widget that returns events, we need to know about all events at the end of the call to Layout, which means we
-	// cannot update our state at the beginning of Layout, as that would introduce another frame of latency, compounding
-	// with the latency of calling widget.Clickable.Layout.
-	//
-	// Consider this sequence of events:
-	// 1. user clicks on span
-	// 2. our parent's Layout gets called
-	// 3. our parent asks us if there are any events -> nope.
-	// 4. our parent lays us out
-	// 5. we ask widget.Clickable if there are any events -> nope.
-	// 6. we lay out widget.Clickable
-	// 7. our parent's Layout gets called
-	// 8. our parent asks us if there are any events -> nope.
-	// 9. our parent lays us out
-	// 10. we ask widget.Clickable if there are any events -> yup.
-	//
-	// At step 10, it's too late. Our parent has already queried the state twice and won't do so a third time until
-	// another frame gets scheduled, which won't happen immediately.
-	evs.clickedLink = nil
-	for i := 0; i < evs.texts.Len(); i++ {
-		txt := evs.texts.Ptr(i)
-		for j := range txt.Spans {
-			s := &txt.Spans[j]
-			for s.Clickable.Clicked() {
-				// XXX can multiple links be clicked in one frame?
-				evs.clickedLink = s.Link
-			}
-		}
-	}
 
 	return ret
 }
