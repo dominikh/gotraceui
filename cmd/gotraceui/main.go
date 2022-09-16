@@ -3419,8 +3419,8 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	dimmer := func(axis layout.Axis, index, constraint int) int {
 		switch axis {
 		case layout.Vertical:
-			// XXX return proper line height
-			return 24
+			line := evs.theme.Shaper.LayoutString(text.Font{}, fixed.I(gtx.Sp(evs.theme.TextSize)), 0, gtx.Locale, "")[0]
+			return line.Ascent.Ceil() + line.Descent.Ceil()
 		case layout.Horizontal:
 			// XXX don't guess the dimensions
 			// XXX don't insist on a minimum if the window is too narrow or columns will overlap
