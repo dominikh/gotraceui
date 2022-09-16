@@ -2782,8 +2782,9 @@ func (nf durationNumberFormat) format(d time.Duration) string {
 }
 
 type GoroutineStats struct {
-	g       *Goroutine
-	stats   [stateLast]GoroutineStat
+	g     *Goroutine
+	stats [stateLast]GoroutineStat
+	// mapping maps from indices of displayed statistics to indices in the stats field
 	mapping []int
 
 	start, end trace.Timestamp
@@ -2989,11 +2990,11 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				// OPT(dh): don't use sort.Slice, it allocates
 				if gs.sortDescending {
 					sort.Slice(gs.mapping, func(i, j int) bool {
-						return gs.mapping[i] >= gs.mapping[j]
+						return stateNamesCapitalized[gs.mapping[i]] >= stateNamesCapitalized[gs.mapping[j]]
 					})
 				} else {
 					sort.Slice(gs.mapping, func(i, j int) bool {
-						return gs.mapping[i] < gs.mapping[j]
+						return stateNamesCapitalized[gs.mapping[i]] < stateNamesCapitalized[gs.mapping[j]]
 					})
 				}
 			case 1:
