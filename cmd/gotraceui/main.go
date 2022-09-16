@@ -111,7 +111,6 @@ import (
 // TODO(dh): display parent goroutine in goroutine window
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // TODO(dh): add a dialog with text fields for zooming to a specific time range
-// TODO(dh): display number of spans in goroutine tooltip
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
 // TODO(dh): add tooltip for processor timelines
@@ -2293,6 +2292,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		"Created at: %[3]s\n"+
 		"Returned at: %[4]s\n"+
 		"Lifetime: %[5]s\n"+
+		"Spans: %[14]d\n"+
 		"Time in blocked states: %[6]s (%.2[7]f%%)\n"+
 		"Time in inactive states: %[8]s (%.2[9]f%%)\n"+
 		"Time in GC assist: %[10]s (%.2[11]f%%)\n"+
@@ -2304,7 +2304,9 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		blockedD, blockedPct,
 		inactiveD, inactivePct,
 		gcAssistD, gcAssistPct,
-		runningD, runningPct)
+		runningD, runningPct,
+		len(tt.g.spans),
+	)
 
 	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
 }
