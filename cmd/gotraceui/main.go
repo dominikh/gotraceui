@@ -95,28 +95,43 @@ import (
    that we're done.
 */
 
+/*
+   Goroutine window, things to display:
+
+   - [X] ID, function name
+   - stack of where it was created
+   - Link to span that created it
+   - [X] First, last timestamp, duration
+   - Per-state statistics (how long blocked, waiting, etc, number of state transitions)
+   - List of all spans
+   - List of all events of all spans
+     - Syscalls
+     - Outgoing unblocks
+     - Incoming unblocks
+   - List of other goroutines of the same function (actually this belongs in the function window instead)
+   - [X] Link to function window
+   - List of procs it ran on
+   - List of user regions
+   - How much memory we sweeped/reclaimed
+   - Maybe something about MMU?
+*/
+
+// TODO(dh): in a lot of places we react to clicks on the Press event, but we should really detect proper clicks, which
+//   is press + release without dragging inbetween.
+// TODO(dh): standardize whether we pass Theme as an argument to Layout or store it in the type
 // FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
 //   will be selected, and pressing enter will panic, trying to access index -1
-// FIXME(dh): shift+arrow keys selects text in our instances of widget.Editor, but the selected text doesn't look selected
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
 // TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
 //   time or should it display the same time, stretched to fill the new space? Tracy does the latter.
-// TODO(dh): button to zoom so far into a span that it no longer gets merged. this has to work recursively, because if
-//   the span splits into more merged spans, those should get unmerged, too.
 // XXX how do we have a minimum inactive span of length 0?
 // OPT(dh): optimize drawing merged spans with millions of spans
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
-// TODO(dh): allow jumping from span in per-goroutine view to corresponding goroutine span in per-processor view
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
-// TODO(dh): display parent goroutine in goroutine window
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
-// TODO(dh): add a dialog with text fields for zooming to a specific time range
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
 // TODO(dh): add tooltip for processor timelines
-// TODO(dh): implement popup windows that can be used to customize UI settings. e.g. instead of needing different
-//   shortcuts for toggling labels, compact mode, tooltips etc, have one shortcut that opens a menu that allows toggling
-//   these features. maybe even use a radial menu? (probably not.)
 // TODO(dh): allow computing statistics for a selectable region of time
 // TODO(dh): hovering over spans in the goroutine timelines highlights goroutines in the processor timelines. that's a
 //   happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
@@ -130,7 +145,6 @@ import (
 //   leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
 //   goroutine. To avoid confusion, we should remove those stacks altogether.
 
-// TODO(dh): make configurable. 0, 250ms and 500ms would make for good presets.
 const animateLength = 250 * time.Millisecond
 
 const (
@@ -2695,27 +2709,6 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 	w.trace = t
 }
 
-/*
-   Goroutine window, things to display:
-
-   - ID, function name
-   - stack of where it was created
-   - Link to span that created it
-   - First, last timestamp, duration
-   - Per-state statistics (how long blocked, waiting, etc, number of state transitions)
-   - List of all spans
-   - List of all events of all spans
-     - Syscalls
-     - Outgoing unblocks
-     - Incoming unblocks
-   - List of other goroutines of the same function
-   - Link to function window
-   - List of procs it ran on
-   - List of user regions
-   - How much memory we sweeped/reclaimed
-   - Maybe something about MMU?
-*/
-
 //gcassert:inline
 func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 	gtx.Ops = ops
@@ -2794,7 +2787,6 @@ type GoroutineStats struct {
 	sortCol        int
 	sortDescending bool
 
-	// TODO(dh): expose this as an option
 	numberFormat durationNumberFormat
 
 	columnClicks [7]gesture.Click
@@ -3303,6 +3295,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 					// XXX ideally the spacing would be one line high
 					layout.Rigid(layout.Spacer{Height: 10}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						// TODO(dh): this needs a horizontal scrollbar for small windows
 						return statsFoldable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return gwin.stats.Layout(gtx, gwin.theme)
 						})
