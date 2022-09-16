@@ -2856,22 +2856,12 @@ func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 		gst.mapping = append(gst.mapping, i)
 	}
 
+	gst.sort()
+
 	gst.start = g.spans.Start(tr)
 	gst.end = g.spans.End()
 
 	return gst
-}
-
-func sortStats[T constraints.Ordered](stats *[stateLast]GoroutineStat, mapping []int, descending bool, get func(*GoroutineStat) T) {
-	if descending {
-		slices.SortFunc(mapping, func(i, j int) bool {
-			return get(&stats[i]) >= get(&stats[j])
-		})
-	} else {
-		slices.SortFunc(mapping, func(i, j int) bool {
-			return get(&stats[i]) < get(&stats[j])
-		})
-	}
 }
 
 func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStatLabels]image.Point {
@@ -2972,6 +2962,54 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	return columnSizes
 }
 
+func sortStats[T constraints.Ordered](stats *[stateLast]GoroutineStat, mapping []int, descending bool, get func(*GoroutineStat) T) {
+	if descending {
+		slices.SortFunc(mapping, func(i, j int) bool {
+			return get(&stats[i]) >= get(&stats[j])
+		})
+	} else {
+		slices.SortFunc(mapping, func(i, j int) bool {
+			return get(&stats[i]) < get(&stats[j])
+		})
+	}
+}
+
+func (gs *GoroutineStats) sort() {
+	switch gs.sortCol {
+	case 0:
+		// OPT(dh): don't use sort.Slice, it allocates
+		if gs.sortDescending {
+			sort.Slice(gs.mapping, func(i, j int) bool {
+				return stateNamesCapitalized[gs.mapping[i]] >= stateNamesCapitalized[gs.mapping[j]]
+			})
+		} else {
+			sort.Slice(gs.mapping, func(i, j int) bool {
+				return stateNamesCapitalized[gs.mapping[i]] < stateNamesCapitalized[gs.mapping[j]]
+			})
+		}
+	case 1:
+		// Count
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) int { return gs.count })
+	case 2:
+		// Total
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.total })
+	case 3:
+		// Min
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.min })
+	case 4:
+		// Max
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.max })
+	case 5:
+		// Avg
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.avg })
+	case 6:
+		// p50
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.p50 })
+	default:
+		panic("unreachable")
+	}
+}
+
 func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	for col := range gs.columnClicks {
 		for _, ev := range gs.columnClicks[col].Events(gtx) {
@@ -2985,39 +3023,7 @@ func (gs *GoroutineStats) Layout(gtx layout.Context, th *theme.Theme) layout.Dim
 				gs.sortCol = col
 				gs.sortDescending = false
 			}
-			switch col {
-			case 0:
-				// OPT(dh): don't use sort.Slice, it allocates
-				if gs.sortDescending {
-					sort.Slice(gs.mapping, func(i, j int) bool {
-						return stateNamesCapitalized[gs.mapping[i]] >= stateNamesCapitalized[gs.mapping[j]]
-					})
-				} else {
-					sort.Slice(gs.mapping, func(i, j int) bool {
-						return stateNamesCapitalized[gs.mapping[i]] < stateNamesCapitalized[gs.mapping[j]]
-					})
-				}
-			case 1:
-				// Count
-				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) int { return gs.count })
-			case 2:
-				// Total
-				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.total })
-			case 3:
-				// Min
-				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.min })
-			case 4:
-				// Max
-				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.max })
-			case 5:
-				// Avg
-				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.avg })
-			case 6:
-				// p50
-				sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.p50 })
-			default:
-				panic("unreachable")
-			}
+			gs.sort()
 		}
 	}
 
