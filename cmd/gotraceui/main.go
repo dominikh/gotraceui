@@ -1631,12 +1631,21 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 				out := make([]string, 3)
 				g := aw.tl.gs[tr.Event(spans[0].event()).G]
 				if g.function != "" {
+					fields := strings.Split(g.function, ".")
+					short := fields[len(fields)-1]
 					out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
+					if short != g.function {
+						// TODO(dh): the short name isn't ideal for anonymous functions, as we turn
+						// "pkg.(type).fn.func1" into ".func1", when really it should be ".fn.func1".
+						out[1] = fmt.Sprintf("g%d: .%s", g.id, short)
+						out[2] = fmt.Sprintf("g%d", g.id)
+					} else {
+						// This branch is probably impossible; all functions should be fully qualified.
+						out[1] = fmt.Sprintf("g%d", g.id)
+					}
 				} else {
 					out[0] = fmt.Sprintf("g%d", g.id)
 				}
-				out[1] = fmt.Sprintf("g%d", g.id)
-				out[2] = ""
 				return out
 
 			},
