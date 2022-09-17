@@ -198,7 +198,7 @@ func NewParser(r io.Reader) (*Parser, error) {
 	return &Parser{data: buf}, nil
 }
 
-func Parse(r io.ReadSeeker) (ParseResult, error) {
+func Parse(r io.Reader) (ParseResult, error) {
 	p, err := NewParser(r)
 	if err != nil {
 		return ParseResult{}, err
