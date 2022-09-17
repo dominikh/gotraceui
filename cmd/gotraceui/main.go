@@ -99,7 +99,7 @@ import (
    Goroutine window, things to display:
 
    - [X] ID, function name
-   - stack of where it was created
+   - [X] stack of where it was created
    - Link to span that created it
    - [X] First, last timestamp, duration
    - Per-state statistics (how long blocked, waiting, etc, number of state transitions)
@@ -3207,6 +3207,11 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.updateFilter()
 
 	var ops op.Ops
+	stacktraceFoldable := theme.Foldable{
+		Title:  "Creation stack trace",
+		Theme:  gwin.theme,
+		Closed: widget.Bool{Value: true},
+	}
 	statsFoldable := theme.Foldable{
 		Title: "Statistics",
 		Theme: gwin.theme,
@@ -3291,6 +3296,28 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return txt.Layout(gtx)
+					}),
+					// XXX ideally the spacing would be one line high
+					layout.Rigid(layout.Spacer{Height: 10}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						// TODO(dh): stack traces can get quite long, making it even more important that this window
+						// gets scrollbars
+						return stacktraceFoldable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							// OPT(dh): compute the string form of the backtrace once, not each frame
+							// XXX don't let Gio wrap our text, add horizontal scrollbars instead
+							ev := gwin.trace.Events[gwin.g.spans[0].event()]
+							stk := gwin.trace.Stacks[ev.StkID]
+							sb := strings.Builder{}
+							for _, f := range stk {
+								frame := gwin.trace.PCs[f]
+								fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+							}
+							s := sb.String()
+							if len(s) > 0 && s[len(s)-1] == '\n' {
+								s = s[:len(s)-1]
+							}
+							return widget.Label{}.Layout(gtx, gwin.theme.Shaper, text.Font{}, gwin.theme.TextSize, s)
+						})
 					}),
 					// XXX ideally the spacing would be one line high
 					layout.Rigid(layout.Spacer{Height: 10}.Layout),
