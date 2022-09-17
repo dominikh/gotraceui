@@ -1668,7 +1668,9 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			},
 			spanTooltip: processorSpanTooltip,
 		}},
-		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {},
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
+			ProcessorTooltip{p, th, tl.trace}.Layout(gtx)
+		},
 		invalidateCache: func(aw *ActivityWidget) bool {
 			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
 				// Nothing hovered in either frame.
@@ -2229,6 +2231,55 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
+}
+
+type ProcessorTooltip struct {
+	p     *Processor
+	theme *theme.Theme
+	trace *Trace
+}
+
+func (tt ProcessorTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	// OPT(dh): compute statistics once, not on every frame
+
+	tr := tt.trace
+	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
+
+	var userD, gcD time.Duration
+	for i := range tt.p.spans {
+		s := &tt.p.spans[i]
+		d := tr.Duration(s)
+
+		ev := tr.Events[s.event()]
+		switch ev.Type {
+		case trace.EvGoStart:
+			userD += d
+		case trace.EvGoStartLabel:
+			gcD += d
+		default:
+			panic(fmt.Sprintf("unexepcted event type %d", ev.Type))
+		}
+	}
+
+	userPct := float32(userD) / float32(d) * 100
+	gcPct := float32(gcD) / float32(d) * 100
+	inactiveD := d - userD - gcD
+	inactivePct := float32(inactiveD) / float32(d) * 100
+
+	l := local.Sprintf(
+		"Processor %[1]d\n"+
+			"Spans: %[2]d\n"+
+			"Time running user code: %[3]s (%.2[4]f%%)\n"+
+			"Time running GC workers: %[5]s (%.2[6]f%%)\n"+
+			"Time inactive: %[7]s (%.2[8]f%%)",
+		tt.p.id,
+		len(tt.p.spans),
+		userD, userPct,
+		gcD, gcPct,
+		inactiveD, inactivePct,
+	)
+
+	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
 }
 
 type GoroutineTooltip struct {
