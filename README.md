@@ -32,6 +32,20 @@ None of these controls are final. Users without a middle mouse button will have 
 | H                           | Open a heatmap showing P utilization                                        |
 | Ctrl + Z                    | Undo navigations (works most of the time)                                   |
 
+## Screenshots
+
+Enjoy some of these screenshots.
+
+[![](https://user-images.githubusercontent.com/39825/191167780-08e98f3a-fc2f-48a8-b5cd-c5e1e81eaef9.png)](https://user-images.githubusercontent.com/39825/191164505-0b348f1b-b4ad-4732-b2d5-f83bf1964012.png)
+
+[![](https://user-images.githubusercontent.com/39825/191167794-1c3eb92a-f691-4dbe-8316-9614dfaeb723.png)](https://user-images.githubusercontent.com/39825/191164507-8725d7af-1aea-4463-9851-7e92d726d81a.png)
+
+[![](https://user-images.githubusercontent.com/39825/191167814-3802e06d-14e9-4188-8a4c-8c6107744181.png)](https://user-images.githubusercontent.com/39825/191164684-aad03a07-ab61-4399-9b7e-670de05caad1.png)
+
+[![](https://user-images.githubusercontent.com/39825/191167800-cb6246bc-d2f1-4f09-b291-04d3130d7641.png)](https://user-images.githubusercontent.com/39825/191164515-2d6a2cf5-bca6-4549-8158-9a9eefba00d8.png)
+
+[![](https://user-images.githubusercontent.com/39825/191167809-b0798d2f-ba98-4094-86ff-7cbf20c62667.png)](https://user-images.githubusercontent.com/39825/191164519-6a357e11-f67b-468e-a39e-05e900020ff4.png)
+
 ## Notes
 
 No aspect of gotraceui is final yet, but do note that bright pink and bright yellow are debug colors and I never thought
