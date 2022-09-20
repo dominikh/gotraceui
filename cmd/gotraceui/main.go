@@ -337,8 +337,9 @@ type Timeline struct {
 	nsPerPx float32
 
 	activity struct {
-		displayAllLabels bool
-		compact          bool
+		displayAllLabels    bool
+		compact             bool
+		displaySampleTracks bool
 		// Should tooltips be shown?
 		showTooltips showTooltips
 		// Should GC overlays be shown?
@@ -352,13 +353,14 @@ type Timeline struct {
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
-		start        trace.Timestamp
-		end          trace.Timestamp
-		y            int
-		nsPerPx      float32
-		compact      bool
-		displayedAws []*ActivityWidget
-		hoveredSpans MergedSpans
+		start               trace.Timestamp
+		end                 trace.Timestamp
+		y                   int
+		nsPerPx             float32
+		compact             bool
+		displaySampleTracks bool
+		displayedAws        []*ActivityWidget
+		hoveredSpans        MergedSpans
 	}
 }
 
@@ -460,7 +462,8 @@ func (tl *Timeline) unchanged() bool {
 		tl.prevFrame.end == tl.end &&
 		tl.prevFrame.nsPerPx == tl.nsPerPx &&
 		tl.prevFrame.y == tl.y &&
-		tl.prevFrame.compact == tl.activity.compact
+		tl.prevFrame.compact == tl.activity.compact &&
+		tl.prevFrame.displaySampleTracks == tl.activity.displaySampleTracks
 }
 
 func (tl *Timeline) startZoomSelection(pos f32.Point) {
@@ -691,7 +694,7 @@ func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
 	var first, last trace.Timestamp = -1, -1
 	for _, aw := range tl.visibleActivities(gtx) {
 		for _, track := range aw.tracks {
-			if len(track.spans) == 0 {
+			if len(track.spans) == 0 || (track.kind == ActivityWidgetTrackSampled && !tl.activity.displaySampleTracks) {
 				continue
 			}
 
@@ -819,6 +822,9 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					case ev.Modifiers == 0:
 						tl.navigateTo(gtx, tl.start, tl.end, 0)
 					}
+
+				case "S":
+					tl.activity.displaySampleTracks = !tl.activity.displaySampleTracks
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModCtrl) {
@@ -969,7 +975,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		if tl.drag.active {
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
-		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|S|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
@@ -1049,6 +1055,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.prevFrame.nsPerPx = tl.nsPerPx
 		tl.prevFrame.y = tl.y
 		tl.prevFrame.compact = tl.activity.compact
+		tl.prevFrame.displaySampleTracks = tl.activity.displaySampleTracks
 		tl.prevFrame.hoveredSpans = tl.activity.hoveredSpans
 	}(gtx)
 
@@ -1207,7 +1214,15 @@ type SpanTooltipState struct {
 	eventsUnderCursor []EventID
 }
 
+type ActivityWidgetTrackKind uint8
+
+const (
+	ActivityWidgetTrackUnspecified ActivityWidgetTrackKind = iota
+	ActivityWidgetTrackSampled
+)
+
 type ActivityWidgetTrack struct {
+	kind   ActivityWidgetTrackKind
 	spans  Spans
 	events []EventID
 
@@ -1651,6 +1666,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 			if i >= len(sampleTracks) {
 				sampleTracks = append(sampleTracks, ActivityWidgetTrack{
 					// TODO(dh): should we highlight hovered spans that share the same function?
+					kind: ActivityWidgetTrackSampled,
 					spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
 						if len(spans) != 1 {
 							return nil
@@ -1888,10 +1904,16 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 }
 
 func (aw *ActivityWidget) Height(gtx layout.Context) int {
+	enabledTracks := 0
+	for _, track := range aw.tracks {
+		if track.kind != ActivityWidgetTrackSampled || aw.tl.activity.displaySampleTracks {
+			enabledTracks++
+		}
+	}
 	if aw.tl.activity.compact {
-		return (gtx.Dp(activityTrackHeightDp) + gtx.Dp(activityTrackGapDp)) * len(aw.tracks)
+		return (gtx.Dp(activityTrackHeightDp) + gtx.Dp(activityTrackGapDp)) * enabledTracks
 	} else {
-		return (gtx.Dp(activityTrackHeightDp)+gtx.Dp(activityTrackGapDp))*len(aw.tracks) + gtx.Dp(activityLabelHeightDp)
+		return (gtx.Dp(activityTrackHeightDp)+gtx.Dp(activityTrackGapDp))*enabledTracks + gtx.Dp(activityLabelHeightDp)
 	}
 }
 
@@ -2019,7 +2041,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
 	for i := range aw.tracks {
-		dims := aw.tracks[i].Layout(gtx, aw)
+		track := &aw.tracks[i]
+		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
+			continue
+		}
+		dims := track.Layout(gtx, aw)
 		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
 	}
 	stack.Pop()

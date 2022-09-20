@@ -29,6 +29,7 @@ None of these controls are final. Users without a middle mouse button will have 
 | G                           | Open a goroutine selector                                                   |
 | T                           | Toggle displaying tooltips; only spans -> none -> both spans and goroutines |
 | O                           | Toggle displaying STW and GC overlays                                       |
+| S                           | Toggle displaying sampling-based timelines                                  |
 | H                           | Open a heatmap showing P utilization                                        |
 | Ctrl + Z                    | Undo navigations (works most of the time)                                   |
 
