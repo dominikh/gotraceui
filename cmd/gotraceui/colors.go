@@ -18,6 +18,7 @@ var colors = [...]color.NRGBA{
 	colorStateMerged:     rgba(0xB9BB63FF),
 	colorStateUnknown:    rgba(0xFFFF00FF),
 	colorStateUserRegion: rgba(0xF2A2E8FF),
+	colorStateSample:     rgba(0x79B579FF),
 
 	colorBackground:    rgba(0xffffeaFF),
 	colorZoomSelection: rgba(0xeeee9e99),
@@ -52,6 +53,7 @@ const (
 	colorStateStuck
 	colorStateMerged
 	colorStateUserRegion
+	colorStateSample
 
 	colorStateLast
 

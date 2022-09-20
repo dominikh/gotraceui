@@ -1315,6 +1315,7 @@ func goroutineSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTool
 	var label string
 	if debug {
 		label += fmt.Sprintf("Event ID: %d\n", state.spans[0].event())
+		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spans[0].event()).Type)
 	}
 	label += "State: "
 	var at string
@@ -1543,6 +1544,178 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 			},
 		})
 	}
+
+	// OPT(dh): try to get rid of this map
+	stacks := map[EventID][]uint64{}
+
+	getFrame := func(sample EventID, depth int) trace.Frame {
+		stk := stacks[sample]
+		pc := stk[len(stk)-depth-1]
+		return tl.trace.PCs[pc]
+	}
+
+	var sampleTracks []ActivityWidgetTrack
+
+	offSpans := 0
+	offSamples := 0
+
+	nextEvent := func(advance bool) (EventID, bool, bool) {
+		if offSpans == len(g.spans) && offSamples == len(g.cpuSamples) {
+			return 0, false, false
+		}
+
+		if offSpans < len(g.spans) {
+			id := g.spans[offSpans].event()
+			if g.spans[offSpans].state == stateActive {
+				ev := tl.trace.Events[g.spans[offSpans].event()]
+				if ev.Type == 12 && ev.StkID != 0 {
+					fmt.Println(ev.Type, ev.StkID)
+				}
+			}
+			if offSamples < len(g.cpuSamples) {
+				oid := g.cpuSamples[offSamples]
+				if id <= oid {
+					if advance {
+						offSpans++
+					}
+					return id, false, true
+				} else {
+					if advance {
+						offSamples++
+					}
+					return oid, true, true
+				}
+			} else {
+				if advance {
+					offSpans++
+				}
+				return id, false, true
+			}
+		} else {
+			id := g.cpuSamples[offSamples]
+			if advance {
+				offSamples++
+			}
+			return id, true, true
+		}
+	}
+
+	var prevStk []uint64
+	for {
+		evID, isSample, ok := nextEvent(true)
+		if !ok {
+			break
+		}
+
+		ev := &tl.trace.Events[evID]
+
+		var stk []uint64
+		// We benefit from primarily two kinds of events (aside from CPU samples): Blocking events (sleeps, selects,
+		// I/O...) as these give us the most accurate stack trace right before a long period of inactivity, covering for
+		// a lack of samples during blockedness, and preemption, as an additional periodic event, similar to sampling.
+		switch ev.Type {
+		case trace.EvGoCreate:
+			// The stack is in the goroutine that created this one
+		case trace.EvGoUnblock:
+			// The stack is in the goroutine that unblocked this one
+		case trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvGCMarkAssistStart, trace.EvGCMarkAssistDone:
+			// These are very short-lived spans that would unfairly represent the time taken by allocations.
+		case trace.EvGoSysBlock:
+			// These are very short-lived spans that would unfairly represent the time taken by syscalls.
+		default:
+			stk = tl.trace.Stacks[ev.StkID]
+		}
+		if stk == nil {
+			// Continue the previous stack trace if this event didn't contain a useful one. This happens both when we
+			// choose to ignore an event, and when an event intrinsically has no stack trace, such as most EvGoStart
+			// events.
+			stk = prevStk
+		}
+
+		if isSample {
+			// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
+			// collected by the runtime tracer.
+			if len(stk) > 0 && tl.trace.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
+				stk = stk[:len(stk)-1]
+			}
+			if len(stk) > 0 && tl.trace.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
+				stk = stk[:len(stk)-1]
+			}
+		}
+
+		stacks[evID] = stk
+
+		for i := 0; i < len(stk); i++ {
+			i := i
+
+			if i >= len(sampleTracks) {
+				sampleTracks = append(sampleTracks, ActivityWidgetTrack{
+					// TODO(dh): should we highlight hovered spans that share the same function?
+					spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
+						if len(spans) != 1 {
+							return nil
+						}
+						f := getFrame(spans[0].event(), i)
+						return []string{f.Fn}
+					},
+					spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
+						if len(spans) != 1 {
+							return [2]colorIndex{colorStateSample, colorStateMerged}
+						}
+						return [2]colorIndex{colorStateSample, 0}
+					},
+				})
+
+			}
+			track := &sampleTracks[i]
+
+			var end trace.Timestamp
+			if endEvID, _, ok := nextEvent(false); ok {
+				end = tl.trace.Events[endEvID].Ts
+			} else {
+				end = g.spans.End()
+			}
+
+			s := Span{
+				end:    end,
+				event_: packEventID(evID),
+				state:  stateCPUSample,
+			}
+			track.spans = append(track.spans, s)
+		}
+
+		prevStk = stk
+	}
+
+	// Merge consecutive spans for the same sampled function.
+	//
+	// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
+	// data more apparent.
+	for trackIdx := range sampleTracks {
+		track := &sampleTracks[trackIdx]
+		newSpans := track.spans[:1]
+		track.spans = track.spans[1:]
+
+		for len(track.spans) != 0 {
+			prevSpan := &newSpans[len(newSpans)-1]
+			span := track.spans[0]
+
+			// OPT(dh): we don't have to look up prevFrame, we can remember it from the previous loop iteration
+			prevFrame := getFrame(prevSpan.event(), trackIdx)
+			frame := getFrame(span.event(), trackIdx)
+
+			if prevSpan.end == tl.trace.Events[span.event()].Ts && prevFrame.Fn == frame.Fn {
+				prevSpan.end = span.end
+			} else {
+				newSpans = append(newSpans, span)
+			}
+			track.spans = track.spans[1:]
+		}
+
+		track.spans = newSpans
+	}
+
+	aw.tracks = append(aw.tracks, sampleTracks...)
 
 	return aw
 }

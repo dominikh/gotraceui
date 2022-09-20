@@ -41,8 +41,9 @@ const (
 	stateGCMarkAssist
 	stateGCSweep
 
-	// Special state used by user regions
+	// Special states used by user regions and CPU sampling
 	stateUserRegion
+	stateCPUSample
 
 	// Processor states
 	stateRunningG
@@ -328,6 +329,7 @@ type Goroutine struct {
 	spans       Spans
 	userRegions []Spans
 	events      []EventID
+	cpuSamples  []EventID
 }
 
 func (g *Goroutine) String() string {
@@ -727,7 +729,8 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 			continue
 
 		case trace.EvCPUSample:
-			// XXX make use of CPU samples
+			g := getG(ev.G)
+			g.cpuSamples = append(g.cpuSamples, EventID(evID))
 			continue
 
 		default:
@@ -861,6 +864,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 	slices.SortFunc(tasks, func(a, b *Task) bool {
 		return a.id < b.id
 	})
+
 	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, tasks: tasks, ParseResult: res}, nil
 }
 
