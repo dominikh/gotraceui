@@ -1688,6 +1688,20 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 						}
 						return [2]colorIndex{colorStateSample, 0}
 					},
+					spanTooltip: func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) {
+						tr := aw.tl.trace
+						var label string
+						if len(state.spans) == 1 {
+							f := getFrame(state.spans[0].event(), i)
+							label = local.Sprintf("Sampled function: %s\n", f.Fn)
+						} else {
+							label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+						}
+						// We round the duration, in addition to saying "up to", to make it more obvious that the
+						// duration is a guess
+						label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
+						theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+					},
 				})
 
 			}
@@ -3026,21 +3040,23 @@ const (
 	durationNumberFormatExact
 )
 
+func roundDuration(d time.Duration) time.Duration {
+	switch {
+	case d < time.Millisecond:
+		return d
+	case d < time.Second:
+		return d.Round(time.Microsecond)
+	default:
+		return d.Round(time.Millisecond)
+	}
+}
+
 func (nf durationNumberFormat) format(d time.Duration) string {
 	switch nf {
 	case durationNumberFormatScientific:
 		return scientificDuration(d, 2)
 	case durationNumberFormatSI:
-		switch {
-		case d == 0:
-			return "0"
-		case d < time.Millisecond:
-			return d.String()
-		case d < time.Second:
-			return d.Round(time.Microsecond).String()
-		default:
-			return d.Round(time.Millisecond).String()
-		}
+		return roundDuration(d).String()
 	case durationNumberFormatExact:
 		return fmt.Sprintf("%.9f", d.Seconds())
 	default:
