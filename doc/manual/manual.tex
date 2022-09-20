@@ -226,7 +226,8 @@
     Most of these exist to help with the concurrent garbage collector.
 
     \startitemize
-    \item \todo{bgsweep}
+    \item \code{bgsweep} is a low priority goroutine that sweeps spans when there are idle Ps. This reduces the amount
+      of sweeping that has to be done by other goroutines.
     \item \todo{bgscavenger}
     \item \todo{gcBgMarkWorker}
     \item \code{forcegchelper} periodically gets woken up and forces a garbage collection cycle to start.
