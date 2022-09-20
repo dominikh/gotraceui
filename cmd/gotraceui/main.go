@@ -1672,7 +1672,15 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 							return nil
 						}
 						f := getFrame(spans[0].event(), i)
-						return []string{f.Fn}
+
+						short := shortenFunctionName(f.Fn)
+
+						if short != f.Fn {
+							return []string{f.Fn, "." + short}
+						} else {
+							// This branch is probably impossible; all functions should be fully qualified.
+							return []string{f.Fn}
+						}
 					},
 					spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
 						if len(spans) != 1 {
@@ -1794,6 +1802,14 @@ func processorSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTool
 	theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
 }
 
+func shortenFunctionName(s string) string {
+	fields := strings.Split(s, ".")
+	short := fields[len(fields)-1]
+	// TODO(dh): the short name isn't ideal for anonymous functions, as we turn
+	// "pkg.(type).fn.func1" into ".func1", when really it should be ".fn.func1".
+	return short
+}
+
 func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
@@ -1820,12 +1836,9 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 				out := make([]string, 3)
 				g := aw.tl.gs[tr.Event(spans[0].event()).G]
 				if g.function != "" {
-					fields := strings.Split(g.function, ".")
-					short := fields[len(fields)-1]
+					short := shortenFunctionName(g.function)
 					out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
 					if short != g.function {
-						// TODO(dh): the short name isn't ideal for anonymous functions, as we turn
-						// "pkg.(type).fn.func1" into ".func1", when really it should be ".fn.func1".
 						out[1] = fmt.Sprintf("g%d: .%s", g.id, short)
 						out[2] = fmt.Sprintf("g%d", g.id)
 					} else {
