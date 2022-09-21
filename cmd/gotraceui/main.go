@@ -1694,6 +1694,8 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 						if len(state.spans) == 1 {
 							f := getFrame(state.spans[0].event(), i)
 							label = local.Sprintf("Sampled function: %s\n", f.Fn)
+							// TODO(dh): for truncated stacks we should display a relative depth instead
+							label += local.Sprintf("Call depth: %d\n", i)
 						} else {
 							label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 						}
