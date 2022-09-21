@@ -1658,6 +1658,14 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 			}
 		}
 
+		if len(stk) > 64 {
+			// Stacks of events have at most 128 frames (actually 126-127 due to a quirk in the runtime's
+			// implementation; it captures 128 frames, but then discards the top frame to skip runtime.goexit, and
+			// discards the next top frame if gid == 1 to skip runtime.main). Stacks of CPU samples, on the other hand,
+			// have at most 64 frames. Always limit ourselves to 64 frames for a consistent result.
+			stk = stk[:64]
+		}
+
 		stacks[evID] = stk
 
 		for i := 0; i < len(stk); i++ {
