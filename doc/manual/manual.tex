@@ -240,4 +240,63 @@
 
   \stopchapter
 
+  \startchapter[title=Stack trace timeline]
+
+    In addition to sequences of runtime events and user regions, gotraceui can also display timelines of stack traces.
+    Such timelines can help spot macroscopic patterns in code execution. They are reconstructed from CPU profiling
+    samples as well as the stacks associated with certain runtime events and thus have a sampled, imprecise nature.
+
+    \midaligned{\clip[width=0.95\textwidth]{\externalfigure[stack_samples.png]}}
+
+    It is important to understand the nature and limitations of the data displayed in these timelines. Strictly
+    speaking, each CPU profiling sample and each runtime event describes an instant in time, not a duration. However, in
+    our reconstruction, we connect consecutive stack traces, making it look like a function has been running for the
+    entire duration between two events or samples. This is a lie.
+
+    A CPU profiling sample states that at a specific point in time, a certain function was executing. It doesn't say
+    anything about what happened right after the sample. By default, samples occur at a frequency of 100 \unit{Hz}, i.e.
+    once every 10 \unit{ms}. This means that there is 10 \unit{ms} of uncertainty after a sample. The function might've
+    returned anywhere from 0 to 10 \unit{ms} after the sample. It may even have been called repeatedly. All we really
+    know is that at one point in time, the function was running.
+
+    Nevertheless, when looking at larger scales (hundreds of milliseconds, if not seconds), especially when looking at
+    repetitive executions, this visualization can expose patterns. The more often the same stack gets sampled, the more
+    likely it is that it is indeed a major contributor to the code's execution. However, the data is woefully inadequate
+    at small scales — the kind of scales at which runtime trace data exists. You shouldn't rely on the sampled stack
+    traces to fill in the gaps between two runtime events that happened 100 \unit{us} apart.
+
+    Gotraceui combines both CPU profiling and some runtime events when reconstructing a stack trace timeline. CPU
+    samples are those used by pprof. Beginning with Go 1.19, runtime traces include CPU samples if profiling is enabled
+    at the same time as tracing. However, goroutines that are blocked don't receive any samples, so we additionally use
+    the stacks associated with runtime events that signal state transitions, such as goroutines calling
+    \code{time.Sleep}, to fill in the gaps. This way, the last stack before a potentially long time without samples will
+    be as accurate as possible.
+
+    Using sampling and runtime events together further affects how you should treat durations in the stack trace
+    timeline because of the following two reasons:
+
+    \startitemize[n]
+    \item We've already established that span durations derived from samples aren't accurate, but this is even more
+      pronounced when trying to look at runtime events and the corresponding reconstructed timeline together. For
+      example, when we enter the \quote{blocked on channel send} state, we will display the stack associated with that
+      event, until we get the next stack. This means, however, that even after we unblock and go back to the
+      \quote{ready} and \quote{active} states, the stack will not update, as neither event contains a new stack. This
+      will make it look like we're still in the \code{runtime.chansend} function even after we've completed the channel
+      send. Only on the next sample or relevant event will the stack update. It is therefore important to either look at
+      runtime events or the stacks, but not both together. Runtime events show an exact history of what happened in
+      the runtime, while stacks show a guess at what happened in user code.
+
+    \item CPU profiling samples happen at a fairly constant rate, which means all samples have the same uncertainty.
+      Runtime events, however, can happen at arbitrary points. If a sample is followed by a runtime event 1 \unit{ms}
+      later then it will look much smaller than if it were followed by a runtime event 9 \unit{ms} later, even though in
+      the latter case we still don't know what happened for the first 9 \unit{ms}. This is another instance of span
+      durations of samples not having much meaning.
+    \stopitemize
+
+    Gotraceui doesn't use the stacks of other events, such as syscalls, because this would lead to bias in the data.
+    Samples are evenly distributed and – on average – lead to a fair representation of a program's execution, and
+    considering state transitions is necessary, as we have explained earlier. Including other events, on the other hand,
+    would skew the displayed stacks towards those events.
+  \stopchapter
+
 \stoptext
