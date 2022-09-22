@@ -285,6 +285,8 @@ type Timeline struct {
 	theme *theme.Theme
 	trace *Trace
 
+	tooltip layout.Widget
+
 	debugWindow *DebugWindow
 
 	clickedGoroutineActivities []*Goroutine
@@ -746,6 +748,8 @@ func easeInQuart(progress float64) float64 {
 }
 
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
+	tl.tooltip = nil
+
 	tr := tl.trace
 
 	if tl.animateTo.animating {
@@ -1230,7 +1234,7 @@ type ActivityWidgetTrack struct {
 	highlightSpan func(aw *ActivityWidget, spans MergedSpans) bool
 	spanLabel     func(aw *ActivityWidget, spans MergedSpans) []string
 	spanColor     func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex
-	spanTooltip   func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState)
+	spanTooltip   func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions
 
 	// op lists get reused between frames to avoid generating garbage
 	ops          [colorStateLast * 2]op.Ops
@@ -1241,6 +1245,7 @@ type ActivityWidgetTrack struct {
 
 	pointerAt f32.Point
 	hovered   bool
+	tooltip   layout.Widget
 
 	// cached state
 	prevFrame struct {
@@ -1254,7 +1259,7 @@ type ActivityWidgetTrack struct {
 type ActivityWidget struct {
 	// Inputs
 	tracks          []ActivityWidgetTrack
-	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget)
+	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions
 	invalidateCache func(aw *ActivityWidget) bool
 	theme           *theme.Theme
 	tl              *Timeline
@@ -1266,6 +1271,7 @@ type ActivityWidget struct {
 	pointerAt    f32.Point
 	hovered      bool
 	hoveredLabel bool
+	tooltip      layout.Widget
 
 	clickedSpans MergedSpans
 	hoveredSpans MergedSpans
@@ -1325,7 +1331,7 @@ func defaultSpanColor(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
 	}
 }
 
-func goroutineSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) {
+func goroutineSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
 	tr := aw.tl.trace
 	var label string
 	if debug {
@@ -1483,10 +1489,10 @@ func goroutineSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTool
 		label = label[:n]
 	}
 
-	theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+	return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
 }
 
-func userRegionSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) {
+func userRegionSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
 	tr := aw.tl.trace
 	var label string
 	if len(state.spans) == 1 {
@@ -1506,7 +1512,7 @@ func userRegionSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanToo
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
 	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
-	theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+	return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
 }
 
 func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWidget {
@@ -1529,8 +1535,8 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 			},
 			spanTooltip: goroutineSpanTooltip,
 		}},
-		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
-			GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
 		},
 		theme: th,
 		tl:    tl,
@@ -1696,7 +1702,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 						}
 						return [2]colorIndex{colorStateSample, 0}
 					},
-					spanTooltip: func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) {
+					spanTooltip: func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
 						tr := aw.tl.trace
 						var label string
 						if len(state.spans) == 1 {
@@ -1710,7 +1716,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 						// We round the duration, in addition to saying "up to", to make it more obvious that the
 						// duration is a guess
 						label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
-						theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+						return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
 					},
 				})
 
@@ -1808,7 +1814,7 @@ func (w *MainWindow) openHeatmap() {
 	}()
 }
 
-func processorSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) {
+func processorSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
 	tr := aw.tl.trace
 	var label string
 	if len(state.spans) == 1 {
@@ -1823,7 +1829,7 @@ func processorSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTool
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
 	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
-	theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+	return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
 }
 
 func shortenFunctionName(s string) string {
@@ -1903,8 +1909,8 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			},
 			spanTooltip: processorSpanTooltip,
 		}},
-		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) {
-			ProcessorTooltip{p, th, tl.trace}.Layout(gtx)
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return ProcessorTooltip{p, th, tl.trace}.Layout(gtx)
 		},
 		invalidateCache: func(aw *ActivityWidget) bool {
 			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
@@ -1967,6 +1973,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	aw.clickedSpans = nil
 	aw.hoveredSpans = nil
+	aw.tooltip = nil
 
 	var widgetClicked bool
 
@@ -2063,14 +2070,10 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 
 		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.hoveredLabel {
-			// TODO have a gap between the cursor and the tooltip
-			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-			macro := op.Record(gtx.Ops)
-			stack := op.Offset(aw.pointerAt.Round()).Push(gtx.Ops)
-			aw.widgetTooltip(gtx, aw)
-			stack.Pop()
-			call := macro.Stop()
-			op.Defer(gtx.Ops, call)
+			aw.tooltip = func(gtx layout.Context) layout.Dimensions {
+				// OPT(dh): this allocates for the closure
+				return aw.widgetTooltip(gtx, aw)
+			}
 		}
 
 		defer op.Offset(image.Pt(0, activityLabelHeight)).Push(gtx.Ops).Pop()
@@ -2084,6 +2087,9 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 		dims := track.Layout(gtx, aw)
 		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
+		if track.tooltip != nil {
+			aw.tooltip = track.tooltip
+		}
 	}
 	stack.Pop()
 
@@ -2095,6 +2101,8 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 	trackHeight := gtx.Dp(activityTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
+
+	track.tooltip = nil
 
 	trackClicked := false
 	for _, e := range gtx.Events(track) {
@@ -2275,14 +2283,10 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 		}
 
 		if spanTooltipState.spans != nil && track.spanTooltip != nil {
-			// TODO have a gap between the cursor and the tooltip
-			// TODO shift the tooltip to the left if otherwise it'd be too wide for the window given its position
-			macro := op.Record(gtx.Ops)
-			stack := op.Offset(track.pointerAt.Round()).Push(gtx.Ops)
-			track.spanTooltip(gtx, aw, spanTooltipState)
-			stack.Pop()
-			call := macro.Stop()
-			op.Defer(gtx.Ops, call)
+			track.tooltip = func(gtx layout.Context) layout.Dimensions {
+				// OPT(dh): this allocates for the closure
+				return track.spanTooltip(gtx, aw, spanTooltipState)
+			}
 		}
 
 		if track.highlightSpan != nil && track.highlightSpan(aw, dspSpans) {
@@ -2466,6 +2470,9 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 		topBorder := i > 0 && tl.activities[i-1].hovered
 		aw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
 		stack.Pop()
+		if aw.tooltip != nil {
+			tl.tooltip = aw.tooltip
+		}
 
 		y += activityGap + aw.Height(gtx)
 	}
@@ -2628,6 +2635,8 @@ type MainWindow struct {
 	theme    *theme.Theme
 	trace    *Trace
 	commands chan Command
+
+	pointerAt f32.Point
 
 	win *app.Window
 	// TODO(dh): use enum for state
@@ -2824,6 +2833,11 @@ func (w *MainWindow) Run(win *app.Window) error {
 					lastCommand = nil
 				}
 
+				for _, ev := range gtx.Events(&w.pointerAt) {
+					w.pointerAt = ev.(pointer.Event).Position
+				}
+				pointer.InputOp{Tag: &w.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+
 			commandLoop:
 				for {
 					select {
@@ -2941,6 +2955,30 @@ func (w *MainWindow) Run(win *app.Window) error {
 					if cpuprofile != "" {
 						op.InvalidateOp{}.Add(&ops)
 					}
+				}
+
+				if w.tl.tooltip != nil {
+					// TODO have a gap between the cursor and the tooltip
+					macro := op.Record(gtx.Ops)
+					dims := w.tl.tooltip(gtx)
+					call := macro.Stop()
+
+					var x, y int
+					ptr := w.pointerAt.Round()
+					if ptr.X+dims.Size.X < gtx.Constraints.Max.X {
+						x = ptr.X
+					} else {
+						x = gtx.Constraints.Max.X - dims.Size.X
+					}
+					if ptr.Y+dims.Size.Y < gtx.Constraints.Max.Y {
+						y = ptr.Y
+					} else {
+						y = gtx.Constraints.Max.Y - dims.Size.Y
+					}
+
+					stack := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
+					call.Add(gtx.Ops)
+					stack.Pop()
 				}
 
 				w.debugWindow.tlStart.addValue(gtx.Now, float64(w.tl.start))
