@@ -944,7 +944,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		tl.activity.hoveredSpans = nil
 		for _, aw := range tl.prevFrame.displayedAws {
-			if spans := aw.clickedSpans; len(spans) > 0 {
+			if spans := aw.NavigatedSpans(); len(spans) > 0 {
 				start := spans.Start(tr)
 				end := spans.End()
 				tl.navigateTo(gtx, start, end, tl.y)
@@ -952,7 +952,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			}
 		}
 		for _, aw := range tl.prevFrame.displayedAws {
-			if spans := aw.hoveredSpans; len(spans) > 0 {
+			if spans := aw.HoveredSpans(); len(spans) > 0 {
 				tl.activity.hoveredSpans = spans
 				break
 			}
@@ -1275,8 +1275,8 @@ type ActivityWidget struct {
 	hoveredLabel bool
 	tooltip      layout.Widget
 
-	clickedSpans MergedSpans
-	hoveredSpans MergedSpans
+	navigatedSpans MergedSpans
+	hoveredSpans   MergedSpans
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -1287,6 +1287,14 @@ type ActivityWidget struct {
 		ops        reusableOps
 		call       op.CallOp
 	}
+}
+
+func (aw *ActivityWidget) NavigatedSpans() MergedSpans {
+	return aw.navigatedSpans
+}
+
+func (aw *ActivityWidget) HoveredSpans() MergedSpans {
+	return aw.hoveredSpans
 }
 
 func (aw *ActivityWidget) LabelClicked() bool {
@@ -1973,7 +1981,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	activityTrackGap := gtx.Dp(activityTrackGapDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
 
-	aw.clickedSpans = nil
+	aw.navigatedSpans = nil
 	aw.hoveredSpans = nil
 	aw.tooltip = nil
 
@@ -2016,7 +2024,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 				if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
 					// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 					// assumption to make.
-					aw.clickedSpans = MergedSpans(aw.tracks[0].spans)
+					aw.navigatedSpans = MergedSpans(aw.tracks[0].spans)
 				}
 			}
 		}
@@ -2158,7 +2166,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget)
 	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
 		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
 			if trackClicked {
-				aw.clickedSpans = dspSpans
+				aw.navigatedSpans = dspSpans
 			}
 			aw.hoveredSpans = dspSpans
 		}
