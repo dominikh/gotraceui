@@ -2812,11 +2812,11 @@ func (w *MainWindow) Run(win *app.Window) error {
 	var ops op.Ops
 	var shortcuts int
 
-	var lastCommand Command
+	var commands []Command
 	for {
 		select {
 		case cmd := <-w.commands:
-			lastCommand = cmd
+			commands = append(commands, cmd)
 			w.win.Invalidate()
 
 		case gid := <-w.notifyGoroutineWindowClosed:
@@ -2830,10 +2830,10 @@ func (w *MainWindow) Run(win *app.Window) error {
 				gtx := layout.NewContext(&ops, ev)
 				gtx.Constraints.Min = image.Point{}
 
-				if lastCommand != nil {
-					lastCommand(w, gtx)
-					lastCommand = nil
+				for _, cmd := range commands {
+					cmd(w, gtx)
 				}
+				commands = commands[:0]
 
 				for _, ev := range gtx.Events(&w.pointerAt) {
 					w.pointerAt = ev.(pointer.Event).Position
