@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"runtime/pprof"
+	rtrace "runtime/trace"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,6 +173,7 @@ var (
 	cpuprofile       string
 	memprofileLoad   string
 	memprofileExit   string
+	traceFile        string
 	disableCaching   bool
 	exitAfterLoading bool
 	exitAfterParsing bool
@@ -3920,6 +3922,7 @@ func main() {
 	flag.StringVar(&cpuprofile, "debug.cpuprofile", "", "write CPU profile to this file")
 	flag.StringVar(&memprofileLoad, "debug.memprofile-load", "", "write memory profile to this file after loading trace")
 	flag.StringVar(&memprofileExit, "debug.memprofile-exit", "", "write meory profile to this file when exiting")
+	flag.StringVar(&traceFile, "debug.trace", "", "write runtime trace to this file")
 	flag.BoolVar(&disableCaching, "debug.disable-caching", false, "Disable caching")
 	flag.BoolVar(&exitAfterLoading, "debug.exit-after-loading", false, "Exit after parsing and processing trace")
 	flag.BoolVar(&exitAfterParsing, "debug.exit-after-parsing", false, "Exit after parsing trace")
@@ -3970,6 +3973,14 @@ func main() {
 				fmt.Fprintln(os.Stderr, "couldn't write CPU profile:", err)
 			}
 		}
+		if traceFile != "" {
+			f, err := os.Create(traceFile)
+			if err == nil {
+				rtrace.Start(f)
+			} else {
+				fmt.Fprintln(os.Stderr, "couldn't write trace:", err)
+			}
+		}
 
 		err := <-errs
 		if err != nil {
@@ -3978,6 +3989,9 @@ func main() {
 
 		if cpuprofile != "" {
 			pprof.StopCPUProfile()
+		}
+		if traceFile != "" {
+			rtrace.Stop()
 		}
 		if memprofileExit != "" {
 			writeMemprofile(memprofileExit)
