@@ -91,6 +91,9 @@ type ParseResult struct {
 	// Events is the sorted list of Events in the trace.
 	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
+	//
+	// OPT(dh): we could renumber stacks, PCs and Strings densely and store them in slices instead of maps. I don't know
+	// if the cost of accesses will outweigh the cost of renumbering.
 	Stacks  map[uint32][]uint64
 	PCs     map[uint64]Frame
 	Strings map[uint64]string

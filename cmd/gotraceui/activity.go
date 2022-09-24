@@ -54,6 +54,9 @@ type ActivityWidget struct {
 	hoveredLabel bool
 	tooltip      layout.Widget
 
+	// OPT(dh): Only one activity can have hovered or activated spans, so we could track this directly in Timeline, and
+	// save 48 bytes per activity (which means per goroutine). However, the current API is cleaner, because
+	// ActivityWidget doesn't have to mutate Timeline's state.
 	navigatedSpans MergedSpans
 	hoveredSpans   MergedSpans
 
@@ -85,6 +88,9 @@ type ActivityWidgetTrack struct {
 	spanColor   func(spans MergedSpans, tr *Trace) [2]colorIndex
 	spanTooltip func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions
 
+	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in ActivityWidget,
+	// and save 48 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
+	// mutate ActivityWIdget's state.
 	navigatedSpans MergedSpans
 	hoveredSpans   MergedSpans
 

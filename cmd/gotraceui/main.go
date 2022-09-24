@@ -105,6 +105,9 @@ import (
    - Maybe something about MMU?
 */
 
+// OPT(dh): we create all ActivityWidget and ActivityWidgetTrack ahead of time. These types are fairly large and track a
+//   lot of UI state, causing gigabytes of memory usage on large traces. We really only need the full widget types when
+//   they are visible. The rest of the time, we need a much smaller subset of the data.
 // TODO(dh): in a lot of places we react to clicks on the Press event, but we should really detect proper clicks, which
 //   is press + release without dragging inbetween.
 // TODO(dh): standardize whether we pass Theme as an argument to Layout or store it in the type
