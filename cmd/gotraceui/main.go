@@ -592,15 +592,9 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 	start := trace.Timestamp(-slack)
 	end = trace.Timestamp(float64(end) + slack)
 
-	gsByID := map[uint64]*Goroutine{}
-	for _, g := range t.gs {
-		gsByID[g.id] = g
-	}
-
 	w.tl = Timeline{
 		start:       start,
 		end:         end,
-		gs:          gsByID,
 		theme:       w.theme,
 		trace:       t,
 		debugWindow: w.debugWindow,

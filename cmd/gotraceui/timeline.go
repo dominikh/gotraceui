@@ -100,8 +100,6 @@ type Timeline struct {
 	scrollbar  widget.Scrollbar
 	axis       Axis
 
-	gs map[uint64]*Goroutine
-
 	// State for dragging the timeline
 	drag struct {
 		clickAt f32.Point
