@@ -851,8 +851,8 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 		topBorder := i > 0 && tl.activities[i-1].hovered
 		aw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
 		stack.Pop()
-		if aw.tooltip != nil {
-			tl.tooltip = aw.tooltip
+		if tt := aw.Tooltip(); tt != nil {
+			tl.tooltip = tt
 		}
 
 		y += activityGap + aw.Height(gtx)
