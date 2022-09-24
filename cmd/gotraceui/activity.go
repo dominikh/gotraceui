@@ -35,17 +35,24 @@ type ActivityWidgetTrackKind uint8
 const (
 	ActivityWidgetTrackUnspecified ActivityWidgetTrackKind = iota
 	ActivityWidgetTrackSampled
+	ActivityWidgetTrackUserRegions
 )
 
 type ActivityWidget struct {
 	// Inputs
-	tracks          []ActivityWidgetTrack
+	tracks            []Track
+	trackWidgets      []ActivityWidgetTrack
+	buildTrackWidgets func([]Track, []ActivityWidgetTrack)
+
 	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions
 	invalidateCache func(aw *ActivityWidget) bool
 	theme           *theme.Theme
 	tl              *Timeline
 	item            any
 	label           string
+
+	// Set to true by the Layout method. This is used to track which activities have been shown during a frame.
+	displayed bool
 
 	labelClicks int
 
@@ -77,10 +84,14 @@ type SpanTooltipState struct {
 	eventsUnderCursor []EventID
 }
 
-type ActivityWidgetTrack struct {
+type Track struct {
 	kind   ActivityWidgetTrackKind
 	spans  Spans
 	events []EventID
+}
+
+type ActivityWidgetTrack struct {
+	*Track
 
 	highlightSpan func(spans MergedSpans) bool
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
@@ -162,6 +173,11 @@ func (aw *ActivityWidget) Height(gtx layout.Context) int {
 	}
 }
 
+// notifyHidden informs the widget that it is no longer visible.
+func (aw *ActivityWidget) notifyHidden() {
+	aw.trackWidgets = nil
+}
+
 func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
@@ -172,6 +188,8 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	activityHeight := aw.Height(gtx)
 	activityTrackGap := gtx.Dp(activityTrackGapDp)
 	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
+
+	aw.displayed = true
 
 	aw.navigatedSpans = nil
 	aw.hoveredSpans = nil
@@ -283,8 +301,21 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	}
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
-	for i := range aw.tracks {
-		track := &aw.tracks[i]
+	if aw.trackWidgets == nil {
+		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
+		// activities.
+		out := make([]ActivityWidgetTrack, len(aw.tracks))
+		if aw.buildTrackWidgets != nil {
+			aw.buildTrackWidgets(aw.tracks, out)
+		} else {
+			for i := range aw.tracks {
+				out[i].Track = &aw.tracks[i]
+			}
+		}
+		aw.trackWidgets = out
+	}
+	for i := range aw.trackWidgets {
+		track := &aw.trackWidgets[i]
 		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
 			continue
 		}
@@ -788,72 +819,80 @@ func processorSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state 
 func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
-		tracks: []ActivityWidgetTrack{{
-			spans: p.spans,
-			highlightSpan: func(spans MergedSpans) bool {
-				if len(tl.activity.hoveredSpans) != 1 {
-					return false
-				}
-				// OPT(dh): don't be O(n)
-				o := &tl.activity.hoveredSpans[0]
-				for i := range spans {
-					if tr.Event(spans[i].event()).G == tr.Event(o.event()).G {
-						return true
-					}
-				}
-				return false
-			},
-			spanLabel: func(spans MergedSpans, tr *Trace) []string {
-				if len(spans) != 1 {
-					return nil
-				}
-				// OPT(dh): cache the strings
-				out := make([]string, 3)
-				g := tr.getG(tr.Event(spans[0].event()).G)
-				if g.function != "" {
-					short := shortenFunctionName(g.function)
-					out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
-					if short != g.function {
-						out[1] = fmt.Sprintf("g%d: .%s", g.id, short)
-						out[2] = fmt.Sprintf("g%d", g.id)
-					} else {
-						// This branch is probably impossible; all functions should be fully qualified.
-						out[1] = fmt.Sprintf("g%d", g.id)
-					}
-				} else {
-					out[0] = fmt.Sprintf("g%d", g.id)
-				}
-				return out
+		tracks: []Track{{spans: p.spans}},
 
-			},
-			spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
-				do := func(s Span, tr *Trace) colorIndex {
-					gid := tr.Events[s.event()].G
-					g := tr.getG(gid)
-					switch fn := g.function; fn {
-					case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
-						return colorStateGC
-					default:
-						// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
-						return stateColors[s.state]
-					}
-				}
-
-				if len(spans) == 1 {
-					return [2]colorIndex{do(spans[0], tr), 0}
-				} else {
-					c := do(spans[0], tr)
-					for _, s := range spans[1:] {
-						cc := do(s, tr)
-						if cc != c {
-							return [2]colorIndex{colorStateMerged, 0}
+		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+			for i := range tracks {
+				track := &tracks[i]
+				out[i] = ActivityWidgetTrack{
+					Track: track,
+					highlightSpan: func(spans MergedSpans) bool {
+						if len(tl.activity.hoveredSpans) != 1 {
+							return false
 						}
-					}
-					return [2]colorIndex{c, colorStateMerged}
+						// OPT(dh): don't be O(n)
+						o := &tl.activity.hoveredSpans[0]
+						for i := range spans {
+							if tr.Event(spans[i].event()).G == tr.Event(o.event()).G {
+								return true
+							}
+						}
+						return false
+					},
+					spanLabel: func(spans MergedSpans, tr *Trace) []string {
+						if len(spans) != 1 {
+							return nil
+						}
+						// OPT(dh): cache the strings
+						out := make([]string, 3)
+						g := tr.getG(tr.Event(spans[0].event()).G)
+						if g.function != "" {
+							short := shortenFunctionName(g.function)
+							out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
+							if short != g.function {
+								out[1] = fmt.Sprintf("g%d: .%s", g.id, short)
+								out[2] = fmt.Sprintf("g%d", g.id)
+							} else {
+								// This branch is probably impossible; all functions should be fully qualified.
+								out[1] = fmt.Sprintf("g%d", g.id)
+							}
+						} else {
+							out[0] = fmt.Sprintf("g%d", g.id)
+						}
+						return out
+
+					},
+					spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
+						do := func(s Span, tr *Trace) colorIndex {
+							gid := tr.Events[s.event()].G
+							g := tr.getG(gid)
+							switch fn := g.function; fn {
+							case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
+								return colorStateGC
+							default:
+								// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
+								return stateColors[s.state]
+							}
+						}
+
+						if len(spans) == 1 {
+							return [2]colorIndex{do(spans[0], tr), 0}
+						} else {
+							c := do(spans[0], tr)
+							for _, s := range spans[1:] {
+								cc := do(s, tr)
+								if cc != c {
+									return [2]colorIndex{colorStateMerged, 0}
+								}
+							}
+							return [2]colorIndex{c, colorStateMerged}
+						}
+					},
+					spanTooltip: processorSpanTooltip,
 				}
-			},
-			spanTooltip: processorSpanTooltip,
-		}},
+			}
+		},
+
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
 			return ProcessorTooltip{p, th, tl.trace}.Layout(gtx)
 		},
@@ -1202,17 +1241,95 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 	}
 
 	aw := &ActivityWidget{
-		tracks: []ActivityWidgetTrack{{
+		tracks: []Track{{
 			spans:  g.spans,
 			events: g.events,
-			spanLabel: func(spans MergedSpans, _ *Trace) []string {
-				if len(spans) != 1 {
-					return nil
-				}
-				return spanStateLabels[spans[0].state]
-			},
-			spanTooltip: goroutineSpanTooltip,
 		}},
+		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+			for i := range tracks {
+				track := &tracks[i]
+				switch track.kind {
+				case ActivityWidgetTrackUnspecified:
+					out[i] = ActivityWidgetTrack{
+						Track: track,
+						spanLabel: func(spans MergedSpans, _ *Trace) []string {
+							if len(spans) != 1 {
+								return nil
+							}
+							return spanStateLabels[spans[0].state]
+						},
+						spanTooltip: goroutineSpanTooltip,
+					}
+
+				case ActivityWidgetTrackUserRegions:
+					out[i] = ActivityWidgetTrack{
+						Track: track,
+						spanLabel: func(spans MergedSpans, tr *Trace) []string {
+							if len(spans) != 1 {
+								return nil
+							}
+							// OPT(dh): avoid this allocation
+							s := tr.Strings[tr.Events[spans[0].event()].Args[trace.ArgUserRegionTypeID]]
+							return []string{s}
+						},
+						spanTooltip: userRegionSpanTooltip,
+						spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
+							if len(spans) == 1 {
+								return [2]colorIndex{colorStateUserRegion, 0}
+							} else {
+								return [2]colorIndex{colorStateUserRegion, colorStateMerged}
+							}
+						},
+					}
+
+				case ActivityWidgetTrackSampled:
+					out[i] = ActivityWidgetTrack{
+						Track: track,
+
+						// TODO(dh): should we highlight hovered spans that share the same function?
+						spanLabel: func(spans MergedSpans, tr *Trace) []string {
+							if len(spans) != 1 {
+								return nil
+							}
+							f := tr.PCs[track.spans[0].pc]
+
+							short := shortenFunctionName(f.Fn)
+
+							if short != f.Fn {
+								return []string{f.Fn, "." + short}
+							} else {
+								// This branch is probably impossible; all functions should be fully qualified.
+								return []string{f.Fn}
+							}
+						},
+						spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
+							if len(spans) != 1 {
+								return [2]colorIndex{colorStateSample, colorStateMerged}
+							}
+							return [2]colorIndex{colorStateSample, 0}
+						},
+						spanTooltip: func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
+							var label string
+							if len(state.spans) == 1 {
+								f := tr.PCs[state.spans[0].pc]
+								label = local.Sprintf("Sampled function: %s\n", f.Fn)
+								// TODO(dh): for truncated stacks we should display a relative depth instead
+								label += local.Sprintf("Call depth: %d\n", i)
+							} else {
+								label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+							}
+							// We round the duration, in addition to saying "up to", to make it more obvious that the
+							// duration is a guess
+							label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
+							return theme.Tooltip{Theme: th}.Layout(gtx, label)
+						},
+					}
+
+				default:
+					panic(fmt.Sprintf("unexpected activity track kind %d", track.kind))
+				}
+			}
+		},
 		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
 			return GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
 		},
@@ -1223,25 +1340,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 	}
 
 	for _, ug := range g.userRegions {
-		aw.tracks = append(aw.tracks, ActivityWidgetTrack{
-			spans: ug,
-			spanLabel: func(spans MergedSpans, tr *Trace) []string {
-				if len(spans) != 1 {
-					return nil
-				}
-				// OPT(dh): avoid this allocation
-				s := tr.Strings[tr.Events[spans[0].event()].Args[trace.ArgUserRegionTypeID]]
-				return []string{s}
-			},
-			spanTooltip: userRegionSpanTooltip,
-			spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
-				if len(spans) == 1 {
-					return [2]colorIndex{colorStateUserRegion, 0}
-				} else {
-					return [2]colorIndex{colorStateUserRegion, colorStateMerged}
-				}
-			},
-		})
+		aw.tracks = append(aw.tracks, Track{spans: ug, kind: ActivityWidgetTrackUserRegions})
 	}
 
 	addSampleTracks(aw, g)
@@ -1252,7 +1351,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 	tl := aw.tl
 
-	var sampleTracks []ActivityWidgetTrack
+	var sampleTracks []Track
 	offSpans := 0
 	offSamples := 0
 
@@ -1346,7 +1445,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			if len(stk) < cap(sampleTracks) {
 				sampleTracks = sampleTracks[:len(stk)]
 			} else {
-				n := make([]ActivityWidgetTrack, len(stk))
+				n := make([]Track, len(stk))
 				copy(n, sampleTracks)
 				sampleTracks = n
 			}
@@ -1393,49 +1492,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 	}
 
 	for i := range sampleTracks {
-		i := i
-		sampleTracks[i] = ActivityWidgetTrack{
-			spans: sampleTracks[i].spans,
-
-			// TODO(dh): should we highlight hovered spans that share the same function?
-			kind: ActivityWidgetTrackSampled,
-			spanLabel: func(spans MergedSpans, _ *Trace) []string {
-				if len(spans) != 1 {
-					return nil
-				}
-				f := tl.trace.PCs[spans[0].pc]
-
-				short := shortenFunctionName(f.Fn)
-
-				if short != f.Fn {
-					return []string{f.Fn, "." + short}
-				} else {
-					// This branch is probably impossible; all functions should be fully qualified.
-					return []string{f.Fn}
-				}
-			},
-			spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
-				if len(spans) != 1 {
-					return [2]colorIndex{colorStateSample, colorStateMerged}
-				}
-				return [2]colorIndex{colorStateSample, 0}
-			},
-			spanTooltip: func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
-				var label string
-				if len(state.spans) == 1 {
-					f := tl.trace.PCs[state.spans[0].pc]
-					label = local.Sprintf("Sampled function: %s\n", f.Fn)
-					// TODO(dh): for truncated stacks we should display a relative depth instead
-					label += local.Sprintf("Call depth: %d\n", i)
-				} else {
-					label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
-				}
-				// We round the duration, in addition to saying "up to", to make it more obvious that the
-				// duration is a guess
-				label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
-				return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
-			},
-		}
+		sampleTracks[i].kind = ActivityWidgetTrackSampled
 	}
 
 	aw.tracks = append(aw.tracks, sampleTracks...)
@@ -1443,7 +1500,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 
 func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
-		tracks: []ActivityWidgetTrack{{spans: spans}},
+		tracks: []Track{{spans: spans}},
 		tl:     tl,
 		item:   spans,
 		label:  "GC",
@@ -1453,7 +1510,7 @@ func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *Acti
 
 func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
-		tracks: []ActivityWidgetTrack{{spans: spans}},
+		tracks: []Track{{spans: spans}},
 		tl:     tl,
 		item:   spans,
 		label:  "STW",

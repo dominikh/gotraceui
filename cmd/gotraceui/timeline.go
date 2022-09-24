@@ -656,12 +656,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		// Set up event handlers
 		pointer.InputOp{
-			Tag: tl,
-			Types: pointer.Scroll |
-				pointer.Drag |
-				pointer.Press |
-				pointer.Release |
-				pointer.Move,
+			Tag:          tl,
+			Types:        pointer.Scroll | pointer.Drag | pointer.Press | pointer.Release | pointer.Move,
 			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 			Grab:         tl.drag.active,
 		}.Add(gtx.Ops)
@@ -697,7 +693,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			}
 		}
 
-		// Draw axis and goroutines
+		// Draw axis and activities
 		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			// Draw STW and GC regions
 			// TODO(dh): make this be optional
@@ -827,6 +823,10 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 	start := -1
 	end := -1
 	y := -tl.y
+
+	for _, aw := range tl.prevFrame.displayedAws {
+		aw.displayed = false
+	}
 	for i, aw := range tl.activities {
 		if aw.LabelClicked() {
 			if g, ok := aw.item.(*Goroutine); ok {
@@ -856,6 +856,13 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 		}
 
 		y += activityGap + awHeight
+	}
+	for _, aw := range tl.prevFrame.displayedAws {
+		if !aw.displayed {
+			// The activity was displayed last frame but wasn't this frame -> notify it that it is no longer visible so
+			// that it can release temporary resources.
+			aw.notifyHidden()
+		}
 	}
 
 	var out []*ActivityWidget
