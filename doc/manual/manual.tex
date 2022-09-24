@@ -49,17 +49,40 @@
 \intodo{Most of these titles are placeholders, as is the overall structure}
 \completecontent
 
+\todo{This manual needs a proper structure. Something along the lines of quick start, an introduction to gotraceui (i.e.
+  a feature overview and why it exists), how to set up tracing in all its details, how to analyze the data.}
+
 \startchapter[title=\todo{Something about our UI}]
-  \startsection[title=Color coding]
+  \startsection[title=Main window]
+    \startitemize
+    \item \todo{Timeline}
+    \item \todo{Axis}
+    \item \todo{Activity}
+    \item \todo{Track}
+    \item \todo{Span (explain span colors here, too)}
+    \item \todo{Tooltip}
+    \stopitemize
   \stopsection
 
-  \startsection[title=Middle click]
+  \startsection[title=Goroutine windows]
+    \startitemize
+    \item \todo{General information}
+    \item \todo{Stack trace}
+    \item \todo{Per-state statistics}
+    \item \todo{Events}
+    \stopitemize
+  \stopsection
+  \startsection[title=Processor windows]
+    \todo{TODO}
+  \stopsection
+  \startsection[title=Heatmaps]
+    \todo{TODO}
   \stopsection
 
-  \startsection[title=Goroutine states]
+  \startchapter[title=Goroutine states]
     \starttodo
-    Something about how a goroutine will be in one of several states.
-    States have colors, some of them have labels, different labels at different zoom levels.
+      Something about how a goroutine will be in one of several states.
+      States have colors, some of them have labels, different labels at different zoom levels.
     \stoptodo
 
     Some of these states are actual states in the Go runtime, while other states are introduced by gotraceui to increase
@@ -126,9 +149,9 @@
     \stopitemize
 
 
-  \stopsection
+  \stopchapter
 
-  \startsection[title=Tags]
+  \startchapter[title=Tags]
     Gotraceui will annotate spans with tags, which further describe the states goroutines are in.
     These tags are produced by automatically parsing stack traces,
     and for example deducing that a goroutine that's blocked on pollable I/O got to that state by making a TLS-encrypted HTTP request over TCP,
@@ -149,7 +172,7 @@
     \item network, for network I/O
     \item read, for read I/O
     \stopitemize
-  \stopsection
+  \stopchapter
 \stopchapter
 
 \startchapter[title=The \code{runtime/trace} package]
@@ -161,10 +184,13 @@
     \todo{TODO}
   \stopsection
 
-  \startsection[title=\todo{Tracing in tests or something}]
+  \startsection[title=CPU profiling]
     \todo{TODO}
   \stopsection
 
+  \startsection[title=\todo{Tracing in tests or something}]
+    \todo{TODO}
+  \stopsection
 \stopchapter
 
 \startchapter[title=Understanding the Go runtime]
@@ -234,6 +260,7 @@
       This ensures that garbage gets collected regularly even if the program isn't allocating enough memory to hit the heap target.
     \item \code{runfinq} is the goroutine that is responsible for running finalizers.
       That means that this runtime goroutine will execute code provided by the user via \code{runtime.SetFinalizer}.
+      \intodo{fix line wrapping}
     \stopitemize
 
   \stopsection
@@ -241,7 +268,7 @@
   \stopchapter
 
   \startchapter[title=Stack trace timeline]
-
+    \intodo{We probably want to move this chapter into a subchapter of the UI chapter}
     In addition to sequences of runtime events and user regions, gotraceui can also display timelines of stack traces.
     Such timelines can help spot macroscopic patterns in code execution. They are reconstructed from CPU profiling
     samples as well as the stacks associated with certain runtime events and thus have a sampled, imprecise nature.
