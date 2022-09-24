@@ -1352,14 +1352,13 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			}
 		}
 
+		var end trace.Timestamp
+		if endEvID, _, ok := nextEvent(false); ok {
+			end = tl.trace.Events[endEvID].Ts
+		} else {
+			end = g.spans.End()
+		}
 		for i := 0; i < len(stk); i++ {
-			var end trace.Timestamp
-			if endEvID, _, ok := nextEvent(false); ok {
-				end = tl.trace.Events[endEvID].Ts
-			} else {
-				end = g.spans.End()
-			}
-
 			span := Span{
 				end:    end,
 				pc:     stk[len(stk)-i-1],
