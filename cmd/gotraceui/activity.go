@@ -1342,54 +1342,17 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			stk = stk[:64]
 		}
 
-		for i := 0; i < len(stk); i++ {
-			i := i
-
-			if i >= len(sampleTracks) {
-				sampleTracks = append(sampleTracks, ActivityWidgetTrack{
-					// TODO(dh): should we highlight hovered spans that share the same function?
-					kind: ActivityWidgetTrackSampled,
-					spanLabel: func(spans MergedSpans, _ *Trace) []string {
-						if len(spans) != 1 {
-							return nil
-						}
-						f := tl.trace.PCs[spans[0].pc]
-
-						short := shortenFunctionName(f.Fn)
-
-						if short != f.Fn {
-							return []string{f.Fn, "." + short}
-						} else {
-							// This branch is probably impossible; all functions should be fully qualified.
-							return []string{f.Fn}
-						}
-					},
-					spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
-						if len(spans) != 1 {
-							return [2]colorIndex{colorStateSample, colorStateMerged}
-						}
-						return [2]colorIndex{colorStateSample, 0}
-					},
-					spanTooltip: func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
-						var label string
-						if len(state.spans) == 1 {
-							f := tl.trace.PCs[state.spans[0].pc]
-							label = local.Sprintf("Sampled function: %s\n", f.Fn)
-							// TODO(dh): for truncated stacks we should display a relative depth instead
-							label += local.Sprintf("Call depth: %d\n", i)
-						} else {
-							label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
-						}
-						// We round the duration, in addition to saying "up to", to make it more obvious that the
-						// duration is a guess
-						label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
-						return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
-					},
-				})
-
+		if len(stk) > len(sampleTracks) {
+			if len(stk) < cap(sampleTracks) {
+				sampleTracks = sampleTracks[:len(stk)]
+			} else {
+				n := make([]ActivityWidgetTrack, len(stk))
+				copy(n, sampleTracks)
+				sampleTracks = n
 			}
-			track := &sampleTracks[i]
+		}
 
+		for i := 0; i < len(stk); i++ {
 			var end trace.Timestamp
 			if endEvID, _, ok := nextEvent(false); ok {
 				end = tl.trace.Events[endEvID].Ts
@@ -1403,16 +1366,64 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 				event_: packEventID(evID),
 				state:  stateCPUSample,
 			}
-			track.spans = append(track.spans, s)
+			sampleTracks[i].spans = append(sampleTracks[i].spans, s)
 		}
 
 		prevStk = stk
+	}
+
+	for i := range sampleTracks {
+		i := i
+		sampleTracks[i] = ActivityWidgetTrack{
+			spans: sampleTracks[i].spans,
+
+			// TODO(dh): should we highlight hovered spans that share the same function?
+			kind: ActivityWidgetTrackSampled,
+			spanLabel: func(spans MergedSpans, _ *Trace) []string {
+				if len(spans) != 1 {
+					return nil
+				}
+				f := tl.trace.PCs[spans[0].pc]
+
+				short := shortenFunctionName(f.Fn)
+
+				if short != f.Fn {
+					return []string{f.Fn, "." + short}
+				} else {
+					// This branch is probably impossible; all functions should be fully qualified.
+					return []string{f.Fn}
+				}
+			},
+			spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
+				if len(spans) != 1 {
+					return [2]colorIndex{colorStateSample, colorStateMerged}
+				}
+				return [2]colorIndex{colorStateSample, 0}
+			},
+			spanTooltip: func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
+				var label string
+				if len(state.spans) == 1 {
+					f := tl.trace.PCs[state.spans[0].pc]
+					label = local.Sprintf("Sampled function: %s\n", f.Fn)
+					// TODO(dh): for truncated stacks we should display a relative depth instead
+					label += local.Sprintf("Call depth: %d\n", i)
+				} else {
+					label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+				}
+				// We round the duration, in addition to saying "up to", to make it more obvious that the
+				// duration is a guess
+				label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
+				return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+			},
+		}
 	}
 
 	// Merge consecutive spans for the same sampled function.
 	//
 	// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
 	// data more apparent.
+	//
+	// OPT(dh): can't we merge spans as we create them, instead of in a separate step?
 	for trackIdx := range sampleTracks {
 		track := &sampleTracks[trackIdx]
 		newSpans := track.spans[:1]
