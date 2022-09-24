@@ -267,7 +267,9 @@ func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
 type Span struct {
 	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
 	// and filling those gaps would probably use more memory than tracking the end time.
-	end    trace.Timestamp
+	end trace.Timestamp
+	// Stack frame this span represents, for sample tracks
+	pc     uint64
 	event_ [5]byte
 	// at is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	at uint8

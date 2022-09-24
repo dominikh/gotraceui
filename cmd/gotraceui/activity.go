@@ -1238,17 +1238,15 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 		})
 	}
 
-	// OPT(dh): try to get rid of this map
-	stacks := map[EventID][]uint64{}
+	addSampleTracks(aw, g)
 
-	getFrame := func(sample EventID, depth int) trace.Frame {
-		stk := stacks[sample]
-		pc := stk[len(stk)-depth-1]
-		return tl.trace.PCs[pc]
-	}
+	return aw
+}
+
+func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
+	tl := aw.tl
 
 	var sampleTracks []ActivityWidgetTrack
-
 	offSpans := 0
 	offSamples := 0
 
@@ -1344,8 +1342,6 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 			stk = stk[:64]
 		}
 
-		stacks[evID] = stk
-
 		for i := 0; i < len(stk); i++ {
 			i := i
 
@@ -1357,7 +1353,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 						if len(spans) != 1 {
 							return nil
 						}
-						f := getFrame(spans[0].event(), i)
+						f := tl.trace.PCs[spans[0].pc]
 
 						short := shortenFunctionName(f.Fn)
 
@@ -1377,7 +1373,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 					spanTooltip: func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
 						var label string
 						if len(state.spans) == 1 {
-							f := getFrame(state.spans[0].event(), i)
+							f := tl.trace.PCs[state.spans[0].pc]
 							label = local.Sprintf("Sampled function: %s\n", f.Fn)
 							// TODO(dh): for truncated stacks we should display a relative depth instead
 							label += local.Sprintf("Call depth: %d\n", i)
@@ -1403,6 +1399,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 
 			s := Span{
 				end:    end,
+				pc:     stk[len(stk)-i-1],
 				event_: packEventID(evID),
 				state:  stateCPUSample,
 			}
@@ -1426,8 +1423,8 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 			span := track.spans[0]
 
 			// OPT(dh): we don't have to look up prevFrame, we can remember it from the previous loop iteration
-			prevFrame := getFrame(prevSpan.event(), trackIdx)
-			frame := getFrame(span.event(), trackIdx)
+			prevFrame := tl.trace.PCs[prevSpan.pc]
+			frame := tl.trace.PCs[span.pc]
 
 			if prevSpan.end == tl.trace.Events[span.event()].Ts && prevFrame.Fn == frame.Fn {
 				prevSpan.end = span.end
@@ -1441,8 +1438,6 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 	}
 
 	aw.tracks = append(aw.tracks, sampleTracks...)
-
-	return aw
 }
 
 func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
