@@ -366,6 +366,87 @@ type Goroutine struct {
 	userRegions []Spans
 	events      []EventID
 	cpuSamples  []EventID
+
+	statistics struct {
+		blocked, inactive, running, gcAssist             time.Duration
+		blockedPct, inactivePct, runningPct, gcAssistPct float32
+	}
+}
+
+func (g *Goroutine) computeStatistics(tr *Trace) {
+	start := g.spans.Start(tr)
+	end := g.spans.End()
+	d := time.Duration(end - start)
+
+	var blocked, inactive, running, gcAssist time.Duration
+	for i := range g.spans {
+		s := &g.spans[i]
+		d := tr.Duration(s)
+		switch s.state {
+		case stateInactive:
+			inactive += d
+		case stateActive, stateGCDedicated, stateGCIdle:
+			running += d
+		case stateBlocked:
+			blocked += d
+		case stateBlockedSend:
+			blocked += d
+		case stateBlockedRecv:
+			blocked += d
+		case stateBlockedSelect:
+			blocked += d
+		case stateBlockedSync:
+			blocked += d
+		case stateBlockedSyncOnce:
+			blocked += d
+		case stateBlockedSyncTriggeringGC:
+			blocked += d
+		case stateBlockedCond:
+			blocked += d
+		case stateBlockedNet:
+			blocked += d
+		case stateBlockedGC:
+			blocked += d
+		case stateBlockedSyscall:
+			blocked += d
+		case stateStuck:
+			blocked += d
+		case stateReady:
+			inactive += d
+		case stateCreated:
+			inactive += d
+		case stateGCMarkAssist:
+			gcAssist += d
+		case stateGCSweep:
+			gcAssist += d
+		case stateDone:
+		default:
+			if debug {
+				panic(fmt.Sprintf("unknown state %d", s.state))
+			}
+		}
+	}
+
+	g.statistics = struct {
+		blocked     time.Duration
+		inactive    time.Duration
+		running     time.Duration
+		gcAssist    time.Duration
+		blockedPct  float32
+		inactivePct float32
+		runningPct  float32
+		gcAssistPct float32
+	}{
+		blocked:  blocked,
+		inactive: inactive,
+		running:  running,
+		gcAssist: gcAssist,
+
+		blockedPct:  float32(blocked) / float32(d) * 100,
+		inactivePct: float32(inactive) / float32(d) * 100,
+		runningPct:  float32(running) / float32(d) * 100,
+		gcAssistPct: float32(gcAssist) / float32(d) * 100,
+	}
 }
 
 func (g *Goroutine) String() string {
@@ -901,7 +982,12 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 		return a.id < b.id
 	})
 
-	return &Trace{gs: gs, ps: ps, gc: gc, stw: stw, tasks: tasks, ParseResult: res}, nil
+	tr := &Trace{gs: gs, ps: ps, gc: gc, stw: stw, tasks: tasks, ParseResult: res}
+	for _, g := range tr.gs {
+		g.computeStatistics(tr)
+	}
+
+	return tr, nil
 }
 
 // Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this

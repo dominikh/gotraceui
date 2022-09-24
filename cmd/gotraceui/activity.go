@@ -944,59 +944,6 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 	end := tt.g.spans.End()
 	d := time.Duration(end - start)
 
-	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
-	var blockedD, inactiveD, runningD, gcAssistD time.Duration
-	for i := range tt.g.spans {
-		s := &tt.g.spans[i]
-		d := tr.Duration(s)
-		switch s.state {
-		case stateInactive:
-			inactiveD += d
-		case stateActive, stateGCDedicated, stateGCIdle:
-			runningD += d
-		case stateBlocked:
-			blockedD += d
-		case stateBlockedSend:
-			blockedD += d
-		case stateBlockedRecv:
-			blockedD += d
-		case stateBlockedSelect:
-			blockedD += d
-		case stateBlockedSync:
-			blockedD += d
-		case stateBlockedSyncOnce:
-			blockedD += d
-		case stateBlockedSyncTriggeringGC:
-			blockedD += d
-		case stateBlockedCond:
-			blockedD += d
-		case stateBlockedNet:
-			blockedD += d
-		case stateBlockedGC:
-			blockedD += d
-		case stateBlockedSyscall:
-			blockedD += d
-		case stateStuck:
-			blockedD += d
-		case stateReady:
-			inactiveD += d
-		case stateCreated:
-			inactiveD += d
-		case stateGCMarkAssist:
-			gcAssistD += d
-		case stateGCSweep:
-			gcAssistD += d
-		case stateDone:
-		default:
-			if debug {
-				panic(fmt.Sprintf("unknown state %d", s.state))
-			}
-		}
-	}
-	blockedPct := float32(blockedD) / float32(d) * 100
-	inactivePct := float32(inactiveD) / float32(d) * 100
-	runningPct := float32(runningD) / float32(d) * 100
-	gcAssistPct := float32(gcAssistD) / float32(d) * 100
 	var fnName string
 	line1 := "Goroutine %[1]d\n\n"
 	if tt.g.function != "" {
@@ -1016,10 +963,10 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		formatTimestamp(start),
 		formatTimestamp(end),
 		d,
-		blockedD, blockedPct,
-		inactiveD, inactivePct,
-		gcAssistD, gcAssistPct,
-		runningD, runningPct,
+		tt.g.statistics.blocked, tt.g.statistics.blockedPct,
+		tt.g.statistics.inactive, tt.g.statistics.inactivePct,
+		tt.g.statistics.gcAssist, tt.g.statistics.gcAssistPct,
+		tt.g.statistics.running, tt.g.statistics.runningPct,
 		len(tt.g.spans),
 	)
 
