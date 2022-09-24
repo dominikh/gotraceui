@@ -69,12 +69,13 @@ type ActivityWidget struct {
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
-		hovered    bool
-		forceLabel bool
-		compact    bool
-		topBorder  bool
-		ops        reusableOps
-		call       op.CallOp
+		hovered     bool
+		forceLabel  bool
+		compact     bool
+		topBorder   bool
+		constraints layout.Constraints
+		ops         reusableOps
+		call        op.CallOp
 	}
 }
 
@@ -242,12 +243,12 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	if !widgetClicked &&
 		aw.tl.unchanged() &&
-		!aw.hovered &&
-		!aw.prevFrame.hovered &&
+		!aw.hovered && !aw.prevFrame.hovered &&
 		forceLabel == aw.prevFrame.forceLabel &&
 		compact == aw.prevFrame.compact &&
 		(aw.invalidateCache == nil || !aw.invalidateCache(aw)) &&
-		topBorder == aw.prevFrame.topBorder {
+		topBorder == aw.prevFrame.topBorder &&
+		gtx.Constraints == aw.prevFrame.constraints {
 
 		// OPT(dh): instead of avoiding cached ops completely when the activity is hovered, draw the tooltip
 		// separately.
@@ -259,6 +260,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 	aw.prevFrame.forceLabel = forceLabel
 	aw.prevFrame.compact = compact
 	aw.prevFrame.topBorder = topBorder
+	aw.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
 	gtx.Ops = aw.prevFrame.ops.get()
@@ -694,7 +696,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 		first = false
 	}
 
-	if tl.unchanged() {
+	if tl.unchanged() && track.prevFrame.dspSpans != nil {
 		for _, prevSpans := range track.prevFrame.dspSpans {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
