@@ -265,6 +265,12 @@ func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
 }
 
 type Span struct {
+	// The Span type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
+	// collector won't have to scan any memory of our millions of events. It is currently 24 bytes large, with no padding.
+	//
+	// Instead of pointers, fields like pc and event_ are indices into slices. event_ is a uint40, allowing for a total
+	// of 1 trillion events, or 64 TiB worth of events. This size was chosen to eliminate padding.
+
 	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
 	// and filling those gaps would probably use more memory than tracking the end time.
 	end trace.Timestamp
