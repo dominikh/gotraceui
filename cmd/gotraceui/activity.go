@@ -419,8 +419,8 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 
 		for ; offset < len(it.spans); offset++ {
 			nextSpan := &spans[offset]
-			// Assume that we stop at this span. Compute the final size. Use that to see
-			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+			// Check if the next gap or span would be large enough to stand on its own. If so, stop merging at the
+			// current span.
 			nextStart := tr.Event(nextSpan.event()).Ts
 			nextEnd := nextSpan.end
 			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-end) >= minSpanWidthD {
