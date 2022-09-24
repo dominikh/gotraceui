@@ -1460,31 +1460,36 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			end = g.spans.End()
 		}
 		for i := 0; i < len(stk); i++ {
-			span := Span{
-				end:    end,
-				pc:     stk[len(stk)-i-1],
-				event_: packEventID(evID),
-				state:  stateCPUSample,
-			}
-
 			spans := sampleTracks[i].spans
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]
 				prevFrame := tl.trace.PCs[prevSpan.pc]
 				frame := tl.trace.PCs[stk[len(stk)-i-1]]
-				if prevSpan.end == tl.trace.Events[span.event()].Ts && prevFrame.Fn == frame.Fn {
+				if prevSpan.end == tl.trace.Events[evID].Ts && prevFrame.Fn == frame.Fn {
 					// This is a continuation of the previous span
 					//
 					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
 					// data more apparent.
-					prevSpan.end = span.end
+					prevSpan.end = end
 				} else {
 					// This is a new span
+					span := Span{
+						end:    end,
+						pc:     stk[len(stk)-i-1],
+						event_: packEventID(evID),
+						state:  stateCPUSample,
+					}
 					spans = append(spans, span)
 					sampleTracks[i].spans = spans
 				}
 			} else {
 				// This is the first span
+				span := Span{
+					end:    end,
+					pc:     stk[len(stk)-i-1],
+					event_: packEventID(evID),
+					state:  stateCPUSample,
+				}
 				spans = append(spans, span)
 				sampleTracks[i].spans = spans
 			}
