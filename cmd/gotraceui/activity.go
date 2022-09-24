@@ -143,7 +143,8 @@ func (aw *ActivityWidget) LabelClicked() bool {
 
 func (aw *ActivityWidget) Height(gtx layout.Context) int {
 	enabledTracks := 0
-	for _, track := range aw.tracks {
+	for i := range aw.tracks {
+		track := &aw.tracks[i]
 		if track.kind != ActivityWidgetTrackSampled || aw.tl.activity.displaySampleTracks {
 			enabledTracks++
 		}
