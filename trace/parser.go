@@ -14,6 +14,14 @@ type Timestamp int64
 
 // Event describes one event in the trace.
 type Event struct {
+	// The Event type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
+	// collector won't have to scan any memory of our millions of events. It is currently 64 bytes large, 2 bytes of
+	// which are padding.
+	//
+	// Instead of pointers, fields like StkID and Link are indices into slices. Link is a uint40, allowing for a total
+	// of 1 trillion events, or 64 TiB worth of events. This size was chosen because of gotraceui's Span type, where a
+	// uint40 eliminates padding.
+
 	Ts    Timestamp // timestamp in nanoseconds
 	G     uint64    // G on which the event happened
 	Args  [4]uint64 // event-type-specific arguments
