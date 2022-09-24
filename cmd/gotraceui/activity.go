@@ -1360,13 +1360,34 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 				end = g.spans.End()
 			}
 
-			s := Span{
+			span := Span{
 				end:    end,
 				pc:     stk[len(stk)-i-1],
 				event_: packEventID(evID),
 				state:  stateCPUSample,
 			}
-			sampleTracks[i].spans = append(sampleTracks[i].spans, s)
+
+			spans := sampleTracks[i].spans
+			if len(spans) != 0 {
+				prevSpan := &spans[len(spans)-1]
+				prevFrame := tl.trace.PCs[prevSpan.pc]
+				frame := tl.trace.PCs[stk[len(stk)-i-1]]
+				if prevSpan.end == tl.trace.Events[span.event()].Ts && prevFrame.Fn == frame.Fn {
+					// This is a continuation of the previous span
+					//
+					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
+					// data more apparent.
+					prevSpan.end = span.end
+				} else {
+					// This is a new span
+					spans = append(spans, span)
+					sampleTracks[i].spans = spans
+				}
+			} else {
+				// This is the first span
+				spans = append(spans, span)
+				sampleTracks[i].spans = spans
+			}
 		}
 
 		prevStk = stk
@@ -1416,36 +1437,6 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 				return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
 			},
 		}
-	}
-
-	// Merge consecutive spans for the same sampled function.
-	//
-	// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
-	// data more apparent.
-	//
-	// OPT(dh): can't we merge spans as we create them, instead of in a separate step?
-	for trackIdx := range sampleTracks {
-		track := &sampleTracks[trackIdx]
-		newSpans := track.spans[:1]
-		track.spans = track.spans[1:]
-
-		for len(track.spans) != 0 {
-			prevSpan := &newSpans[len(newSpans)-1]
-			span := track.spans[0]
-
-			// OPT(dh): we don't have to look up prevFrame, we can remember it from the previous loop iteration
-			prevFrame := tl.trace.PCs[prevSpan.pc]
-			frame := tl.trace.PCs[span.pc]
-
-			if prevSpan.end == tl.trace.Events[span.event()].Ts && prevFrame.Fn == frame.Fn {
-				prevSpan.end = span.end
-			} else {
-				newSpans = append(newSpans, span)
-			}
-			track.spans = track.spans[1:]
-		}
-
-		track.spans = newSpans
 	}
 
 	aw.tracks = append(aw.tracks, sampleTracks...)
