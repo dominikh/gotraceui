@@ -1263,12 +1263,6 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 
 		if offSpans < len(g.spans) {
 			id := g.spans[offSpans].event()
-			if g.spans[offSpans].state == stateActive {
-				ev := tl.trace.Events[g.spans[offSpans].event()]
-				if ev.Type == 12 && ev.StkID != 0 {
-					fmt.Println(ev.Type, ev.StkID)
-				}
-			}
 			if offSamples < len(g.cpuSamples) {
 				oid := g.cpuSamples[offSamples]
 				if id <= oid {
