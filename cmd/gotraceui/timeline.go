@@ -790,8 +790,9 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 	y := -tl.y
 	for i, aw := range tl.activities {
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
-		if y < -aw.Height(gtx) {
-			y += activityGap + aw.Height(gtx)
+		awHeight := aw.Height(gtx)
+		if y < -awHeight {
+			y += activityGap + awHeight
 			continue
 		}
 		if start == -1 {
@@ -801,7 +802,7 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 			end = i
 			break
 		}
-		y += activityGap + aw.Height(gtx)
+		y += activityGap + awHeight
 	}
 
 	if start == -1 {
@@ -833,8 +834,9 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 			}
 		}
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
-		if y < -aw.Height(gtx) {
-			y += activityGap + aw.Height(gtx)
+		awHeight := aw.Height(gtx)
+		if y < -awHeight {
+			y += activityGap + awHeight
 			continue
 		}
 		if y > gtx.Constraints.Max.Y {
@@ -853,7 +855,7 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 			tl.tooltip = tt
 		}
 
-		y += activityGap + aw.Height(gtx)
+		y += activityGap + awHeight
 	}
 
 	var out []*ActivityWidget
