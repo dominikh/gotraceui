@@ -147,6 +147,23 @@ type Trace struct {
 	trace.ParseResult
 }
 
+type reason uint8
+
+const (
+	reasonNone reason = iota
+	reasonNewlyCreated
+	reasonGosched
+	reasonTimeSleep
+	reasonPreempted
+)
+
+var reasonByEventType = [256]reason{
+	trace.EvGoCreate:  reasonNewlyCreated,
+	trace.EvGoSched:   reasonGosched,
+	trace.EvGoSleep:   reasonTimeSleep,
+	trace.EvGoPreempt: reasonPreempted,
+}
+
 //gcassert:inline
 func (t *Trace) Reason(s *Span) reason {
 	return reasonByEventType[t.Events[s.event()].Type]
@@ -196,8 +213,19 @@ func (tr *Trace) getG(gid uint64) *Goroutine {
 	return tr.gs[idx]
 }
 
+// MergedSpans and Spans have the same functionality. The two different types are used to make APIs easier to read, to
+// be able to tell apart functions that operate on multiple spans as if they were individual items and functions that
+// treat them as one unit, because they get merged during rendering.
+
 // Spans represents a list of consecutive spans from a shared timeline.
 type Spans []Span
+
+// MergedSpans represents a list of consecutive spans from a shared timeline, which were merged during display.
+//
+// OPT(dh): we could theoretically save 8 bytes by storing the start and end indices instead of a slice, as merged
+// spans have to be consecutive. It would also prevent potential misuse of MergedSpans, e.g. by creating an entirely
+// new slice, instead of slicing an existing one. However, a slice is easier to access and iterate over.
+type MergedSpans []Span
 
 func (ms MergedSpans) Start(tr *Trace) trace.Timestamp           { return Spans(ms).Start(tr) }
 func (ms MergedSpans) End() trace.Timestamp                      { return Spans(ms).End() }

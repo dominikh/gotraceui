@@ -1,0 +1,1443 @@
+package main
+
+import (
+	"fmt"
+	"image"
+	"math"
+	"strings"
+	"time"
+
+	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace"
+	mywidget "honnef.co/go/gotraceui/widget"
+
+	"gioui.org/f32"
+	"gioui.org/io/key"
+	"gioui.org/io/pointer"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/text"
+	"gioui.org/unit"
+)
+
+const (
+	// XXX the label height depends on the font used
+	activityLabelHeightDp unit.Dp = 20
+	activityTrackHeightDp unit.Dp = 16
+	activityGapDp         unit.Dp = 5
+	activityTrackGapDp    unit.Dp = 2
+)
+
+type ActivityWidgetTrackKind uint8
+
+const (
+	ActivityWidgetTrackUnspecified ActivityWidgetTrackKind = iota
+	ActivityWidgetTrackSampled
+)
+
+type ActivityWidget struct {
+	// Inputs
+	tracks          []ActivityWidgetTrack
+	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions
+	invalidateCache func(aw *ActivityWidget) bool
+	theme           *theme.Theme
+	tl              *Timeline
+	item            any
+	label           string
+
+	labelClicks int
+
+	pointerAt    f32.Point
+	hovered      bool
+	hoveredLabel bool
+	tooltip      layout.Widget
+
+	navigatedSpans MergedSpans
+	hoveredSpans   MergedSpans
+
+	prevFrame struct {
+		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
+		hovered    bool
+		forceLabel bool
+		compact    bool
+		topBorder  bool
+		ops        reusableOps
+		call       op.CallOp
+	}
+}
+
+type SpanTooltipState struct {
+	spans             MergedSpans
+	events            []EventID
+	eventsUnderCursor []EventID
+}
+
+type ActivityWidgetTrack struct {
+	kind   ActivityWidgetTrackKind
+	spans  Spans
+	events []EventID
+
+	// XXX these callbacks should probably get a reference to the track, too
+	highlightSpan func(aw *ActivityWidget, spans MergedSpans) bool
+	// OPT(dh): pass slice to spanLabel to reuse memory between calls
+	spanLabel   func(aw *ActivityWidget, spans MergedSpans) []string
+	spanColor   func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex
+	spanTooltip func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions
+
+	// op lists get reused between frames to avoid generating garbage
+	ops          [colorStateLast * 2]op.Ops
+	outlinesOps  reusableOps
+	highlightOps reusableOps
+	eventsOps    reusableOps
+	labelsOps    reusableOps
+
+	pointerAt f32.Point
+	hovered   bool
+	tooltip   layout.Widget
+
+	// cached state
+	prevFrame struct {
+		dspSpans []struct {
+			dspSpans       MergedSpans
+			startPx, endPx float32
+		}
+	}
+}
+
+func (aw *ActivityWidget) NavigatedSpans() MergedSpans {
+	return aw.navigatedSpans
+}
+
+func (aw *ActivityWidget) HoveredSpans() MergedSpans {
+	return aw.hoveredSpans
+}
+
+func (aw *ActivityWidget) LabelClicked() bool {
+	if aw.labelClicks > 0 {
+		aw.labelClicks--
+		return true
+	} else {
+		return false
+	}
+}
+
+func (aw *ActivityWidget) Height(gtx layout.Context) int {
+	enabledTracks := 0
+	for _, track := range aw.tracks {
+		if track.kind != ActivityWidgetTrackSampled || aw.tl.activity.displaySampleTracks {
+			enabledTracks++
+		}
+	}
+	if aw.tl.activity.compact {
+		return (gtx.Dp(activityTrackHeightDp) + gtx.Dp(activityTrackGapDp)) * enabledTracks
+	} else {
+		return (gtx.Dp(activityTrackHeightDp)+gtx.Dp(activityTrackGapDp))*enabledTracks + gtx.Dp(activityLabelHeightDp)
+	}
+}
+
+func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
+	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
+	// and pointer input. When we reuse the previous frame and need to return dimensions, we should use a stored value
+	// of the height. Making the change isn't currently worth it, though, because we still need ActivityWidget.Height to
+	// exist so we can compute the scrollbar, and so we can jump to goroutines, which needs to compute an offset. In
+	// both cases we don't want to lay out every widget to figure out its size.
+	activityHeight := aw.Height(gtx)
+	activityTrackGap := gtx.Dp(activityTrackGapDp)
+	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
+
+	aw.navigatedSpans = nil
+	aw.hoveredSpans = nil
+	aw.tooltip = nil
+
+	var widgetClicked bool
+
+	for _, e := range gtx.Events(aw) {
+		ev := e.(pointer.Event)
+		switch ev.Type {
+		case pointer.Enter, pointer.Move:
+			aw.hovered = true
+			aw.pointerAt = ev.Position
+		case pointer.Drag:
+			aw.pointerAt = ev.Position
+		case pointer.Leave, pointer.Cancel:
+			aw.hovered = false
+		case pointer.Press:
+			// If any part of the widget has been clicked then don't reuse the cached macro; we have to figure out what
+			// was clicked and react to it.
+			//
+			// OPT(dh): if it was the label that was clicked, then we can reuse the macro
+
+			widgetClicked = true
+		}
+	}
+
+	aw.labelClicks = 0
+	for _, ev := range gtx.Events(&aw.label) {
+		switch ev := ev.(type) {
+		case pointer.Event:
+			switch ev.Type {
+			case pointer.Enter, pointer.Move:
+				aw.hoveredLabel = true
+			case pointer.Leave, pointer.Cancel:
+				aw.hoveredLabel = false
+			case pointer.Press:
+				if ev.Buttons.Contain(pointer.ButtonPrimary) && ev.Modifiers == 0 {
+					aw.labelClicks++
+				}
+
+				if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
+					// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
+					// assumption to make.
+					aw.navigatedSpans = MergedSpans(aw.tracks[0].spans)
+				}
+			}
+		}
+	}
+
+	if !widgetClicked &&
+		aw.tl.unchanged() &&
+		!aw.hovered &&
+		!aw.prevFrame.hovered &&
+		forceLabel == aw.prevFrame.forceLabel &&
+		compact == aw.prevFrame.compact &&
+		(aw.invalidateCache == nil || !aw.invalidateCache(aw)) &&
+		topBorder == aw.prevFrame.topBorder {
+
+		// OPT(dh): instead of avoiding cached ops completely when the activity is hovered, draw the tooltip
+		// separately.
+		aw.prevFrame.call.Add(gtx.Ops)
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
+	}
+
+	aw.prevFrame.hovered = aw.hovered
+	aw.prevFrame.forceLabel = forceLabel
+	aw.prevFrame.compact = compact
+	aw.prevFrame.topBorder = topBorder
+
+	origOps := gtx.Ops
+	gtx.Ops = aw.prevFrame.ops.get()
+	macro := op.Record(gtx.Ops)
+	defer func() {
+		call := macro.Stop()
+		call.Add(origOps)
+		aw.prevFrame.call = call
+	}()
+
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, activityHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: aw, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+
+	if !compact {
+		if aw.hovered || forceLabel || topBorder {
+			// Draw border at top of the activity
+			paint.FillShape(gtx.Ops, colors[colorActivityBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
+		}
+
+		if aw.hovered || forceLabel {
+			labelGtx := gtx
+			labelGtx.Constraints.Min = image.Point{}
+			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(labelGtx, aw.theme.Shaper, text.Font{}, aw.theme.TextSize, aw.label)
+
+			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
+			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			pointer.CursorPointer.Add(gtx.Ops)
+			stack.Pop()
+		}
+
+		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.hoveredLabel {
+			aw.tooltip = func(gtx layout.Context) layout.Dimensions {
+				// OPT(dh): this allocates for the closure
+				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
+				return aw.widgetTooltip(gtx, aw)
+			}
+		}
+
+		defer op.Offset(image.Pt(0, activityLabelHeight)).Push(gtx.Ops).Pop()
+	}
+
+	stack := op.TransformOp{}.Push(gtx.Ops)
+	for i := range aw.tracks {
+		track := &aw.tracks[i]
+		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
+			continue
+		}
+		dims := track.Layout(gtx, aw)
+		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
+		if track.tooltip != nil {
+			aw.tooltip = track.tooltip
+		}
+	}
+	stack.Pop()
+
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
+}
+
+func defaultSpanColor(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
+	if len(spans) == 1 {
+		return [2]colorIndex{stateColors[spans[0].state], 0}
+	} else {
+		c := stateColors[spans[0].state]
+		for _, s := range spans[1:] {
+			cc := stateColors[s.state]
+			if cc != c {
+				return [2]colorIndex{colorStateMerged, 0}
+			}
+		}
+		return [2]colorIndex{c, colorStateMerged}
+	}
+}
+
+type renderedSpansIterator struct {
+	offset  int
+	tl      *Timeline
+	spans   Spans
+	prevEnd trace.Timestamp
+}
+
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans, startPx, endPx float32, ok bool) {
+	offset := it.offset
+	spans := it.spans
+	tr := it.tl.trace
+
+	if offset >= len(spans) {
+		return nil, 0, 0, false
+	}
+
+	nsPerPx := float32(it.tl.nsPerPx)
+	minSpanWidthD := time.Duration(math.Ceil(float64(gtx.Dp(minSpanWidthDp)) * float64(nsPerPx)))
+	startOffset := offset
+	tlStart := it.tl.start
+
+	s := &spans[offset]
+	offset++
+
+	start := tr.Event(s.event()).Ts
+	end := s.end
+	if it.prevEnd > start {
+		// The previous span was extended and grew into this span. This shifts our start position to the right.
+		start = it.prevEnd
+	}
+
+	if time.Duration(end-start) < minSpanWidthD {
+		// Merge all tiny spans until we find a span or gap that's big enough to stand on its own. We do not stop
+		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
+		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
+		// previously merged spans becoming visible again when zooming out.
+		for ; offset < len(it.spans); offset++ {
+			adjustedEnd := end
+			if time.Duration(end-start) < minSpanWidthD {
+				adjustedEnd = start + trace.Timestamp(minSpanWidthD)
+			} else {
+				// Our merged span is long enough now and won't need to be extended anymore. Break out of this loop and
+				// go into a smaller loop that specializes on just collecting tiny spans, avoiding the comparisons
+				// needed for extending.
+				break
+			}
+
+			nextSpan := &spans[offset]
+			// Assume that we stop at this span. Compute the final size and extension. Use that to see
+			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+			nextStart := tr.Event(nextSpan.event()).Ts
+			nextEnd := nextSpan.end
+			if adjustedEnd > nextStart {
+				// The current span would have to grow into the next span, making it smaller
+				nextStart = adjustedEnd
+			}
+			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-adjustedEnd) >= minSpanWidthD {
+				// Don't merge spans or gaps that can stand on their own
+				break
+			}
+
+			end = nextSpan.end
+		}
+
+		for ; offset < len(it.spans); offset++ {
+			nextSpan := &spans[offset]
+			// Assume that we stop at this span. Compute the final size. Use that to see
+			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
+			nextStart := tr.Event(nextSpan.event()).Ts
+			nextEnd := nextSpan.end
+			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-end) >= minSpanWidthD {
+				// Don't merge spans or gaps that can stand on their own
+				break
+			}
+
+			end = nextSpan.end
+		}
+	}
+
+	if time.Duration(end-start) < minSpanWidthD {
+		// We're still too small, so extend the span to its minimum size.
+		end = start + trace.Timestamp(minSpanWidthD)
+	}
+
+	it.offset = offset
+	it.prevEnd = end
+	startPx = float32(start-tlStart) / nsPerPx
+	endPx = float32(end-tlStart) / nsPerPx
+	return MergedSpans(spans[startOffset:it.offset]), startPx, endPx, true
+}
+
+func (track *ActivityWidgetTrack) Layout(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+	tr := aw.tl.trace
+	trackHeight := gtx.Dp(activityTrackHeightDp)
+	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
+	minSpanWidth := gtx.Dp(minSpanWidthDp)
+
+	track.tooltip = nil
+
+	trackClicked := false
+	for _, e := range gtx.Events(track) {
+		ev := e.(pointer.Event)
+		switch ev.Type {
+		case pointer.Enter, pointer.Move:
+			track.hovered = true
+			track.pointerAt = ev.Position
+		case pointer.Drag:
+			track.pointerAt = ev.Position
+		case pointer.Leave, pointer.Cancel:
+			track.hovered = false
+		case pointer.Press:
+			if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
+				trackClicked = true
+			}
+		}
+	}
+
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+
+	// Draw activity lifetimes
+	//
+	// We batch draw operations by color to avoid making thousands of draw calls. See
+	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
+	//
+	for i := range track.ops {
+		track.ops[i].Reset()
+	}
+	// one path per single-color span and one path per merged+color gradient
+	//
+	//gcassert:noescape
+	paths := [colorStateLast * 2]clip.Path{}
+
+	var outlinesPath clip.Path
+	var highlightPath clip.Path
+	var eventsPath clip.Path
+	outlinesPath.Begin(track.outlinesOps.get())
+	highlightPath.Begin(track.highlightOps.get())
+	eventsPath.Begin(track.eventsOps.get())
+	labelsOps := track.labelsOps.get()
+	labelsMacro := op.Record(labelsOps)
+
+	for i := range paths {
+		paths[i].Begin(&track.ops[i])
+	}
+
+	first := true
+	var prevEndPx float32
+	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
+		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+			if trackClicked {
+				aw.navigatedSpans = dspSpans
+			}
+			aw.hoveredSpans = dspSpans
+		}
+
+		var cs [2]colorIndex
+		if track.spanColor != nil {
+			cs = track.spanColor(aw, dspSpans)
+		} else {
+			cs = defaultSpanColor(aw, dspSpans)
+		}
+
+		if cs[1] != 0 && cs[1] != colorStateMerged {
+			panic(fmt.Sprintf("two-color spans are only supported with color₁ == colorStateMerged, got %v", cs))
+		}
+
+		var minP f32.Point
+		var maxP f32.Point
+		minP = f32.Pt((max(startPx, 0)), 0)
+		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(trackHeight))
+
+		// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
+		//
+		// OPT(dh): for activities that have no gaps between any of the spans this can be drawn as a single rectangle
+		// covering all spans.
+		outlinesPath.MoveTo(minP)
+		outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		outlinesPath.LineTo(maxP)
+		outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		outlinesPath.Close()
+
+		if first && startPx < 0 {
+			// Never draw a left border for spans truncated spans
+		} else if !first && startPx == prevEndPx {
+			// Don't draw left border if it'd touch a right border
+		} else {
+			minP.X += float32(spanBorderWidth)
+		}
+		prevEndPx = endPx
+
+		minP.Y += float32(spanBorderWidth)
+		if endPx <= float32(gtx.Constraints.Max.X) {
+			maxP.X -= float32(spanBorderWidth)
+		}
+		maxP.Y -= float32(spanBorderWidth)
+
+		pathID := cs[0]
+		if cs[1] != 0 {
+			pathID += colorStateLast
+		}
+		p := &paths[pathID]
+		p.MoveTo(minP)
+		p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+		p.LineTo(maxP)
+		p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+		p.Close()
+
+		var spanTooltipState SpanTooltipState
+		if aw.tl.activity.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+			events := dspSpans.Events(track.events, tr)
+
+			spanTooltipState = SpanTooltipState{
+				spans:  dspSpans,
+				events: events,
+			}
+		}
+
+		dotRadiusX := float32(gtx.Dp(4))
+		dotRadiusY := float32(gtx.Dp(3))
+		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
+			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
+			// zoom in, causing dots to disappear and reappearappear and disappear.
+			events := dspSpans[0].Events(track.events, tr)
+
+			dotGap := float32(gtx.Dp(4))
+			centerY := float32(trackHeight) / 2
+
+			for i := 0; i < len(events); i++ {
+				ev := events[i]
+				px := aw.tl.tsToPx(tr.Event(ev).Ts)
+
+				if px+dotRadiusX < minP.X {
+					continue
+				}
+				if px-dotRadiusX > maxP.X {
+					break
+				}
+
+				start := px
+				end := px
+				oldi := i
+				for i = i + 1; i < len(events); i++ {
+					ev := events[i]
+					px := aw.tl.tsToPx(tr.Event(ev).Ts)
+					if px < end+dotRadiusX*2+dotGap {
+						end = px
+					} else {
+						break
+					}
+				}
+				i--
+
+				if minP.X != 0 && start-dotRadiusX < minP.X {
+					start = minP.X + dotRadiusX
+				}
+				if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
+					end = maxP.X - dotRadiusX
+				}
+
+				minX := start - dotRadiusX
+				minY := centerY - dotRadiusY
+				maxX := end + dotRadiusX
+				maxY := centerY + dotRadiusY
+
+				eventsPath.MoveTo(f32.Pt(minX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, maxY))
+				eventsPath.LineTo(f32.Pt(minX, maxY))
+				eventsPath.Close()
+
+				if aw.tl.activity.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= minX && track.pointerAt.X < maxX {
+					spanTooltipState.eventsUnderCursor = events[oldi : i+1]
+				}
+			}
+		}
+
+		if spanTooltipState.spans != nil && track.spanTooltip != nil {
+			track.tooltip = func(gtx layout.Context) layout.Dimensions {
+				// OPT(dh): this allocates for the closure
+				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
+				return track.spanTooltip(gtx, aw, spanTooltipState)
+			}
+		}
+
+		if track.highlightSpan != nil && track.highlightSpan(aw, dspSpans) {
+			minP := minP
+			maxP := maxP
+			minP.Y += float32((trackHeight - spanBorderWidth*2) / 2)
+
+			highlightPath.MoveTo(minP)
+			highlightPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			highlightPath.LineTo(maxP)
+			highlightPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			highlightPath.Close()
+		}
+
+		if len(dspSpans) == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
+			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
+			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
+			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
+			// empty string to effectively display no label.
+			//
+			// We don't try to render a label for very small spans.
+			if labels := track.spanLabel(aw, dspSpans); len(labels) > 0 {
+				for i, label := range labels {
+					if label == "" {
+						continue
+					}
+
+					macro := op.Record(labelsOps)
+					dims := mywidget.TextLine{Color: aw.theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), aw.theme.Shaper, text.Font{Weight: text.ExtraBold}, aw.theme.TextSize, label)
+					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
+						// This label doesn't fit. If the callback provided more labels, try those instead.
+						macro.Stop()
+						continue
+					}
+
+					call := macro.Stop()
+					middleOfSpan := startPx + (endPx-startPx)/2
+					left := middleOfSpan - float32(dims.Size.X)/2
+					if left+float32(dims.Size.X) > maxP.X {
+						left = maxP.X - float32(dims.Size.X)
+					}
+					if left < minP.X {
+						left = minP.X
+					}
+					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
+					paint.ColorOp{Color: aw.theme.Palette.Foreground}.Add(labelsOps)
+					stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
+					call.Add(labelsOps)
+					stack2.Pop()
+					stack.Pop()
+					break
+				}
+			}
+		}
+
+		first = false
+	}
+
+	if aw.tl.unchanged() {
+		for _, prevSpans := range track.prevFrame.dspSpans {
+			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
+		}
+	} else {
+		allDspSpans := track.prevFrame.dspSpans[:0]
+		it := renderedSpansIterator{
+			tl:    aw.tl,
+			spans: aw.tl.visibleSpans(track.spans),
+		}
+		for {
+			dspSpans, startPx, endPx, ok := it.next(gtx)
+			if !ok {
+				break
+			}
+			allDspSpans = append(allDspSpans, struct {
+				dspSpans       MergedSpans
+				startPx, endPx float32
+			}{dspSpans, startPx, endPx})
+			doSpans(dspSpans, startPx, endPx)
+		}
+		track.prevFrame.dspSpans = allDspSpans
+	}
+
+	// First draw the outlines. We draw these as solid rectangles and let the spans overlay them.
+	//
+	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
+	// specific instance.
+	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
+
+	// Then draw the spans
+	for cIdx := range paths {
+		p := &paths[cIdx]
+		if cIdx < int(colorStateLast) {
+			paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
+		} else {
+			stack := clip.Outline{Path: p.End()}.Op().Push(gtx.Ops)
+			paint.LinearGradientOp{
+				Stop1:  f32.Pt(0, 10),
+				Color1: colors[cIdx-int(colorStateLast)],
+				Stop2:  f32.Pt(0, 20),
+				Color2: colors[colorStateMerged],
+			}.Add(gtx.Ops)
+			paint.PaintOp{}.Add(gtx.Ops)
+			stack.Pop()
+		}
+	}
+	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: highlightPath.End()}.Op())
+	paint.FillShape(gtx.Ops, rgba(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
+
+	// Finally print labels on top
+	labelsMacro.Stop().Add(gtx.Ops)
+
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, trackHeight)}
+}
+
+type ProcessorTooltip struct {
+	p     *Processor
+	theme *theme.Theme
+	trace *Trace
+}
+
+func (tt ProcessorTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	// OPT(dh): compute statistics once, not on every frame
+
+	tr := tt.trace
+	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
+
+	var userD, gcD time.Duration
+	for i := range tt.p.spans {
+		s := &tt.p.spans[i]
+		d := tr.Duration(s)
+
+		ev := tr.Events[s.event()]
+		switch ev.Type {
+		case trace.EvGoStart:
+			userD += d
+		case trace.EvGoStartLabel:
+			gcD += d
+		default:
+			panic(fmt.Sprintf("unexepcted event type %d", ev.Type))
+		}
+	}
+
+	userPct := float32(userD) / float32(d) * 100
+	gcPct := float32(gcD) / float32(d) * 100
+	inactiveD := d - userD - gcD
+	inactivePct := float32(inactiveD) / float32(d) * 100
+
+	l := local.Sprintf(
+		"Processor %[1]d\n"+
+			"Spans: %[2]d\n"+
+			"Time running user code: %[3]s (%.2[4]f%%)\n"+
+			"Time running GC workers: %[5]s (%.2[6]f%%)\n"+
+			"Time inactive: %[7]s (%.2[8]f%%)",
+		tt.p.id,
+		len(tt.p.spans),
+		userD, userPct,
+		gcD, gcPct,
+		inactiveD, inactivePct,
+	)
+
+	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
+}
+
+func processorSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
+	tr := aw.tl.trace
+	var label string
+	if len(state.spans) == 1 {
+		s := &state.spans[0]
+		ev := tr.Event(s.event())
+		if s.state != stateRunningG {
+			panic(fmt.Sprintf("unexpected state %d", s.state))
+		}
+		g := aw.tl.trace.getG(ev.G)
+		label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.function)
+	} else {
+		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+	}
+	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
+	return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+}
+
+func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWidget {
+	tr := tl.trace
+	return &ActivityWidget{
+		tracks: []ActivityWidgetTrack{{
+			spans: p.spans,
+			highlightSpan: func(aw *ActivityWidget, spans MergedSpans) bool {
+				if len(tl.activity.hoveredSpans) != 1 {
+					return false
+				}
+				// OPT(dh): don't be O(n)
+				o := &tl.activity.hoveredSpans[0]
+				for i := range spans {
+					if tr.Event(spans[i].event()).G == tr.Event(o.event()).G {
+						return true
+					}
+				}
+				return false
+			},
+			spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
+				if len(spans) != 1 {
+					return nil
+				}
+				// OPT(dh): cache the strings
+				out := make([]string, 3)
+				g := aw.tl.gs[tr.Event(spans[0].event()).G]
+				if g.function != "" {
+					short := shortenFunctionName(g.function)
+					out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
+					if short != g.function {
+						out[1] = fmt.Sprintf("g%d: .%s", g.id, short)
+						out[2] = fmt.Sprintf("g%d", g.id)
+					} else {
+						// This branch is probably impossible; all functions should be fully qualified.
+						out[1] = fmt.Sprintf("g%d", g.id)
+					}
+				} else {
+					out[0] = fmt.Sprintf("g%d", g.id)
+				}
+				return out
+
+			},
+			spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
+				do := func(aw *ActivityWidget, s Span) colorIndex {
+					gid := aw.tl.trace.Events[s.event()].G
+					g := aw.tl.trace.getG(gid)
+					switch fn := g.function; fn {
+					case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
+						return colorStateGC
+					default:
+						// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
+						return stateColors[s.state]
+					}
+				}
+
+				if len(spans) == 1 {
+					return [2]colorIndex{do(aw, spans[0]), 0}
+				} else {
+					c := do(aw, spans[0])
+					for _, s := range spans[1:] {
+						cc := do(aw, s)
+						if cc != c {
+							return [2]colorIndex{colorStateMerged, 0}
+						}
+					}
+					return [2]colorIndex{c, colorStateMerged}
+				}
+			},
+			spanTooltip: processorSpanTooltip,
+		}},
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return ProcessorTooltip{p, th, tl.trace}.Layout(gtx)
+		},
+		invalidateCache: func(aw *ActivityWidget) bool {
+			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
+				// Nothing hovered in either frame.
+				return false
+			}
+
+			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.activity.hoveredSpans) > 1 {
+				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
+				// frames, then nothing changes for rendering.
+				return false
+			}
+
+			if len(tl.prevFrame.hoveredSpans) != len(tl.activity.hoveredSpans) {
+				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
+				// previously highlighted.
+				//
+				// The number of hovered spans changed, and at least in one frame the number was 1.
+				return true
+			}
+
+			// If we got to this point, then both slices have exactly one element.
+			if tr.Event(tl.prevFrame.hoveredSpans[0].event()).G != tr.Event(tl.activity.hoveredSpans[0].event()).G {
+				return true
+			}
+
+			return false
+		},
+		tl:    tl,
+		item:  p,
+		label: local.Sprintf("Processor %d", p.id),
+		theme: th,
+	}
+}
+
+type GoroutineTooltip struct {
+	g     *Goroutine
+	theme *theme.Theme
+	trace *Trace
+}
+
+func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
+	tr := tt.trace
+	start := tt.g.spans.Start(tr)
+	end := tt.g.spans.End()
+	d := time.Duration(end - start)
+
+	// OPT(dh): compute these statistics when parsing the trace, instead of on each frame.
+	var blockedD, inactiveD, runningD, gcAssistD time.Duration
+	for i := range tt.g.spans {
+		s := &tt.g.spans[i]
+		d := tr.Duration(s)
+		switch s.state {
+		case stateInactive:
+			inactiveD += d
+		case stateActive, stateGCDedicated, stateGCIdle:
+			runningD += d
+		case stateBlocked:
+			blockedD += d
+		case stateBlockedSend:
+			blockedD += d
+		case stateBlockedRecv:
+			blockedD += d
+		case stateBlockedSelect:
+			blockedD += d
+		case stateBlockedSync:
+			blockedD += d
+		case stateBlockedSyncOnce:
+			blockedD += d
+		case stateBlockedSyncTriggeringGC:
+			blockedD += d
+		case stateBlockedCond:
+			blockedD += d
+		case stateBlockedNet:
+			blockedD += d
+		case stateBlockedGC:
+			blockedD += d
+		case stateBlockedSyscall:
+			blockedD += d
+		case stateStuck:
+			blockedD += d
+		case stateReady:
+			inactiveD += d
+		case stateCreated:
+			inactiveD += d
+		case stateGCMarkAssist:
+			gcAssistD += d
+		case stateGCSweep:
+			gcAssistD += d
+		case stateDone:
+		default:
+			if debug {
+				panic(fmt.Sprintf("unknown state %d", s.state))
+			}
+		}
+	}
+	blockedPct := float32(blockedD) / float32(d) * 100
+	inactivePct := float32(inactiveD) / float32(d) * 100
+	runningPct := float32(runningD) / float32(d) * 100
+	gcAssistPct := float32(gcAssistD) / float32(d) * 100
+	var fnName string
+	line1 := "Goroutine %[1]d\n\n"
+	if tt.g.function != "" {
+		fnName = tt.g.function
+		line1 = "Goroutine %[1]d: %[2]s\n\n"
+	}
+	l := local.Sprintf(line1+
+		"Created at: %[3]s\n"+
+		"Returned at: %[4]s\n"+
+		"Lifetime: %[5]s\n"+
+		"Spans: %[14]d\n"+
+		"Time in blocked states: %[6]s (%.2[7]f%%)\n"+
+		"Time in inactive states: %[8]s (%.2[9]f%%)\n"+
+		"Time in GC assist: %[10]s (%.2[11]f%%)\n"+
+		"Time in running states: %[12]s (%.2[13]f%%)",
+		tt.g.id, fnName,
+		formatTimestamp(start),
+		formatTimestamp(end),
+		d,
+		blockedD, blockedPct,
+		inactiveD, inactivePct,
+		gcAssistD, gcAssistPct,
+		runningD, runningPct,
+		len(tt.g.spans),
+	)
+
+	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
+}
+
+var reasonLabels = [256]string{
+	reasonNewlyCreated: "newly created",
+	reasonGosched:      "called runtime.Gosched",
+	reasonTimeSleep:    "called time.Sleep",
+	reasonPreempted:    "got preempted",
+}
+
+func goroutineSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
+	tr := aw.tl.trace
+	var label string
+	if debug {
+		label += fmt.Sprintf("Event ID: %d\n", state.spans[0].event())
+		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spans[0].event()).Type)
+	}
+	label += "State: "
+	var at string
+	if len(state.spans) == 1 {
+		s := &state.spans[0]
+		ev := tr.Event(s.event())
+		if at == "" && ev.StkID > 0 {
+			at = tr.PCs[tr.Stacks[ev.StkID][s.at]].Fn
+		}
+		switch state := s.state; state {
+		case stateInactive:
+			label += "inactive"
+		case stateActive:
+			label += "active"
+		case stateGCDedicated:
+			label += "GC (dedicated)"
+		case stateGCIdle:
+			label += "GC (idle)"
+		case stateBlocked:
+			label += "blocked"
+		case stateBlockedSend:
+			label += "blocked on channel send"
+		case stateBlockedRecv:
+			label += "blocked on channel recv"
+		case stateBlockedSelect:
+			label += "blocked on select"
+		case stateBlockedSync:
+			label += "blocked on mutex"
+		case stateBlockedSyncOnce:
+			label += "blocked on sync.Once"
+		case stateBlockedSyncTriggeringGC:
+			label += "blocked triggering GC"
+		case stateBlockedCond:
+			label += "blocked on condition variable"
+		case stateBlockedNet:
+			label += "blocked on polled I/O"
+		case stateBlockedGC:
+			label += "GC assist wait"
+		case stateBlockedSyscall:
+			label += "blocked on syscall"
+		case stateStuck:
+			label += "stuck"
+		case stateReady:
+			label += "ready"
+		case stateCreated:
+			label += "ready"
+		case stateGCMarkAssist:
+			label += "GC mark assist"
+		case stateGCSweep:
+			label += "GC sweep"
+			if link := fromUint40(&ev.Link); link != -1 {
+				l := tr.Events[link]
+				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes",
+					l.Args[trace.ArgGCSweepDoneSwept], l.Args[trace.ArgGCSweepDoneReclaimed])
+			}
+		case stateRunningG:
+			g := aw.tl.trace.getG(ev.G)
+			label += local.Sprintf("running goroutine %d", ev.G)
+			label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.function) + label
+		default:
+			if debug {
+				panic(fmt.Sprintf("unhandled state %d", state))
+			}
+		}
+
+		tags := make([]string, 0, 4)
+		if s.tags&spanTagRead != 0 {
+			tags = append(tags, "read")
+		}
+		if s.tags&spanTagAccept != 0 {
+			tags = append(tags, "accept")
+		}
+		if s.tags&spanTagDial != 0 {
+			tags = append(tags, "dial")
+		}
+		if s.tags&spanTagNetwork != 0 {
+			tags = append(tags, "network")
+		}
+		if s.tags&spanTagTCP != 0 {
+			tags = append(tags, "TCP")
+		}
+		if s.tags&spanTagTLS != 0 {
+			tags = append(tags, "TLS")
+		}
+		if s.tags&spanTagHTTP != 0 {
+			tags = append(tags, "HTTP")
+		}
+		if len(tags) != 0 {
+			label += " (" + strings.Join(tags, ", ") + ")"
+		}
+	} else {
+		label += local.Sprintf("mixed (%d spans)", len(state.spans))
+	}
+	label += "\n"
+
+	if len(state.spans) == 1 {
+		if reason := reasonLabels[tr.Reason(&state.spans[0])]; reason != "" {
+			label += "Reason: " + reason + "\n"
+		}
+	}
+
+	if at != "" {
+		// TODO(dh): document what In represents. If possible, it is the last frame in user space that triggered this
+		// state. We try to pattern match away the runtime when it makes sense.
+		label += fmt.Sprintf("In: %s\n", at)
+	}
+
+	label += fmt.Sprintf("Duration: %s\n", state.spans.Duration(tr))
+
+	if len(state.events) > 0 {
+		label += local.Sprintf("Events in span: %d\n", len(state.events))
+	}
+
+	if len(state.eventsUnderCursor) > 0 {
+		kind := tr.Event(state.eventsUnderCursor[0]).Type
+		for _, ev := range state.eventsUnderCursor[1:] {
+			if tr.Event(ev).Type != kind {
+				kind = 255
+				break
+			}
+		}
+		if kind != 255 {
+			var noun string
+			switch kind {
+			case trace.EvGoSysCall:
+				noun = "syscalls"
+				if len(state.eventsUnderCursor) == 1 {
+					stk := tr.Stacks[tr.Event(state.eventsUnderCursor[0]).StkID]
+					if len(stk) != 0 {
+						frame := tr.PCs[stk[0]]
+						noun += fmt.Sprintf(" (%s)", frame.Fn)
+					}
+				}
+			case trace.EvGoCreate:
+				noun = "goroutine creations"
+			case trace.EvGoUnblock:
+				noun = "goroutine unblocks"
+			default:
+				if debug {
+					panic(fmt.Sprintf("unhandled kind %d", kind))
+				}
+			}
+			label += local.Sprintf("Events under cursor: %d %s\n", len(state.eventsUnderCursor), noun)
+		} else {
+			label += local.Sprintf("Events under cursor: %d\n", len(state.eventsUnderCursor))
+		}
+	}
+
+	if n := len(label) - 1; label[n] == '\n' {
+		label = label[:n]
+	}
+
+	return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+}
+
+func userRegionSpanTooltip(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
+	tr := aw.tl.trace
+	var label string
+	if len(state.spans) == 1 {
+		s := &state.spans[0]
+		ev := tr.Event(s.event())
+		if s.state != stateUserRegion {
+			panic(fmt.Sprintf("unexpected state %d", s.state))
+		}
+		if taskID := ev.Args[trace.ArgUserRegionTaskID]; taskID != 0 {
+			label = local.Sprintf("User region: %s\nTask: %s\n",
+				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]], tr.Task(taskID).name)
+		} else {
+			label = local.Sprintf("User region: %s\n",
+				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]])
+		}
+	} else {
+		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+	}
+	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
+	return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+}
+
+var spanStateLabels = [...][]string{
+	stateGCDedicated:             {"GC (dedicated)", "D"},
+	stateGCIdle:                  {"GC (idle)", "I"},
+	stateBlockedCond:             {"sync.Cond"},
+	stateBlockedGC:               {"GC assist wait", "W"},
+	stateBlockedNet:              {"I/O"},
+	stateBlockedRecv:             {"recv"},
+	stateBlockedSelect:           {"select"},
+	stateBlockedSend:             {"send"},
+	stateBlockedSync:             {"sync"},
+	stateBlockedSyncOnce:         {"sync.Once"},
+	stateBlockedSyncTriggeringGC: {"triggering GC", "T"},
+	stateBlockedSyscall:          {"syscall"},
+	stateGCMarkAssist:            {"GC mark assist", "M"},
+	stateGCSweep:                 {"GC sweep", "S"},
+	stateStuck:                   {"stuck"},
+	stateLast:                    nil,
+}
+
+func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWidget {
+	var l string
+	if g.function != "" {
+		l = local.Sprintf("goroutine %d: %s", g.id, g.function)
+	} else {
+		l = local.Sprintf("goroutine %d", g.id)
+	}
+
+	aw := &ActivityWidget{
+		tracks: []ActivityWidgetTrack{{
+			spans:  g.spans,
+			events: g.events,
+			spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
+				if len(spans) != 1 {
+					return nil
+				}
+				return spanStateLabels[spans[0].state]
+			},
+			spanTooltip: goroutineSpanTooltip,
+		}},
+		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
+		},
+		theme: th,
+		tl:    tl,
+		item:  g,
+		label: l,
+	}
+
+	for _, ug := range g.userRegions {
+		aw.tracks = append(aw.tracks, ActivityWidgetTrack{
+			spans: ug,
+			spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
+				if len(spans) != 1 {
+					return nil
+				}
+				// OPT(dh): avoid this allocation
+				s := tl.trace.Strings[tl.trace.Events[spans[0].event()].Args[trace.ArgUserRegionTypeID]]
+				return []string{s}
+			},
+			spanTooltip: userRegionSpanTooltip,
+			spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
+				if len(spans) == 1 {
+					return [2]colorIndex{colorStateUserRegion, 0}
+				} else {
+					return [2]colorIndex{colorStateUserRegion, colorStateMerged}
+				}
+			},
+		})
+	}
+
+	// OPT(dh): try to get rid of this map
+	stacks := map[EventID][]uint64{}
+
+	getFrame := func(sample EventID, depth int) trace.Frame {
+		stk := stacks[sample]
+		pc := stk[len(stk)-depth-1]
+		return tl.trace.PCs[pc]
+	}
+
+	var sampleTracks []ActivityWidgetTrack
+
+	offSpans := 0
+	offSamples := 0
+
+	nextEvent := func(advance bool) (EventID, bool, bool) {
+		if offSpans == len(g.spans) && offSamples == len(g.cpuSamples) {
+			return 0, false, false
+		}
+
+		if offSpans < len(g.spans) {
+			id := g.spans[offSpans].event()
+			if g.spans[offSpans].state == stateActive {
+				ev := tl.trace.Events[g.spans[offSpans].event()]
+				if ev.Type == 12 && ev.StkID != 0 {
+					fmt.Println(ev.Type, ev.StkID)
+				}
+			}
+			if offSamples < len(g.cpuSamples) {
+				oid := g.cpuSamples[offSamples]
+				if id <= oid {
+					if advance {
+						offSpans++
+					}
+					return id, false, true
+				} else {
+					if advance {
+						offSamples++
+					}
+					return oid, true, true
+				}
+			} else {
+				if advance {
+					offSpans++
+				}
+				return id, false, true
+			}
+		} else {
+			id := g.cpuSamples[offSamples]
+			if advance {
+				offSamples++
+			}
+			return id, true, true
+		}
+	}
+
+	var prevStk []uint64
+	for {
+		evID, isSample, ok := nextEvent(true)
+		if !ok {
+			break
+		}
+
+		ev := &tl.trace.Events[evID]
+
+		var stk []uint64
+		// We benefit from primarily two kinds of events (aside from CPU samples): Blocking events (sleeps, selects,
+		// I/O...) as these give us the most accurate stack trace right before a long period of inactivity, covering for
+		// a lack of samples during blockedness, and preemption, as an additional periodic event, similar to sampling.
+		switch ev.Type {
+		case trace.EvGoCreate:
+			// The stack is in the goroutine that created this one
+		case trace.EvGoUnblock:
+			// The stack is in the goroutine that unblocked this one
+		case trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvGCMarkAssistStart, trace.EvGCMarkAssistDone:
+			// These are very short-lived spans that would unfairly represent the time taken by allocations.
+		case trace.EvGoSysBlock:
+			// These are very short-lived spans that would unfairly represent the time taken by syscalls.
+		default:
+			stk = tl.trace.Stacks[ev.StkID]
+		}
+		if stk == nil {
+			// Continue the previous stack trace if this event didn't contain a useful one. This happens both when we
+			// choose to ignore an event, and when an event intrinsically has no stack trace, such as most EvGoStart
+			// events.
+			stk = prevStk
+		}
+
+		if isSample {
+			// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
+			// collected by the runtime tracer.
+			if len(stk) > 0 && tl.trace.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
+				stk = stk[:len(stk)-1]
+			}
+			if len(stk) > 0 && tl.trace.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
+				stk = stk[:len(stk)-1]
+			}
+		}
+
+		if len(stk) > 64 {
+			// Stacks of events have at most 128 frames (actually 126-127 due to a quirk in the runtime's
+			// implementation; it captures 128 frames, but then discards the top frame to skip runtime.goexit, and
+			// discards the next top frame if gid == 1 to skip runtime.main). Stacks of CPU samples, on the other hand,
+			// have at most 64 frames. Always limit ourselves to 64 frames for a consistent result.
+			stk = stk[:64]
+		}
+
+		stacks[evID] = stk
+
+		for i := 0; i < len(stk); i++ {
+			i := i
+
+			if i >= len(sampleTracks) {
+				sampleTracks = append(sampleTracks, ActivityWidgetTrack{
+					// TODO(dh): should we highlight hovered spans that share the same function?
+					kind: ActivityWidgetTrackSampled,
+					spanLabel: func(aw *ActivityWidget, spans MergedSpans) []string {
+						if len(spans) != 1 {
+							return nil
+						}
+						f := getFrame(spans[0].event(), i)
+
+						short := shortenFunctionName(f.Fn)
+
+						if short != f.Fn {
+							return []string{f.Fn, "." + short}
+						} else {
+							// This branch is probably impossible; all functions should be fully qualified.
+							return []string{f.Fn}
+						}
+					},
+					spanColor: func(aw *ActivityWidget, spans MergedSpans) [2]colorIndex {
+						if len(spans) != 1 {
+							return [2]colorIndex{colorStateSample, colorStateMerged}
+						}
+						return [2]colorIndex{colorStateSample, 0}
+					},
+					spanTooltip: func(gtx layout.Context, aw *ActivityWidget, state SpanTooltipState) layout.Dimensions {
+						tr := aw.tl.trace
+						var label string
+						if len(state.spans) == 1 {
+							f := getFrame(state.spans[0].event(), i)
+							label = local.Sprintf("Sampled function: %s\n", f.Fn)
+							// TODO(dh): for truncated stacks we should display a relative depth instead
+							label += local.Sprintf("Call depth: %d\n", i)
+						} else {
+							label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+						}
+						// We round the duration, in addition to saying "up to", to make it more obvious that the
+						// duration is a guess
+						label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
+						return theme.Tooltip{Theme: aw.theme}.Layout(gtx, label)
+					},
+				})
+
+			}
+			track := &sampleTracks[i]
+
+			var end trace.Timestamp
+			if endEvID, _, ok := nextEvent(false); ok {
+				end = tl.trace.Events[endEvID].Ts
+			} else {
+				end = g.spans.End()
+			}
+
+			s := Span{
+				end:    end,
+				event_: packEventID(evID),
+				state:  stateCPUSample,
+			}
+			track.spans = append(track.spans, s)
+		}
+
+		prevStk = stk
+	}
+
+	// Merge consecutive spans for the same sampled function.
+	//
+	// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
+	// data more apparent.
+	for trackIdx := range sampleTracks {
+		track := &sampleTracks[trackIdx]
+		newSpans := track.spans[:1]
+		track.spans = track.spans[1:]
+
+		for len(track.spans) != 0 {
+			prevSpan := &newSpans[len(newSpans)-1]
+			span := track.spans[0]
+
+			// OPT(dh): we don't have to look up prevFrame, we can remember it from the previous loop iteration
+			prevFrame := getFrame(prevSpan.event(), trackIdx)
+			frame := getFrame(span.event(), trackIdx)
+
+			if prevSpan.end == tl.trace.Events[span.event()].Ts && prevFrame.Fn == frame.Fn {
+				prevSpan.end = span.end
+			} else {
+				newSpans = append(newSpans, span)
+			}
+			track.spans = track.spans[1:]
+		}
+
+		track.spans = newSpans
+	}
+
+	aw.tracks = append(aw.tracks, sampleTracks...)
+
+	return aw
+}
+
+func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
+	return &ActivityWidget{
+		tracks: []ActivityWidgetTrack{{spans: spans}},
+		tl:     tl,
+		item:   spans,
+		label:  "GC",
+		theme:  th,
+	}
+}
+
+func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
+	return &ActivityWidget{
+		tracks: []ActivityWidgetTrack{{spans: spans}},
+		tl:     tl,
+		item:   spans,
+		label:  "STW",
+		theme:  th,
+	}
+}
