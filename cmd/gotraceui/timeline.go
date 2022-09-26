@@ -353,7 +353,6 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 }
 
 func (tl *Timeline) visibleSpans(spans Spans) Spans {
-	tr := tl.trace
 	// Visible spans have to end after tl.Start and begin before tl.End
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
@@ -364,7 +363,7 @@ func (tl *Timeline) visibleSpans(spans Spans) Spans {
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return tr.Event(s.event()).Ts >= tl.end
+		return s.start >= tl.end
 	})
 
 	return spans[start:end]
@@ -669,7 +668,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
 			for _, s := range tl.visibleSpans(spans) {
-				start := tl.trace.Events[s.event()].Ts
+				start := s.start
 				end := s.end
 
 				if start < tl.start {

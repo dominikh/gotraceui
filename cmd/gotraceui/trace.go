@@ -176,7 +176,7 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 
 //gcassert:inline
 func (t *Trace) Duration(s *Span) time.Duration {
-	return time.Duration(s.end - t.Event(s.event()).Ts)
+	return time.Duration(s.end - s.start)
 }
 
 func (t *Trace) Task(id uint64) *Task {
@@ -233,7 +233,7 @@ func (ms MergedSpans) Duration(tr *Trace) time.Duration          { return Spans(
 func (ms MergedSpans) Events(all []EventID, tr *Trace) []EventID { return Spans(ms).Events(all, tr) }
 
 func (spans Spans) Start(tr *Trace) trace.Timestamp {
-	return tr.Events[spans[0].event()].Ts
+	return spans[0].start
 }
 
 func (spans Spans) End() trace.Timestamp {
@@ -266,14 +266,13 @@ func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
 
 type Span struct {
 	// The Span type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
-	// collector won't have to scan any memory of our millions of events. It is currently 24 bytes large, with no padding.
+	// collector won't have to scan any memory of our millions of events. It is currently 32 bytes large, with no padding.
 	//
 	// Instead of pointers, fields like pc and event_ are indices into slices. event_ is a uint40, allowing for a total
 	// of 1 trillion events, or 64 TiB worth of events. This size was chosen to eliminate padding.
 
-	// We track the end time, instead of looking at the next span's start time, because per-P timelines can have gaps,
-	// and filling those gaps would probably use more memory than tracking the end time.
-	end trace.Timestamp
+	start trace.Timestamp
+	end   trace.Timestamp
 	// Stack frame this span represents, for sample tracks
 	pc     uint64
 	event_ [5]byte
@@ -303,8 +302,7 @@ func (s *Span) Events(all []EventID, tr *Trace) []EventID {
 		return tr.Event(ev).Ts >= s.end
 	})
 
-	sTs := tr.Event(s.event()).Ts
-
+	sTs := s.start
 	start := sort.Search(len(all[:end]), func(i int) bool {
 		ev := all[i]
 		return tr.Event(ev).Ts >= sTs
@@ -759,11 +757,11 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 			state = stateActive
 
 		case trace.EvGCStart:
-			gc = append(gc, Span{state: stateActive, event_: packEventID(EventID(evID))})
+			gc = append(gc, Span{start: ev.Ts, state: stateActive, event_: packEventID(EventID(evID))})
 			continue
 
 		case trace.EvGCSTWStart:
-			stw = append(stw, Span{state: stateActive, event_: packEventID(EventID(evID))})
+			stw = append(stw, Span{start: ev.Ts, state: stateActive, event_: packEventID(EventID(evID))})
 			continue
 
 		case trace.EvGCDone:
@@ -813,6 +811,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 					end = -1
 				}
 				s := Span{
+					start:  ev.Ts,
 					event_: packEventID(EventID(evID)),
 					state:  stateUserRegion,
 					end:    end,
@@ -869,7 +868,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 			}
 		}
 
-		s := Span{state: state, event_: packEventID(EventID(evID))}
+		s := Span{start: ev.Ts, state: state, event_: packEventID(EventID(evID))}
 		if ev.Type == trace.EvGoSysBlock {
 			if debug && res.Events[s.event()].StkID != 0 {
 				panic("expected zero stack ID")
@@ -882,7 +881,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			p.spans = append(p.spans, Span{state: stateRunningG, event_: packEventID(EventID(evID))})
+			p.spans = append(p.spans, Span{start: ev.Ts, state: stateRunningG, event_: packEventID(EventID(evID))})
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
@@ -899,7 +898,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 		go func() {
 			for i, s := range g.spans {
 				if i != len(g.spans)-1 {
-					s.end = res.Events[g.spans[i+1].event()].Ts
+					s.end = g.spans[i+1].start
 				}
 
 				stack := res.Stacks[res.Events[s.event()].StkID]
@@ -937,7 +936,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 							// OPT(dh): use binary search
 							for _, parent := range g.userRegions[depth-1] {
 								// The first parent user region that ends after our region starts has to be our parent.
-								if parent.end >= res.Events[last.event()].Ts {
+								if parent.end >= last.start {
 									last.end = parent.end
 									break
 								}

@@ -363,7 +363,6 @@ type renderedSpansIterator struct {
 func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans, startPx, endPx float32, ok bool) {
 	offset := it.offset
 	spans := it.spans
-	tr := it.tl.trace
 
 	if offset >= len(spans) {
 		return nil, 0, 0, false
@@ -377,7 +376,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 	s := &spans[offset]
 	offset++
 
-	start := tr.Event(s.event()).Ts
+	start := s.start
 	end := s.end
 	if it.prevEnd > start {
 		// The previous span was extended and grew into this span. This shifts our start position to the right.
@@ -403,7 +402,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 			nextSpan := &spans[offset]
 			// Assume that we stop at this span. Compute the final size and extension. Use that to see
 			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := tr.Event(nextSpan.event()).Ts
+			nextStart := nextSpan.start
 			nextEnd := nextSpan.end
 			if adjustedEnd > nextStart {
 				// The current span would have to grow into the next span, making it smaller
@@ -421,7 +420,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 			nextSpan := &spans[offset]
 			// Check if the next gap or span would be large enough to stand on its own. If so, stop merging at the
 			// current span.
-			nextStart := tr.Event(nextSpan.event()).Ts
+			nextStart := nextSpan.start
 			nextEnd := nextSpan.end
 			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-end) >= minSpanWidthD {
 				// Don't merge spans or gaps that can stand on their own

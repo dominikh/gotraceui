@@ -10,10 +10,9 @@ func computeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []i
 	total := tr.Events[len(tr.Events)-1].Ts
 	buckets := make([]time.Duration, int(math.Ceil(float64(total)/float64(bucketSize))))
 	for _, span := range p.spans {
-		start := tr.Events[span.event()].Ts
-		d := time.Duration(span.end - start)
-		bucket := time.Duration(start) / bucketSize
-		bucketRemainder := bucketSize - (time.Duration(start) % bucketSize)
+		d := time.Duration(span.end - span.start)
+		bucket := time.Duration(span.start) / bucketSize
+		bucketRemainder := bucketSize - (time.Duration(span.start) % bucketSize)
 
 		for d > bucketRemainder {
 			buckets[bucket] += bucketRemainder
