@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -388,46 +389,42 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
 		// previously merged spans becoming visible again when zooming out.
-		for ; offset < len(it.spans); offset++ {
+		for offset < len(spans) {
 			adjustedEnd := end
 			if time.Duration(end-start) < minSpanWidthD {
 				adjustedEnd = start + trace.Timestamp(minSpanWidthD)
+			}
+
+			// For a span to be large enough to stand on its own, it has to end at least minSpanWidthD later than the
+			// current span. Use binary search to find that span. This also finds gaps, because for a gap to be big
+			// enough, it cannot occur between spans that would be too small according to this search.
+			offset = sort.Search(len(spans), func(i int) bool {
+				return spans[i].end >= adjustedEnd+trace.Timestamp(minSpanWidthD)
+			})
+
+			if offset == len(spans) {
+				// We couldn't find a span -> merge all remaining spans
+				offset = len(spans)
+				end = spans[offset-1].end
+				break
 			} else {
-				// Our merged span is long enough now and won't need to be extended anymore. Break out of this loop and
-				// go into a smaller loop that specializes on just collecting tiny spans, avoiding the comparisons
-				// needed for extending.
-				break
-			}
+				prevSpan := &spans[offset-1]
+				candidateSpan := &spans[offset]
 
-			nextSpan := &spans[offset]
-			// Assume that we stop at this span. Compute the final size and extension. Use that to see
-			// if the next span would be large enough to stand on its own. If so, actually do stop at this span.
-			nextStart := nextSpan.start
-			nextEnd := nextSpan.end
-			if adjustedEnd > nextStart {
-				// The current span would have to grow into the next span, making it smaller
-				nextStart = adjustedEnd
+				cStart := candidateSpan.start
+				cEnd := candidateSpan.end
+				prevEnd := prevSpan.end
+				if adjustedEnd > cStart {
+					cStart = adjustedEnd
+				}
+				if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(cStart-prevEnd) >= minSpanWidthD {
+					end = spans[offset-1].end
+					break
+				} else {
+					end = spans[offset].end
+					offset++
+				}
 			}
-			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-adjustedEnd) >= minSpanWidthD {
-				// Don't merge spans or gaps that can stand on their own
-				break
-			}
-
-			end = nextSpan.end
-		}
-
-		for ; offset < len(it.spans); offset++ {
-			nextSpan := &spans[offset]
-			// Check if the next gap or span would be large enough to stand on its own. If so, stop merging at the
-			// current span.
-			nextStart := nextSpan.start
-			nextEnd := nextSpan.end
-			if time.Duration(nextEnd-nextStart) >= minSpanWidthD || time.Duration(nextStart-end) >= minSpanWidthD {
-				// Don't merge spans or gaps that can stand on their own
-				break
-			}
-
-			end = nextSpan.end
 		}
 	}
 
@@ -440,7 +437,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 	it.prevEnd = end
 	startPx = float32(start-tlStart) / nsPerPx
 	endPx = float32(end-tlStart) / nsPerPx
-	return MergedSpans(spans[startOffset:it.offset]), startPx, endPx, true
+	return MergedSpans(spans[startOffset:offset]), startPx, endPx, true
 }
 
 func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layout.Dimensions {
