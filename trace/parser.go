@@ -685,6 +685,9 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 	default:
 		if flags&trackBatches != 0 {
 			batches := p.pState(p.curP).batches
+			if len(batches) == 0 {
+				return fmt.Errorf("read event %d with current P of %d, but P has no batches yet", typ, p.curP)
+			}
 			batches[len(batches)-1].numEvents++
 		}
 
