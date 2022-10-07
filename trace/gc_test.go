@@ -88,7 +88,7 @@ func TestMMUTrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read input file: %v", err)
 	}
-	events, err := Parse(discardReader{bytes.NewReader(data)})
+	events, err := Parse(bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("failed to parse trace: %s", err)
 	}
@@ -130,7 +130,7 @@ func BenchmarkMMU(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to read input file: %v", err)
 	}
-	events, err := Parse(discardReader{bytes.NewReader(data)})
+	events, err := Parse(bytes.NewReader(data))
 	if err != nil {
 		b.Fatalf("failed to parse trace: %s", err)
 	}

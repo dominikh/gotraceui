@@ -6,27 +6,11 @@ package trace
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-type readSeekerReadByter interface {
-	io.Reader
-	io.Seeker
-	ReadByte() (byte, error)
-}
-
-type discardReader struct {
-	readSeekerReadByter
-}
-
-func (r discardReader) Discard(n int) (int, error) {
-	_, err := r.Seek(int64(n), io.SeekCurrent)
-	return n, err
-}
 
 func TestCorruptedInputs(t *testing.T) {
 	// These inputs crashed parser previously.
@@ -41,7 +25,7 @@ func TestCorruptedInputs(t *testing.T) {
 		"go 1.5 trace\x00\x00\x00\x00\xc3\x0200",
 	}
 	for _, data := range tests {
-		res, err := Parse(discardReader{strings.NewReader(data)})
+		res, err := Parse(strings.NewReader(data))
 		if err == nil || res.Events != nil || res.Stacks != nil {
 			t.Fatalf("no error on input: %q", data)
 		}
@@ -66,7 +50,7 @@ func TestParseCanned(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = Parse(discardReader{bytes.NewReader(data)})
+		_, err = Parse(bytes.NewReader(data))
 		switch {
 		case strings.HasSuffix(f.Name(), "_good"):
 			if err != nil {
@@ -110,7 +94,7 @@ func BenchmarkParse(b *testing.B) {
 	for _, data := range datas {
 		b.Run(data.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, err = Parse(discardReader{bytes.NewReader(data.b)})
+				_, err = Parse(bytes.NewReader(data.b))
 				if err != nil {
 					b.Errorf("failed to parse good trace %s: %v", data.name, err)
 				}
