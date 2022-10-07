@@ -139,11 +139,12 @@ var legalStateTransitions = [256][stateLast]bool{
 
 type Trace struct {
 	// OPT(dh): can we get rid of all these pointers?
-	gs    []*Goroutine
-	ps    []*Processor
-	gc    Spans
-	stw   Spans
-	tasks []*Task
+	gs     []*Goroutine
+	gsByID map[uint64]*Goroutine
+	ps     []*Processor
+	gc     Spans
+	stw    Spans
+	tasks  []*Task
 	trace.ParseResult
 }
 
@@ -197,20 +198,15 @@ func (t *Trace) Task(id uint64) *Task {
 }
 
 func (tr *Trace) getG(gid uint64) *Goroutine {
-	idx, found := sort.Find(len(tr.gs), func(idx int) int {
-		ogid := tr.gs[idx].id
-		if gid > ogid {
-			return 1
-		} else if gid == ogid {
-			return 0
-		} else {
-			return -1
-		}
-	})
+	// In a previous version we used binary search over Trace.gs. This didn't scale for traces with a lot of goroutines
+	// because of how often getG has to be called during rendering. For example, for Sean's trace from hell, switching
+	// from binary search to map lookups reduced frame times by 33%.
+
+	g, found := tr.gsByID[gid]
 	if !found {
 		panic(fmt.Sprintf("couldn't find goroutine %d", gid))
 	}
-	return tr.gs[idx]
+	return g
 }
 
 // MergedSpans and Spans have the same functionality. The two different types are used to make APIs easier to read, to
@@ -981,7 +977,15 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 		return a.id < b.id
 	})
 
-	tr := &Trace{gs: gs, ps: ps, gc: gc, stw: stw, tasks: tasks, ParseResult: res}
+	tr := &Trace{
+		gs:          gs,
+		gsByID:      gsByID,
+		ps:          ps,
+		gc:          gc,
+		stw:         stw,
+		tasks:       tasks,
+		ParseResult: res,
+	}
 	for _, g := range tr.gs {
 		g.computeStatistics(tr)
 	}
