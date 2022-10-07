@@ -252,19 +252,21 @@ func (p *Parser) parse() (int, ParseResult, error) {
 		return 0, ParseResult{}, errors.New("no EvFrequency event")
 	}
 
-	// Translate cpu ticks to real time.
-	minTs := events[0].Ts
-	// Use floating point to avoid integer overflows.
-	freq := 1e9 / float64(p.ticksPerSec)
-	for i := range events {
-		ev := &events[i]
-		ev.Ts = Timestamp(float64(ev.Ts-minTs) * freq)
-		// Move timers and syscalls to separate fake Ps.
-		if p.timerGoids[ev.G] && ev.Type == EvGoUnblock {
-			ev.P = TimerP
-		}
-		if ev.Type == EvGoSysExit {
-			ev.P = SyscallP
+	if len(events) > 0 {
+		// Translate cpu ticks to real time.
+		minTs := events[0].Ts
+		// Use floating point to avoid integer overflows.
+		freq := 1e9 / float64(p.ticksPerSec)
+		for i := range events {
+			ev := &events[i]
+			ev.Ts = Timestamp(float64(ev.Ts-minTs) * freq)
+			// Move timers and syscalls to separate fake Ps.
+			if p.timerGoids[ev.G] && ev.Type == EvGoUnblock {
+				ev.P = TimerP
+			}
+			if ev.Type == EvGoSysExit {
+				ev.P = SyscallP
+			}
 		}
 	}
 
