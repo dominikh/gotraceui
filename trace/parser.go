@@ -508,6 +508,9 @@ func (p *Parser) indexAndPartiallyParse() error {
 
 			argOffset := 1
 			narg := argNum(&raw)
+			if len(raw.args) != narg {
+				return fmt.Errorf("CPU sample has wrong number of arguments: want %d, got %d", narg, len(raw.args))
+			}
 			for i := argOffset; i < narg; i++ {
 				if i == narg-1 {
 					e.StkID = uint32(raw.args[i])
