@@ -32,38 +32,32 @@ func TestCorruptedInputs(t *testing.T) {
 	}
 }
 
-func TestParseCanned(t *testing.T) {
+func FuzzParse(f *testing.F) {
+	// Seed with our existing, pre-fuzzing testdata.
 	files, err := os.ReadDir("./testdata")
 	if err != nil {
-		t.Fatalf("failed to read ./testdata: %v", err)
+		f.Fatalf("failed to read ./testdata: %v", err)
 	}
-	for _, f := range files {
-		info, err := f.Info()
+	for _, fi := range files {
+		info, err := fi.Info()
 		if err != nil {
-			t.Fatal(err)
+			f.Fatal(err)
 		}
-		if testing.Short() && info.Size() > 10000 {
+		if info.IsDir() {
 			continue
 		}
-		name := filepath.Join("./testdata", f.Name())
+		name := filepath.Join("./testdata", fi.Name())
 		data, err := os.ReadFile(name)
 		if err != nil {
-			t.Fatal(err)
+			f.Fatal(err)
 		}
-		_, err = Parse(bytes.NewReader(data))
-		switch {
-		case strings.HasSuffix(f.Name(), "_good"):
-			if err != nil {
-				t.Errorf("failed to parse good trace %v: %v", f.Name(), err)
-			}
-		case strings.HasSuffix(f.Name(), "_unordered"):
-			if err != ErrTimeOrder {
-				t.Errorf("unordered trace is not detected %v: %v", f.Name(), err)
-			}
-		default:
-			t.Errorf("unknown input file suffix: %v", f.Name())
-		}
+		f.Add(data)
 	}
+
+	f.Fuzz(func(t *testing.T, in []byte) {
+		// Trivial test that makes sure parsing terminates without crashing.
+		Parse(bytes.NewReader(in))
+	})
 }
 
 func BenchmarkParse(b *testing.B) {
