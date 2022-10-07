@@ -390,6 +390,13 @@ func (p *Parser) parseRest() ([]Event, error) {
 
 			ev := &proc.events[0]
 			g, init, _ := stateTransition(ev)
+
+			// TODO(dh): This implementation matches the behavior of the upstream 'go tool trace', and works in
+			// practice, but has run into the following inconsistency during fuzzing: what happens if multiple Ps have
+			// events for the same G? While building the frontier we will check all of the events against the current
+			// state of the G. However, when we process the frontier, the state of the G changes, and a transition that
+			// was valid while building the frontier may no longer be valid when processing the frontier. Is this
+			// something that can happen for real, valid traces, or is this only possible with corrupt data?
 			if !transitionReady(g, gs[g], init) {
 				continue
 			}
@@ -428,7 +435,9 @@ func (p *Parser) parseRest() ([]Event, error) {
 		}
 		events = append(events, f.ev)
 
-		transition(gs, g, init, next)
+		if err := transition(gs, g, init, next); err != nil {
+			return nil, err
+		}
 		availableProcs = append(availableProcs, f.proc)
 	}
 

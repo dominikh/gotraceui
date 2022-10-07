@@ -2,6 +2,8 @@
 
 package trace
 
+import "errors"
+
 type orderEvent struct {
 	ev   Event
 	proc *proc
@@ -96,13 +98,15 @@ func transitionReady(g uint64, curr, init gState) bool {
 	return g == unordered || (init.seq == noseq || init.seq == curr.seq) && init.status == curr.status
 }
 
-func transition(gs map[uint64]gState, g uint64, init, next gState) {
+func transition(gs map[uint64]gState, g uint64, init, next gState) error {
 	if g == unordered {
-		return
+		return nil
 	}
 	curr := gs[g]
 	if !transitionReady(g, curr, init) {
-		panic("event sequences are broken")
+		// See comment near the call to transition, where we're building the frontier, for details on how this could
+		// possibly happen.
+		return errors.New("encountered impossible goroutine state transition")
 	}
 	switch next.seq {
 	case noseq:
@@ -111,6 +115,7 @@ func transition(gs map[uint64]gState, g uint64, init, next gState) {
 		next.seq = curr.seq + 1
 	}
 	gs[g] = next
+	return nil
 }
 
 type orderEventList []orderEvent
