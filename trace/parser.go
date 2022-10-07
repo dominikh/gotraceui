@@ -711,6 +711,12 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				return fmt.Errorf("failed to read event %d argument: %w", typ, errMalformedVarint)
 			}
 
+			if limit := uint64(2048); v > limit {
+				// At the time of Go 1.19, v seems to be at most 128. Set 2048 as a generous upper limit and guard
+				// against malformed traces.
+				return fmt.Errorf("failed to read event %d argument: length-prefixed argument too big: %d bytes, limit is %d", typ, v, limit)
+			}
+
 			if flags&skipArgs == 0 || typ == EvCPUSample {
 				buf := p.bigArgsBuf
 				if uint64(cap(buf)) >= v {
