@@ -170,11 +170,15 @@ func (p *Parser) pState(pid int32) *pState {
 }
 
 //gcassert:inline
-func (p *Parser) discard(n int) bool {
-	if p.off+n > len(p.data) {
+func (p *Parser) discard(n uint64) bool {
+	if n > math.MaxInt {
 		return false
 	}
-	p.off += n
+	if noff := p.off + int(n); noff < p.off || noff > len(p.data) {
+		return false
+	} else {
+		p.off = noff
+	}
 	return true
 }
 
@@ -611,7 +615,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			if !ok {
 				return errMalformedVarint
 			}
-			if !p.discard(int(ln)) {
+			if !p.discard(ln) {
 				return fmt.Errorf("failed to read trace: %w", io.EOF)
 			}
 		} else {
@@ -747,7 +751,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 				}
 			} else {
 				// Skip over arguments
-				if !p.discard(int(v)) {
+				if !p.discard(v) {
 					return fmt.Errorf("failed to read trace: %w", io.EOF)
 				}
 			}
@@ -766,7 +770,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 					if !ok {
 						return errMalformedVarint
 					}
-					if !p.discard(int(v)) {
+					if !p.discard(v) {
 						return io.EOF
 					}
 				}
