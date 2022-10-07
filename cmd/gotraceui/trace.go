@@ -175,6 +175,7 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 	return &t.Events[ev]
 }
 
+// TODO(dh): remove this method. This was useful when Span didn't have a start field, but now it does. Move the method to Span.
 //gcassert:inline
 func (t *Trace) Duration(s *Span) time.Duration {
 	return time.Duration(s.end - s.start)

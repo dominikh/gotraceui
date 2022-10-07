@@ -662,6 +662,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 					}
 
 					macro := op.Record(labelsOps)
+					// OPT(dh): cache mapping from label to size. probably put a size limit on the cache, in case users generate millions of unique labels
 					dims := mywidget.TextLine{Color: tl.theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), tl.theme.Shaper, text.Font{Weight: text.ExtraBold}, tl.theme.TextSize, label)
 					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
 						// This label doesn't fit. If the callback provided more labels, try those instead.
@@ -878,6 +879,8 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 						} else {
 							c := do(spans[0], tr)
 							for _, s := range spans[1:] {
+								// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
+								// with the same color.
 								cc := do(s, tr)
 								if cc != c {
 									return [2]colorIndex{colorStateMerged, 0}
