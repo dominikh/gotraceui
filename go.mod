@@ -3,8 +3,8 @@ module honnef.co/go/gotraceui
 go 1.18
 
 require (
-	gioui.org v0.0.0-20220916140605-b1dba5f27dd1
-	gioui.org/x v0.0.0-20220916200925-8fad0626e912
+	gioui.org v0.0.0-20221004231135-80196f3c3ed3
+	gioui.org/x v0.0.0-20220919203322-ce11c01a7117
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 	golang.org/x/image v0.0.0-20220722155232-062f8c9fd539
 	golang.org/x/text v0.3.7
