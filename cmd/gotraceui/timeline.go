@@ -435,6 +435,19 @@ func easeInQuart(progress float64) float64 {
 	return progress * progress * progress * progress
 }
 
+// height returns the sum of the heights of all visible activities.
+func (tl *Timeline) height(gtx layout.Context) int {
+	// OPT(dh): cache this computation
+
+	var total int
+	activityGap := gtx.Dp(activityGapDp)
+	for _, aw := range tl.activities {
+		total += aw.Height(gtx)
+		total += activityGap
+	}
+	return total
+}
+
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 	tl.tooltip = nil
 
@@ -608,7 +621,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
 
 		{
-			activityGap := gtx.Dp(activityGapDp)
 			// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 			d := tl.scrollbar.ScrollDistance()
 			if d != 0 {
@@ -617,11 +629,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				// delta to tl.y can leave it in a different position than where the user clicked.
 				tl.cancelNavigation()
 			}
-			var totalHeight int
-			for _, aw := range tl.activities {
-				// OPT(dh): cache this value
-				totalHeight += activityGap + aw.Height(gtx)
-			}
+			totalHeight := tl.height(gtx)
 			tl.y += int(round32(d * float32(totalHeight)))
 			if tl.y < 0 {
 				tl.y = 0
@@ -754,11 +762,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		activityGap := gtx.Dp(activityGapDp)
 
-		var totalHeight int
-		for _, aw := range tl.activities {
-			// OPT(dh): cache this value
-			totalHeight += aw.Height(gtx) + activityGap
-		}
+		totalHeight := tl.height(gtx)
 		if len(tl.activities) > 0 {
 			// Allow scrolling past the last goroutine
 			totalHeight += tl.activities[len(tl.activities)-1].Height(gtx) + activityGap
