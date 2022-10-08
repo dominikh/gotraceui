@@ -78,7 +78,8 @@ type Timeline struct {
 	end   trace.Timestamp
 	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.y specifies the y of that infinite
 	// canvas that the activity section's y == 0 is displaying.
-	y int
+	y            int
+	cachedHeight int
 
 	animateTo struct {
 		animating bool
@@ -437,7 +438,11 @@ func easeInQuart(progress float64) float64 {
 
 // height returns the sum of the heights of all visible activities.
 func (tl *Timeline) height(gtx layout.Context) int {
-	// OPT(dh): cache this computation
+	if tl.prevFrame.compact == tl.activity.compact &&
+		tl.prevFrame.displaySampleTracks == tl.activity.displaySampleTracks &&
+		tl.cachedHeight != 0 {
+		return tl.cachedHeight
+	}
 
 	var total int
 	activityGap := gtx.Dp(activityGapDp)
@@ -445,6 +450,7 @@ func (tl *Timeline) height(gtx layout.Context) int {
 		total += aw.Height(gtx)
 		total += activityGap
 	}
+	tl.cachedHeight = total
 	return total
 }
 
