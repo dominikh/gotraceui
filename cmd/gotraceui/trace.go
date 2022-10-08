@@ -230,10 +230,16 @@ func (ms MergedSpans) Duration(tr *Trace) time.Duration          { return Spans(
 func (ms MergedSpans) Events(all []EventID, tr *Trace) []EventID { return Spans(ms).Events(all, tr) }
 
 func (spans Spans) Start(tr *Trace) trace.Timestamp {
+	if len(spans) == 0 {
+		return 0
+	}
 	return spans[0].start
 }
 
 func (spans Spans) End() trace.Timestamp {
+	if len(spans) == 0 {
+		return 0
+	}
 	return spans[len(spans)-1].end
 }
 
