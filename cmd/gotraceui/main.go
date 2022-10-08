@@ -761,7 +761,13 @@ func main() {
 	errs := make(chan error)
 	go func() {
 		mwin.SetState("loadingTrace")
-		t, err := loadTrace(flag.Args()[0], mwin)
+		f, err := os.Open(flag.Args()[0])
+		if err != nil {
+			mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
+			return
+		}
+		defer f.Close()
+		t, err := loadTrace(f, mwin)
 		if memprofileLoad != "" {
 			writeMemprofile(memprofileLoad)
 		}

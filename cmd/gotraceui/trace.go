@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"runtime"
 	"sort"
 	"strings"
@@ -462,7 +462,12 @@ type Task struct {
 	event EventID
 }
 
-func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
+type setProgresser interface {
+	SetProgress(float32)
+	SetProgressLossy(float32)
+}
+
+func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	const ourStages = 1
 	const totalStages = trace.Stages + ourStages
 
@@ -472,11 +477,6 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 	var stw Spans
 	var tasks []*Task
 
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-
 	p, err := trace.NewParser(f)
 	if err != nil {
 		return nil, err
@@ -485,7 +485,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 		progress := (float32(cur) / float32(total)) / totalStages
 		progress += (1.0 / totalStages) * float32(stage)
 
-		mwin.SetProgress(progress)
+		progresser.SetProgress(progress)
 	}
 	res, err := p.Parse()
 	if err != nil {
@@ -574,7 +574,7 @@ func loadTrace(path string, mwin *MainWindow) (*Trace, error) {
 	for evID := range res.Events {
 		ev := &res.Events[evID]
 		if evID%10000 == 0 {
-			mwin.SetProgressLossy(((1.0 / totalStages) * (trace.Stages + 0)) + (float32(evID)/float32(len(res.Events)))/totalStages)
+			progresser.SetProgressLossy(((1.0 / totalStages) * (trace.Stages + 0)) + (float32(evID)/float32(len(res.Events)))/totalStages)
 		}
 		var gid uint64
 		var state schedulingState
