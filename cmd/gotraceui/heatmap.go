@@ -193,6 +193,9 @@ func (hm *Heatmap) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions
 		m := op.Record(&hm.cachedOps)
 
 		stack := clip.Rect{Max: dims}.Push(&hm.cachedOps)
+		// Use a white background, instead of the yellowish one we use everywhere else, to improve contrast and
+		// legibility.
+		paint.Fill(&hm.cachedOps, rgba(0xFFFFFFFF))
 		pointer.InputOp{Tag: hm, Types: pointer.Move}.Add(&hm.cachedOps)
 
 		max := 0
@@ -244,19 +247,14 @@ func (hm *Heatmap) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions
 		}
 
 		for i := range paths {
-			// TODO(dh): we shouldn't assume that the background color is (60, 0.082, 1), it might be configurable in the future.
-			//
-			// Our background color isn't pure white, it has a yellowish tint. If we just took our heatmap's color and
-			// changed the saturation, then lighter values would look increasingly off. Instead, we interpolate between
-			// both the hue (60 to 0, yellow to red) and the saturation (0.08 to 1).
-			f := float32(i) / 255
-			// Red is 0°, yellow is 60°. The fuller the bucket, the redder the value, so interpolate from 60 to 0.
-			h := lerp(60, 0, f)
-			// The fuller the bucket, the more saturated the color. Interpolate from 0.082 to 1, where 0.082 is the
-			// saturation of our yellowish background color.
-			s := lerp(0.082, 1, f)
-
-			c := hsvToRgb(h, s, 1)
+			// We use a very simple color palette for our heatmap: 0 is white, max value is pure red, other values
+			// are red with a lower saturation. We used to use our yellowish background color, where 0 was yellowish,
+			// max value was pure red, and other values interpolated the hue between red–yellow and the saturation
+			// between the background's saturation and 1. This was artistically pleasing, but had greatly reduced
+			// legibility, both because of the reduced contrast and because the perceived intensity of the (hue,
+			// saturation) pair wasn't intuitive.
+			m := uint8(255 - i)
+			c := color.NRGBA{0xFF, m, m, 0xFF}
 			paint.FillShape(&hm.cachedOps, c, clip.Outline{Path: paths[i].End()}.Op())
 		}
 
@@ -302,37 +300,6 @@ func (hm *Heatmap) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions
 
 func lerp(start, end, ratio float32) float32 {
 	return (1-ratio)*start + ratio*end
-}
-
-func hsvToRgb(h float32, s float32, v float32) color.NRGBA {
-	c := v * s
-	h_ := h / 60
-	x := c * (1 - float32(math.Abs(math.Mod(float64(h_), 2)-1)))
-
-	var r, g, b float32
-	switch int(h_) % 6 {
-	case 0:
-		r, g, b = c, x, 0
-	case 1:
-		r, g, b = x, c, 0
-	case 2:
-		r, g, b = 0, c, x
-	case 3:
-		r, g, b = 0, x, c
-	case 4:
-		r, g, b = x, 0, c
-	case 5:
-		r, g, b = c, 0, x
-	default:
-		panic("unreachable")
-	}
-
-	m := v - c
-	r += m
-	g += m
-	b += m
-
-	return color.NRGBA{uint8(round(r * 255)), uint8(round(g * 255)), uint8(round(b * 255)), 0xFF}
 }
 
 func round(x float32) float32 {
