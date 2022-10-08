@@ -480,7 +480,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 					for _, ev := range gtx.Events(&shortcuts) {
 						switch ev := ev.(type) {
 						case key.Event:
-							if ev.State == key.Press {
+							if ev.State == key.Press && w.ww == nil {
 								switch ev.Name {
 								case "G":
 									w.ww = theme.NewListWindow[*Goroutine](w.theme)
