@@ -620,15 +620,15 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
 
-		{
+		if d := tl.scrollbar.ScrollDistance(); d != 0 {
+			// TODO(dh): because scroll amounts are relative even when the user clicks on a specific spot on the
+			// scrollbar, and because we've already executed this frame's navigation animation step, applying the
+			// delta to tl.y can leave it in a different position than where the user clicked.
+			//
 			// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
-			d := tl.scrollbar.ScrollDistance()
-			if d != 0 {
-				// TODO(dh): because scroll amounts are relative even when the user clicks on a specific spot on the
-				// scrollbar, and because we've already executed this frame's navigation animation step, applying the
-				// delta to tl.y can leave it in a different position than where the user clicked.
-				tl.cancelNavigation()
-			}
+
+			tl.cancelNavigation()
+
 			totalHeight := tl.height(gtx)
 			tl.y += int(round32(d * float32(totalHeight)))
 			if tl.y < 0 {
