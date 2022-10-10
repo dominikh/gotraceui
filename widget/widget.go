@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
@@ -62,4 +63,18 @@ func (tl TextLine) Layout(gtx layout.Context, shaper text.Shaper, font text.Font
 	gtx.Constraints.Max.X = math.MaxInt
 	paint.ColorOp{Color: tl.Color}.Add(gtx.Ops)
 	return widget.Label{}.Layout(gtx, shaper, font, size, label)
+}
+
+type Background struct {
+	Color color.NRGBA
+}
+
+func (b Background) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	macro := op.Record(gtx.Ops)
+	dims := w(gtx)
+	call := macro.Stop()
+
+	paint.FillShape(gtx.Ops, b.Color, clip.Rect{Max: dims.Size}.Op())
+	call.Add(gtx.Ops)
+	return dims
 }

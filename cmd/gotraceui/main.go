@@ -382,7 +382,109 @@ func (mwin *MainWindow) OpenLink(l Link) {
 	}
 }
 
+type ToggleLable struct {
+	// LabelTrue = "Disable compact display"
+	LabelTrue, LabelFalse string
+	Value                 *bool
+}
+
+func ToggleLabel(t, f string, b *bool) func() string {
+	return func() string {
+		if *b {
+			return t
+		} else {
+			return f
+		}
+	}
+}
+func PlainLabel(s string) func() string { return func() string { return s } }
+
+type MainMenu struct {
+	File struct {
+		OpenTrace theme.MenuItem
+		Quit      theme.MenuItem
+	}
+
+	Display struct {
+		UndoNavigation       theme.MenuItem
+		ScrollToTop          theme.MenuItem
+		ZoomToFit            theme.MenuItem
+		JumpToBeginning      theme.MenuItem
+		ToggleCompactDisplay theme.MenuItem
+		ToggleActivityLabels theme.MenuItem
+		ToggleSampleTracks   theme.MenuItem
+	}
+
+	Analyze struct {
+		OpenHeatmap theme.MenuItem
+	}
+
+	menu *theme.Menu
+}
+
+func NewMainMenu(w *MainWindow) *MainMenu {
+	m := &MainMenu{}
+
+	m.File.OpenTrace = theme.MenuItem{Theme: w.theme, Shortcut: "Ctrl+O", Disabled: true, Label: PlainLabel("Open trace")}
+	m.File.Quit = theme.MenuItem{Theme: w.theme, Label: PlainLabel("Quit")}
+
+	m.Display.UndoNavigation = theme.MenuItem{Theme: w.theme, Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation")}
+	m.Display.ScrollToTop = theme.MenuItem{Theme: w.theme, Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list")}
+	m.Display.ZoomToFit = theme.MenuItem{Theme: w.theme, Shortcut: "Ctrl+Home", Label: PlainLabel("Zoom to fit visible activities")}
+	m.Display.JumpToBeginning = theme.MenuItem{Theme: w.theme, Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline")}
+	m.Display.ToggleCompactDisplay = theme.MenuItem{Theme: w.theme, Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact)}
+	m.Display.ToggleActivityLabels = theme.MenuItem{Theme: w.theme, Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels)}
+	m.Display.ToggleSampleTracks = theme.MenuItem{Theme: w.theme, Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks)}
+
+	m.Analyze.OpenHeatmap = theme.MenuItem{Theme: w.theme, Shortcut: "H", Label: PlainLabel("Open P utilization heatmap")}
+
+	m.menu = &theme.Menu{
+		Theme: w.theme,
+		Groups: []theme.MenuGroup{
+			{
+				Label: "File",
+				Items: []layout.Widget{
+					m.File.OpenTrace.Layout,
+
+					theme.MenuDivider{}.Layout,
+
+					m.File.Quit.Layout,
+				},
+			},
+			{
+				Label: "Display",
+				Items: []layout.Widget{
+					// TODO(dh): disable Undo menu item when there are no more undo steps
+					m.Display.UndoNavigation.Layout,
+
+					theme.MenuDivider{}.Layout,
+
+					m.Display.ScrollToTop.Layout,
+					m.Display.ZoomToFit.Layout,
+					m.Display.JumpToBeginning.Layout,
+
+					theme.MenuDivider{}.Layout,
+
+					m.Display.ToggleCompactDisplay.Layout,
+					m.Display.ToggleActivityLabels.Layout,
+					m.Display.ToggleSampleTracks.Layout,
+					// TODO(dh): add items for STW and GC overlays
+					// TODO(dh): add item for tooltip display
+				},
+			},
+			{
+				Label: "Analyze",
+				Items: []layout.Widget{
+					m.Analyze.OpenHeatmap.Layout,
+				},
+			},
+		},
+	}
+	return m
+}
+
 func (w *MainWindow) Run(win *app.Window) error {
+	mainMenu := NewMainMenu(w)
 	w.win = win
 
 	profileTag := new(int)
@@ -494,6 +596,43 @@ func (w *MainWindow) Run(win *app.Window) error {
 						}
 					}
 
+					if mainMenu.File.Quit.Clicked() {
+						mainMenu.menu.Close()
+						os.Exit(0)
+					}
+					if mainMenu.Display.UndoNavigation.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.UndoNavigation(gtx)
+					}
+					if mainMenu.Display.ScrollToTop.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.ScrollToTop(gtx)
+					}
+					if mainMenu.Display.ZoomToFit.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.ZoomToFitCurrentView(gtx)
+					}
+					if mainMenu.Display.JumpToBeginning.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.JumpToBeginning(gtx)
+					}
+					if mainMenu.Display.ToggleCompactDisplay.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.ToggleCompactDisplay()
+					}
+					if mainMenu.Display.ToggleActivityLabels.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.ToggleActivityLabels()
+					}
+					if mainMenu.Display.ToggleSampleTracks.Clicked() {
+						mainMenu.menu.Close()
+						w.tl.ToggleSampleTracks()
+					}
+					if mainMenu.Analyze.OpenHeatmap.Clicked() {
+						mainMenu.menu.Close()
+						w.openHeatmap()
+					}
+
 					for _, g := range w.tl.clickedGoroutineActivities {
 						w.openGoroutineWindow(g)
 					}
@@ -524,7 +663,8 @@ func (w *MainWindow) Run(win *app.Window) error {
 						}
 					}
 
-					w.tl.Layout(gtx)
+					// XXX for some reason having the menu in the flex breaks resizing of the window
+					layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(mainMenu.menu.Layout), layout.Rigid(w.tl.Layout))
 
 					if cpuprofile != "" {
 						op.InvalidateOp{}.Add(&ops)

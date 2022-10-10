@@ -165,7 +165,7 @@ func (tl *Timeline) rememberLocation() {
 	}
 }
 
-func (tl *Timeline) navigateToChecks(gtx layout.Context, start, end trace.Timestamp, y int) bool {
+func (tl *Timeline) navigateToChecks(start, end trace.Timestamp, y int) bool {
 	if start == tl.start && end == tl.end && y == tl.y {
 		// We're already there, do nothing. In particular, don't push to the location history.
 		return false
@@ -186,7 +186,7 @@ func (tl *Timeline) cancelNavigation() {
 // navigateTo modifes the timeline's start, end and y values, recording the previous location in the undo stack.
 // navigateTo rejects invalid operations, like setting start = end.
 func (tl *Timeline) navigateTo(gtx layout.Context, start, end trace.Timestamp, y int) {
-	if !tl.navigateToChecks(gtx, start, end, y) {
+	if !tl.navigateToChecks(start, end, y) {
 		return
 	}
 
@@ -195,7 +195,7 @@ func (tl *Timeline) navigateTo(gtx layout.Context, start, end trace.Timestamp, y
 }
 
 func (tl *Timeline) navigateToNoHistory(gtx layout.Context, start, end trace.Timestamp, y int) {
-	if !tl.navigateToChecks(gtx, start, end, y) {
+	if !tl.navigateToChecks(start, end, y) {
 		return
 	}
 
@@ -380,7 +380,7 @@ func (tl *Timeline) pxToTs(px float32) trace.Timestamp {
 	return trace.Timestamp(round32(px*tl.nsPerPx + float32(tl.start)))
 }
 
-func (tl *Timeline) zoomToFitCurrentView(gtx layout.Context) {
+func (tl *Timeline) ZoomToFitCurrentView(gtx layout.Context) {
 	tr := tl.trace
 	var first, last trace.Timestamp = -1, -1
 	for _, aw := range tl.visibleActivities(gtx) {
@@ -452,6 +452,34 @@ func (tl *Timeline) height(gtx layout.Context) int {
 	}
 	tl.cachedHeight = total
 	return total
+}
+
+func (tl *Timeline) ToggleSampleTracks() {
+	tl.activity.displaySampleTracks = !tl.activity.displaySampleTracks
+}
+
+func (tl *Timeline) UndoNavigation(gtx layout.Context) {
+	if e, ok := tl.popLocationHistory(); ok {
+		tl.navigateToNoHistory(gtx, e.start, e.end, e.y)
+	}
+}
+
+func (tl *Timeline) ScrollToTop(gtx layout.Context) {
+	tl.navigateTo(gtx, tl.start, tl.end, 0)
+}
+
+func (tl *Timeline) JumpToBeginning(gtx layout.Context) {
+	d := tl.end - tl.start
+	tl.navigateTo(gtx, 0, d, tl.y)
+}
+
+func (tl *Timeline) ToggleCompactDisplay() {
+	// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
+	tl.activity.compact = !tl.activity.compact
+}
+
+func (tl *Timeline) ToggleActivityLabels() {
+	tl.activity.displayAllLabels = !tl.activity.displayAllLabels
 }
 
 func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
@@ -526,30 +554,26 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				case key.NameHome:
 					switch {
 					case ev.Modifiers.Contain(key.ModCtrl):
-						tl.zoomToFitCurrentView(gtx)
+						tl.ZoomToFitCurrentView(gtx)
 					case ev.Modifiers.Contain(key.ModShift):
-						d := tl.end - tl.start
-						tl.navigateTo(gtx, 0, d, tl.y)
+						tl.JumpToBeginning(gtx)
 					case ev.Modifiers == 0:
-						tl.navigateTo(gtx, tl.start, tl.end, 0)
+						tl.ScrollToTop(gtx)
 					}
 
 				case "S":
-					tl.activity.displaySampleTracks = !tl.activity.displaySampleTracks
+					tl.ToggleSampleTracks()
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModCtrl) {
-						if e, ok := tl.popLocationHistory(); ok {
-							tl.navigateToNoHistory(gtx, e.start, e.end, e.y)
-						}
+						tl.UndoNavigation(gtx)
 					}
 
 				case "X":
-					tl.activity.displayAllLabels = !tl.activity.displayAllLabels
+					tl.ToggleActivityLabels()
 
 				case "C":
-					// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
-					tl.activity.compact = !tl.activity.compact
+					tl.ToggleCompactDisplay()
 
 				case "T":
 					tl.activity.showTooltips = (tl.activity.showTooltips + 1) % (showTooltipsNone + 1)
@@ -591,6 +615,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				}
 
 			case pointer.Scroll:
+				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
 				tl.abortZoomSelection()
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
