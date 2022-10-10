@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	mylayout "honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 
@@ -507,23 +508,18 @@ func (w *MainWindow) Run(win *app.Window) error {
 							w.ww = nil
 						} else {
 							macro := op.Record(gtx.Ops)
-
-							// Draw full-screen overlay that prevents input to the timeline and closed the window if clicking
-							// outside of it.
-							//
 							// XXX use constant for color
-							paint.Fill(gtx.Ops, rgba(0x000000DD))
-							pointer.InputOp{Tag: w.ww}.Add(gtx.Ops)
+							(&theme.Modal{Background: rgba(0x000000DD)}).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return mylayout.PixelInset{
+									Top:    gtx.Constraints.Max.Y/2 - 500/2,
+									Bottom: gtx.Constraints.Max.Y/2 - 500/2,
+									Left:   gtx.Constraints.Max.X/2 - 1000/2,
+									Right:  gtx.Constraints.Max.X/2 - 1000/2,
+								}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return w.ww.Layout(gtx)
+								})
+							})
 
-							offset := image.Pt(gtx.Constraints.Max.X/2-1000/2, gtx.Constraints.Max.Y/2-500/2)
-							stack := op.Offset(offset).Push(gtx.Ops)
-							gtx := gtx
-							// XXX compute constraints from window size
-							// XXX also set a minimum width
-							gtx.Constraints.Max.X = 1000
-							gtx.Constraints.Max.Y = 500
-							w.ww.Layout(gtx)
-							stack.Pop()
 							op.Defer(gtx.Ops, macro.Stop())
 						}
 					}
