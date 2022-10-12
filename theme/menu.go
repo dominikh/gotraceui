@@ -13,6 +13,26 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 )
 
+type ContextMenu struct {
+	Items []layout.Widget
+
+	modal Modal
+	group MenuGroup
+}
+
+func (m *ContextMenu) Layout(gtx layout.Context) layout.Dimensions {
+	m.group.Items = m.Items
+
+	macro := op.Record(gtx.Ops)
+	m.modal.Layout(gtx, m.group.Layout)
+	op.Defer(gtx.Ops, macro.Stop())
+	return layout.Dimensions{}
+}
+
+func (m *ContextMenu) Cancelled() bool {
+	return m.modal.cancelled
+}
+
 // FIXME(dh): click on menu, click on item, menu closed. click on same menu, previously clicked item is still
 // highlighted. This is caused by Gio merging event handling and doing layout. When the user clicks on the menu, we draw
 // a frame not yet knowing about the click. Then we draw another frame, displaying the group. At that point we don't
@@ -59,39 +79,11 @@ func (m *Menu) Layout(gtx layout.Context) layout.Dimensions {
 
 		drawGroup := func(gtx layout.Context, g *MenuGroup, off int) {
 			mylayout.PixelInset{Bottom: h}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				// Render the menu in two passes. First we find the widest element, then we render for real with that width
-				// set as the minimum constraint.
-				origOps := gtx.Ops
-				gtx.Ops = new(op.Ops)
-				var maxWidth int
-				for i := range g.Items {
-					dims := g.Items[i](gtx)
-					if dims.Size.X > maxWidth {
-						maxWidth = dims.Size.X
-					}
-				}
-
-				gtx.Ops = origOps
 				macro := op.Record(gtx.Ops)
 				stack := op.Offset(image.Pt(off, h)).Push(gtx.Ops)
-
-				g.list.Axis = layout.Vertical
-
-				m.modal.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return mywidget.Bordered{Color: menuBorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return mywidget.Background{Color: menuColor}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return (g.list).Layout(gtx, len(g.Items), func(gtx layout.Context, index int) layout.Dimensions {
-								gtx.Constraints.Min.X = maxWidth
-								gtx.Constraints.Max.X = maxWidth
-								return g.Items[index](gtx)
-							})
-						})
-					})
-				})
-
+				m.modal.Layout(gtx, g.Layout)
 				stack.Pop()
 				op.Defer(gtx.Ops, macro.Stop())
-
 				return layout.Dimensions{}
 			})
 		}
@@ -146,6 +138,33 @@ type MenuGroup struct {
 
 	list  layout.List
 	click widget.Clickable
+}
+
+func (g *MenuGroup) Layout(gtx layout.Context) layout.Dimensions {
+	// Render the menu in two passes. First we find the widest element, then we render for real with that width
+	// set as the minimum constraint.
+	origOps := gtx.Ops
+	gtx.Ops = new(op.Ops)
+	var maxWidth int
+	for i := range g.Items {
+		dims := g.Items[i](gtx)
+		if dims.Size.X > maxWidth {
+			maxWidth = dims.Size.X
+		}
+	}
+
+	gtx.Ops = origOps
+	g.list.Axis = layout.Vertical
+
+	return mywidget.Bordered{Color: menuBorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return mywidget.Background{Color: menuColor}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return (g.list).Layout(gtx, len(g.Items), func(gtx layout.Context, index int) layout.Dimensions {
+				gtx.Constraints.Min.X = maxWidth
+				gtx.Constraints.Max.X = maxWidth
+				return g.Items[index](gtx)
+			})
+		})
+	})
 }
 
 type MenuItem struct {

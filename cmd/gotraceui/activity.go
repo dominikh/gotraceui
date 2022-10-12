@@ -63,10 +63,11 @@ type ActivityWidget struct {
 	tooltip      layout.Widget
 
 	// OPT(dh): Only one activity can have hovered or activated spans, so we could track this directly in Timeline, and
-	// save 48 bytes per activity (which means per goroutine). However, the current API is cleaner, because
+	// save 72 bytes per activity (which means per goroutine). However, the current API is cleaner, because
 	// ActivityWidget doesn't have to mutate Timeline's state.
-	navigatedSpans MergedSpans
-	hoveredSpans   MergedSpans
+	navigatedSpans   MergedSpans
+	contextMenuSpans MergedSpans
+	hoveredSpans     MergedSpans
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -102,10 +103,11 @@ type ActivityWidgetTrack struct {
 	spanTooltip func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions
 
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in ActivityWidget,
-	// and save 48 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
-	// mutate ActivityWIdget's state.
-	navigatedSpans MergedSpans
-	hoveredSpans   MergedSpans
+	// and save 72 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
+	// mutate ActivityWidget's state.
+	navigatedSpans   MergedSpans
+	contextMenuSpans MergedSpans
+	hoveredSpans     MergedSpans
 
 	// op lists get reused between frames to avoid generating garbage
 	ops          [colorStateLast * 2]op.Ops
@@ -135,6 +137,10 @@ func (track *ActivityWidgetTrack) NavigatedSpans() MergedSpans {
 	return track.navigatedSpans
 }
 
+func (track *ActivityWidgetTrack) ContextMenuSpans() MergedSpans {
+	return track.contextMenuSpans
+}
+
 func (track *ActivityWidgetTrack) HoveredSpans() MergedSpans {
 	return track.hoveredSpans
 }
@@ -145,6 +151,10 @@ func (aw *ActivityWidget) Tooltip() layout.Widget {
 
 func (aw *ActivityWidget) NavigatedSpans() MergedSpans {
 	return aw.navigatedSpans
+}
+
+func (aw *ActivityWidget) ContextMenuSpans() MergedSpans {
+	return aw.contextMenuSpans
 }
 
 func (aw *ActivityWidget) HoveredSpans() MergedSpans {
@@ -195,6 +205,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	aw.navigatedSpans = nil
 	aw.hoveredSpans = nil
+	aw.contextMenuSpans = nil
 	aw.tooltip = nil
 
 	var widgetClicked bool
@@ -333,6 +344,9 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if spans := track.NavigatedSpans(); len(spans) != 0 {
 			aw.navigatedSpans = spans
 		}
+		if spans := track.ContextMenuSpans(); len(spans) != 0 {
+			aw.contextMenuSpans = spans
+		}
 	}
 	stack.Pop()
 
@@ -448,9 +462,11 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 
 	track.tooltip = nil
 	track.navigatedSpans = nil
+	track.contextMenuSpans = nil
 	track.hoveredSpans = nil
 
-	trackClicked := false
+	trackNavigatedSpans := false
+	trackContextMenuSpans := false
 	for _, e := range gtx.Events(track) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
@@ -463,7 +479,9 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 			track.hovered = false
 		case pointer.Press:
 			if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
-				trackClicked = true
+				trackNavigatedSpans = true
+			} else if ev.Buttons.Contain(pointer.ButtonSecondary) {
+				trackContextMenuSpans = true
 			}
 		}
 	}
@@ -501,8 +519,11 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 	var prevEndPx float32
 	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
 		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
-			if trackClicked {
+			if trackNavigatedSpans {
 				track.navigatedSpans = dspSpans
+			}
+			if trackContextMenuSpans {
+				track.contextMenuSpans = dspSpans
 			}
 			track.hoveredSpans = dspSpans
 		}

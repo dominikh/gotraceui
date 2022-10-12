@@ -133,6 +133,14 @@ type Timeline struct {
 		cursorPos    f32.Point
 	}
 
+	contextMenu struct {
+		spans Spans
+		zoom  theme.MenuItem
+
+		at   f32.Point
+		menu *theme.ContextMenu
+	}
+
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
 	prevFrame struct {
@@ -145,6 +153,14 @@ type Timeline struct {
 		displayedAws        []*ActivityWidget
 		hoveredSpans        MergedSpans
 	}
+}
+
+func NewTimeline(th *theme.Theme) Timeline {
+	tl := Timeline{
+		theme: th,
+	}
+	tl.contextMenu.zoom = theme.MenuItem{Theme: th, Label: PlainLabel("Zoom")}
+	return tl
 }
 
 func (tl *Timeline) rememberLocation() {
@@ -604,6 +620,8 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				}
 			}
 		case pointer.Event:
+			tl.activity.cursorPos = ev.Position
+
 			switch ev.Type {
 			case pointer.Press:
 				if ev.Buttons.Contain(pointer.ButtonTertiary) {
@@ -620,7 +638,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 
 			case pointer.Drag:
-				tl.activity.cursorPos = ev.Position
 				if tl.drag.active {
 					tl.dragTo(gtx, ev.Position)
 				}
@@ -635,9 +652,6 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 						tl.endZoomSelection(gtx, ev.Position)
 					}
 				}
-
-			case pointer.Move:
-				tl.activity.cursorPos = ev.Position
 			}
 		}
 	}
@@ -680,6 +694,43 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			if spans := aw.HoveredSpans(); len(spans) > 0 {
 				tl.activity.hoveredSpans = spans
 				break
+			}
+		}
+		for _, aw := range tl.prevFrame.displayedAws {
+			if spans := aw.ContextMenuSpans(); len(spans) > 0 {
+				tl.contextMenu.at = tl.activity.cursorPos
+				tl.contextMenu.spans = Spans(spans)
+				if len(spans) == 1 {
+					tl.contextMenu.menu = &theme.ContextMenu{
+						Items: []layout.Widget{
+							tl.contextMenu.zoom.Layout,
+						},
+					}
+				} else {
+					tl.contextMenu.menu = &theme.ContextMenu{
+						Items: []layout.Widget{
+							tl.contextMenu.zoom.Layout,
+						},
+					}
+				}
+				break
+			}
+		}
+
+		if tl.contextMenu.zoom.Clicked() {
+			start := tl.contextMenu.spans.Start(tr)
+			end := tl.contextMenu.spans.End()
+			tl.navigateTo(gtx, start, end, tl.y)
+			tl.contextMenu.menu = nil
+		}
+
+		if tl.contextMenu.menu != nil {
+			if tl.contextMenu.menu.Cancelled() {
+				tl.contextMenu.menu = nil
+			} else {
+				stack := op.Offset(tl.contextMenu.at.Round()).Push(gtx.Ops)
+				tl.contextMenu.menu.Layout(gtx)
+				stack.Pop()
 			}
 		}
 
