@@ -131,8 +131,9 @@ type Timeline struct {
 	}
 
 	contextMenu struct {
-		spans MergedSpans
-		zoom  theme.MenuItem
+		spans             MergedSpans
+		zoom              theme.MenuItem
+		scrollToGoroutine theme.MenuItem
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -152,6 +153,7 @@ type Timeline struct {
 func NewTimeline(th *theme.Theme) Timeline {
 	tl := Timeline{}
 	tl.contextMenu.zoom = theme.MenuItem{Label: PlainLabel("Zoom")}
+	tl.contextMenu.scrollToGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to goroutine")}
 	return tl
 }
 
@@ -692,6 +694,11 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			end := tl.contextMenu.spans.End()
 			tl.navigateTo(gtx, start, end, tl.y)
 			win.CloseContextMenu()
+		}
+
+		if tl.contextMenu.scrollToGoroutine.Clicked() {
+			win.CloseContextMenu()
+			tl.scrollToGoroutine(gtx, tr.getG(tr.Event((tl.contextMenu.spans[0].event())).G))
 		}
 
 		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)

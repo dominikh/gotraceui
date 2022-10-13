@@ -95,9 +95,10 @@ type ActivityWidgetTrack struct {
 
 	highlightSpan func(spans MergedSpans) bool
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
-	spanLabel   func(spans MergedSpans, tr *Trace) []string
-	spanColor   func(spans MergedSpans, tr *Trace) [2]colorIndex
-	spanTooltip func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
+	spanLabel       func(spans MergedSpans, tr *Trace) []string
+	spanColor       func(spans MergedSpans, tr *Trace) [2]colorIndex
+	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
+	spanContextMenu func(spans MergedSpans, tr *Trace) []theme.Widget
 
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in ActivityWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
@@ -493,10 +494,16 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			}
 			if trackContextMenuSpans {
 				tl.contextMenu.spans = dspSpans
-				win.SetContextMenu((&theme.MenuGroup{
-					Items: []theme.Widget{
+				var items []theme.Widget
+				if track.spanContextMenu != nil {
+					items = track.spanContextMenu(dspSpans, tr)
+				} else {
+					items = []theme.Widget{
 						tl.contextMenu.zoom.Layout,
-					},
+					}
+				}
+				win.SetContextMenu((&theme.MenuGroup{
+					Items: items,
 				}).Layout)
 			}
 			track.hoveredSpans = dspSpans
@@ -884,6 +891,17 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						}
 					},
 					spanTooltip: processorSpanTooltip,
+					spanContextMenu: func(spans MergedSpans, tr *Trace) []theme.Widget {
+						items := []theme.Widget{
+							tl.contextMenu.zoom.Layout,
+						}
+
+						if len(spans) == 1 {
+							items = append(items, tl.contextMenu.scrollToGoroutine.Layout)
+						}
+
+						return items
+					},
 				}
 			}
 		},
