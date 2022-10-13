@@ -152,7 +152,7 @@ type Timeline struct {
 
 func NewTimeline(th *theme.Theme) Timeline {
 	tl := Timeline{}
-	tl.contextMenu.zoom = theme.MenuItem{Label: PlainLabel("Zoom")}
+	tl.contextMenu.zoom = theme.MenuItem{Shortcut: "Ctrl+MMB", Label: PlainLabel("Zoom")}
 	tl.contextMenu.scrollToGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to goroutine")}
 	return tl
 }
