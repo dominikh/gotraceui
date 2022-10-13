@@ -64,10 +64,7 @@ type LocationHistoryEntry struct {
 }
 
 type Timeline struct {
-	theme *theme.Theme
 	trace *Trace
-
-	tooltip layout.Widget
 
 	debugWindow *DebugWindow
 
@@ -134,11 +131,8 @@ type Timeline struct {
 	}
 
 	contextMenu struct {
-		spans Spans
+		spans MergedSpans
 		zoom  theme.MenuItem
-
-		at   f32.Point
-		menu *theme.ContextMenu
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -156,10 +150,8 @@ type Timeline struct {
 }
 
 func NewTimeline(th *theme.Theme) Timeline {
-	tl := Timeline{
-		theme: th,
-	}
-	tl.contextMenu.zoom = theme.MenuItem{Theme: th, Label: PlainLabel("Zoom")}
+	tl := Timeline{}
+	tl.contextMenu.zoom = theme.MenuItem{Label: PlainLabel("Zoom")}
 	return tl
 }
 
@@ -274,7 +266,7 @@ func (tl *Timeline) abortZoomSelection() {
 	tl.zoomSelection.active = false
 }
 
-func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
+func (tl *Timeline) endZoomSelection(win *theme.Window, gtx layout.Context, pos f32.Point) {
 	tl.zoomSelection.active = false
 	one := tl.zoomSelection.clickAt.X
 	two := pos.X
@@ -285,7 +277,7 @@ func (tl *Timeline) endZoomSelection(gtx layout.Context, pos f32.Point) {
 	if startPx < 0 {
 		startPx = 0
 	}
-	if limit := float32(tl.VisibleWidth(gtx)); endPx > limit {
+	if limit := float32(tl.VisibleWidth(win, gtx)); endPx > limit {
 		endPx = limit
 	}
 
@@ -439,8 +431,8 @@ func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
 }
 
 // The width in pixels of the visible portion of the timeline, i.e. the part that isn't occupied by the scrollbar.
-func (tl *Timeline) VisibleWidth(gtx layout.Context) int {
-	sbWidth := gtx.Dp(theme.Scrollbar(tl.theme, &tl.scrollbar).Width())
+func (tl *Timeline) VisibleWidth(win *theme.Window, gtx layout.Context) int {
+	sbWidth := gtx.Dp(theme.Scrollbar(win.Theme, &tl.scrollbar).Width())
 	return gtx.Constraints.Max.X - sbWidth
 }
 
@@ -498,9 +490,7 @@ func (tl *Timeline) ToggleActivityLabels() {
 	tl.activity.displayAllLabels = !tl.activity.displayAllLabels
 }
 
-func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
-	tl.tooltip = nil
-
+func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	tr := tl.trace
 
 	if tl.animateTo.animating {
@@ -649,7 +639,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 					if tl.drag.active {
 						tl.endDrag()
 					} else if tl.zoomSelection.active {
-						tl.endZoomSelection(gtx, ev.Position)
+						tl.endZoomSelection(win, gtx, ev.Position)
 					}
 				}
 			}
@@ -660,7 +650,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	// Draw axis and activities
 	func(gtx layout.Context) {
-		gtx.Constraints.Max.X = tl.VisibleWidth(gtx)
+		gtx.Constraints.Max.X = tl.VisibleWidth(win, gtx)
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 		tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
@@ -696,42 +686,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 				break
 			}
 		}
-		for _, aw := range tl.prevFrame.displayedAws {
-			if spans := aw.ContextMenuSpans(); len(spans) > 0 {
-				tl.contextMenu.at = tl.activity.cursorPos
-				tl.contextMenu.spans = Spans(spans)
-				if len(spans) == 1 {
-					tl.contextMenu.menu = &theme.ContextMenu{
-						Items: []layout.Widget{
-							tl.contextMenu.zoom.Layout,
-						},
-					}
-				} else {
-					tl.contextMenu.menu = &theme.ContextMenu{
-						Items: []layout.Widget{
-							tl.contextMenu.zoom.Layout,
-						},
-					}
-				}
-				break
-			}
-		}
 
 		if tl.contextMenu.zoom.Clicked() {
 			start := tl.contextMenu.spans.Start(tr)
 			end := tl.contextMenu.spans.End()
 			tl.navigateTo(gtx, start, end, tl.y)
-			tl.contextMenu.menu = nil
-		}
-
-		if tl.contextMenu.menu != nil {
-			if tl.contextMenu.menu.Cancelled() {
-				tl.contextMenu.menu = nil
-			} else {
-				stack := op.Offset(tl.contextMenu.at.Round()).Push(gtx.Ops)
-				tl.contextMenu.menu.Layout(gtx)
-				stack.Pop()
-			}
+			win.CloseContextMenu()
 		}
 
 		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)
@@ -790,12 +750,12 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 			drawRegionOverlays(tl.trace.gc, colors[colorStateGC], tickHeight)
 			drawRegionOverlays(tl.trace.stw, colors[colorStateBlocked], tickHeight)
 
-			dims := tl.axis.Layout(gtx)
+			dims := tl.axis.Layout(win, gtx)
 			axisHeight = dims.Size.Y
 
 			return dims
 		}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			dims, aws := tl.layoutActivities(gtx)
+			dims, aws := tl.layoutActivities(win, gtx)
 			tl.prevFrame.displayedAws = aws
 			return dims
 		}))
@@ -826,7 +786,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-		tl.activity.toggleSettingNotification.Layout(gtx, tl.theme)
+		tl.activity.toggleSettingNotification.Layout(win, gtx)
 
 		tl.prevFrame.start = tl.start
 		tl.prevFrame.end = tl.end
@@ -839,7 +799,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 	// Draw scrollbar
 	func(gtx layout.Context) {
-		defer op.Offset(image.Pt(tl.VisibleWidth(gtx), axisHeight)).Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(tl.VisibleWidth(win, gtx), axisHeight)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= axisHeight
 
 		activityGap := gtx.Dp(activityGapDp)
@@ -852,7 +812,7 @@ func (tl *Timeline) Layout(gtx layout.Context) layout.Dimensions {
 
 		fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
 		offset := float32(tl.y) / float32(totalHeight)
-		sb := theme.Scrollbar(tl.theme, &tl.scrollbar)
+		sb := theme.Scrollbar(win.Theme, &tl.scrollbar)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 	}(gtx)
 
@@ -898,7 +858,7 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 	return tl.activities[start:end]
 }
 
-func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
+func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	activityGap := gtx.Dp(activityGapDp)
@@ -934,11 +894,8 @@ func (tl *Timeline) layoutActivities(gtx layout.Context) (layout.Dimensions, []*
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		topBorder := i > 0 && tl.activities[i-1].hovered
-		aw.Layout(gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
+		aw.Layout(win, gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
 		stack.Pop()
-		if tt := aw.Tooltip(); tt != nil {
-			tl.tooltip = tt
-		}
 
 		y += activityGap + awHeight
 	}
@@ -987,7 +944,7 @@ func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
 	panic("unreachable")
 }
 
-func (axis *Axis) Layout(gtx layout.Context) (dims layout.Dimensions) {
+func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dimensions) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels

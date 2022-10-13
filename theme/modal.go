@@ -22,7 +22,7 @@ func (m *Modal) Cancelled() bool {
 	return b
 }
 
-func (m *Modal) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+func (m *Modal) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	// FIXME(dh): the modal doesn't cover the whole window if an offset or transform is active
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, m.Background)
@@ -41,6 +41,6 @@ func (m *Modal) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 
 	pointer.InputOp{Tag: m, Types: 0xFF}.Add(gtx.Ops)
 	// TODO(dh): prevent keyboard input from bubbling up
-	w(gtx)
+	w(win, gtx)
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }

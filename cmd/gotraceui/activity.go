@@ -45,9 +45,8 @@ type ActivityWidget struct {
 	trackWidgets      []ActivityWidgetTrack
 	buildTrackWidgets func([]Track, []ActivityWidgetTrack)
 
-	widgetTooltip   func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions
+	widgetTooltip   func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions
 	invalidateCache func(aw *ActivityWidget) bool
-	theme           *theme.Theme
 	tl              *Timeline
 	item            any
 	label           string
@@ -60,14 +59,12 @@ type ActivityWidget struct {
 	pointerAt    f32.Point
 	hovered      bool
 	hoveredLabel bool
-	tooltip      layout.Widget
 
 	// OPT(dh): Only one activity can have hovered or activated spans, so we could track this directly in Timeline, and
-	// save 72 bytes per activity (which means per goroutine). However, the current API is cleaner, because
+	// save 48 bytes per activity (which means per goroutine). However, the current API is cleaner, because
 	// ActivityWidget doesn't have to mutate Timeline's state.
-	navigatedSpans   MergedSpans
-	contextMenuSpans MergedSpans
-	hoveredSpans     MergedSpans
+	navigatedSpans MergedSpans
+	hoveredSpans   MergedSpans
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -100,14 +97,13 @@ type ActivityWidgetTrack struct {
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
 	spanLabel   func(spans MergedSpans, tr *Trace) []string
 	spanColor   func(spans MergedSpans, tr *Trace) [2]colorIndex
-	spanTooltip func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions
+	spanTooltip func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
 
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in ActivityWidget,
-	// and save 72 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
+	// and save 48 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
 	// mutate ActivityWidget's state.
-	navigatedSpans   MergedSpans
-	contextMenuSpans MergedSpans
-	hoveredSpans     MergedSpans
+	navigatedSpans MergedSpans
+	hoveredSpans   MergedSpans
 
 	// op lists get reused between frames to avoid generating garbage
 	ops          [colorStateLast * 2]op.Ops
@@ -118,7 +114,6 @@ type ActivityWidgetTrack struct {
 
 	pointerAt f32.Point
 	hovered   bool
-	tooltip   layout.Widget
 
 	// cached state
 	prevFrame struct {
@@ -129,32 +124,16 @@ type ActivityWidgetTrack struct {
 	}
 }
 
-func (track *ActivityWidgetTrack) Tooltip() layout.Widget {
-	return track.tooltip
-}
-
 func (track *ActivityWidgetTrack) NavigatedSpans() MergedSpans {
 	return track.navigatedSpans
-}
-
-func (track *ActivityWidgetTrack) ContextMenuSpans() MergedSpans {
-	return track.contextMenuSpans
 }
 
 func (track *ActivityWidgetTrack) HoveredSpans() MergedSpans {
 	return track.hoveredSpans
 }
 
-func (aw *ActivityWidget) Tooltip() layout.Widget {
-	return aw.tooltip
-}
-
 func (aw *ActivityWidget) NavigatedSpans() MergedSpans {
 	return aw.navigatedSpans
-}
-
-func (aw *ActivityWidget) ContextMenuSpans() MergedSpans {
-	return aw.contextMenuSpans
 }
 
 func (aw *ActivityWidget) HoveredSpans() MergedSpans {
@@ -190,7 +169,7 @@ func (aw *ActivityWidget) notifyHidden() {
 	aw.trackWidgets = nil
 }
 
-func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
 	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
 	// and pointer input. When we reuse the previous frame and need to return dimensions, we should use a stored value
@@ -205,8 +184,6 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 
 	aw.navigatedSpans = nil
 	aw.hoveredSpans = nil
-	aw.contextMenuSpans = nil
-	aw.tooltip = nil
 
 	var widgetClicked bool
 
@@ -295,7 +272,7 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if aw.hovered || forceLabel {
 			labelGtx := gtx
 			labelGtx.Constraints.Min = image.Point{}
-			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(labelGtx, aw.theme.Shaper, text.Font{}, aw.theme.TextSize, aw.label)
+			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
@@ -304,11 +281,11 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		}
 
 		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.hoveredLabel {
-			aw.tooltip = func(gtx layout.Context) layout.Dimensions {
+			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-				return aw.widgetTooltip(gtx, aw)
-			}
+				return aw.widgetTooltip(win, gtx, aw)
+			})
 		}
 
 		defer op.Offset(image.Pt(0, activityLabelHeight)).Push(gtx.Ops).Pop()
@@ -333,19 +310,13 @@ func (aw *ActivityWidget) Layout(gtx layout.Context, forceLabel bool, compact bo
 		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
 			continue
 		}
-		dims := track.Layout(gtx, aw.tl)
+		dims := track.Layout(win, gtx, aw.tl)
 		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
-		if tt := track.Tooltip(); tt != nil {
-			aw.tooltip = tt
-		}
 		if spans := track.HoveredSpans(); len(spans) != 0 {
 			aw.hoveredSpans = spans
 		}
 		if spans := track.NavigatedSpans(); len(spans) != 0 {
 			aw.navigatedSpans = spans
-		}
-		if spans := track.ContextMenuSpans(); len(spans) != 0 {
-			aw.contextMenuSpans = spans
 		}
 	}
 	stack.Pop()
@@ -454,15 +425,13 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 	return MergedSpans(spans[startOffset:offset]), startPx, endPx, true
 }
 
-func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layout.Dimensions {
+func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 	tr := tl.trace
 	trackHeight := gtx.Dp(activityTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
-	track.tooltip = nil
 	track.navigatedSpans = nil
-	track.contextMenuSpans = nil
 	track.hoveredSpans = nil
 
 	trackNavigatedSpans := false
@@ -523,7 +492,12 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 				track.navigatedSpans = dspSpans
 			}
 			if trackContextMenuSpans {
-				track.contextMenuSpans = dspSpans
+				tl.contextMenu.spans = dspSpans
+				win.SetContextMenu((&theme.MenuGroup{
+					Items: []theme.Widget{
+						tl.contextMenu.zoom.Layout,
+					},
+				}).Layout)
 			}
 			track.hoveredSpans = dspSpans
 		}
@@ -650,11 +624,11 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 		}
 
 		if spanTooltipState.spans != nil && track.spanTooltip != nil {
-			track.tooltip = func(gtx layout.Context) layout.Dimensions {
+			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-				return track.spanTooltip(gtx, tl.theme, tr, spanTooltipState)
-			}
+				return track.spanTooltip(win, gtx, tr, spanTooltipState)
+			})
 		}
 
 		if track.highlightSpan != nil && track.highlightSpan(dspSpans) {
@@ -684,7 +658,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 
 					macro := op.Record(labelsOps)
 					// OPT(dh): cache mapping from label to size. probably put a size limit on the cache, in case users generate millions of unique labels
-					dims := mywidget.TextLine{Color: tl.theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), tl.theme.Shaper, text.Font{Weight: text.ExtraBold}, tl.theme.TextSize, label)
+					dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
 					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
 						// This label doesn't fit. If the callback provided more labels, try those instead.
 						macro.Stop()
@@ -701,7 +675,7 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 						left = minP.X
 					}
 					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
-					paint.ColorOp{Color: tl.theme.Palette.Foreground}.Add(labelsOps)
+					paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(labelsOps)
 					stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
 					call.Add(labelsOps)
 					stack2.Pop()
@@ -772,11 +746,10 @@ func (track *ActivityWidgetTrack) Layout(gtx layout.Context, tl *Timeline) layou
 
 type ProcessorTooltip struct {
 	p     *Processor
-	theme *theme.Theme
 	trace *Trace
 }
 
-func (tt ProcessorTooltip) Layout(gtx layout.Context) layout.Dimensions {
+func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	// OPT(dh): compute statistics once, not on every frame
 
 	tr := tt.trace
@@ -816,10 +789,10 @@ func (tt ProcessorTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		inactiveD, inactivePct,
 	)
 
-	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
+	return theme.Tooltip{}.Layout(win, gtx, l)
 }
 
-func processorSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if len(state.spans) == 1 {
 		s := &state.spans[0]
@@ -833,10 +806,10 @@ func processorSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state 
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
 	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
-	return theme.Tooltip{Theme: th}.Layout(gtx, label)
+	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
-func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWidget {
+func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
 		tracks: []Track{{spans: p.spans}},
@@ -915,8 +888,8 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 			}
 		},
 
-		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
-			return ProcessorTooltip{p, th, tl.trace}.Layout(gtx)
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return ProcessorTooltip{p, tl.trace}.Layout(win, gtx)
 		},
 		invalidateCache: func(aw *ActivityWidget) bool {
 			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
@@ -948,17 +921,15 @@ func NewProcessorWidget(th *theme.Theme, tl *Timeline, p *Processor) *ActivityWi
 		tl:    tl,
 		item:  p,
 		label: local.Sprintf("Processor %d", p.id),
-		theme: th,
 	}
 }
 
 type GoroutineTooltip struct {
 	g     *Goroutine
-	theme *theme.Theme
 	trace *Trace
 }
 
-func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
+func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	tr := tt.trace
 	start := tt.g.spans.Start(tr)
 	end := tt.g.spans.End()
@@ -990,7 +961,7 @@ func (tt GoroutineTooltip) Layout(gtx layout.Context) layout.Dimensions {
 		len(tt.g.spans),
 	)
 
-	return theme.Tooltip{Theme: tt.theme}.Layout(gtx, l)
+	return theme.Tooltip{}.Layout(win, gtx, l)
 }
 
 var reasonLabels = [256]string{
@@ -1000,7 +971,7 @@ var reasonLabels = [256]string{
 	reasonPreempted:    "got preempted",
 }
 
-func goroutineSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if debug {
 		label += fmt.Sprintf("Event ID: %d\n", state.spans[0].event())
@@ -1157,10 +1128,10 @@ func goroutineSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state 
 		label = label[:n]
 	}
 
-	return theme.Tooltip{Theme: th}.Layout(gtx, label)
+	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
-func userRegionSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if len(state.spans) == 1 {
 		s := &state.spans[0]
@@ -1179,7 +1150,7 @@ func userRegionSpanTooltip(gtx layout.Context, th *theme.Theme, tr *Trace, state
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
 	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
-	return theme.Tooltip{Theme: th}.Layout(gtx, label)
+	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
 var spanStateLabels = [...][]string{
@@ -1201,7 +1172,7 @@ var spanStateLabels = [...][]string{
 	stateLast:                    nil,
 }
 
-func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWidget {
+func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 	var l string
 	if g.function != "" {
 		l = local.Sprintf("goroutine %d: %s", g.id, g.function)
@@ -1277,7 +1248,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 							}
 							return [2]colorIndex{colorStateSample, 0}
 						},
-						spanTooltip: func(gtx layout.Context, th *theme.Theme, tr *Trace, state SpanTooltipState) layout.Dimensions {
+						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
 							if len(state.spans) == 1 {
 								f := tr.PCs[state.spans[0].pc]
@@ -1290,7 +1261,7 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 							// We round the duration, in addition to saying "up to", to make it more obvious that the
 							// duration is a guess
 							label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
-							return theme.Tooltip{Theme: th}.Layout(gtx, label)
+							return theme.Tooltip{}.Layout(win, gtx, label)
 						},
 					}
 
@@ -1299,10 +1270,9 @@ func NewGoroutineWidget(th *theme.Theme, tl *Timeline, g *Goroutine) *ActivityWi
 				}
 			}
 		},
-		widgetTooltip: func(gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
-			return GoroutineTooltip{g, th, tl.trace}.Layout(gtx)
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return GoroutineTooltip{g, tl.trace}.Layout(win, gtx)
 		},
-		theme: th,
 		tl:    tl,
 		item:  g,
 		label: l,
@@ -1472,22 +1442,20 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 	aw.tracks = append(aw.tracks, sampleTracks...)
 }
 
-func NewGCWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
+func NewGCWidget(tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
 		tracks: []Track{{spans: spans}},
 		tl:     tl,
 		item:   spans,
 		label:  "GC",
-		theme:  th,
 	}
 }
 
-func NewSTWWidget(th *theme.Theme, tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
+func NewSTWWidget(tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
 	return &ActivityWidget{
 		tracks: []Track{{spans: spans}},
 		tl:     tl,
 		item:   spans,
 		label:  "STW",
-		theme:  th,
 	}
 }

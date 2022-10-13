@@ -166,7 +166,7 @@ func (hm *Heatmap) HoveredBucket() (HeatmapBucket, bool) {
 	return hm.hovered, hm.hovered.Count != -1
 }
 
-func (hm *Heatmap) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	// TODO(dh): add scrollable X axis
 
 	dims := gtx.Constraints.Max
@@ -322,63 +322,64 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 
 	var useLinear widget.Bool
 	var ops op.Ops
+	tWin := &theme.Window{Theme: hwin.theme}
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
 			return ev.Err
 		case system.FrameEvent:
-			gtx := layout.NewContext(&ops, ev)
-			gtx.Constraints.Min = image.Point{}
-			paint.Fill(gtx.Ops, colors[colorBackground])
+			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				paint.Fill(gtx.Ops, colors[colorBackground])
 
-			if useLinear.Changed() {
-				hm.UseLinearColors = useLinear.Value
-			}
+				if useLinear.Changed() {
+					hm.UseLinearColors = useLinear.Value
+				}
 
-			for _, e := range gtx.Events(hwin) {
-				if ev, ok := e.(key.Event); ok && ev.State == key.Press {
-					// TODO(dh): provide visual feedback, displaying the bucket size
-					switch ev.Name {
-					case "↑":
-						hm.YBucketSize++
-						hm.computeBuckets()
-						hm.computeSaturations()
-					case "↓":
-						hm.YBucketSize--
-						if hm.YBucketSize < 1 {
-							hm.YBucketSize = 1
+				for _, e := range gtx.Events(hwin) {
+					if ev, ok := e.(key.Event); ok && ev.State == key.Press {
+						// TODO(dh): provide visual feedback, displaying the bucket size
+						switch ev.Name {
+						case "↑":
+							hm.YBucketSize++
+							hm.computeBuckets()
+							hm.computeSaturations()
+						case "↓":
+							hm.YBucketSize--
+							if hm.YBucketSize < 1 {
+								hm.YBucketSize = 1
+							}
+							hm.computeBuckets()
+							hm.computeSaturations()
 						}
-						hm.computeBuckets()
-						hm.computeSaturations()
 					}
 				}
-			}
 
-			key.InputOp{Tag: hwin, Keys: "↑|↓"}.Add(gtx.Ops)
-			key.FocusOp{Tag: hwin}.Add(gtx.Ops)
+				key.InputOp{Tag: hwin, Keys: "↑|↓"}.Add(gtx.Ops)
+				key.FocusOp{Tag: hwin}.Add(gtx.Ops)
 
-			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return hm.Layout(gtx, hwin.theme)
-				}),
-				// TODO(dh): add some padding between elements
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					var label string
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return hm.Layout(win, gtx)
+					}),
+					// TODO(dh): add some padding between elements
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						var label string
 
-					if b, ok := hm.HoveredBucket(); ok {
-						label = local.Sprintf("time %s, range %d–%d, count: %d", b.XStart, b.YStart, b.YEnd, b.Count)
-					}
-					return mywidget.TextLine{Color: hwin.theme.Palette.Foreground}.Layout(gtx, hwin.theme.Shaper, text.Font{}, hwin.theme.TextSize, label)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and
-					// ranked). With the checkbox, the user doesn't know what's being used when the checkbox isn't
-					// ticked.
-					return theme.CheckBox(hwin.theme, &useLinear, "Use linear saturation").Layout(gtx)
-				}),
-			)
+						if b, ok := hm.HoveredBucket(); ok {
+							label = local.Sprintf("time %s, range %d–%d, count: %d", b.XStart, b.YStart, b.YEnd, b.Count)
+						}
+						return mywidget.TextLine{Color: hwin.theme.Palette.Foreground}.Layout(gtx, hwin.theme.Shaper, text.Font{}, hwin.theme.TextSize, label)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and
+						// ranked). With the checkbox, the user doesn't know what's being used when the checkbox isn't
+						// ticked.
+						return theme.CheckBox(&useLinear, "Use linear saturation").Layout(win, gtx)
+					}),
+				)
+			})
 
-			ev.Frame(gtx.Ops)
+			ev.Frame(&ops)
 		}
 	}
 

@@ -25,6 +25,7 @@ import (
 	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/widget"
@@ -239,7 +240,6 @@ func NewMainWindow() *MainWindow {
 		debugWindow:                 NewDebugWindow(),
 	}
 
-	win.tl.theme = win.theme
 	win.tl.axis.tl = &win.tl
 
 	return win
@@ -425,25 +425,25 @@ type MainMenu struct {
 func NewMainMenu(w *MainWindow) *MainMenu {
 	m := &MainMenu{}
 
-	m.File.OpenTrace = theme.MenuItem{Theme: w.theme, Shortcut: "Ctrl+O", Disabled: true, Label: PlainLabel("Open trace")}
-	m.File.Quit = theme.MenuItem{Theme: w.theme, Label: PlainLabel("Quit")}
+	m.File.OpenTrace = theme.MenuItem{Shortcut: "Ctrl+O", Disabled: true, Label: PlainLabel("Open trace")}
+	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
 
-	m.Display.UndoNavigation = theme.MenuItem{Theme: w.theme, Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation")}
-	m.Display.ScrollToTop = theme.MenuItem{Theme: w.theme, Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list")}
-	m.Display.ZoomToFit = theme.MenuItem{Theme: w.theme, Shortcut: "Ctrl+Home", Label: PlainLabel("Zoom to fit visible activities")}
-	m.Display.JumpToBeginning = theme.MenuItem{Theme: w.theme, Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline")}
-	m.Display.ToggleCompactDisplay = theme.MenuItem{Theme: w.theme, Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact)}
-	m.Display.ToggleActivityLabels = theme.MenuItem{Theme: w.theme, Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels)}
-	m.Display.ToggleSampleTracks = theme.MenuItem{Theme: w.theme, Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks)}
+	m.Display.UndoNavigation = theme.MenuItem{Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation")}
+	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list")}
+	m.Display.ZoomToFit = theme.MenuItem{Shortcut: "Ctrl+Home", Label: PlainLabel("Zoom to fit visible activities")}
+	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline")}
+	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact)}
+	m.Display.ToggleActivityLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels)}
+	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks)}
 
-	m.Analyze.OpenHeatmap = theme.MenuItem{Theme: w.theme, Shortcut: "H", Label: PlainLabel("Open P utilization heatmap")}
+	m.Analyze.OpenHeatmap = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Open P utilization heatmap")}
 
 	m.menu = &theme.Menu{
 		Theme: w.theme,
 		Groups: []theme.MenuGroup{
 			{
 				Label: "File",
-				Items: []layout.Widget{
+				Items: []theme.Widget{
 					m.File.OpenTrace.Layout,
 
 					theme.MenuDivider{}.Layout,
@@ -453,7 +453,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			},
 			{
 				Label: "Display",
-				Items: []layout.Widget{
+				Items: []theme.Widget{
 					// TODO(dh): disable Undo menu item when there are no more undo steps
 					m.Display.UndoNavigation.Layout,
 
@@ -474,7 +474,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			},
 			{
 				Label: "Analyze",
-				Items: []layout.Widget{
+				Items: []theme.Widget{
 					m.Analyze.OpenHeatmap.Layout,
 				},
 			},
@@ -492,6 +492,12 @@ func (w *MainWindow) Run(win *app.Window) error {
 	var shortcuts int
 
 	var commands []Command
+	tWin := &theme.Window{
+		Theme: w.theme,
+		// XXX the majority of menu items should be disabled while we're not in the main state, i.e. while a trace
+		// hasn't been loaded yet
+		Menu: mainMenu.menu,
+	}
 	for {
 		select {
 		case cmd := <-w.commands:
@@ -506,198 +512,181 @@ func (w *MainWindow) Run(win *app.Window) error {
 			case system.DestroyEvent:
 				return ev.Err
 			case system.FrameEvent:
-				gtx := layout.NewContext(&ops, ev)
-				gtx.Constraints.Min = image.Point{}
+				tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+					gtx.Constraints.Min = image.Point{}
 
-				for _, cmd := range commands {
-					cmd(w, gtx)
-				}
-				commands = commands[:0]
-
-				for _, ev := range gtx.Events(&w.pointerAt) {
-					w.pointerAt = ev.(pointer.Event).Position
-				}
-				pointer.InputOp{Tag: &w.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
-
-			commandLoop:
-				for {
-					select {
-					case cmd := <-w.commands:
+					for _, cmd := range commands {
 						cmd(w, gtx)
-					default:
-						break commandLoop
 					}
-				}
+					commands = commands[:0]
 
-				for _, ev := range gtx.Events(profileTag) {
-					// Yup, profile.Event only contains a string. No structured access to data.
-					fields := strings.Fields(ev.(profile.Event).Timings)
-					if len(fields) > 0 && strings.HasPrefix(fields[0], "tot:") {
-						var s string
-						if fields[0] == "tot:" {
-							s = fields[1]
-						} else {
-							s = strings.TrimPrefix(fields[0], "tot:")
+					for _, ev := range gtx.Events(&w.pointerAt) {
+						w.pointerAt = ev.(pointer.Event).Position
+					}
+					pointer.InputOp{Tag: &w.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+
+				commandLoop:
+					for {
+						select {
+						case cmd := <-w.commands:
+							cmd(w, gtx)
+						default:
+							break commandLoop
 						}
-						// Either it parses fine, or d is undefined and will likely be obvious in the debug grpah.
-						d, _ := time.ParseDuration(s)
-						// We're using gtx.Now because events don't have timestamps associated with them. Hopefully
-						// event creation isn't too far removed from this code.
-						w.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
 					}
-				}
-				profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
-				// Fill background
-				paint.Fill(gtx.Ops, colors[colorBackground])
+					for _, ev := range gtx.Events(profileTag) {
+						// Yup, profile.Event only contains a string. No structured access to data.
+						fields := strings.Fields(ev.(profile.Event).Timings)
+						if len(fields) > 0 && strings.HasPrefix(fields[0], "tot:") {
+							var s string
+							if fields[0] == "tot:" {
+								s = fields[1]
+							} else {
+								s = strings.TrimPrefix(fields[0], "tot:")
+							}
+							// Either it parses fine, or d is undefined and will likely be obvious in the debug grpah.
+							d, _ := time.ParseDuration(s)
+							// We're using gtx.Now because events don't have timestamps associated with them. Hopefully
+							// event creation isn't too far removed from this code.
+							w.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
+						}
+					}
+					profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
-				switch w.state {
-				case "empty":
+					// Fill background
+					paint.Fill(gtx.Ops, colors[colorBackground])
 
-				case "error":
-					paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
-					m := op.Record(gtx.Ops)
-					dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("Error: %s", w.err))
-					call := m.Stop()
-					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
-					call.Add(gtx.Ops)
+					switch w.state {
+					case "empty":
+						return layout.Dimensions{}
 
-				case "loadingTrace":
-					paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
-					m := op.Record(gtx.Ops)
-					dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, "Loading trace...")
-					op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
+					case "error":
+						paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
+						m := op.Record(gtx.Ops)
+						dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("Error: %s", w.err))
+						call := m.Stop()
+						op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
+						call.Add(gtx.Ops)
+						return layout.Dimensions{Size: gtx.Constraints.Max}
 
-					func() {
-						gtx := gtx
-						gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
-						gtx.Constraints.Max = gtx.Constraints.Min
-						theme.ProgressBar(w.theme, w.progress).Layout(gtx)
-					}()
+					case "loadingTrace":
+						paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
+						m := op.Record(gtx.Ops)
+						dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, "Loading trace...")
+						op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
 
-					call := m.Stop()
-					op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
-					call.Add(gtx.Ops)
+						func() {
+							gtx := gtx
+							gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
+							gtx.Constraints.Max = gtx.Constraints.Min
+							theme.ProgressBar(w.theme, w.progress).Layout(gtx)
+						}()
 
-				case "main":
-					for _, ev := range gtx.Events(&shortcuts) {
-						switch ev := ev.(type) {
-						case key.Event:
-							if ev.State == key.Press && w.ww == nil {
-								switch ev.Name {
-								case "G":
-									w.ww = theme.NewListWindow[*Goroutine](w.theme)
-									w.ww.SetItems(w.trace.gs)
-									w.ww.BuildFilter = newGoroutineFilter
-								case "H":
-									w.openHeatmap()
+						call := m.Stop()
+						op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
+						call.Add(gtx.Ops)
+						return layout.Dimensions{Size: gtx.Constraints.Max}
+
+					case "main":
+						for _, ev := range gtx.Events(&shortcuts) {
+							switch ev := ev.(type) {
+							case key.Event:
+								if ev.State == key.Press && w.ww == nil {
+									switch ev.Name {
+									case "G":
+										w.ww = theme.NewListWindow[*Goroutine](w.theme)
+										w.ww.SetItems(w.trace.gs)
+										w.ww.BuildFilter = newGoroutineFilter
+									case "H":
+										w.openHeatmap()
+									}
 								}
 							}
 						}
-					}
 
-					if mainMenu.File.Quit.Clicked() {
-						mainMenu.menu.Close()
-						os.Exit(0)
-					}
-					if mainMenu.Display.UndoNavigation.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.UndoNavigation(gtx)
-					}
-					if mainMenu.Display.ScrollToTop.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.ScrollToTop(gtx)
-					}
-					if mainMenu.Display.ZoomToFit.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.ZoomToFitCurrentView(gtx)
-					}
-					if mainMenu.Display.JumpToBeginning.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.JumpToBeginning(gtx)
-					}
-					if mainMenu.Display.ToggleCompactDisplay.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.ToggleCompactDisplay()
-					}
-					if mainMenu.Display.ToggleActivityLabels.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.ToggleActivityLabels()
-					}
-					if mainMenu.Display.ToggleSampleTracks.Clicked() {
-						mainMenu.menu.Close()
-						w.tl.ToggleSampleTracks()
-					}
-					if mainMenu.Analyze.OpenHeatmap.Clicked() {
-						mainMenu.menu.Close()
-						w.openHeatmap()
-					}
-
-					for _, g := range w.tl.clickedGoroutineActivities {
-						w.openGoroutineWindow(g)
-					}
-
-					key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
-
-					if w.ww != nil {
-						if item, ok := w.ww.Confirmed(); ok {
-							w.tl.scrollToGoroutine(gtx, item)
-							w.ww = nil
-						} else if w.ww.Cancelled() {
-							w.ww = nil
-						} else {
-							macro := op.Record(gtx.Ops)
-							// XXX use constant for color
-							(&theme.Modal{Background: rgba(0x000000DD)}).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return mylayout.PixelInset{
-									Top:    gtx.Constraints.Max.Y/2 - 500/2,
-									Bottom: gtx.Constraints.Max.Y/2 - 500/2,
-									Left:   gtx.Constraints.Max.X/2 - 1000/2,
-									Right:  gtx.Constraints.Max.X/2 - 1000/2,
-								}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return w.ww.Layout(gtx)
-								})
-							})
-
-							op.Defer(gtx.Ops, macro.Stop())
+						if mainMenu.File.Quit.Clicked() {
+							win.Menu.Close()
+							os.Exit(0)
 						}
+						if mainMenu.Display.UndoNavigation.Clicked() {
+							win.Menu.Close()
+							w.tl.UndoNavigation(gtx)
+						}
+						if mainMenu.Display.ScrollToTop.Clicked() {
+							win.Menu.Close()
+							w.tl.ScrollToTop(gtx)
+						}
+						if mainMenu.Display.ZoomToFit.Clicked() {
+							win.Menu.Close()
+							w.tl.ZoomToFitCurrentView(gtx)
+						}
+						if mainMenu.Display.JumpToBeginning.Clicked() {
+							win.Menu.Close()
+							w.tl.JumpToBeginning(gtx)
+						}
+						if mainMenu.Display.ToggleCompactDisplay.Clicked() {
+							win.Menu.Close()
+							w.tl.ToggleCompactDisplay()
+						}
+						if mainMenu.Display.ToggleActivityLabels.Clicked() {
+							win.Menu.Close()
+							w.tl.ToggleActivityLabels()
+						}
+						if mainMenu.Display.ToggleSampleTracks.Clicked() {
+							win.Menu.Close()
+							w.tl.ToggleSampleTracks()
+						}
+						if mainMenu.Analyze.OpenHeatmap.Clicked() {
+							win.Menu.Close()
+							w.openHeatmap()
+						}
+
+						for _, g := range w.tl.clickedGoroutineActivities {
+							w.openGoroutineWindow(g)
+						}
+
+						key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
+
+						if w.ww != nil {
+							if item, ok := w.ww.Confirmed(); ok {
+								w.tl.scrollToGoroutine(gtx, item)
+								w.ww = nil
+							} else if w.ww.Cancelled() {
+								w.ww = nil
+							} else {
+								macro := op.Record(gtx.Ops)
+								// XXX use constant for color
+								(&theme.Modal{Background: rgba(0x000000DD)}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+									return mylayout.PixelInset{
+										Top:    gtx.Constraints.Max.Y/2 - 500/2,
+										Bottom: gtx.Constraints.Max.Y/2 - 500/2,
+										Left:   gtx.Constraints.Max.X/2 - 1000/2,
+										Right:  gtx.Constraints.Max.X/2 - 1000/2,
+									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										return w.ww.Layout(gtx)
+									})
+								})
+
+								op.Defer(gtx.Ops, macro.Stop())
+							}
+						}
+
+						if cpuprofile != "" {
+							op.InvalidateOp{}.Add(&ops)
+						}
+
+						w.debugWindow.tlStart.addValue(gtx.Now, float64(w.tl.start))
+						w.debugWindow.tlEnd.addValue(gtx.Now, float64(w.tl.end))
+						w.debugWindow.tlY.addValue(gtx.Now, float64(w.tl.y))
+
+						return w.tl.Layout(win, gtx)
+
+					default:
+						return layout.Dimensions{}
 					}
-
-					// XXX for some reason having the menu in the flex breaks resizing of the window
-					layout.Flex{Axis: layout.Vertical}.Layout(gtx, layout.Rigid(mainMenu.menu.Layout), layout.Rigid(w.tl.Layout))
-
-					if cpuprofile != "" {
-						op.InvalidateOp{}.Add(&ops)
-					}
-				}
-
-				if w.tl.tooltip != nil {
-					// TODO have a gap between the cursor and the tooltip
-					macro := op.Record(gtx.Ops)
-					dims := w.tl.tooltip(gtx)
-					call := macro.Stop()
-
-					var x, y int
-					ptr := w.pointerAt.Round()
-					if ptr.X+dims.Size.X < gtx.Constraints.Max.X {
-						x = ptr.X
-					} else {
-						x = gtx.Constraints.Max.X - dims.Size.X
-					}
-					if ptr.Y+dims.Size.Y < gtx.Constraints.Max.Y {
-						y = ptr.Y
-					} else {
-						y = gtx.Constraints.Max.Y - dims.Size.Y
-					}
-
-					stack := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
-					call.Add(gtx.Ops)
-					stack.Pop()
-				}
-
-				w.debugWindow.tlStart.addValue(gtx.Now, float64(w.tl.start))
-				w.debugWindow.tlEnd.addValue(gtx.Now, float64(w.tl.end))
-				w.debugWindow.tlY.addValue(gtx.Now, float64(w.tl.y))
+				})
 
 				ev.Frame(&ops)
 			}
@@ -737,13 +726,13 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 
 	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
 	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
-	w.tl.activities[0] = NewGCWidget(w.theme, &w.tl, t, t.gc)
-	w.tl.activities[1] = NewSTWWidget(w.theme, &w.tl, t, t.stw)
+	w.tl.activities[0] = NewGCWidget(&w.tl, t, t.gc)
+	w.tl.activities[1] = NewSTWWidget(&w.tl, t, t.stw)
 	for _, p := range t.ps {
-		w.tl.activities = append(w.tl.activities, NewProcessorWidget(w.theme, &w.tl, p))
+		w.tl.activities = append(w.tl.activities, NewProcessorWidget(&w.tl, p))
 	}
 	for _, g := range t.gs {
-		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(w.theme, &w.tl, g))
+		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(&w.tl, g))
 	}
 
 	w.trace = t
@@ -765,7 +754,7 @@ func (notif *Notification) Show(gtx layout.Context, msg string) {
 	notif.shownAt = gtx.Now
 }
 
-func (notif *Notification) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+func (notif *Notification) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	if gtx.Now.After(notif.shownAt.Add(1000 * time.Millisecond)) {
 		return layout.Dimensions{}
 	}
@@ -775,7 +764,7 @@ func (notif *Notification) Layout(gtx layout.Context, th *theme.Theme) layout.Di
 	ngtx := gtx
 	ngtx.Constraints.Max.X = 500
 	macro := op.Record(gtx.Ops)
-	dims := theme.BorderedText(ngtx, th, notif.message)
+	dims := theme.BorderedText(win, ngtx, notif.message)
 	call := macro.Stop()
 
 	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
@@ -1077,7 +1066,7 @@ func (txt *Text) Reset() {
 	txt.Alignment = 0
 }
 
-func (txt *Text) Layout(gtx layout.Context) layout.Dimensions {
+func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	var clickableIdx int
 	for i := range txt.Spans {
 		s := &txt.Spans[i]

@@ -99,11 +99,9 @@ type CheckBoxStyle struct {
 	ForegroundColor color.NRGBA
 	BackgroundColor color.NRGBA
 	TextColor       color.NRGBA
-
-	shaper text.Shaper
 }
 
-func CheckBox(th *Theme, checkbox *widget.Bool, label string) CheckBoxStyle {
+func CheckBox(checkbox *widget.Bool, label string) CheckBoxStyle {
 	return CheckBoxStyle{
 		Checkbox:        checkbox,
 		Label:           label,
@@ -111,12 +109,10 @@ func CheckBox(th *Theme, checkbox *widget.Bool, label string) CheckBoxStyle {
 		ForegroundColor: rgba(0x000000FF),
 		BackgroundColor: rgba(0),
 		TextSize:        12,
-
-		shaper: th.Shaper,
 	}
 }
 
-func (c CheckBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
+func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	return c.Checkbox.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -149,7 +145,7 @@ func (c CheckBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(layout.Spacer{Width: 3}.Layout),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return mywidget.TextLine{Color: c.TextColor}.Layout(gtx, c.shaper, text.Font{}, c.TextSize, c.Label)
+				return mywidget.TextLine{Color: c.TextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, c.TextSize, c.Label)
 			}),
 		)
 	})
@@ -217,12 +213,11 @@ func mulAlpha(c color.NRGBA, alpha uint8) color.NRGBA {
 type Foldable struct {
 	// TODO(dh): move state into widget package
 
-	Theme  *Theme
 	Title  string
 	Closed widget.Bool
 }
 
-func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dimensions {
+func (f *Foldable) Layout(win *Window, gtx layout.Context, contents Widget) layout.Dimensions {
 	var size image.Point
 	dims := f.Closed.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		// TODO(dh): show an icon indicating state of the foldable. We tried using ▶ and ▼ but the Go font only has ▼…
@@ -233,9 +228,9 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 			l = "[O] " + f.Title
 		}
 		gtx.Constraints.Min.Y = 0
-		paint.ColorOp{Color: f.Theme.Palette.Foreground}.Add(gtx.Ops)
+		paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
 		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, f.Theme.Shaper, text.Font{Weight: text.Bold}, f.Theme.TextSize, l)
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, l)
 
 	})
 	size = dims.Size
@@ -243,7 +238,7 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 	if !f.Closed.Value {
 		defer op.Offset(image.Pt(0, size.Y)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= size.Y
-		dims := contents(gtx)
+		dims := contents(win, gtx)
 
 		max := func(a, b int) int {
 			if a >= b {
@@ -260,25 +255,23 @@ func (f *Foldable) Layout(gtx layout.Context, contents layout.Widget) layout.Dim
 	return layout.Dimensions{Size: size}
 }
 
-type Tooltip struct {
-	Theme *Theme
+type Tooltip struct{}
+
+func (tt Tooltip) Layout(win *Window, gtx layout.Context, l string) layout.Dimensions {
+	return BorderedText(win, gtx, l)
 }
 
-func (tt Tooltip) Layout(gtx layout.Context, l string) layout.Dimensions {
-	return BorderedText(gtx, tt.Theme, l)
-}
-
-func BorderedText(gtx layout.Context, th *Theme, s string) layout.Dimensions {
-	return mywidget.Bordered{Color: th.Palette.WindowBorder, Width: th.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+func BorderedText(win *Window, gtx layout.Context, s string) layout.Dimensions {
+	return mywidget.Bordered{Color: win.Theme.Palette.WindowBorder, Width: win.Theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
 		// rendered as part of a flex child.
 		gtx.Constraints.Min = image.Pt(0, 0)
-		var padding = gtx.Dp(th.WindowPadding)
+		var padding = gtx.Dp(win.Theme.WindowPadding)
 
 		macro := op.Record(gtx.Ops)
-		paint.ColorOp{Color: th.Palette.Foreground}.Add(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, th.Shaper, text.Font{}, th.TextSize, s)
+		paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
 		call := macro.Stop()
 
 		total := clip.Rect{
@@ -286,7 +279,7 @@ func BorderedText(gtx layout.Context, th *Theme, s string) layout.Dimensions {
 			Max: image.Pt(dims.Size.X+2*padding, dims.Size.Y+2*padding),
 		}
 
-		paint.FillShape(gtx.Ops, th.Palette.WindowBackground, total.Op())
+		paint.FillShape(gtx.Ops, win.Theme.Palette.WindowBackground, total.Op())
 
 		stack := op.Offset(image.Pt(padding, padding)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -302,18 +295,16 @@ func BorderedText(gtx layout.Context, th *Theme, s string) layout.Dimensions {
 type ButtonStyle struct {
 	Text   string
 	Button *widget.Clickable
-	shaper text.Shaper
 }
 
-func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
+func Button(button *widget.Clickable, txt string) ButtonStyle {
 	return ButtonStyle{
 		Text:   txt,
 		Button: button,
-		shaper: th.Shaper,
 	}
 }
 
-func (b ButtonStyle) Layout(gtx layout.Context) layout.Dimensions {
+func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return mywidget.Bordered{Color: rgba(0x000000FF), Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{Alignment: layout.Center}.Layout(gtx,
@@ -327,7 +318,7 @@ func (b ButtonStyle) Layout(gtx layout.Context) layout.Dimensions {
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-					return widget.Label{Alignment: text.Middle}.Layout(gtx, b.shaper, text.Font{}, 12, b.Text)
+					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text)
 				}),
 			)
 		})

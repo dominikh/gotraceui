@@ -17,7 +17,6 @@ import (
 )
 
 type Events struct {
-	theme     *theme.Theme
 	trace     *Trace
 	allEvents []EventID
 	filter    struct {
@@ -78,7 +77,7 @@ func (evs *Events) ClickedLinks() []Link {
 	return out
 }
 
-func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
+func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	// XXX draw grid scrollbars
 
 	evs.timestampLinks.Reset()
@@ -96,7 +95,7 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 	dimmer := func(axis layout.Axis, index, constraint int) int {
 		switch axis {
 		case layout.Vertical:
-			line := evs.theme.Shaper.LayoutString(text.Font{}, fixed.I(gtx.Sp(evs.theme.TextSize)), 0, gtx.Locale, "")[0]
+			line := win.Theme.Shaper.LayoutString(text.Font{}, fixed.I(gtx.Sp(win.Theme.TextSize)), 0, gtx.Locale, "")[0]
 			return line.Ascent.Ceil() + line.Descent.Ceil()
 		case layout.Horizontal:
 			// XXX don't guess the dimensions
@@ -136,15 +135,15 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			txt.Reset()
 			txtCnt++
 		} else {
-			txt = evs.texts.Allocate(Text{theme: evs.theme})
+			txt = evs.texts.Allocate(Text{theme: win.Theme})
 			txtCnt++
 		}
 
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		if row == 0 {
-			paint.ColorOp{Color: evs.theme.Palette.Foreground}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, evs.theme.Shaper, text.Font{Weight: text.Bold}, evs.theme.TextSize, columns[col])
+			paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
+			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
 		} else {
 			// XXX subtract padding from width
 
@@ -194,21 +193,21 @@ func (evs *Events) Layout(gtx layout.Context) layout.Dimensions {
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
 			}
-			return txt.Layout(gtx)
+			return txt.Layout(win, gtx)
 		}
 	}
 
 	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showGoCreate, "Goroutine creations").Layout),
+		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showGoCreate, "Goroutine creations").Layout)),
 		layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showGoUnblock, "Goroutine unblocks").Layout),
+		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showGoUnblock, "Goroutine unblocks").Layout)),
 		layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showGoSysCall, "Syscalls").Layout),
+		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showGoSysCall, "Syscalls").Layout)),
 		layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.CheckBox(evs.theme, &evs.filter.showUserLog, "User logs").Layout),
+		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showUserLog, "User logs").Layout)),
 	)
 
 	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()

@@ -13,26 +13,6 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 )
 
-type ContextMenu struct {
-	Items []layout.Widget
-
-	modal Modal
-	group MenuGroup
-}
-
-func (m *ContextMenu) Layout(gtx layout.Context) layout.Dimensions {
-	m.group.Items = m.Items
-
-	macro := op.Record(gtx.Ops)
-	m.modal.Layout(gtx, m.group.Layout)
-	op.Defer(gtx.Ops, macro.Stop())
-	return layout.Dimensions{}
-}
-
-func (m *ContextMenu) Cancelled() bool {
-	return m.modal.cancelled
-}
-
 // FIXME(dh): click on menu, click on item, menu closed. click on same menu, previously clicked item is still
 // highlighted. This is caused by Gio merging event handling and doing layout. When the user clicks on the menu, we draw
 // a frame not yet knowing about the click. Then we draw another frame, displaying the group. At that point we don't
@@ -66,9 +46,11 @@ func (m *Menu) Close() {
 	m.lastOpen.g = nil
 }
 
-func (m *Menu) Layout(gtx layout.Context) layout.Dimensions {
+func (m *Menu) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	// TODO(dh): open a group on press, not on click. allow the user to keep the button pressed, move onto an item, and
 	// release the button, to select a menu item with a single click.
+
+	gtx.Constraints.Min = image.Point{}
 
 	if m.modal.Cancelled() {
 		m.Close()
@@ -81,7 +63,7 @@ func (m *Menu) Layout(gtx layout.Context) layout.Dimensions {
 			mylayout.PixelInset{Bottom: h}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				macro := op.Record(gtx.Ops)
 				stack := op.Offset(image.Pt(off, h)).Push(gtx.Ops)
-				m.modal.Layout(gtx, g.Layout)
+				m.modal.Layout(win, gtx, g.Layout)
 				stack.Pop()
 				op.Defer(gtx.Ops, macro.Stop())
 				return layout.Dimensions{}
@@ -134,20 +116,21 @@ func (m *Menu) Layout(gtx layout.Context) layout.Dimensions {
 
 type MenuGroup struct {
 	Label string
-	Items []layout.Widget
+	Items []Widget
 
 	list  layout.List
 	click widget.Clickable
 }
 
-func (g *MenuGroup) Layout(gtx layout.Context) layout.Dimensions {
+func (g *MenuGroup) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	// Render the menu in two passes. First we find the widest element, then we render for real with that width
 	// set as the minimum constraint.
 	origOps := gtx.Ops
 	gtx.Ops = new(op.Ops)
+	gtx.Constraints.Min = image.Point{}
 	var maxWidth int
 	for i := range g.Items {
-		dims := g.Items[i](gtx)
+		dims := g.Items[i](win, gtx)
 		if dims.Size.X > maxWidth {
 			maxWidth = dims.Size.X
 		}
@@ -161,14 +144,13 @@ func (g *MenuGroup) Layout(gtx layout.Context) layout.Dimensions {
 			return (g.list).Layout(gtx, len(g.Items), func(gtx layout.Context, index int) layout.Dimensions {
 				gtx.Constraints.Min.X = maxWidth
 				gtx.Constraints.Max.X = maxWidth
-				return g.Items[index](gtx)
+				return g.Items[index](win, gtx)
 			})
 		})
 	})
 }
 
 type MenuItem struct {
-	Theme    *Theme
 	Label    func() string
 	Shortcut string
 	Disabled bool
@@ -176,7 +158,7 @@ type MenuItem struct {
 	click widget.Clickable
 }
 
-func (item *MenuItem) Layout(gtx layout.Context) layout.Dimensions {
+func (item *MenuItem) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	fg := menuTextColor
 	if item.Disabled {
 		fg = menuDisabledTextColor
@@ -189,7 +171,7 @@ func (item *MenuItem) Layout(gtx layout.Context) layout.Dimensions {
 		return item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				l := func(gtx layout.Context) layout.Dimensions {
-					dims := mywidget.TextLine{Color: fg}.Layout(gtx, item.Theme.Shaper, text.Font{}, 12, item.Label())
+					dims := mywidget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Label())
 					if item.Shortcut != "" {
 						// add padding between label and shortcut
 						dims.Size.X += gtx.Dp(10)
@@ -200,7 +182,7 @@ func (item *MenuItem) Layout(gtx layout.Context) layout.Dimensions {
 					if item.Shortcut == "" {
 						return layout.Dimensions{}
 					} else {
-						return mywidget.TextLine{Color: fg}.Layout(gtx, item.Theme.Shaper, text.Font{}, 12, item.Shortcut)
+						return mywidget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Shortcut)
 					}
 				}
 				return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceBetween}.Layout(gtx, layout.Rigid(l), layout.Rigid(r))
@@ -217,7 +199,7 @@ func (item *MenuItem) Clicked() bool {
 
 type MenuDivider struct{}
 
-func (MenuDivider) Layout(gtx layout.Context) layout.Dimensions {
+func (MenuDivider) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	// XXX use font's line height
 	height := 15
 
