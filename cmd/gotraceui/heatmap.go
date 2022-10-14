@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 	"sort"
 	"time"
 
@@ -167,6 +169,8 @@ func (hm *Heatmap) HoveredBucket() (HeatmapBucket, bool) {
 }
 
 func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Heatmap.Layout").End()
+
 	// TODO(dh): add scrollable X axis
 
 	dims := gtx.Constraints.Max

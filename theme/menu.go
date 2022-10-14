@@ -1,7 +1,9 @@
 package theme
 
 import (
+	"context"
 	"image"
+	rtrace "runtime/trace"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -47,6 +49,8 @@ func (m *Menu) Close() {
 }
 
 func (m *Menu) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Menu.Layout").End()
+
 	// TODO(dh): open a group on press, not on click. allow the user to keep the button pressed, move onto an item, and
 	// release the button, to select a menu item with a single click.
 
@@ -123,6 +127,8 @@ type MenuGroup struct {
 }
 
 func (g *MenuGroup) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.MenuGroup.Layout").End()
+
 	// Render the menu in two passes. First we find the widest element, then we render for real with that width
 	// set as the minimum constraint.
 	origOps := gtx.Ops
@@ -159,6 +165,8 @@ type MenuItem struct {
 }
 
 func (item *MenuItem) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.MenuItem.Layout").End()
+
 	fg := menuTextColor
 	if item.Disabled {
 		fg = menuDisabledTextColor
@@ -200,6 +208,8 @@ func (item *MenuItem) Clicked() bool {
 type MenuDivider struct{}
 
 func (MenuDivider) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.MenuDivider.Layout").End()
+
 	// XXX use font's line height
 	height := 15
 

@@ -3,7 +3,9 @@ package theme
 // This is copied almost verbatim from material, but uses our theme.
 
 import (
+	"context"
 	"image/color"
+	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/f32color"
 
@@ -45,6 +47,8 @@ func Editor(th *Theme, editor *widget.Editor, hint string) EditorStyle {
 }
 
 func (e EditorStyle) Layout(gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.EditorStyle.Layout").End()
+
 	macro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: e.HintColor}.Add(gtx.Ops)
 	var maxlines int

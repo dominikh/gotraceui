@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
+	rtrace "runtime/trace"
 	"sort"
 	"strings"
 	"time"
@@ -453,6 +455,8 @@ func (gs *GoroutineStats) sort() {
 }
 
 func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.GoroutineStats.Layout").End()
+
 	for col := range gs.columnClicks {
 		for _, ev := range gs.columnClicks[col].Events(gtx) {
 			if ev.Type != gesture.TypeClick {

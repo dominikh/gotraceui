@@ -1,7 +1,9 @@
 package theme
 
 import (
+	"context"
 	"image/color"
+	rtrace "runtime/trace"
 
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
@@ -23,6 +25,8 @@ func (m *Modal) Cancelled() bool {
 }
 
 func (m *Modal) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Modal.Layout").End()
+
 	// FIXME(dh): the modal doesn't cover the whole window if an offset or transform is active
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	paint.Fill(gtx.Ops, m.Background)

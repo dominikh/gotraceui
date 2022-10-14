@@ -1,8 +1,10 @@
 package theme
 
 import (
+	"context"
 	"fmt"
 	"image/color"
+	rtrace "runtime/trace"
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -80,6 +82,7 @@ func (w *ListWindow[T]) Confirmed() (T, bool) {
 }
 
 func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.ListWindow.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	key.InputOp{Tag: w, Keys: "↓|↑|⎋"}.Add(gtx.Ops)

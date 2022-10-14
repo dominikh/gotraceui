@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"math"
+	rtrace "runtime/trace"
 	"sort"
 	"strings"
 	"time"
@@ -171,6 +173,8 @@ func (aw *ActivityWidget) notifyHidden() {
 }
 
 func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.ActivityWidget.Layout").End()
+
 	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
 	// and pointer input. When we reuse the previous frame and need to return dimensions, we should use a stored value
@@ -427,6 +431,8 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 }
 
 func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.ActivityWidgetTrack.Layout").End()
+
 	tr := tl.trace
 	trackHeight := gtx.Dp(activityTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
@@ -757,6 +763,8 @@ type ProcessorTooltip struct {
 }
 
 func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.ProcessorTooltip.Layout").End()
+
 	// OPT(dh): compute statistics once, not on every frame
 
 	tr := tt.trace
@@ -948,6 +956,8 @@ type GoroutineTooltip struct {
 }
 
 func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.GoroutineTooltip.Layout").End()
+
 	tr := tt.trace
 	start := tt.g.spans.Start(tr)
 	end := tt.g.spans.End()

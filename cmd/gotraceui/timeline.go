@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 	"sort"
 	"time"
 
@@ -494,6 +496,7 @@ func (tl *Timeline) ToggleActivityLabels() {
 }
 
 func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Timeline.Layout").End()
 	tr := tl.trace
 
 	if tl.animateTo.animating {
@@ -955,6 +958,7 @@ func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
 }
 
 func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dimensions) {
+	defer rtrace.StartRegion(context.Background(), "main.Axis.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels

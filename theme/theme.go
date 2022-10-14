@@ -1,8 +1,10 @@
 package theme
 
 import (
+	"context"
 	"image"
 	"image/color"
+	rtrace "runtime/trace"
 
 	mywidget "honnef.co/go/gotraceui/widget"
 
@@ -74,6 +76,8 @@ func ProgressBar(th *Theme, progress float32) ProgressBarStyle {
 }
 
 func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.ProgressBarStyle.Layout").End()
+
 	return mywidget.Border{
 		Color: p.ForegroundColor,
 		Width: p.BorderWidth,
@@ -113,6 +117,8 @@ func CheckBox(checkbox *widget.Bool, label string) CheckBoxStyle {
 }
 
 func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.CheckBoxStyle.Layout").End()
+
 	return c.Checkbox.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -218,6 +224,8 @@ type Foldable struct {
 }
 
 func (f *Foldable) Layout(win *Window, gtx layout.Context, contents Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Foldable.Layout").End()
+
 	var size image.Point
 	dims := f.Closed.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		// TODO(dh): show an icon indicating state of the foldable. We tried using ▶ and ▼ but the Go font only has ▼…
@@ -258,6 +266,8 @@ func (f *Foldable) Layout(win *Window, gtx layout.Context, contents Widget) layo
 type Tooltip struct{}
 
 func (tt Tooltip) Layout(win *Window, gtx layout.Context, l string) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Tooltip.Layout").End()
+
 	return BorderedText(win, gtx, l)
 }
 
@@ -305,6 +315,8 @@ func Button(button *widget.Clickable, txt string) ButtonStyle {
 }
 
 func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.ButtonStyle.Layout").End()
+
 	return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return mywidget.Bordered{Color: rgba(0x000000FF), Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{Alignment: layout.Center}.Layout(gtx,

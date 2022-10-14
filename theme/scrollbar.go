@@ -1,9 +1,11 @@
 package theme
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -78,6 +80,8 @@ func (s ScrollbarStyle) Width() unit.Dp {
 
 // Layout the scrollbar.
 func (s ScrollbarStyle) Layout(gtx layout.Context, axis layout.Axis, viewportStart, viewportEnd float32) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.ScrollbarStyle.Layout").End()
+
 	if !rangeIsScrollable(viewportStart, viewportEnd) {
 		return layout.Dimensions{}
 	}

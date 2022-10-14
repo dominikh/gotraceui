@@ -3,7 +3,9 @@ package theme
 // This is copied almost verbatim from material, but uses our scrollbar.
 
 import (
+	"context"
 	"math"
+	rtrace "runtime/trace"
 
 	"gioui.org/layout"
 	"gioui.org/widget"
@@ -60,6 +62,8 @@ func List(th *Theme, state *widget.List) ListStyle {
 
 // Layout the list and its scrollbar.
 func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.ListStyle.Layout").End()
+
 	originalConstraints := gtx.Constraints
 
 	// Determine how much space the scrollbar occupies.

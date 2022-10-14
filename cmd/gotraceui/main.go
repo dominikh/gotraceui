@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"image"
@@ -1073,6 +1074,8 @@ func (txt *Text) Reset() {
 }
 
 func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Text.Layout").End()
+
 	var clickableIdx int
 	for i := range txt.Spans {
 		s := &txt.Spans[i]

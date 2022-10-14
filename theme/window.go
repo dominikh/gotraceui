@@ -1,7 +1,9 @@
 package theme
 
 import (
+	"context"
 	"image"
+	rtrace "runtime/trace"
 	"time"
 
 	"gioui.org/f32"
@@ -41,6 +43,7 @@ func Dumb(win *Window, w Widget) layout.Widget {
 }
 
 func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
+	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
 	gtx := layout.NewContext(ops, ev)
 
 	win.windowFrameState = windowFrameState{}
@@ -130,6 +133,8 @@ type notification struct {
 }
 
 func (notif *notification) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.notification.Layout").End()
+
 	if gtx.Now.After(notif.shownAt.Add(1000 * time.Millisecond)) {
 		return layout.Dimensions{}
 	}

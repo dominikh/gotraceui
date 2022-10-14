@@ -1,9 +1,11 @@
 package widget
 
 import (
+	"context"
 	"image"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -23,6 +25,8 @@ type Bordered struct {
 }
 
 func (b Bordered) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.Bordered.Layout").End()
+
 	return Border(b).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.UniformInset(b.Width).Layout(gtx, w)
 	})
@@ -35,6 +39,8 @@ type Border struct {
 }
 
 func (b Border) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.Border.Layout").End()
+
 	dims := w(gtx)
 	sz := dims.Size
 	bwidth := gtx.Dp(b.Width)
@@ -57,6 +63,8 @@ type TextLine struct {
 }
 
 func (tl TextLine) Layout(gtx layout.Context, shaper text.Shaper, font text.Font, size unit.Sp, label string) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.TextLine.Layout").End()
+
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	// Effectively disable widget.Label's word wrapping and sentence truncation.
@@ -70,6 +78,8 @@ type Background struct {
 }
 
 func (b Background) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.Background.Layout").End()
+
 	macro := op.Record(gtx.Ops)
 	dims := w(gtx)
 	call := macro.Stop()

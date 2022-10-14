@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
+	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -78,6 +80,8 @@ func (evs *Events) ClickedLinks() []Link {
 }
 
 func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Events.Layout").End()
+
 	// XXX draw grid scrollbars
 
 	evs.timestampLinks.Reset()
