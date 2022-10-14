@@ -744,37 +744,6 @@ func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
 	return gtx
 }
 
-type Notification struct {
-	message string
-	shownAt time.Time
-}
-
-func (notif *Notification) Show(gtx layout.Context, msg string) {
-	notif.message = msg
-	notif.shownAt = gtx.Now
-}
-
-func (notif *Notification) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	if gtx.Now.After(notif.shownAt.Add(1000 * time.Millisecond)) {
-		return layout.Dimensions{}
-	}
-
-	// XXX compute width based on window size
-	// TODO(dh): limit height to something sensible, just in case
-	ngtx := gtx
-	ngtx.Constraints.Max.X = 500
-	macro := op.Record(gtx.Ops)
-	dims := theme.BorderedText(win, ngtx, notif.message)
-	call := macro.Stop()
-
-	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
-	call.Add(gtx.Ops)
-
-	op.InvalidateOp{At: notif.shownAt.Add(1000 * time.Millisecond)}.Add(gtx.Ops)
-
-	return dims
-}
-
 type durationNumberFormat uint8
 
 const (

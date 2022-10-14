@@ -123,8 +123,7 @@ type Timeline struct {
 		// Should tooltips be shown?
 		showTooltips showTooltips
 		// Should GC overlays be shown?
-		showGCOverlays            showGCOverlays
-		toggleSettingNotification Notification
+		showGCOverlays showGCOverlays
 
 		hoveredSpans MergedSpans
 		cursorPos    f32.Point
@@ -596,7 +595,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 					case showTooltipsNone:
 						s = "Showing no tooltips"
 					}
-					tl.activity.toggleSettingNotification.Show(gtx, s)
+					win.ShowNotification(gtx, s)
 
 				case "O":
 					tl.activity.showGCOverlays = (tl.activity.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
@@ -609,7 +608,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 					case showGCOverlaysNone:
 						s = "Showing no overlays"
 					}
-					tl.activity.toggleSettingNotification.Show(gtx, s)
+					win.ShowNotification(gtx, s)
 
 				}
 			}
@@ -798,8 +797,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			Max: image.Pt(int(round32(tl.activity.cursorPos.X+1)), gtx.Constraints.Max.Y),
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
-
-		tl.activity.toggleSettingNotification.Layout(win, gtx)
 
 		tl.prevFrame.start = tl.start
 		tl.prevFrame.end = tl.end
