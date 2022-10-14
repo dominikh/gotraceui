@@ -1217,6 +1217,21 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 							return spanStateLabels[spans[0].state]
 						},
 						spanTooltip: goroutineSpanTooltip,
+						spanContextMenu: func(spans MergedSpans, tr *Trace) []theme.Widget {
+							items := []theme.Widget{
+								tl.contextMenu.zoom.Layout,
+							}
+
+							if len(spans) == 1 {
+								switch spans[0].state {
+								case stateActive, stateGCIdle, stateGCDedicated, stateGCMarkAssist, stateGCSweep:
+									// These are the states that are actually on-CPU
+									items = append(items, tl.contextMenu.scrollToProcessor.Layout)
+								}
+							}
+
+							return items
+						},
 					}
 
 				case ActivityWidgetTrackUserRegions:

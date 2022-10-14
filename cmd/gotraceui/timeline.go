@@ -134,6 +134,7 @@ type Timeline struct {
 		spans             MergedSpans
 		zoom              theme.MenuItem
 		scrollToGoroutine theme.MenuItem
+		scrollToProcessor theme.MenuItem
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -154,6 +155,7 @@ func NewTimeline(th *theme.Theme) Timeline {
 	tl := Timeline{}
 	tl.contextMenu.zoom = theme.MenuItem{Shortcut: "Ctrl+MMB", Label: PlainLabel("Zoom")}
 	tl.contextMenu.scrollToGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to goroutine")}
+	tl.contextMenu.scrollToProcessor = theme.MenuItem{Label: PlainLabel("Scroll to processor")}
 	return tl
 }
 
@@ -414,11 +416,11 @@ func (tl *Timeline) ZoomToFitCurrentView(gtx layout.Context) {
 	tl.navigateTo(gtx, first, last, tl.y)
 }
 
-func (tl *Timeline) goroutineY(gtx layout.Context, g *Goroutine) int {
+func (tl *Timeline) activityY(gtx layout.Context, act any) int {
 	// OPT(dh): don't be O(n)
 	off := 0
 	for _, aw := range tl.activities {
-		if g == aw.item {
+		if act == aw.item {
 			// TODO(dh): show goroutine at center of window, not the top
 			return off
 		}
@@ -427,8 +429,8 @@ func (tl *Timeline) goroutineY(gtx layout.Context, g *Goroutine) int {
 	panic("unreachable")
 }
 
-func (tl *Timeline) scrollToGoroutine(gtx layout.Context, g *Goroutine) {
-	off := tl.goroutineY(gtx, g)
+func (tl *Timeline) scrollToActivity(gtx layout.Context, act any) {
+	off := tl.activityY(gtx, act)
 	tl.navigateTo(gtx, tl.start, tl.end, off)
 }
 
@@ -697,8 +699,12 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		}
 
 		if tl.contextMenu.scrollToGoroutine.Clicked() {
+			tl.scrollToActivity(gtx, tr.getG(tr.Event((tl.contextMenu.spans[0].event())).G))
 			win.CloseContextMenu()
-			tl.scrollToGoroutine(gtx, tr.getG(tr.Event((tl.contextMenu.spans[0].event())).G))
+		}
+		if tl.contextMenu.scrollToProcessor.Clicked() {
+			tl.scrollToActivity(gtx, tr.getP(tr.Event((tl.contextMenu.spans[0].event())).P))
+			win.CloseContextMenu()
 		}
 
 		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)

@@ -210,6 +210,25 @@ func (tr *Trace) getG(gid uint64) *Goroutine {
 	return g
 }
 
+func (tr *Trace) getP(pid int32) *Processor {
+	// Unlike getG, getP doesn't get called every frame, and using binary search is fast enough.
+
+	idx, found := sort.Find(len(tr.ps), func(idx int) int {
+		opid := tr.ps[idx].id
+		if pid > opid {
+			return 1
+		} else if pid == opid {
+			return 0
+		} else {
+			return -1
+		}
+	})
+	if !found {
+		panic(fmt.Sprintf("couldn't find processor %d", pid))
+	}
+	return tr.ps[idx]
+}
+
 // MergedSpans and Spans have the same functionality. The two different types are used to make APIs easier to read, to
 // be able to tell apart functions that operate on multiple spans as if they were individual items and functions that
 // treat them as one unit, because they get merged during rendering.

@@ -366,9 +366,9 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			case GoroutineLinkKindOpenWindow:
 				mwin.openGoroutineWindow(l.Goroutine)
 			case GoroutineLinkKindScroll:
-				mwin.tl.scrollToGoroutine(gtx, l.Goroutine)
+				mwin.tl.scrollToActivity(gtx, l.Goroutine)
 			case GoroutineLinkKindZoom:
-				y := mwin.tl.goroutineY(gtx, l.Goroutine)
+				y := mwin.tl.activityY(gtx, l.Goroutine)
 				mwin.tl.navigateTo(gtx, l.Goroutine.spans.Start(mwin.trace), l.Goroutine.spans.End(), y)
 			default:
 				panic(l.Kind)
@@ -651,7 +651,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 						if w.ww != nil {
 							if item, ok := w.ww.Confirmed(); ok {
-								w.tl.scrollToGoroutine(gtx, item)
+								w.tl.scrollToActivity(gtx, item)
 								w.ww = nil
 							} else if w.ww.Cancelled() {
 								w.ww = nil
