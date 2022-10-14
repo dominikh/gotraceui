@@ -6,6 +6,7 @@ import (
 	"image"
 	"log"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	rtrace "runtime/trace"
 	"strconv"
@@ -419,6 +420,10 @@ type MainMenu struct {
 		OpenHeatmap theme.MenuItem
 	}
 
+	Debug struct {
+		Memprofile theme.MenuItem
+	}
+
 	menu *theme.Menu
 }
 
@@ -435,6 +440,8 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact)}
 	m.Display.ToggleActivityLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels)}
 	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks)}
+
+	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
 	m.Analyze.OpenHeatmap = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Open P utilization heatmap")}
 
@@ -480,6 +487,16 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			},
 		},
 	}
+
+	if debug {
+		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
+			Label: "Debug",
+			Items: []theme.Widget{
+				m.Debug.Memprofile.Layout,
+			},
+		})
+	}
+
 	return m
 }
 
@@ -641,6 +658,26 @@ func (w *MainWindow) Run(win *app.Window) error {
 						if mainMenu.Analyze.OpenHeatmap.Clicked() {
 							win.Menu.Close()
 							w.openHeatmap()
+						}
+						if mainMenu.Debug.Memprofile.Clicked() {
+							win.Menu.Close()
+							path, err := func() (string, error) {
+								runtime.GC()
+								path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
+								f, err := os.Create(path)
+								if err != nil {
+									return "", err
+								}
+								if err := pprof.WriteHeapProfile(f); err != nil {
+									return "", err
+								}
+								return path, f.Close()
+							}()
+							if err == nil {
+								win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
+							} else {
+								win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
+							}
 						}
 
 						for _, g := range w.tl.clickedGoroutineActivities {
