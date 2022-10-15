@@ -403,8 +403,7 @@ func PlainLabel(s string) func() string { return func() string { return s } }
 
 type MainMenu struct {
 	File struct {
-		OpenTrace theme.MenuItem
-		Quit      theme.MenuItem
+		Quit theme.MenuItem
 	}
 
 	Display struct {
@@ -431,7 +430,6 @@ type MainMenu struct {
 func NewMainMenu(w *MainWindow) *MainMenu {
 	m := &MainMenu{}
 
-	m.File.OpenTrace = theme.MenuItem{Shortcut: "Ctrl+O", Disabled: true, Label: PlainLabel("Open trace")}
 	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
 
 	m.Display.UndoNavigation = theme.MenuItem{Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation")}
@@ -452,10 +450,6 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			{
 				Label: "File",
 				Items: []theme.Widget{
-					m.File.OpenTrace.Layout,
-
-					theme.MenuDivider{}.Layout,
-
 					m.File.Quit.Layout,
 				},
 			},
@@ -770,6 +764,8 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		w.tl.activities = append(w.tl.activities, NewProcessorWidget(&w.tl, p))
 	}
 	for _, g := range t.gs {
+		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute sample tracks. This causes the UI to
+		// freeze, because loadTraceImpl runs in the UI goroutine.
 		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(&w.tl, g))
 	}
 
