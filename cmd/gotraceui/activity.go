@@ -1375,6 +1375,8 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 	}
 
 	var prevStk []uint64
+	// function name of the previous span, indexed by track index, i.e. stack depth
+	var prevFns []string
 	for {
 		evID, isSample, ok := nextEvent(true)
 		if !ok {
@@ -1425,16 +1427,8 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			stk = stk[:64]
 		}
 
-		if len(stk) > len(sampleTracks) {
-			if len(stk) < cap(sampleTracks) {
-				sampleTracks = sampleTracks[:len(stk)]
-			} else {
-				n := make([]Track, len(stk))
-				copy(n, sampleTracks)
-				sampleTracks = n
-			}
-		}
-
+		sampleTracks = grow(sampleTracks, len(stk))
+		prevFns = grow(prevFns, len(stk))
 		var end trace.Timestamp
 		if endEvID, _, ok := nextEvent(false); ok {
 			end = tl.trace.Events[endEvID].Ts
@@ -1445,9 +1439,9 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			spans := sampleTracks[i].spans
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]
-				prevFrame := tl.trace.PCs[prevSpan.pc]
-				frame := tl.trace.PCs[stk[len(stk)-i-1]]
-				if prevSpan.end == tl.trace.Events[evID].Ts && prevFrame.Fn == frame.Fn {
+				prevFn := prevFns[i]
+				fn := tl.trace.PCs[stk[len(stk)-i-1]].Fn
+				if prevSpan.end == tl.trace.Events[evID].Ts && prevFn == fn {
 					// This is a continuation of the previous span
 					//
 					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
@@ -1463,6 +1457,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 					}
 					spans = append(spans, span)
 					sampleTracks[i].spans = spans
+					prevFns[i] = fn
 				}
 			} else {
 				// This is the first span
@@ -1474,6 +1469,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 				}
 				spans = append(spans, span)
 				sampleTracks[i].spans = spans
+				prevFns[i] = tl.trace.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
 
