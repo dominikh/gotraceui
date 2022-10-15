@@ -132,10 +132,11 @@ type Timeline struct {
 	}
 
 	contextMenu struct {
-		spans             MergedSpans
-		zoom              theme.MenuItem
-		scrollToGoroutine theme.MenuItem
-		scrollToProcessor theme.MenuItem
+		spans                       MergedSpans
+		zoom                        theme.MenuItem
+		scrollToGoroutine           theme.MenuItem
+		scrollToProcessor           theme.MenuItem
+		scrollToUnblockingGoroutine theme.MenuItem
 	}
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
@@ -157,6 +158,7 @@ func NewTimeline(th *theme.Theme) Timeline {
 	tl.contextMenu.zoom = theme.MenuItem{Shortcut: "Ctrl+MMB", Label: PlainLabel("Zoom")}
 	tl.contextMenu.scrollToGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to goroutine")}
 	tl.contextMenu.scrollToProcessor = theme.MenuItem{Label: PlainLabel("Scroll to processor")}
+	tl.contextMenu.scrollToUnblockingGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to unblocking goroutine")}
 	return tl
 }
 
@@ -702,6 +704,11 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 
 		if tl.contextMenu.scrollToGoroutine.Clicked() {
 			tl.scrollToActivity(gtx, tr.getG(tr.Event((tl.contextMenu.spans[0].event())).G))
+			win.CloseContextMenu()
+		}
+		if tl.contextMenu.scrollToUnblockingGoroutine.Clicked() {
+			gid, _ := unblockedByGoroutine(tr, &tl.contextMenu.spans[0])
+			tl.scrollToActivity(gtx, tr.getG(gid))
 			win.CloseContextMenu()
 		}
 		if tl.contextMenu.scrollToProcessor.Clicked() {

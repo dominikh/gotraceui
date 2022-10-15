@@ -1257,6 +1257,13 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 								case stateActive, stateGCIdle, stateGCDedicated, stateGCMarkAssist, stateGCSweep:
 									// These are the states that are actually on-CPU
 									items = append(items, tl.contextMenu.scrollToProcessor.Layout)
+
+								case stateBlocked, stateBlockedSend, stateBlockedRecv, stateBlockedSelect, stateBlockedSync,
+									stateBlockedSyncOnce, stateBlockedSyncTriggeringGC, stateBlockedCond, stateBlockedNet, stateBlockedGC:
+									_, ok := unblockedByGoroutine(tr, &spans[0])
+									if ok {
+										items = append(items, tl.contextMenu.scrollToUnblockingGoroutine.Layout)
+									}
 								}
 							}
 
