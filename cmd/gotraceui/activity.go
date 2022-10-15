@@ -1215,6 +1215,8 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 		}},
 		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
 			for i := range tracks {
+				i := i
+
 				track := &tracks[i]
 				switch track.kind {
 				case ActivityWidgetTrackUnspecified:
