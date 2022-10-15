@@ -1450,6 +1450,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 				} else {
 					// This is a new span
 					span := Span{
+						start:  ev.Ts,
 						end:    end,
 						pc:     stk[len(stk)-i-1],
 						event_: packEventID(evID),
@@ -1462,6 +1463,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			} else {
 				// This is the first span
 				span := Span{
+					start:  ev.Ts,
 					end:    end,
 					pc:     stk[len(stk)-i-1],
 					event_: packEventID(evID),
