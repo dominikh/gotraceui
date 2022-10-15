@@ -999,6 +999,20 @@ var reasonLabels = [256]string{
 	reasonPreempted:    "got preempted",
 }
 
+func unblockedByGoroutine(tr *Trace, s *Span) (uint64, bool) {
+	ev := tr.Event(s.event())
+	switch s.state {
+	case stateBlocked, stateBlockedSend, stateBlockedRecv, stateBlockedSelect, stateBlockedSync,
+		stateBlockedSyncOnce, stateBlockedSyncTriggeringGC, stateBlockedCond, stateBlockedNet, stateBlockedGC:
+		if link := EventID(fromUint40(&ev.Link)); link != ^EventID(0) {
+			if g := tr.Event(link).G; g != 0 {
+				return g, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if debug {
@@ -1093,6 +1107,10 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		}
 		if len(tags) != 0 {
 			label += " (" + strings.Join(tags, ", ") + ")"
+		}
+
+		if g, ok := unblockedByGoroutine(tr, s); ok {
+			label += local.Sprintf("\nUnblocked by goroutine %d (%s)", g, tr.getG(g).function)
 		}
 	} else {
 		label += local.Sprintf("mixed (%d spans)", len(state.spans))
