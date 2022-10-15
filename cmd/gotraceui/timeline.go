@@ -633,7 +633,9 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			case pointer.Scroll:
 				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
 				tl.abortZoomSelection()
-				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
+				if ev.Modifiers.Contain(key.ModCtrl) {
+					tl.zoom(gtx, ev.Scroll.Y, ev.Position)
+				}
 
 			case pointer.Drag:
 				if tl.drag.active {

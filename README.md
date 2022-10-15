@@ -20,7 +20,7 @@ None of these controls are final. Users without a middle mouse button will have 
 | Middle mouse button (hold)  | Pan the view                                                                |
 | Shift + middle mouse button | Draw a zoom selection                                                       |
 | Ctrl + middle mouse button  | Zoom to clicked span or goroutine                                           |
-| Scroll wheel                | Zoom in and out                                                             |
+| Ctrl + scroll wheel         | Zoom in and out                                                             |
 | Home                        | Scroll to top of goroutine list                                             |
 | Ctrl + Home                 | Zooms to fit current goroutines                                             |
 | Shift + Home                | Jump to timestamp 0                                                         |
