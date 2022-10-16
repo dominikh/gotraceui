@@ -18,6 +18,7 @@ None of these controls are final. Users without a middle mouse button will have 
 | Key                         | Function                                                                    |
 |-----------------------------|-----------------------------------------------------------------------------|
 | Middle mouse button (hold)  | Pan the view                                                                |
+| Spacebar (hold)             | Pan the view                                                                |
 | Shift + middle mouse button | Draw a zoom selection                                                       |
 | Ctrl + middle mouse button  | Zoom to clicked span or goroutine                                           |
 | Ctrl + scroll wheel         | Zoom in and out                                                             |
