@@ -115,16 +115,12 @@ import (
 // FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
 //   will be selected, and pressing enter will panic, trying to access index -1
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
-// TODO(dh): How should resizing the window affect the zoom level? When making the window wider, should it display more
-//   time or should it display the same time, stretched to fill the new space? Tracy does the latter.
 // XXX how do we have a minimum inactive span of length 0?
-// OPT(dh): optimize drawing merged spans with millions of spans
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
-// TODO(dh): add tooltip for processor timelines
 // TODO(dh): allow computing statistics for a selectable region of time
 // TODO(dh): hovering over spans in the goroutine timelines highlights goroutines in the processor timelines. that's a
 //   happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
@@ -690,6 +686,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							} else {
 								macro := op.Record(gtx.Ops)
 								// XXX use constant for color
+								// XXX maintain modal state so the modal can be closed
 								(&theme.Modal{Background: rgba(0x000000DD)}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 									return mylayout.PixelInset{
 										Top:    gtx.Constraints.Max.Y/2 - 500/2,
@@ -909,7 +906,6 @@ func main() {
 	}()
 	go func() {
 		win := app.NewWindow(app.Title("gotraceui"))
-		// XXX handle error
 		errs <- mwin.Run(win)
 	}()
 
