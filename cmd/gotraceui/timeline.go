@@ -628,7 +628,14 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 					}
 					win.ShowNotification(gtx, s)
 
+				case "Space":
+					if !tl.drag.active {
+						tl.startDrag(tl.activity.cursorPos)
+					}
+
 				}
+			} else if ev.State == key.Release && ev.Name == "Space" {
+				tl.endDrag()
 			}
 		case pointer.Event:
 			tl.activity.cursorPos = ev.Position
@@ -655,6 +662,11 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 				}
 
 			case pointer.Drag:
+				if tl.drag.active {
+					tl.dragTo(gtx, ev.Position)
+				}
+
+			case pointer.Move:
 				if tl.drag.active {
 					tl.dragTo(gtx, ev.Position)
 				}
@@ -756,7 +768,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		if tl.drag.active {
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
-		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|S|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+		key.InputOp{Tag: tl, Keys: "Space|Ctrl-Z|C|S|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
