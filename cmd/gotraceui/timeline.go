@@ -368,19 +368,6 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (tl *Timeline) scroll(gtx layout.Context, dx, dy float32) {
-	// TODO(dh): implement location history for scrolling. We shouldn't record one entry per call to scroll, and instead
-	// only record on calls that weren't immediately preceeded by other calls to scroll.
-	tl.y += int(round32(dy))
-	if tl.y < 0 {
-		tl.y = 0
-	}
-	// XXX don't allow dragging tl.y beyond end
-
-	tl.start += trace.Timestamp(round32(dx * tl.nsPerPx))
-	tl.end += trace.Timestamp(round32(dx * tl.nsPerPx))
-}
-
 func (tl *Timeline) visibleSpans(spans Spans) Spans {
 	// Visible spans have to end after tl.Start and begin before tl.End
 	start := sort.Search(len(spans), func(i int) bool {
@@ -655,10 +642,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 				tl.abortZoomSelection()
 				if ev.Modifiers.Contain(key.ModCtrl) {
 					tl.zoom(gtx, ev.Scroll.Y, ev.Position)
-				} else if ev.Modifiers.Contain(key.ModShift) {
-					tl.scroll(gtx, ev.Scroll.Y, ev.Scroll.X)
-				} else {
-					tl.scroll(gtx, ev.Scroll.X, ev.Scroll.Y)
 				}
 
 			case pointer.Drag:
@@ -758,11 +741,9 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 
 		// Set up event handlers
 		pointer.InputOp{
-			Tag:   tl,
-			Types: pointer.Scroll | pointer.Drag | pointer.Press | pointer.Release | pointer.Move,
-			// TODO(dh): we don't care about the scroll bounds, but not specifying them breaks scrolling, as does using
-			// MinInt/MaxInt. Is there a better value to choose than this arbitrary one?
-			ScrollBounds: image.Rect(-1000, -1000, 1000, 1000),
+			Tag:          tl,
+			Types:        pointer.Scroll | pointer.Drag | pointer.Press | pointer.Release | pointer.Move,
+			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
 			Grab:         tl.drag.active,
 		}.Add(gtx.Ops)
 		if tl.drag.active {
