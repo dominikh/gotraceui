@@ -127,8 +127,9 @@ type Timeline struct {
 		// Should GC overlays be shown?
 		showGCOverlays showGCOverlays
 
-		hoveredSpans MergedSpans
-		cursorPos    f32.Point
+		hoveredActivity *ActivityWidget
+		hoveredSpans    MergedSpans
+		cursorPos       f32.Point
 	}
 
 	contextMenu struct {
@@ -149,6 +150,7 @@ type Timeline struct {
 		compact             bool
 		displaySampleTracks bool
 		displayedAws        []*ActivityWidget
+		hoveredActivity     *ActivityWidget
 		hoveredSpans        MergedSpans
 	}
 }
@@ -692,6 +694,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		}
 
 		tl.activity.hoveredSpans = nil
+		tl.activity.hoveredActivity = nil
 		for _, aw := range tl.prevFrame.displayedAws {
 			if spans := aw.NavigatedSpans(); len(spans) > 0 {
 				start := spans.Start(tr)
@@ -701,8 +704,11 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			}
 		}
 		for _, aw := range tl.prevFrame.displayedAws {
-			if spans := aw.HoveredSpans(); len(spans) > 0 {
-				tl.activity.hoveredSpans = spans
+			if aw.hovered {
+				tl.activity.hoveredActivity = aw
+				if spans := aw.HoveredSpans(); len(spans) > 0 {
+					tl.activity.hoveredSpans = spans
+				}
 				break
 			}
 		}
@@ -827,6 +833,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		tl.prevFrame.compact = tl.activity.compact
 		tl.prevFrame.displaySampleTracks = tl.activity.displaySampleTracks
 		tl.prevFrame.hoveredSpans = tl.activity.hoveredSpans
+		tl.prevFrame.hoveredActivity = tl.activity.hoveredActivity
 	}(gtx)
 
 	// Draw scrollbar

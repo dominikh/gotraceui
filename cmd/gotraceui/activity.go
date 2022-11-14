@@ -835,14 +835,25 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 				out[i] = ActivityWidgetTrack{
 					Track: track,
 					highlightSpan: func(spans MergedSpans) bool {
-						if len(tl.activity.hoveredSpans) != 1 {
-							return false
-						}
-						// OPT(dh): don't be O(n)
-						o := &tl.activity.hoveredSpans[0]
-						for i := range spans {
-							if tr.Event(spans[i].event()).G == tr.Event(o.event()).G {
-								return true
+						if haw := tl.activity.hoveredActivity; haw != nil {
+							var target uint64
+							switch hitem := haw.item.(type) {
+							case *Goroutine:
+								target = hitem.id
+							case *Processor:
+								if len(tl.activity.hoveredSpans) != 1 {
+									return false
+								}
+								o := &tl.activity.hoveredSpans[0]
+								target = tr.Event(o.event()).G
+							default:
+								return false
+							}
+							for i := range spans {
+								// OPT(dh): don't be O(n)
+								if tr.Event(spans[i].event()).G == target {
+									return true
+								}
 							}
 						}
 						return false
@@ -918,6 +929,10 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 			return ProcessorTooltip{p, tl.trace}.Layout(win, gtx)
 		},
 		invalidateCache: func(aw *ActivityWidget) bool {
+			if tl.prevFrame.hoveredActivity != tl.activity.hoveredActivity {
+				return true
+			}
+
 			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
 				// Nothing hovered in either frame.
 				return false
