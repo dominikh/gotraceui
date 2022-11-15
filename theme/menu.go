@@ -66,8 +66,16 @@ func (m *Menu) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		drawGroup := func(gtx layout.Context, g *MenuGroup, off int) {
 			mylayout.PixelInset{Bottom: h}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				macro := op.Record(gtx.Ops)
-				stack := op.Offset(image.Pt(off, h)).Push(gtx.Ops)
-				m.modal.Layout(win, gtx, g.Layout)
+
+				// We use two separate offsets to position the menu group. One purely vertical and one purely
+				// horizontal. The vertical offset places the modal below the menu, so that hovering over other groups
+				// opens them. The horizontal offset is inside the modal to position the group, without moving the modal
+				// away from x=0.
+				stack := op.Offset(image.Pt(0, h)).Push(gtx.Ops)
+				m.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+					defer op.Offset(image.Pt(off, 0)).Push(gtx.Ops).Pop()
+					return g.Layout(win, gtx)
+				})
 				stack.Pop()
 				op.Defer(gtx.Ops, macro.Stop())
 				return layout.Dimensions{}
