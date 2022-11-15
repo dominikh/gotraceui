@@ -100,7 +100,7 @@ type ActivityWidgetTrack struct {
 	spanLabel       func(spans MergedSpans, tr *Trace) []string
 	spanColor       func(spans MergedSpans, tr *Trace) [2]colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
-	spanContextMenu func(spans MergedSpans, tr *Trace) []theme.Widget
+	spanContextMenu func(spans MergedSpans, tr *Trace) []*theme.MenuItem
 
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in ActivityWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
@@ -499,18 +499,27 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 				track.navigatedSpans = dspSpans
 			}
 			if trackContextMenuSpans {
-				tl.contextMenu.spans = dspSpans
 				var items []theme.Widget
 				if track.spanContextMenu != nil {
-					items = track.spanContextMenu(dspSpans, tr)
-				} else {
-					items = []theme.Widget{
-						tl.contextMenu.zoom.Layout,
+					tl.contextMenu = track.spanContextMenu(dspSpans, tr)
+					for _, item := range tl.contextMenu {
+						items = append(items, item.Layout)
 					}
+				} else {
+					tl.contextMenu = []*theme.MenuItem{{
+						Label:    PlainLabel("Zoom"),
+						Shortcut: "Ctrl+MMB",
+						Do: func(gtx layout.Context) {
+							start := dspSpans.Start(tr)
+							end := dspSpans.End()
+							tl.navigateTo(gtx, start, end, tl.y)
+						}},
+					}
+					items = append(items, (tl.contextMenu[0]).Layout)
 				}
-				win.SetContextMenu((&theme.MenuGroup{
+				win.SetContextMenu(((&theme.MenuGroup{
 					Items: items,
-				}).Layout)
+				}).Layout))
 			}
 			track.hoveredSpans = dspSpans
 		}
@@ -910,15 +919,26 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						}
 					},
 					spanTooltip: processorSpanTooltip,
-					spanContextMenu: func(spans MergedSpans, tr *Trace) []theme.Widget {
-						items := []theme.Widget{
-							tl.contextMenu.zoom.Layout,
-						}
+					spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+						var items []*theme.MenuItem
+						items = append(items, &theme.MenuItem{
+							Label:    PlainLabel("Zoom"),
+							Shortcut: "Ctrl+MMB",
+							Do: func(gtx layout.Context) {
+								start := spans.Start(tr)
+								end := spans.End()
+								tl.navigateTo(gtx, start, end, tl.y)
+							},
+						})
 
 						if len(spans) == 1 {
 							gid := tr.Event((spans[0].event())).G
-							tl.contextMenu.scrollToGoroutine.Label = PlainLabel(fmt.Sprintf("Scroll to goroutine %d", gid))
-							items = append(items, tl.contextMenu.scrollToGoroutine.Layout)
+							items = append(items, &theme.MenuItem{
+								Label: PlainLabel(fmt.Sprintf("Scroll to goroutine %d", gid)),
+								Do: func(gtx layout.Context) {
+									tl.scrollToActivity(gtx, tr.getG(tr.Event((spans[0].event())).G))
+								},
+							})
 						}
 
 						return items
@@ -1264,25 +1284,41 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 							return spanStateLabels[spans[0].state]
 						},
 						spanTooltip: goroutineSpanTooltip,
-						spanContextMenu: func(spans MergedSpans, tr *Trace) []theme.Widget {
-							items := []theme.Widget{
-								tl.contextMenu.zoom.Layout,
-							}
+						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+							var items []*theme.MenuItem
+							items = append(items, &theme.MenuItem{
+								Label:    PlainLabel("Zoom"),
+								Shortcut: "Ctrl+MMB",
+								Do: func(gtx layout.Context) {
+									start := spans.Start(tr)
+									end := spans.End()
+									tl.navigateTo(gtx, start, end, tl.y)
+								},
+							})
 
 							if len(spans) == 1 {
 								switch spans[0].state {
 								case stateActive, stateGCIdle, stateGCDedicated, stateGCMarkAssist, stateGCSweep:
 									// These are the states that are actually on-CPU
 									pid := tr.Event((spans[0].event())).P
-									tl.contextMenu.scrollToProcessor.Label = PlainLabel(fmt.Sprintf("Scroll to processor %d", pid))
-									items = append(items, tl.contextMenu.scrollToProcessor.Layout)
+									items = append(items, &theme.MenuItem{
+										Label: PlainLabel(fmt.Sprintf("Scroll to processor %d", pid)),
+										Do: func(gtx layout.Context) {
+											tl.scrollToActivity(gtx, tr.getP(tr.Event((spans[0].event())).P))
+										},
+									})
 
 								case stateBlocked, stateBlockedSend, stateBlockedRecv, stateBlockedSelect, stateBlockedSync,
 									stateBlockedSyncOnce, stateBlockedSyncTriggeringGC, stateBlockedCond, stateBlockedNet, stateBlockedGC:
 									gid, ok := unblockedByGoroutine(tr, &spans[0])
 									if ok {
-										tl.contextMenu.scrollToUnblockingGoroutine.Label = PlainLabel(fmt.Sprintf("Scroll to unblocking goroutine %d", gid))
-										items = append(items, tl.contextMenu.scrollToUnblockingGoroutine.Layout)
+										items = append(items, &theme.MenuItem{
+											Label: PlainLabel(fmt.Sprintf("Scroll to unblocking goroutine %d", gid)),
+											Do: func(gtx layout.Context) {
+												gid, _ := unblockedByGoroutine(tr, &spans[0])
+												tl.scrollToActivity(gtx, tr.getG(gid))
+											},
+										})
 									}
 								}
 							}

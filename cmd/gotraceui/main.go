@@ -746,13 +746,14 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 	start := trace.Timestamp(-slack)
 	end = trace.Timestamp(float64(end) + slack)
 
-	w.tl = NewTimeline(w.theme)
-	w.tl.start = start
-	w.tl.end = end
-	w.tl.trace = t
-	w.tl.debugWindow = w.debugWindow
-	w.tl.activity.displayAllLabels = true
+	w.tl = Timeline{
+		start:       start,
+		end:         end,
+		trace:       t,
+		debugWindow: w.debugWindow,
+	}
 
+	w.tl.activity.displayAllLabels = true
 	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
 	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
 	w.tl.activities[0] = NewGCWidget(&w.tl, t, t.gc)

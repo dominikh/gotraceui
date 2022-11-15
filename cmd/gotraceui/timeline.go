@@ -132,13 +132,7 @@ type Timeline struct {
 		cursorPos       f32.Point
 	}
 
-	contextMenu struct {
-		spans                       MergedSpans
-		zoom                        theme.MenuItem
-		scrollToGoroutine           theme.MenuItem
-		scrollToProcessor           theme.MenuItem
-		scrollToUnblockingGoroutine theme.MenuItem
-	}
+	contextMenu []*theme.MenuItem
 
 	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the timeline hasn't changed.
@@ -153,15 +147,6 @@ type Timeline struct {
 		hoveredActivity     *ActivityWidget
 		hoveredSpans        MergedSpans
 	}
-}
-
-func NewTimeline(th *theme.Theme) Timeline {
-	tl := Timeline{}
-	tl.contextMenu.zoom = theme.MenuItem{Shortcut: "Ctrl+MMB", Label: PlainLabel("Zoom")}
-	tl.contextMenu.scrollToGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to goroutine")}
-	tl.contextMenu.scrollToProcessor = theme.MenuItem{Label: PlainLabel("Scroll to processor")}
-	tl.contextMenu.scrollToUnblockingGoroutine = theme.MenuItem{Label: PlainLabel("Scroll to unblocking goroutine")}
-	return tl
 }
 
 func (tl *Timeline) rememberLocation() {
@@ -713,25 +698,11 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			}
 		}
 
-		if tl.contextMenu.zoom.Clicked() {
-			start := tl.contextMenu.spans.Start(tr)
-			end := tl.contextMenu.spans.End()
-			tl.navigateTo(gtx, start, end, tl.y)
-			win.CloseContextMenu()
-		}
-
-		if tl.contextMenu.scrollToGoroutine.Clicked() {
-			tl.scrollToActivity(gtx, tr.getG(tr.Event((tl.contextMenu.spans[0].event())).G))
-			win.CloseContextMenu()
-		}
-		if tl.contextMenu.scrollToUnblockingGoroutine.Clicked() {
-			gid, _ := unblockedByGoroutine(tr, &tl.contextMenu.spans[0])
-			tl.scrollToActivity(gtx, tr.getG(gid))
-			win.CloseContextMenu()
-		}
-		if tl.contextMenu.scrollToProcessor.Clicked() {
-			tl.scrollToActivity(gtx, tr.getP(tr.Event((tl.contextMenu.spans[0].event())).P))
-			win.CloseContextMenu()
+		for _, item := range tl.contextMenu {
+			if item.Clicked() {
+				item.Do(gtx)
+				win.CloseContextMenu()
+			}
 		}
 
 		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)

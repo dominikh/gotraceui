@@ -160,6 +160,7 @@ type MenuItem struct {
 	Label    func() string
 	Shortcut string
 	Disabled bool
+	Do       func(layout.Context)
 
 	click widget.Clickable
 }
