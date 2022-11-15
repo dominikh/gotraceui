@@ -220,7 +220,7 @@ type MainWindow struct {
 	// TODO(dh): use enum for state
 	state    string
 	progress float32
-	ww       *theme.ListWindow[*Goroutine]
+	ww       *theme.ListWindow[fmt.Stringer]
 	err      error
 
 	notifyGoroutineWindowClosed chan uint64
@@ -243,7 +243,7 @@ func NewMainWindow() *MainWindow {
 	return win
 }
 
-type goroutineFilter struct {
+type activityFilter struct {
 	invalid bool
 	parts   []struct {
 		prefix string
@@ -254,8 +254,8 @@ type goroutineFilter struct {
 	}
 }
 
-func newGoroutineFilter(s string) theme.Filter[*Goroutine] {
-	out := &goroutineFilter{}
+func newActivityFilter(s string) theme.Filter[fmt.Stringer] {
+	out := &activityFilter{}
 	for _, field := range strings.Fields(s) {
 		prefix, value, found := strings.Cut(field, ":")
 		if !found {
@@ -267,7 +267,7 @@ func newGoroutineFilter(s string) theme.Filter[*Goroutine] {
 			n uint64
 		}
 		switch prefix {
-		case "gid":
+		case "gid", "pid":
 			var err error
 			v.n, err = strconv.ParseUint(value, 10, 64)
 			if err != nil {
@@ -288,7 +288,7 @@ func newGoroutineFilter(s string) theme.Filter[*Goroutine] {
 	return out
 }
 
-func (f *goroutineFilter) Filter(item *Goroutine) bool {
+func (f *activityFilter) Filter(item fmt.Stringer) bool {
 	if f.invalid {
 		return false
 	}
@@ -296,13 +296,27 @@ func (f *goroutineFilter) Filter(item *Goroutine) bool {
 	for _, p := range f.parts {
 		switch p.prefix {
 		case "gid":
-			if item.id != p.value.n {
+			if item, ok := item.(*Goroutine); !ok || item.id != p.value.n {
+				return false
+			}
+
+		case "pid":
+			if item, ok := item.(*Processor); !ok || uint64(item.id) != p.value.n {
 				return false
 			}
 
 		case "":
 			// TODO(dh): support case insensitive search
-			if !strings.Contains(item.function, p.value.s) {
+			var s string
+			switch item := item.(type) {
+			case *Goroutine:
+				s = item.function
+			case *Processor:
+				s = strconv.FormatUint(uint64(item.id), 10)
+			default:
+				panic(fmt.Sprintf("unhandled type %T", item))
+			}
+			if !strings.Contains(s, p.value.s) {
 				return false
 			}
 
@@ -604,9 +618,17 @@ func (w *MainWindow) Run(win *app.Window) error {
 								if ev.State == key.Press && w.ww == nil {
 									switch ev.Name {
 									case "G":
-										w.ww = theme.NewListWindow[*Goroutine](w.theme)
-										w.ww.SetItems(w.trace.gs)
-										w.ww.BuildFilter = newGoroutineFilter
+										w.ww = theme.NewListWindow[fmt.Stringer](w.theme)
+										items := make([]fmt.Stringer, 0, 2+len(w.trace.ps)+len(w.trace.gs))
+										// XXX the GC and STW widgets should also be added here
+										for _, p := range w.trace.ps {
+											items = append(items, p)
+										}
+										for _, g := range w.trace.gs {
+											items = append(items, g)
+										}
+										w.ww.SetItems(items)
+										w.ww.BuildFilter = newActivityFilter
 									case "H":
 										w.openHeatmap()
 									}

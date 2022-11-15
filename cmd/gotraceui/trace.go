@@ -377,6 +377,10 @@ type Processor struct {
 	spans Spans
 }
 
+func (p *Processor) String() string {
+	return fmt.Sprintf("processor %d", p.id)
+}
+
 // XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
 type Goroutine struct {
