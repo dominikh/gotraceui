@@ -302,14 +302,6 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
-func lerp(start, end, ratio float32) float32 {
-	return (1-ratio)*start + ratio*end
-}
-
-func round(x float32) float32 {
-	return float32(math.Round(float64(x)))
-}
-
 type HeatmapWindow struct {
 	theme *theme.Theme
 	trace *Trace

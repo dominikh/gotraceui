@@ -30,7 +30,6 @@ import (
 )
 
 type GoroutineStats struct {
-	g     *Goroutine
 	stats [stateLast]GoroutineStat
 	// mapping maps from indices of displayed statistics to indices in the stats field
 	mapping []int

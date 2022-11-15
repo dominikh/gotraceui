@@ -210,12 +210,6 @@ func clamp1(v float32) float32 {
 	}
 }
 
-// mulAlpha applies the alpha to the color.
-func mulAlpha(c color.NRGBA, alpha uint8) color.NRGBA {
-	c.A = uint8(uint32(c.A) * uint32(alpha) / 0xFF)
-	return c
-}
-
 type Foldable struct {
 	// TODO(dh): move state into widget package
 
