@@ -1269,6 +1269,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 			events: g.events,
 		}},
 		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+			sampledTrackBase := -1
 			for i := range tracks {
 				i := i
 
@@ -1349,6 +1350,9 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 					}
 
 				case ActivityWidgetTrackSampled:
+					if sampledTrackBase == -1 {
+						sampledTrackBase = i
+					}
 					out[i] = ActivityWidgetTrack{
 						Track: track,
 
@@ -1380,7 +1384,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 								f := tr.PCs[state.spans[0].pc]
 								label = local.Sprintf("Sampled function: %s\n", f.Fn)
 								// TODO(dh): for truncated stacks we should display a relative depth instead
-								label += local.Sprintf("Call depth: %d\n", i)
+								label += local.Sprintf("Call depth: %d\n", i-sampledTrackBase)
 							} else {
 								label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 							}
