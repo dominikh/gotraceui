@@ -916,6 +916,8 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						}
 
 						if len(spans) == 1 {
+							gid := tr.Event((spans[0].event())).G
+							tl.contextMenu.scrollToGoroutine.Label = PlainLabel(fmt.Sprintf("Scroll to goroutine %d", gid))
 							items = append(items, tl.contextMenu.scrollToGoroutine.Layout)
 						}
 
@@ -1271,12 +1273,15 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 								switch spans[0].state {
 								case stateActive, stateGCIdle, stateGCDedicated, stateGCMarkAssist, stateGCSweep:
 									// These are the states that are actually on-CPU
+									pid := tr.Event((spans[0].event())).P
+									tl.contextMenu.scrollToProcessor.Label = PlainLabel(fmt.Sprintf("Scroll to processor %d", pid))
 									items = append(items, tl.contextMenu.scrollToProcessor.Layout)
 
 								case stateBlocked, stateBlockedSend, stateBlockedRecv, stateBlockedSelect, stateBlockedSync,
 									stateBlockedSyncOnce, stateBlockedSyncTriggeringGC, stateBlockedCond, stateBlockedNet, stateBlockedGC:
-									_, ok := unblockedByGoroutine(tr, &spans[0])
+									gid, ok := unblockedByGoroutine(tr, &spans[0])
 									if ok {
+										tl.contextMenu.scrollToUnblockingGoroutine.Label = PlainLabel(fmt.Sprintf("Scroll to unblocking goroutine %d", gid))
 										items = append(items, tl.contextMenu.scrollToUnblockingGoroutine.Layout)
 									}
 								}
