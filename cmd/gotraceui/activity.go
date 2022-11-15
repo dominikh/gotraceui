@@ -1361,7 +1361,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 							if len(spans) != 1 {
 								return nil
 							}
-							f := tr.PCs[track.spans[0].pc]
+							f := tr.PCs[spans[0].pc]
 
 							short := shortenFunctionName(f.Fn)
 
