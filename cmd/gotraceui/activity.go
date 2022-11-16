@@ -1110,10 +1110,6 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes",
 					l.Args[trace.ArgGCSweepDoneSwept], l.Args[trace.ArgGCSweepDoneReclaimed])
 			}
-		case stateRunningG:
-			g := tr.getG(ev.G)
-			label += local.Sprintf("running goroutine %d", ev.G)
-			label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.function) + label
 		default:
 			if debug {
 				panic(fmt.Sprintf("unhandled state %d", state))
