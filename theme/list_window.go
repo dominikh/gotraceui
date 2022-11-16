@@ -81,11 +81,16 @@ func (w *ListWindow[T]) Confirmed() (T, bool) {
 	return w.items[w.filtered[w.index]].item, true
 }
 
+// Don't bubble up normal key presses. This is a workaround for Gio's input handling. The editor widget
+// primarily uses edit events to handle key presses, but edit events don't prevent key presses from bubbling up
+// the input tree. That means that typing in an editor can trigger our single-key shortcuts.
+var editorKeyset = key.Set("↓|↑|⎋|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z")
+
 func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ListWindow.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	key.InputOp{Tag: w, Keys: "↓|↑|⎋"}.Add(gtx.Ops)
+	key.InputOp{Tag: w, Keys: editorKeyset}.Add(gtx.Ops)
 
 	var spy *eventx.Spy
 
