@@ -872,7 +872,8 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 							return nil
 						}
 						// OPT(dh): cache the strings
-						out := make([]string, 3)
+						// 4th element should always be "" to avoid truncation
+						out := make([]string, 4)
 						g := tr.getG(tr.Event(spans[0].event()).G)
 						if g.function != "" {
 							short := shortenFunctionName(g.function)
