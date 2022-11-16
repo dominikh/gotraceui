@@ -1161,6 +1161,13 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		// state. We try to pattern match away the runtime when it makes sense.
 		label += fmt.Sprintf("In: %s\n", at)
 	}
+	if len(state.spans) == 1 {
+		switch state.spans[0].state {
+		case stateActive, stateGCIdle, stateGCDedicated, stateGCMarkAssist, stateGCSweep:
+			pid := tr.Event(state.spans[0].event()).P
+			label += fmt.Sprintf("On: processor %d\n", pid)
+		}
+	}
 
 	label += fmt.Sprintf("Duration: %s\n", state.spans.Duration(tr))
 
