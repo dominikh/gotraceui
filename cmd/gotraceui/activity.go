@@ -808,9 +808,9 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 			"Time inactive: %[7]s (%.2[8]f%%)",
 		tt.p.id,
 		len(tt.p.spans),
-		userD, userPct,
-		gcD, gcPct,
-		inactiveD, inactivePct,
+		roundDuration(userD), userPct,
+		roundDuration(gcD), gcPct,
+		roundDuration(inactiveD), inactivePct,
 	)
 
 	return theme.Tooltip{}.Layout(win, gtx, l)
@@ -829,7 +829,7 @@ func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
-	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
+	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
@@ -1019,11 +1019,11 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		tt.g.id, fnName,
 		formatTimestamp(start),
 		formatTimestamp(end),
-		d,
-		tt.g.statistics.blocked, tt.g.statistics.blockedPct,
-		tt.g.statistics.inactive, tt.g.statistics.inactivePct,
-		tt.g.statistics.gcAssist, tt.g.statistics.gcAssistPct,
-		tt.g.statistics.running, tt.g.statistics.runningPct,
+		roundDuration(d),
+		roundDuration(tt.g.statistics.blocked), tt.g.statistics.blockedPct,
+		roundDuration(tt.g.statistics.inactive), tt.g.statistics.inactivePct,
+		roundDuration(tt.g.statistics.gcAssist), tt.g.statistics.gcAssistPct,
+		roundDuration(tt.g.statistics.running), tt.g.statistics.runningPct,
 		len(tt.g.spans),
 	)
 
@@ -1170,7 +1170,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		}
 	}
 
-	label += fmt.Sprintf("Duration: %s\n", state.spans.Duration(tr))
+	label += fmt.Sprintf("Duration: %s\n", roundDuration(state.spans.Duration(tr)))
 
 	if len(state.events) > 0 {
 		label += local.Sprintf("Events in span: %d\n", len(state.events))
@@ -1236,7 +1236,7 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
-	label += fmt.Sprintf("Duration: %s", state.spans.Duration(tr))
+	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
