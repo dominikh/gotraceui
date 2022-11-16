@@ -20,15 +20,15 @@ None of these controls are final. Users without a middle mouse button will have 
 | Middle mouse button (hold)  | Pan the view                                                                |
 | Spacebar (hold)             | Pan the view                                                                |
 | Shift + middle mouse button | Draw a zoom selection                                                       |
-| Ctrl + middle mouse button  | Zoom to clicked span or goroutine                                           |
+| Ctrl + middle mouse button  | Zoom to clicked span or activity                                            |
 | Scroll wheel                | Zoom in and out                                                             |
-| Home                        | Scroll to top of goroutine list                                             |
-| Ctrl + Home                 | Zooms to fit current goroutines                                             |
+| Home                        | Scroll to top of activity  list                                             |
+| Ctrl + Home                 | Zooms to fit current activities                                             |
 | Shift + Home                | Jump to timestamp 0                                                         |
-| X                           | Toggle display of all goroutine labels                                      |
+| X                           | Toggle display of all activity  labels                                      |
 | C                           | Toggle compact display                                                      |
 | G                           | Open an activity selector                                                   |
-| T                           | Toggle displaying tooltips; only spans -> none -> both spans and goroutines |
+| T                           | Toggle displaying tooltips; only spans -> none -> both spans and activities |
 | O                           | Toggle displaying STW and GC overlays                                       |
 | S                           | Toggle displaying sampling-based timelines                                  |
 | H                           | Open a heatmap showing P utilization                                        |
