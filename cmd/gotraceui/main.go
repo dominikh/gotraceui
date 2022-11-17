@@ -452,7 +452,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
-	m.Analyze.OpenHeatmap = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Open P utilization heatmap")}
+	m.Analyze.OpenHeatmap = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Open processor utilization heatmap")}
 
 	m.menu = &theme.Menu{
 		Theme: w.theme,
