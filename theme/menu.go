@@ -167,7 +167,7 @@ func (g *MenuGroup) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 type MenuItem struct {
 	Label    func() string
 	Shortcut string
-	Disabled bool
+	Disabled func() bool
 	Do       func(layout.Context)
 
 	click widget.Clickable
@@ -177,11 +177,12 @@ func (item *MenuItem) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	defer rtrace.StartRegion(context.Background(), "theme.MenuItem.Layout").End()
 
 	fg := menuTextColor
-	if item.Disabled {
+	disabled := false || (item.Disabled != nil && item.Disabled())
+	if disabled {
 		fg = menuDisabledTextColor
 	}
 	bg := menuColor
-	if !item.Disabled && item.click.Hovered() {
+	if !disabled && item.click.Hovered() {
 		bg = menuSelectedColor
 	}
 	dims := mywidget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

@@ -442,17 +442,18 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 
 	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
 
-	m.Display.UndoNavigation = theme.MenuItem{Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation")}
-	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list")}
-	m.Display.ZoomToFit = theme.MenuItem{Shortcut: "Ctrl+Home", Label: PlainLabel("Zoom to fit visible activities")}
-	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline")}
-	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact)}
-	m.Display.ToggleActivityLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels)}
-	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks)}
+	notMainDisabled := func() bool { return w.state != "main" }
+	m.Display.UndoNavigation = theme.MenuItem{Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
+	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list"), Disabled: notMainDisabled}
+	m.Display.ZoomToFit = theme.MenuItem{Shortcut: "Ctrl+Home", Label: PlainLabel("Zoom to fit visible activities"), Disabled: notMainDisabled}
+	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
+	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact), Disabled: notMainDisabled}
+	m.Display.ToggleActivityLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels), Disabled: notMainDisabled}
+	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
-	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap")}
+	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap"), Disabled: notMainDisabled}
 
 	m.menu = &theme.Menu{
 		Theme: w.theme,
@@ -580,6 +581,11 @@ func (w *MainWindow) Run(win *app.Window) error {
 					// Fill background
 					paint.Fill(gtx.Ops, colors[colorBackground])
 
+					if mainMenu.File.Quit.Clicked() {
+						win.Menu.Close()
+						os.Exit(0)
+					}
+
 					switch w.state {
 					case "empty":
 						return layout.Dimensions{}
@@ -634,10 +640,6 @@ func (w *MainWindow) Run(win *app.Window) error {
 							}
 						}
 
-						if mainMenu.File.Quit.Clicked() {
-							win.Menu.Close()
-							os.Exit(0)
-						}
 						if mainMenu.Display.UndoNavigation.Clicked() {
 							win.Menu.Close()
 							w.tl.UndoNavigation(gtx)
