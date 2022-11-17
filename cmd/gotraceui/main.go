@@ -452,7 +452,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
-	m.Analyze.OpenHeatmap = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Open processor utilization heatmap")}
+	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap")}
 
 	m.menu = &theme.Menu{
 		Theme: w.theme,
@@ -629,8 +629,6 @@ func (w *MainWindow) Run(win *app.Window) error {
 										}
 										w.ww.SetItems(items)
 										w.ww.BuildFilter = newActivityFilter
-									case "H":
-										w.openHeatmap()
 									}
 								}
 							}
@@ -697,7 +695,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							w.openGoroutineWindow(g)
 						}
 
-						key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
+						key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
 
 						if w.ww != nil {
 							if item, ok := w.ww.Confirmed(); ok {
