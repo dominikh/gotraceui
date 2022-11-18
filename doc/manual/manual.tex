@@ -24,6 +24,9 @@
 \definecolor[stateInactive][x=888888]
 \definecolor[stateReady][x=4BACB8]
 \definecolor[stateStuck][x=000000]
+\definecolor[stateMerged][x=B9BB63]
+\definecolor[stateUserRegion][x=F2A2E8]
+\definecolor[stateSample][x=79B579]
 
 \define[2]\traceState{\inframed[background=color,backgroundcolor=#2]{#1}}
 
@@ -83,6 +86,8 @@
 
 
 \startchapter[title=The user interface]
+  The following sections will describe the various components of Gotraceui's UI.
+
   \startsection[title=Main window]
     The main window displays a main menu and an interactive \noun{timeline} representing the trace data.
 
@@ -142,6 +147,21 @@
       First, it merges consecutive tiny spans, displaying them as one big span instead. Such merged spans get their own color \intodo{(which? also explain gradients)}.
       Zooming into merged spans unmerges them.
       Second, if there aren't enough spans to merge, the span is given a minimum size. \intodo{mention how that means following spans might be rendered smaller than they are, and that zooming into an enlarged span may not change its size for quite a while.}
+
+      \startsubsubsection[title={Span colors}]
+        Spans in processor activities will have one of two colors:
+        \traceState{Green}{stateActive} for spans that represent running user goroutines,
+        and \traceState{purple}{stateGC} for spans that represent garbage collection work.
+
+        Spans in the first track of goroutine activities can have many different colors, representing the many different states a goroutine can be in.
+        You can find an exhaustive list of all goroutine states – and the corresponding span colors – in \about[goroutine-states].
+
+        User regions are displayed in \traceState{light pink}{stateUserRegion}. CPU samples are displayed in \traceState{light green}{stateSample}.
+
+        When small spans get merged, they will be displayed in one of two ways:
+        if all merged spans have the same state, then we will display a gradient from \traceState{light yellow}{stateMerged} to the color of the merged spans.
+        For merged spans with mixed states, a solid light yellow is shown instead.
+      \stopsubsubsection
     \stopsubsection
 
     \intodo{talk about context menu}
@@ -163,7 +183,7 @@
   \stopsection
 \stopchapter
 
-\startchapter[title=Goroutine states]
+\startchapter[reference=goroutine-states, title=Goroutine states]
   \starttodo
     Something about how a goroutine will be in one of several states.
     States have colors, some of them have labels, different labels at different zoom levels.
