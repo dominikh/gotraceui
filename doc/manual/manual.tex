@@ -56,7 +56,7 @@
 \intodo{Most of these titles are placeholders, as is the overall structure}
 \completecontent
 
-\todo{This manual needs a proper structure. Something along the lines of quick start, an introduction to gotraceui (i.e.
+\todo{This manual needs a proper structure. Something along the lines of quick start, an introduction to Gotraceui (i.e.
   a feature overview and why it exists), how to set up tracing in all its details, how to analyze the data.}
 
 \startchapter[title=Introduction]
@@ -129,7 +129,7 @@
 
       For example, the screenshot shows a goroutine activity with six tracks.
       The first track contains the runtime tracing information, while the other five tracks represent the five levels of call stacks acquired via CPU sampling.
-      See \about[cpu-sampling] for more information on the specifics of CPU sampling in gotraceui.
+      See \about[cpu-sampling] for more information on the specifics of CPU sampling in Gotraceui.
       Another source of tracks is code that is annotated with user regions.
 
       Each track consists of a series of \noun{spans}.
@@ -189,7 +189,7 @@
     States have colors, some of them have labels, different labels at different zoom levels.
   \stoptodo
 
-  Some of these states are actual states in the Go runtime, while other states are introduced by gotraceui to increase
+  Some of these states are actual states in the Go runtime, while other states are introduced by Gotraceui to increase
   the level of detail.
 
   \startitemize
@@ -204,7 +204,7 @@
   \item \traceState{sync}{stateBlockedHappensBefore} This state is used by goroutines that are blocked on sync primitives, such as \code{sync.Mutex}.
 
   \item \traceState{sync.Once}{stateBlockedHappensBefore} Blocked on a \code{sync.Once}.
-    This is a special case of the sync state and detected by gotraceui based on stack traces.
+    This is a special case of the sync state and detected by Gotraceui based on stack traces.
 
   \item \traceState{sync.Cond}{stateBlockedHappensBefore} Blocked on a condition variable (\code{sync.Cond}.)
 
@@ -218,7 +218,7 @@
     This usually happens for goroutines of the runtime that don't emit more accurate information.
     User goroutines will usually have more specific states such as \quote{send}.
 
-  \item \traceState{inactive}{stateInactive} This state is one of gotraceui's custom states and is used for
+  \item \traceState{inactive}{stateInactive} This state is one of Gotraceui's custom states and is used for
     goroutines that are blocked or ready to run, but aren't actually eager to run.
     For blocked goroutines, this is exclusively used by goroutines of the runtime that block on some lock to pace the amount of work they do.
     Goroutines that are technically in the ready state but are marked inactive are those that called runtime.Gosched or time.Sleep,
@@ -306,7 +306,7 @@
     Go has to distribute goroutines over a smaller number of threads.
     To do so, the scheduler has to decide which goroutines to run when,
     part of which involves tracking which goroutines {\em can} run.
-    The activity related to this makes up a large part of what the runtime trace captures and gotraceui visualizes.
+    The activity related to this makes up a large part of what the runtime trace captures and Gotraceui visualizes.
     It is thus helpful to understand how the scheduler works.
 
     \startsubsection[title={Ms, Ps, and Gs}]
@@ -370,7 +370,7 @@
 
 \startchapter[reference=cpu-sampling, title=CPU sampling]
   \intodo{We probably want to move this chapter into a subchapter of the UI chapter}
-  In addition to sequences of runtime events and user regions, gotraceui can also display tracks of stack traces.
+  In addition to sequences of runtime events and user regions, Gotraceui can also display tracks of stack traces.
   Such tracks can help spot macroscopic patterns in code execution. They are reconstructed from CPU profiling
   samples as well as the stacks associated with certain runtime events and thus have a sampled, imprecise nature.
 

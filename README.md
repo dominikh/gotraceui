@@ -9,7 +9,7 @@ browser at all), and its UI is tuned specifically to the unique characteristics 
 Gotraceui is still a work in progress with many sharp corners, but you can already try it out. Simply build
 `honnef.co/go/gotraceui/cmd/gotraceui` and run it, passing the path to a trace file as the only argument. See the
 documentation of [runtime/trace](https://pkg.go.dev/runtime/trace) on how to obtain traces, and see [Gio's
-instructions](https://gioui.org/doc/install) to figure out the dependencies required for building gotraceui.
+instructions](https://gioui.org/doc/install) to figure out the dependencies required for building Gotraceui.
 
 ## Controls
 
@@ -49,7 +49,7 @@ Enjoy some of these screenshots.
 
 ## Notes
 
-No aspect of gotraceui is final yet, but do note that bright pink and bright yellow are debug colors and I never thought
+No aspect of Gotraceui is final yet, but do note that bright pink and bright yellow are debug colors and I never thought
 they were a good idea. The rest of the color scheme is actually meant to be pleasant.
 
 ## Known issues
