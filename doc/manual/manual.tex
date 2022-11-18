@@ -66,6 +66,21 @@
 \startchapter[title=Quickstart]
 \stopchapter
 
+\startchapter[title=System requirements]
+  Gotraceui runs on Linux (X11 and Wayland), Windows, and macOS.
+  However, due to its current input scheme, it heavily relies on a three button mouse and may thus not be enjoyable to use for most macOS users or users of trackpads.
+
+  Runtime traces are very dense in information and can contain millions of events in the span of seconds.
+  The format emitted by \code{runtime/trace} is optimized for small and low overhead output and is highly compressed.
+  To be able to process and display a trace, Gotraceui has to parse and materialize it in memory.
+  Memory usage is roughly 30x the size of the input trace.
+  That is, a 300 \unit{MB} trace file will need about 9 \unit{GB} of memory to be loaded by Gotraceui.
+  For reference, an example 300 \unit{MB} trace file was produced by tracing a busy Prometheus instance for one minute, resulting in 66,044,021 events.
+  This represents an extreme example.
+  Many of your traces will be much smaller than that.
+  For example, tracing \code{net/http}'s tests produces a 7.3 \unit{MB} trace instead, 
+\stopchapter
+
 
 \startchapter[title=The user interface]
   \startsection[title=Main window]
