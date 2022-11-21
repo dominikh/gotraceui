@@ -92,9 +92,9 @@
 
     \midaligned{{\externalfigure[images/screenshots/main_window.png][width=0.95\textwidth]}}
 
-    The timeline can be moved around by holding \key{MMB} or \key{Spacebar} while moving the mouse.
-    Using the scroll wheel zooms in and out of the timeline, centered around the cursor's position.
-    Dragging with \key{Shift}+\key{MMB} selects a region to zoom to.
+    The timeline can be moved around by dragging with \key{LMB} or by scrolling.
+    Holding \key{Ctrl/Cmd} while scrolling zooms in and out of the timeline, centered around the cursor's position.
+    Dragging with \key{Ctrl/Cmd}+\key{LMB} selects a region to zoom to.
     The \menu{Display} menu contains commands for changing the way the timeline is displayed, as well as commands for quick navigation.
 
     \startsubsection[title=Axis]
@@ -119,7 +119,7 @@
       \midaligned{{\externalfigure[images/screenshots/processor-tooltip.png][width=0.5\textwidth]}}
 
       For example, for processors, the tooltip will show how much time was spent executing user code, doing garbage collection work, and being idle.
-      Pressing \key{Ctrl}+\key{MMB} on a label will zoom the timeline such that all spans in that activity are visible.
+      Pressing \key{Ctrl/Cmd}+\key{LMB} on a label will zoom the timeline such that all spans in that activity are visible.
       Pressing \key{LMB} on a goroutine label will open the corresponding goroutine window. You can read more about goroutine windows in \about[goroutine-windows].
 
       An activity consists of one or more horizontally stacked \noun{tracks}.
@@ -135,7 +135,7 @@
       A span represents an activity's state for some duration of time.
       For example, a goroutine may be blocked on a channel send operation for \unit{100 ms}, and this would be displayed as a single span.
       Hovering over a span will show context-specific information about it, including its state and duration, but also additional information such as tags \intodo{(link to the section on tags}) or the reason for being in a certain state.
-      Pressing \key{Ctrl}+\key{MMB} on a span will zoom the timeline such that the span is fully visible.
+      Pressing \key{Ctrl/Cmd}+\key{LMB} on a span will zoom the timeline such that the span is fully visible.
 
       Spans have different colors depending on the states they represent.
       Different kinds of activities and tracks may use different color schemes.
