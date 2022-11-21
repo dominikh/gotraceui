@@ -109,8 +109,6 @@ import (
    - Maybe something about MMU?
 */
 
-// TODO(dh): in a lot of places we react to clicks on the Press event, but we should really detect proper clicks, which
-//   is press + release without dragging inbetween.
 // TODO(dh): standardize whether we pass Theme as an argument to Layout or store it in the type
 // FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
 //   will be selected, and pressing enter will panic, trying to access index -1

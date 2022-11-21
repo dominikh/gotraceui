@@ -15,6 +15,7 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -102,6 +103,8 @@ type Timeline struct {
 
 	// State for dragging the timeline
 	drag struct {
+		drag    gesture.Drag
+		ready   bool
 		clickAt f32.Point
 		active  bool
 		start   trace.Timestamp
@@ -111,8 +114,9 @@ type Timeline struct {
 
 	// State for zooming to a selection
 	zoomSelection struct {
-		active  bool
+		ready   bool
 		clickAt f32.Point
+		active  bool
 	}
 
 	// Frame-local state set by Layout and read by various helpers
@@ -484,6 +488,19 @@ func (tl *Timeline) ToggleActivityLabels() {
 	tl.activity.displayAllLabels = !tl.activity.displayAllLabels
 }
 
+func (tl *Timeline) scroll(gtx layout.Context, dx, dy float32) {
+	// TODO(dh): implement location history for scrolling. We shouldn't record one entry per call to scroll, and instead
+	// only record on calls that weren't immediately preceeded by other calls to scroll.
+	tl.y += int(round32(dy))
+	if tl.y < 0 {
+		tl.y = 0
+	}
+	// XXX don't allow dragging tl.y beyond end
+
+	tl.start += trace.Timestamp(round32(dx * tl.nsPerPx))
+	tl.end += trace.Timestamp(round32(dx * tl.nsPerPx))
+}
+
 func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Timeline.Layout").End()
 	tr := tl.trace
@@ -554,9 +571,9 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 				switch ev.Name {
 				case key.NameHome:
 					switch {
-					case ev.Modifiers.Contain(key.ModCtrl):
+					case ev.Modifiers == key.ModShortcut:
 						tl.ZoomToFitCurrentView(gtx)
-					case ev.Modifiers.Contain(key.ModShift):
+					case ev.Modifiers == key.ModShift:
 						tl.JumpToBeginning(gtx)
 					case ev.Modifiers == 0:
 						tl.ScrollToTop(gtx)
@@ -566,7 +583,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 					tl.ToggleSampleTracks()
 
 				case "Z":
-					if ev.Modifiers.Contain(key.ModCtrl) {
+					if ev.Modifiers.Contain(key.ModShortcut) {
 						tl.UndoNavigation(gtx)
 					}
 
@@ -602,53 +619,50 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 					}
 					win.ShowNotification(gtx, s)
 
-				case "Space":
-					if !tl.drag.active {
-						tl.startDrag(tl.activity.cursorPos)
-					}
-
 				}
-			} else if ev.State == key.Release && ev.Name == "Space" {
-				tl.endDrag()
 			}
 		case pointer.Event:
 			tl.activity.cursorPos = ev.Position
 
 			switch ev.Type {
-			case pointer.Press:
-				if ev.Buttons.Contain(pointer.ButtonTertiary) {
-					if ev.Modifiers.Contain(key.ModShift) {
-						tl.startZoomSelection(ev.Position)
-					} else if ev.Modifiers == 0 {
-						tl.startDrag(ev.Position)
-					}
-				}
-
 			case pointer.Scroll:
 				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
 				tl.abortZoomSelection()
-				tl.zoom(gtx, ev.Scroll.Y, ev.Position)
-
-			case pointer.Drag:
-				if tl.drag.active {
-					tl.dragTo(gtx, ev.Position)
+				if ev.Modifiers == 0 {
+					tl.scroll(gtx, ev.Scroll.X, ev.Scroll.Y)
+				} else if ev.Modifiers == key.ModShortcut {
+					tl.zoom(gtx, ev.Scroll.Y, ev.Position)
 				}
+			}
+		}
+	}
 
-			case pointer.Move:
-				if tl.drag.active {
-					tl.dragTo(gtx, ev.Position)
-				}
-
-			case pointer.Release:
-				// For pointer.Release, ev.Buttons contains the buttons still being pressed, not the ones that have been
-				// released.
-				if !ev.Buttons.Contain(pointer.ButtonTertiary) {
-					if tl.drag.active {
-						tl.endDrag()
-					} else if tl.zoomSelection.active {
-						tl.endZoomSelection(win, gtx, ev.Position)
-					}
-				}
+	for _, ev := range tl.drag.drag.Events(gtx.Metric, gtx, gesture.Both) {
+		switch ev.Type {
+		case pointer.Press:
+			if ev.Modifiers == 0 {
+				tl.drag.ready = true
+			} else if ev.Modifiers == key.ModShortcut {
+				tl.zoomSelection.ready = true
+			}
+		case pointer.Drag:
+			tl.activity.cursorPos = ev.Position
+			if tl.drag.ready && !tl.drag.active {
+				tl.startDrag(ev.Position)
+			} else if tl.zoomSelection.ready && !tl.zoomSelection.active {
+				tl.startZoomSelection(ev.Position)
+			}
+			if tl.drag.active {
+				tl.dragTo(gtx, ev.Position)
+			}
+		case pointer.Release:
+			tl.drag.ready = false
+			tl.zoomSelection.ready = false
+			if tl.drag.active {
+				tl.endDrag()
+			}
+			if tl.zoomSelection.active {
+				tl.endZoomSelection(win, gtx, ev.Position)
 			}
 		}
 	}
@@ -715,16 +729,16 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		}
 
 		// Set up event handlers
+		tl.drag.drag.Add(gtx.Ops)
 		pointer.InputOp{
 			Tag:          tl,
-			Types:        pointer.Scroll | pointer.Drag | pointer.Press | pointer.Release | pointer.Move,
-			ScrollBounds: image.Rectangle{Min: image.Pt(-1, -1), Max: image.Pt(1, 1)},
-			Grab:         tl.drag.active,
+			ScrollBounds: image.Rectangle{Min: image.Pt(-100, -100), Max: image.Pt(100, 100)},
+			Types:        pointer.Move | pointer.Scroll,
 		}.Add(gtx.Ops)
 		if tl.drag.active {
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
-		key.InputOp{Tag: tl, Keys: "Space|Ctrl-Z|C|S|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
+		key.InputOp{Tag: tl, Keys: "Ctrl-Z|C|S|O|T|X|(Shift)-(Ctrl)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: tl}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
@@ -883,11 +897,6 @@ func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (lay
 		aw.displayed = false
 	}
 	for i, aw := range tl.activities {
-		if aw.LabelClicked() {
-			if g, ok := aw.item.(*Goroutine); ok {
-				tl.clickedGoroutineActivities = append(tl.clickedGoroutineActivities, g)
-			}
-		}
 		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
 		awHeight := aw.Height(gtx)
 		if y < -awHeight {
@@ -908,6 +917,12 @@ func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (lay
 		stack.Pop()
 
 		y += activityGap + awHeight
+
+		if aw.LabelClicked() {
+			if g, ok := aw.item.(*Goroutine); ok {
+				tl.clickedGoroutineActivities = append(tl.clickedGoroutineActivities, g)
+			}
+		}
 	}
 	for _, aw := range tl.prevFrame.displayedAws {
 		if !aw.displayed {

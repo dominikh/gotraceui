@@ -15,6 +15,7 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/gesture"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -51,6 +52,7 @@ type ActivityWidget struct {
 	invalidateCache func(aw *ActivityWidget) bool
 	tl              *Timeline
 	item            any
+	labelClick      gesture.Click
 	label           string
 
 	// Set to true by the Layout method. This is used to track which activities have been shown during a frame.
@@ -58,9 +60,8 @@ type ActivityWidget struct {
 
 	labelClicks int
 
-	pointerAt    f32.Point
-	hovered      bool
-	hoveredLabel bool
+	pointerAt f32.Point
+	hovered   bool
 
 	// OPT(dh): Only one activity can have hovered or activated spans, so we could track this directly in Timeline, and
 	// save 48 bytes per activity (which means per goroutine). However, the current API is cleaner, because
@@ -117,6 +118,7 @@ type ActivityWidgetTrack struct {
 
 	pointerAt f32.Point
 	hovered   bool
+	click     gesture.Click
 
 	// cached state
 	prevFrame struct {
@@ -213,24 +215,14 @@ func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 	}
 
 	aw.labelClicks = 0
-	for _, ev := range gtx.Events(&aw.label) {
-		switch ev := ev.(type) {
-		case pointer.Event:
-			switch ev.Type {
-			case pointer.Enter, pointer.Move:
-				aw.hoveredLabel = true
-			case pointer.Leave, pointer.Cancel:
-				aw.hoveredLabel = false
-			case pointer.Press:
-				if ev.Buttons.Contain(pointer.ButtonPrimary) && ev.Modifiers == 0 {
-					aw.labelClicks++
-				}
-
-				if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
-					// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
-					// assumption to make.
-					aw.navigatedSpans = MergedSpans(aw.tracks[0].spans)
-				}
+	for _, ev := range aw.labelClick.Events(gtx) {
+		if ev.Type == gesture.TypeClick {
+			if ev.Modifiers == 0 {
+				aw.labelClicks++
+			} else if ev.Modifiers == key.ModShortcut {
+				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
+				// assumption to make.
+				aw.navigatedSpans = MergedSpans(aw.tracks[0].spans)
 			}
 		}
 	}
@@ -280,12 +272,13 @@ func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, aw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &aw.label, Types: pointer.Press | pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			pointer.InputOp{Tag: &aw.label, Types: pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			aw.labelClick.Add(gtx.Ops)
 			pointer.CursorPointer.Add(gtx.Ops)
 			stack.Pop()
 		}
 
-		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.hoveredLabel {
+		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.labelClick.Hovered() {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
@@ -454,16 +447,24 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		case pointer.Leave, pointer.Cancel:
 			track.hovered = false
 		case pointer.Press:
-			if ev.Buttons.Contain(pointer.ButtonTertiary) && ev.Modifiers.Contain(key.ModCtrl) {
-				trackNavigatedSpans = true
-			} else if ev.Buttons.Contain(pointer.ButtonSecondary) {
+			if ev.Buttons == pointer.ButtonSecondary {
 				trackContextMenuSpans = true
 			}
 		}
 	}
 
+	for _, ev := range track.click.Events(gtx) {
+		if ev.Type != gesture.TypeClick {
+			continue
+		}
+		if ev.Modifiers == key.ModShortcut {
+			trackNavigatedSpans = true
+		}
+	}
+
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
 	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	track.click.Add(gtx.Ops)
 
 	// Draw activity lifetimes
 	//

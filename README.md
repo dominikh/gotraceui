@@ -15,23 +15,23 @@ instructions](https://gioui.org/doc/install) to figure out the dependencies requ
 
 None of these controls are final. Users without a middle mouse button will have a bad experience right now.
 
-| Key                         | Function                                                                    |
-|-----------------------------|-----------------------------------------------------------------------------|
-| Middle mouse button (hold)  | Pan the view                                                                |
-| Spacebar (hold)             | Pan the view                                                                |
-| Shift + middle mouse button | Draw a zoom selection                                                       |
-| Ctrl + middle mouse button  | Zoom to clicked span or activity                                            |
-| Scroll wheel                | Zoom in and out                                                             |
-| Home                        | Scroll to top of activity  list                                             |
-| Ctrl + Home                 | Zooms to fit current activities                                             |
-| Shift + Home                | Jump to timestamp 0                                                         |
-| X                           | Toggle display of all activity  labels                                      |
-| C                           | Toggle compact display                                                      |
-| G                           | Open an activity selector                                                   |
-| T                           | Toggle displaying tooltips; only spans -> none -> both spans and activities |
-| O                           | Toggle displaying STW and GC overlays                                       |
-| S                           | Toggle displaying sampling-based timelines                                  |
-| Ctrl + Z                    | Undo navigations (works most of the time)                                   |
+| Key                                     | Function                                                                    |
+|-----------------------------------------|-----------------------------------------------------------------------------|
+| Left mouse button (hold)                | Pan the view                                                                |
+| Ctrl/Command + left mouse button (drag) | Draw a zoom selection                                                       |
+| Ctrl/Command + left mouse button        | Zoom to clicked span or activity                                            |
+| Scroll wheel                            | Scroll up and down                                                          |
+| Ctrl/Command + Scroll wheel             | Zoom in and out                                                             |
+| Home                                    | Scroll to top of activity  list                                             |
+| Ctrl/Command + Home                     | Zooms to fit current activities                                             |
+| Shift + Home                            | Jump to timestamp 0                                                         |
+| X                                       | Toggle display of all activity  labels                                      |
+| C                                       | Toggle compact display                                                      |
+| G                                       | Open an activity selector                                                   |
+| T                                       | Toggle displaying tooltips; only spans -> none -> both spans and activities |
+| O                                       | Toggle displaying STW and GC overlays                                       |
+| S                                       | Toggle displaying sampling-based timelines                                  |
+| Ctrl/Command + Z                        | Undo navigations (works most of the time)                                   |
 
 ## Screenshots
 
