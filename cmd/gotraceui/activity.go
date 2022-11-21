@@ -878,16 +878,16 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						g := tr.getG(tr.Event(spans[0].event()).G)
 						if g.function != "" {
 							short := shortenFunctionName(g.function)
-							out[0] = fmt.Sprintf("g%d: %s", g.id, g.function)
+							out[0] = local.Sprintf("g%d: %s", g.id, g.function)
 							if short != g.function {
-								out[1] = fmt.Sprintf("g%d: .%s", g.id, short)
-								out[2] = fmt.Sprintf("g%d", g.id)
+								out[1] = local.Sprintf("g%d: .%s", g.id, short)
+								out[2] = local.Sprintf("g%d", g.id)
 							} else {
 								// This branch is probably impossible; all functions should be fully qualified.
-								out[1] = fmt.Sprintf("g%d", g.id)
+								out[1] = local.Sprintf("g%d", g.id)
 							}
 						} else {
-							out[0] = fmt.Sprintf("g%d", g.id)
+							out[0] = local.Sprintf("g%d", g.id)
 						}
 						return out
 
@@ -936,7 +936,7 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						if len(spans) == 1 {
 							gid := tr.Event((spans[0].event())).G
 							items = append(items, &theme.MenuItem{
-								Label: PlainLabel(fmt.Sprintf("Scroll to goroutine %d", gid)),
+								Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 								Do: func(gtx layout.Context) {
 									tl.scrollToActivity(gtx, tr.getG(tr.Event((spans[0].event())).G))
 								},
@@ -1055,7 +1055,7 @@ func unblockedByGoroutine(tr *Trace, s *Span) (uint64, bool) {
 func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if debug {
-		label += fmt.Sprintf("Event ID: %d\n", state.spans[0].event())
+		label += local.Sprintf("Event ID: %d\n", state.spans[0].event())
 		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spans[0].event()).Type)
 	}
 	label += "State: "
@@ -1167,7 +1167,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		switch state.spans[0].state {
 		case stateActive, stateGCIdle, stateGCDedicated, stateGCMarkAssist, stateGCSweep:
 			pid := tr.Event(state.spans[0].event()).P
-			label += fmt.Sprintf("On: processor %d\n", pid)
+			label += local.Sprintf("On: processor %d\n", pid)
 		}
 	}
 
@@ -1308,7 +1308,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 									// These are the states that are actually on-CPU
 									pid := tr.Event((spans[0].event())).P
 									items = append(items, &theme.MenuItem{
-										Label: PlainLabel(fmt.Sprintf("Scroll to processor %d", pid)),
+										Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
 										Do: func(gtx layout.Context) {
 											tl.scrollToActivity(gtx, tr.getP(tr.Event((spans[0].event())).P))
 										},
@@ -1319,7 +1319,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 									gid, ok := unblockedByGoroutine(tr, &spans[0])
 									if ok {
 										items = append(items, &theme.MenuItem{
-											Label: PlainLabel(fmt.Sprintf("Scroll to unblocking goroutine %d", gid)),
+											Label: PlainLabel(local.Sprintf("Scroll to unblocking goroutine %d", gid)),
 											Do: func(gtx layout.Context) {
 												gid, _ := unblockedByGoroutine(tr, &spans[0])
 												tl.scrollToActivity(gtx, tr.getG(gid))
