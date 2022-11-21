@@ -509,7 +509,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 				} else {
 					tl.contextMenu = []*theme.MenuItem{{
 						Label:    PlainLabel("Zoom"),
-						Shortcut: "Ctrl+LMB",
+						Shortcut: key.ModShortcut.String() + "+LMB",
 						Do: func(gtx layout.Context) {
 							start := dspSpans.Start(tr)
 							end := dspSpans.End()
@@ -925,7 +925,7 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						var items []*theme.MenuItem
 						items = append(items, &theme.MenuItem{
 							Label:    PlainLabel("Zoom"),
-							Shortcut: "Ctrl+LMB",
+							Shortcut: key.ModShortcut.String() + "+LMB",
 							Do: func(gtx layout.Context) {
 								start := spans.Start(tr)
 								end := spans.End()
@@ -1294,7 +1294,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 							var items []*theme.MenuItem
 							items = append(items, &theme.MenuItem{
 								Label:    PlainLabel("Zoom"),
-								Shortcut: "Ctrl+LMB",
+								Shortcut: key.ModShortcut.String() + "+LMB",
 								Do: func(gtx layout.Context) {
 									start := spans.Start(tr)
 									end := spans.End()

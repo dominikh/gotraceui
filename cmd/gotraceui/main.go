@@ -441,9 +441,9 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
 
 	notMainDisabled := func() bool { return w.state != "main" }
-	m.Display.UndoNavigation = theme.MenuItem{Shortcut: "Ctrl+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
+	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
 	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list"), Disabled: notMainDisabled}
-	m.Display.ZoomToFit = theme.MenuItem{Shortcut: "Ctrl+Home", Label: PlainLabel("Zoom to fit visible activities"), Disabled: notMainDisabled}
+	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible activities"), Disabled: notMainDisabled}
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
 	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact), Disabled: notMainDisabled}
 	m.Display.ToggleActivityLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels), Disabled: notMainDisabled}
