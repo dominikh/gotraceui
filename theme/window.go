@@ -71,13 +71,18 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	stack.Pop()
 
 	if win.tooltip != nil {
-		// TODO have a gap between the cursor and the tooltip
 		macro := op.Record(gtx.Ops)
 		dims := win.tooltip(win, gtx)
 		call := macro.Stop()
 
 		var x, y int
 		ptr := win.pointerAt.Round()
+		// Prevent cursor from obscuring part of the tooltip.
+		//
+		// TODO(dh): we don't know the actual size of the cursor. The chosen values worked for us, but may not work for
+		// everyone. Can we somehow query for the size of the cursor?
+		ptr.X += gtx.Dp(8)
+		ptr.Y += gtx.Dp(8)
 		if ptr.X+dims.Size.X < gtx.Constraints.Max.X {
 			x = ptr.X
 		} else {
