@@ -1044,6 +1044,7 @@ func unblockedByGoroutine(tr *Trace, s *Span) (uint64, bool) {
 	case stateBlocked, stateBlockedSend, stateBlockedRecv, stateBlockedSelect, stateBlockedSync,
 		stateBlockedSyncOnce, stateBlockedSyncTriggeringGC, stateBlockedCond, stateBlockedNet, stateBlockedGC:
 		if link := EventID(fromUint40(&ev.Link)); link != ^EventID(0) {
+			// g0 unblocks goroutines that are blocked on pollable I/O, for example.
 			if g := tr.Event(link).G; g != 0 {
 				return g, true
 			}

@@ -773,12 +773,22 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			//
 			// Unlike mark assist, sweeping cannot be preempted, simplifying our state tracking.
 
+			if ev.G == 0 {
+				// Sweeping can also happen on the system stack, for example when the allocator needs to allocate a new
+				// span. We don't have a way to display this properly at the moment, so hide the information.
+				continue
+			}
+
 			gid = ev.G
 			state = stateGCSweep
 		case trace.EvGCSweepDone:
 			// The counterpart to EvGcSweepStart.
 
-			// XXX apparently this can happen on g0, in which case going to stateActive is probably wrong.
+			if ev.G == 0 {
+				// See EvGCSweepStart for why.
+				continue
+			}
+
 			gid = ev.G
 			state = stateActive
 
