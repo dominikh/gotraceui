@@ -775,9 +775,12 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 
 	w.tl.activity.displayAllLabels = true
 	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
-	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+2)
+	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+len(t.ms)+2)
 	w.tl.activities[0] = NewGCWidget(&w.tl, t, t.gc)
 	w.tl.activities[1] = NewSTWWidget(&w.tl, t, t.stw)
+	for _, m := range t.ms {
+		w.tl.activities = append(w.tl.activities, NewMachineWidget(&w.tl, m))
+	}
 	for _, p := range t.ps {
 		w.tl.activities = append(w.tl.activities, NewProcessorWidget(&w.tl, p))
 	}

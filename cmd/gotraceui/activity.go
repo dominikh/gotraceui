@@ -834,6 +834,211 @@ func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
+func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
+	tr := tl.trace
+	return &ActivityWidget{
+		tracks: []Track{
+			{spans: m.spans},
+			{spans: m.goroutines},
+		},
+		tl:    tl,
+		item:  m,
+		label: local.Sprintf("Machine %d", m.id),
+
+		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+			for i := range tracks {
+				track := &tracks[i]
+				switch i {
+				case 0:
+					out[i] = ActivityWidgetTrack{
+						Track: track,
+						highlightSpan: func(spans MergedSpans) bool {
+							if haw := tl.activity.hoveredActivity; haw != nil {
+								var target int32
+								switch hitem := haw.item.(type) {
+								case *Processor:
+									target = hitem.id
+								case *Machine:
+									if len(tl.activity.hoveredSpans) != 1 {
+										return false
+									}
+									o := &tl.activity.hoveredSpans[0]
+									if o.state != stateRunningP {
+										return false
+									}
+									target = tr.Event(o.event()).P
+								default:
+									return false
+								}
+								for i := range spans {
+									// OPT(dh): don't be O(n)
+									span := &spans[i]
+									if span.state == stateRunningP && tr.Event(span.event()).P == target {
+										return true
+									}
+								}
+							}
+							return false
+						},
+						spanLabel: func(spans MergedSpans, tr *Trace) []string {
+							if len(spans) != 1 {
+								return nil
+							}
+							return []string{
+								local.Sprintf("p%d", tr.Event(spans[0].event()).P),
+								"",
+							}
+						},
+						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
+							var label string
+							if len(state.spans) == 1 {
+								s := &state.spans[0]
+								ev := tr.Event(s.event())
+								switch s.state {
+								case stateRunningP:
+									label = local.Sprintf("Processor %d\n", ev.P)
+								case stateBlockedSyscall:
+									label = "In blocking syscall\n"
+								default:
+									panic(fmt.Sprintf("unexpected state %d", s.state))
+								}
+							} else {
+								label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+							}
+							label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
+							return theme.Tooltip{}.Layout(win, gtx, label)
+						},
+					}
+				case 1:
+					out[i] = ActivityWidgetTrack{
+						Track: track,
+						highlightSpan: func(spans MergedSpans) bool {
+							if haw := tl.activity.hoveredActivity; haw != nil {
+								var target uint64
+								switch hitem := haw.item.(type) {
+								case *Goroutine:
+									target = hitem.id
+								case *Processor:
+									if len(tl.activity.hoveredSpans) != 1 {
+										return false
+									}
+									o := &tl.activity.hoveredSpans[0]
+									if o.state != stateRunningG {
+										return false
+									}
+									target = tr.Event(o.event()).G
+								case *Machine:
+									if len(tl.activity.hoveredSpans) != 1 {
+										return false
+									}
+									o := &tl.activity.hoveredSpans[0]
+									if o.state != stateRunningG {
+										return false
+									}
+									target = tr.Event(o.event()).G
+								default:
+									return false
+								}
+								for i := range spans {
+									// OPT(dh): don't be O(n)
+									if tr.Event(spans[i].event()).G == target {
+										return true
+									}
+								}
+							}
+							return false
+						},
+						spanLabel: processorSpanLabel,
+						spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
+							do := func(s Span, tr *Trace) colorIndex {
+								gid := tr.Events[s.event()].G
+								g := tr.getG(gid)
+								switch fn := g.function; fn {
+								case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
+									return colorStateGC
+								default:
+									return stateColors[s.state]
+								}
+							}
+
+							if len(spans) == 1 {
+								return [2]colorIndex{do(spans[0], tr), 0}
+							} else {
+								c := do(spans[0], tr)
+								for _, s := range spans[1:] {
+									// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
+									// with the same color.
+									cc := do(s, tr)
+									if cc != c {
+										return [2]colorIndex{colorStateMerged, 0}
+									}
+								}
+								return [2]colorIndex{c, colorStateMerged}
+							}
+						},
+						spanTooltip: processorSpanTooltip,
+					}
+				}
+			}
+		},
+		invalidateCache: func(aw *ActivityWidget) bool {
+			if tl.prevFrame.hoveredActivity != tl.activity.hoveredActivity {
+				return true
+			}
+
+			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
+				// Nothing hovered in either frame.
+				return false
+			}
+
+			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.activity.hoveredSpans) > 1 {
+				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
+				// frames, then nothing changes for rendering.
+				return false
+			}
+
+			if len(tl.prevFrame.hoveredSpans) != len(tl.activity.hoveredSpans) {
+				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
+				// previously highlighted.
+				//
+				// The number of hovered spans changed, and at least in one frame the number was 1.
+				return true
+			}
+
+			// If we got to this point, then both slices have exactly one element.
+			if tr.Event(tl.prevFrame.hoveredSpans[0].event()).P != tr.Event(tl.activity.hoveredSpans[0].event()).P {
+				return true
+			}
+
+			return false
+		},
+	}
+}
+
+func processorSpanLabel(spans MergedSpans, tr *Trace) []string {
+	if len(spans) != 1 {
+		return nil
+	}
+	// OPT(dh): cache the strings
+	// 4th element should always be "" to avoid truncation
+	out := make([]string, 4)
+	g := tr.getG(tr.Event(spans[0].event()).G)
+	if g.function != "" {
+		short := shortenFunctionName(g.function)
+		out[0] = local.Sprintf("g%d: %s", g.id, g.function)
+		if short != g.function {
+			out[1] = local.Sprintf("g%d: .%s", g.id, short)
+			out[2] = local.Sprintf("g%d", g.id)
+		} else {
+			// This branch is probably impossible; all functions should be fully qualified.
+			out[1] = local.Sprintf("g%d", g.id)
+		}
+	} else {
+		out[0] = local.Sprintf("g%d", g.id)
+	}
+	return out
+}
+
 func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
@@ -856,6 +1061,16 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 								}
 								o := &tl.activity.hoveredSpans[0]
 								target = tr.Event(o.event()).G
+							case *Machine:
+								if len(tl.activity.hoveredSpans) != 1 {
+									return false
+								}
+								o := &tl.activity.hoveredSpans[0]
+								if o.state != stateRunningG {
+									return false
+								}
+								target = tr.Event(o.event()).G
+
 							default:
 								return false
 							}
@@ -868,30 +1083,7 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						}
 						return false
 					},
-					spanLabel: func(spans MergedSpans, tr *Trace) []string {
-						if len(spans) != 1 {
-							return nil
-						}
-						// OPT(dh): cache the strings
-						// 4th element should always be "" to avoid truncation
-						out := make([]string, 4)
-						g := tr.getG(tr.Event(spans[0].event()).G)
-						if g.function != "" {
-							short := shortenFunctionName(g.function)
-							out[0] = local.Sprintf("g%d: %s", g.id, g.function)
-							if short != g.function {
-								out[1] = local.Sprintf("g%d: .%s", g.id, short)
-								out[2] = local.Sprintf("g%d", g.id)
-							} else {
-								// This branch is probably impossible; all functions should be fully qualified.
-								out[1] = local.Sprintf("g%d", g.id)
-							}
-						} else {
-							out[0] = local.Sprintf("g%d", g.id)
-						}
-						return out
-
-					},
+					spanLabel: processorSpanLabel,
 					spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
 						do := func(s Span, tr *Trace) colorIndex {
 							gid := tr.Events[s.event()].G

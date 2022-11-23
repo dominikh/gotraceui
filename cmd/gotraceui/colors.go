@@ -97,6 +97,9 @@ var stateColors = [256]colorIndex{
 
 	// per-P states
 	stateRunningG: colorStateActive,
+
+	// per-M states
+	stateRunningP: colorStateActive,
 }
 
 func rgba(c uint32) color.NRGBA {

@@ -48,6 +48,9 @@ const (
 	// Processor states
 	stateRunningG
 
+	// Machine states
+	stateRunningP
+
 	stateLast
 )
 
@@ -142,6 +145,7 @@ type Trace struct {
 	gs     []*Goroutine
 	gsByID map[uint64]*Goroutine
 	ps     []*Processor
+	ms     []*Machine
 	gc     Spans
 	stw    Spans
 	tasks  []*Task
@@ -369,6 +373,15 @@ func packEventID(id EventID) [5]byte {
 	}
 }
 
+type Machine struct {
+	id int32
+	// OPT(dh): using Span for Ms is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
+	// processor is running at what time. The only benefit of reusing Span is that we can use the same code for
+	// rendering Gs and Ms, but that doesn't seem worth the added cost.
+	spans      Spans
+	goroutines Spans
+}
+
 type Processor struct {
 	id int32
 	// OPT(dh): using Span for Ps is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
@@ -500,6 +513,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	const ourStages = 1
 	const totalStages = trace.Stages + ourStages
 
+	var ms []*Machine
 	var gs []*Goroutine
 	var ps []*Processor
 	var gc Spans
@@ -556,8 +570,22 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		psByID[pid] = p
 		return p
 	}
+	msByID := map[int32]*Machine{}
+	getM := func(mid int32) *Machine {
+		m, ok := msByID[mid]
+		if ok {
+			return m
+		}
+		m = &Machine{id: mid}
+		msByID[mid] = m
+		return m
+	}
 
+	// map from gid to stack ID
 	lastSyscall := map[uint64]uint32{}
+	// map from P to last M it ran on
+	lastMPerP := map[int32]int32{}
+	// set of gids currently in mark assist
 	inMarkAssist := map[uint64]struct{}{}
 
 	// FIXME(dh): rename function. or remove it alright
@@ -573,6 +601,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	// Count the number of events per goroutine to get an estimate of spans per goroutine, to preallocate slices.
 	eventsPerG := map[uint64]int{}
 	eventsPerP := map[int32]int{}
+	eventsPerM := map[int32]int{}
 	for evID := range res.Events {
 		ev := &res.Events[evID]
 		var gid uint64
@@ -582,10 +611,13 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		case trace.EvGoStart, trace.EvGoStartLabel:
 			eventsPerP[ev.P]++
 			gid = ev.G
+		case trace.EvProcStart:
+			eventsPerM[int32(ev.Args[0])]++
+			continue
 		case trace.EvGCStart, trace.EvGCSTWStart, trace.EvGCDone, trace.EvGCSTWDone,
 			trace.EvHeapAlloc, trace.EvHeapGoal, trace.EvGomaxprocs, trace.EvUserTaskCreate,
 			trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog, trace.EvCPUSample,
-			trace.EvProcStart, trace.EvProcStop, trace.EvGoSysCall:
+			trace.EvProcStop, trace.EvGoSysCall:
 			continue
 		default:
 			gid = ev.G
@@ -597,6 +629,9 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	}
 	for pid, n := range eventsPerP {
 		getP(pid).spans = make(Spans, 0, n)
+	}
+	for mid, n := range eventsPerM {
+		getM(mid).spans = make(Spans, 0, n)
 	}
 
 	userRegionDepths := map[uint64]int{}
@@ -735,14 +770,24 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			gid = ev.G
 			pState = pStopG
 			state = stateBlockedSyscall
+
 		case trace.EvGoInSyscall:
 			gid = ev.G
 			state = stateBlockedSyscall
 		case trace.EvGoSysExit:
 			gid = ev.G
 			state = stateReady
-		case trace.EvProcStart, trace.EvProcStop:
-			// TODO(dh): should we implement a per-M timeline that shows which procs are running on which OS threads?
+
+		case trace.EvProcStart:
+			mid := ev.Args[0]
+			m := getM(int32(mid))
+			m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateRunningP, event_: packEventID(EventID(evID))})
+			lastMPerP[ev.P] = m.id
+			continue
+		case trace.EvProcStop:
+			m := getM(lastMPerP[ev.P])
+			span := &m.spans[len(m.spans)-1]
+			span.end = ev.Ts
 			continue
 
 		case trace.EvGCMarkAssistStart:
@@ -918,10 +963,16 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		case pRunG:
 			p := getP(ev.P)
 			p.spans = append(p.spans, Span{start: ev.Ts, state: stateRunningG, event_: packEventID(EventID(evID))})
+			mid := lastMPerP[p.id]
+			m := getM(mid)
+			m.goroutines = append(m.goroutines, Span{start: ev.Ts, event_: packEventID(EventID(evID)), state: stateRunningG})
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
 			p.spans[len(p.spans)-1].end = ev.Ts
+			mid := lastMPerP[p.id]
+			m := getM(mid)
+			m.goroutines[len(m.goroutines)-1].end = ev.Ts
 		}
 	}
 
@@ -1009,6 +1060,20 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		return ps[i].id < ps[j].id
 	})
 
+	for _, m := range msByID {
+		// OPT(dh): preallocate ms
+		ms = append(ms, m)
+		if len(m.spans) > 0 {
+			if last := &m.spans[len(m.spans)-1]; last.end == -1 {
+				last.end = res.Events[len(res.Events)-1].Ts
+			}
+		}
+	}
+
+	sort.Slice(ms, func(i, j int) bool {
+		return ms[i].id < ms[j].id
+	})
+
 	if exitAfterLoading {
 		return nil, errExitAfterLoading
 	}
@@ -1021,6 +1086,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		gs:          gs,
 		gsByID:      gsByID,
 		ps:          ps,
+		ms:          ms,
 		gc:          gc,
 		stw:         stw,
 		tasks:       tasks,
