@@ -174,7 +174,7 @@ func (aw *ActivityWidget) notifyHidden() {
 	aw.trackWidgets = nil
 }
 
-func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool) layout.Dimensions {
+func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.ActivityWidget.Layout").End()
 
 	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
@@ -306,14 +306,12 @@ func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 		aw.trackWidgets = out
 	}
 
-	// Scratch space used by ActivityWidgetTrack.Layout
-	var labels []string
 	for i := range aw.trackWidgets {
 		track := &aw.trackWidgets[i]
 		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, aw.tl, &labels)
+		dims := track.Layout(win, gtx, aw.tl, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); len(spans) != 0 {
 			aw.hoveredSpans = spans

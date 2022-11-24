@@ -81,6 +81,9 @@ type Timeline struct {
 	y            int
 	cachedHeight int
 
+	// Scratch space used by ActivityWidgetTrack.Layout
+	trackSpanLabels []string
+
 	animateTo struct {
 		animating bool
 
@@ -913,7 +916,7 @@ func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (lay
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		topBorder := i > 0 && tl.activities[i-1].hovered
-		aw.Layout(win, gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder)
+		aw.Layout(win, gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder, &tl.trackSpanLabels)
 		stack.Pop()
 
 		y += activityGap + awHeight
