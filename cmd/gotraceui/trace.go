@@ -405,6 +405,9 @@ type Goroutine struct {
 	events      []EventID
 	cpuSamples  []EventID
 
+	// Labels used for spans representing this goroutine
+	spanLabels []string
+
 	statistics struct {
 		blocked, inactive, running, gcAssist             time.Duration
 		blockedPct, inactivePct, runningPct, gcAssistPct float32
@@ -1083,6 +1086,23 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
 	for _, g := range gsByID {
 		if len(g.spans) != 0 {
+			// 4th element should always be "" to avoid truncation
+			spanLabels := make([]string, 4)
+			if g.function != "" {
+				short := shortenFunctionName(g.function)
+				spanLabels[0] = local.Sprintf("g%d: %s", g.id, g.function)
+				if short != g.function {
+					spanLabels[1] = local.Sprintf("g%d: .%s", g.id, short)
+					spanLabels[2] = local.Sprintf("g%d", g.id)
+				} else {
+					// This branch is probably impossible; all functions should be fully qualified.
+					spanLabels[1] = local.Sprintf("g%d", g.id)
+				}
+			} else {
+				spanLabels[0] = local.Sprintf("g%d", g.id)
+			}
+			g.spanLabels = spanLabels
+
 			// OPT(dh): preallocate gs
 			gs = append(gs, g)
 		}

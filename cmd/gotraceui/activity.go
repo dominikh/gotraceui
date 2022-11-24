@@ -1006,7 +1006,13 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 							}
 							return false
 						},
-						spanLabel: processorSpanLabel,
+						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
+							if len(spans) != 1 {
+								return out
+							}
+							g := tr.getG(tr.Event(spans[0].event()).G)
+							return append(out, g.spanLabels...)
+						},
 						spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
 							do := func(s Span, tr *Trace) colorIndex {
 								gid := tr.Events[s.event()].G
@@ -1077,30 +1083,6 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 	}
 }
 
-func processorSpanLabel(spans MergedSpans, tr *Trace, out []string) []string {
-	if len(spans) != 1 {
-		return out
-	}
-	// OPT(dh): cache the strings
-	// 4th element should always be "" to avoid truncation
-	out = append(out, "", "", "", "")
-	g := tr.getG(tr.Event(spans[0].event()).G)
-	if g.function != "" {
-		short := shortenFunctionName(g.function)
-		out[0] = local.Sprintf("g%d: %s", g.id, g.function)
-		if short != g.function {
-			out[1] = local.Sprintf("g%d: .%s", g.id, short)
-			out[2] = local.Sprintf("g%d", g.id)
-		} else {
-			// This branch is probably impossible; all functions should be fully qualified.
-			out[1] = local.Sprintf("g%d", g.id)
-		}
-	} else {
-		out[0] = local.Sprintf("g%d", g.id)
-	}
-	return out
-}
-
 func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
@@ -1145,7 +1127,13 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 						}
 						return false
 					},
-					spanLabel: processorSpanLabel,
+					spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
+						if len(spans) != 1 {
+							return out
+						}
+						g := tr.getG(tr.Event(spans[0].event()).G)
+						return append(out, g.spanLabels...)
+					},
 					spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
 						do := func(s Span, tr *Trace) colorIndex {
 							gid := tr.Events[s.event()].G
