@@ -834,6 +834,56 @@ func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
+type MachineTooltip struct {
+	m     *Machine
+	trace *Trace
+}
+
+func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.MachineTooltip.Layout").End()
+
+	// OPT(dh): compute statistics once, not on every frame
+
+	tr := tt.trace
+	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
+
+	var procD, syscallD time.Duration
+	for i := range tt.m.spans {
+		s := &tt.m.spans[i]
+		d := tr.Duration(s)
+
+		ev := tr.Events[s.event()]
+		switch ev.Type {
+		case trace.EvProcStart:
+			procD += d
+		case trace.EvGoSysBlock:
+			syscallD += d
+		default:
+			panic(fmt.Sprintf("unexepcted event type %d", ev.Type))
+		}
+	}
+
+	procPct := float32(procD) / float32(d) * 100
+	syscallPct := float32(syscallD) / float32(d) * 100
+	inactiveD := d - procD - syscallD
+	inactivePct := float32(inactiveD) / float32(d) * 100
+
+	l := local.Sprintf(
+		"Machine %[1]d\n"+
+			"Spans: %[2]d\n"+
+			"Time running processors: %[3]s (%.2[4]f%%)\n"+
+			"Time blocked in syscalls: %[5]s (%.2[6]f%%)\n"+
+			"Time inactive: %[7]s (%.2[8]f%%)",
+		tt.m.id,
+		len(tt.m.spans),
+		roundDuration(procD), procPct,
+		roundDuration(syscallD), syscallPct,
+		roundDuration(inactiveD), inactivePct,
+	)
+
+	return theme.Tooltip{}.Layout(win, gtx, l)
+}
+
 func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 	tr := tl.trace
 	return &ActivityWidget{
@@ -988,6 +1038,10 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 					}
 				}
 			}
+		},
+
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
+			return MachineTooltip{m, tl.trace}.Layout(win, gtx)
 		},
 		invalidateCache: func(aw *ActivityWidget) bool {
 			if tl.prevFrame.hoveredActivity != tl.activity.hoveredActivity {
