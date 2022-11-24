@@ -215,7 +215,9 @@ func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 	}
 
 	aw.labelClicks = 0
-	for _, ev := range aw.labelClick.Events(gtx) {
+	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
+	// nil.
+	for _, ev := range aw.labelClick.Events(gtx.Queue) {
 		if ev.Type == gesture.TypeClick {
 			if ev.Modifiers == 0 {
 				aw.labelClicks++
@@ -456,7 +458,9 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		}
 	}
 
-	for _, ev := range track.click.Events(gtx) {
+	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
+	// nil.
+	for _, ev := range track.click.Events(gtx.Queue) {
 		if ev.Type != gesture.TypeClick {
 			continue
 		}

@@ -457,7 +457,9 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineStats.Layout").End()
 
 	for col := range gs.columnClicks {
-		for _, ev := range gs.columnClicks[col].Events(gtx) {
+		// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
+		// nil.
+		for _, ev := range gs.columnClicks[col].Events(gtx.Queue) {
 			if ev.Type != gesture.TypeClick {
 				continue
 			}
