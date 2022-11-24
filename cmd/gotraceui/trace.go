@@ -389,6 +389,9 @@ type Processor struct {
 	// goroutine is running at what time. The only benefit of reusing Span is that we can use the same code for
 	// rendering Gs and Ps, but that doesn't seem worth the added cost.
 	spans Spans
+
+	// Labels used for spans representing this processor
+	spanLabels []string
 }
 
 func (p *Processor) String() string {
@@ -570,7 +573,13 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		if ok {
 			return p
 		}
-		p = &Processor{id: pid}
+		p = &Processor{
+			id: pid,
+			spanLabels: []string{
+				local.Sprintf("p%d", pid),
+				"",
+			},
+		}
 		psByID[pid] = p
 		return p
 	}

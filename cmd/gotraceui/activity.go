@@ -944,7 +944,8 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 							s := &spans[0]
 							switch s.state {
 							case stateRunningP:
-								return append(out, local.Sprintf("p%d", tr.Event(spans[0].event()).P), "")
+								p := tr.getP(tr.Event(spans[0].event()).P)
+								return append(out, p.spanLabels...)
 							case stateBlockedSyscall:
 								return append(out, "syscall")
 							default:
