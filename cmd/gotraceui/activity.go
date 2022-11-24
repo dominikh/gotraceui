@@ -93,6 +93,18 @@ type Track struct {
 	events []EventID
 }
 
+func newZoomMenuItem(tl *Timeline, spans MergedSpans) *theme.MenuItem {
+	return &theme.MenuItem{
+		Label:    PlainLabel("Zoom"),
+		Shortcut: key.ModShortcut.String() + "+LMB",
+		Do: func(gtx layout.Context) {
+			start := spans.Start(tl.trace)
+			end := spans.End()
+			tl.navigateTo(gtx, start, end, tl.y)
+		},
+	}
+}
+
 type ActivityWidgetTrack struct {
 	*Track
 
@@ -512,15 +524,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 						items = append(items, item.Layout)
 					}
 				} else {
-					tl.contextMenu = []*theme.MenuItem{{
-						Label:    PlainLabel("Zoom"),
-						Shortcut: key.ModShortcut.String() + "+LMB",
-						Do: func(gtx layout.Context) {
-							start := dspSpans.Start(tr)
-							end := dspSpans.End()
-							tl.navigateTo(gtx, start, end, tl.y)
-						}},
-					}
+					tl.contextMenu = []*theme.MenuItem{newZoomMenuItem(tl, dspSpans)}
 					items = append(items, (tl.contextMenu[0]).Layout)
 				}
 				win.SetContextMenu(((&theme.MenuGroup{
@@ -1168,15 +1172,7 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 					spanTooltip: processorSpanTooltip,
 					spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
 						var items []*theme.MenuItem
-						items = append(items, &theme.MenuItem{
-							Label:    PlainLabel("Zoom"),
-							Shortcut: key.ModShortcut.String() + "+LMB",
-							Do: func(gtx layout.Context) {
-								start := spans.Start(tr)
-								end := spans.End()
-								tl.navigateTo(gtx, start, end, tl.y)
-							},
-						})
+						items = append(items, newZoomMenuItem(tl, spans))
 
 						if len(spans) == 1 {
 							gid := tr.Event((spans[0].event())).G
@@ -1538,15 +1534,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 						spanTooltip: goroutineSpanTooltip,
 						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, &theme.MenuItem{
-								Label:    PlainLabel("Zoom"),
-								Shortcut: key.ModShortcut.String() + "+LMB",
-								Do: func(gtx layout.Context) {
-									start := spans.Start(tr)
-									end := spans.End()
-									tl.navigateTo(gtx, start, end, tl.y)
-								},
-							})
+							items = append(items, newZoomMenuItem(tl, spans))
 
 							if len(spans) == 1 {
 								switch spans[0].state {
