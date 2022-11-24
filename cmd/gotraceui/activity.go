@@ -98,7 +98,7 @@ type ActivityWidgetTrack struct {
 
 	highlightSpan func(spans MergedSpans) bool
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
-	spanLabel       func(spans MergedSpans, tr *Trace) []string
+	spanLabel       func(spans MergedSpans, tr *Trace, out []string) []string
 	spanColor       func(spans MergedSpans, tr *Trace) [2]colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
 	spanContextMenu func(spans MergedSpans, tr *Trace) []*theme.MenuItem
@@ -303,12 +303,15 @@ func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 		}
 		aw.trackWidgets = out
 	}
+
+	// Scratch space used by ActivityWidgetTrack.Layout
+	var labels []string
 	for i := range aw.trackWidgets {
 		track := &aw.trackWidgets[i]
 		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, aw.tl)
+		dims := track.Layout(win, gtx, aw.tl, &labels)
 		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); len(spans) != 0 {
 			aw.hoveredSpans = spans
@@ -423,7 +426,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 	return MergedSpans(spans[startOffset:offset]), startPx, endPx, true
 }
 
-func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
+func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, labelsOut *[]string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.ActivityWidgetTrack.Layout").End()
 
 	tr := tl.trace
@@ -673,8 +676,8 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			// empty string to effectively display no label.
 			//
 			// We don't try to render a label for very small spans.
-			if labels := track.spanLabel(dspSpans, tr); len(labels) > 0 {
-				for i, label := range labels {
+			if *labelsOut = track.spanLabel(dspSpans, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
+				for i, label := range *labelsOut {
 					if label == "" {
 						continue
 					}
@@ -682,7 +685,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 					macro := op.Record(labelsOps)
 					// OPT(dh): cache mapping from label to size. probably put a size limit on the cache, in case users generate millions of unique labels
 					dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
-					if float32(dims.Size.X) > endPx-startPx && i != len(labels)-1 {
+					if float32(dims.Size.X) > endPx-startPx && i != len(*labelsOut)-1 {
 						// This label doesn't fit. If the callback provided more labels, try those instead.
 						macro.Stop()
 						continue
@@ -930,19 +933,16 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 							}
 							return false
 						},
-						spanLabel: func(spans MergedSpans, tr *Trace) []string {
+						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
 							if len(spans) != 1 {
-								return nil
+								return out
 							}
 							s := &spans[0]
 							switch s.state {
 							case stateRunningP:
-								return []string{
-									local.Sprintf("p%d", tr.Event(spans[0].event()).P),
-									"",
-								}
+								return append(out, local.Sprintf("p%d", tr.Event(spans[0].event()).P), "")
 							case stateBlockedSyscall:
-								return []string{"syscall"}
+								return append(out, "syscall")
 							default:
 								panic(fmt.Sprintf("unexpected state %d", s.state))
 							}
@@ -1077,13 +1077,13 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 	}
 }
 
-func processorSpanLabel(spans MergedSpans, tr *Trace) []string {
+func processorSpanLabel(spans MergedSpans, tr *Trace, out []string) []string {
 	if len(spans) != 1 {
-		return nil
+		return out
 	}
 	// OPT(dh): cache the strings
 	// 4th element should always be "" to avoid truncation
-	out := make([]string, 4)
+	out = append(out, "", "", "", "")
 	g := tr.getG(tr.Event(spans[0].event()).G)
 	if g.function != "" {
 		short := shortenFunctionName(g.function)
@@ -1538,11 +1538,11 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 				case ActivityWidgetTrackUnspecified:
 					out[i] = ActivityWidgetTrack{
 						Track: track,
-						spanLabel: func(spans MergedSpans, _ *Trace) []string {
+						spanLabel: func(spans MergedSpans, _ *Trace, out []string) []string {
 							if len(spans) != 1 {
-								return nil
+								return out
 							}
-							return spanStateLabels[spans[0].state]
+							return append(out, spanStateLabels[spans[0].state]...)
 						},
 						spanTooltip: goroutineSpanTooltip,
 						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
@@ -1591,13 +1591,13 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 				case ActivityWidgetTrackUserRegions:
 					out[i] = ActivityWidgetTrack{
 						Track: track,
-						spanLabel: func(spans MergedSpans, tr *Trace) []string {
+						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
 							if len(spans) != 1 {
-								return nil
+								return out
 							}
 							// OPT(dh): avoid this allocation
 							s := tr.Strings[tr.Events[spans[0].event()].Args[trace.ArgUserRegionTypeID]]
-							return []string{s}
+							return append(out, s)
 						},
 						spanTooltip: userRegionSpanTooltip,
 						spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
@@ -1617,19 +1617,19 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 						Track: track,
 
 						// TODO(dh): should we highlight hovered spans that share the same function?
-						spanLabel: func(spans MergedSpans, tr *Trace) []string {
+						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
 							if len(spans) != 1 {
-								return nil
+								return out
 							}
 							f := tr.PCs[spans[0].pc]
 
 							short := shortenFunctionName(f.Fn)
 
 							if short != f.Fn {
-								return []string{f.Fn, "." + short}
+								return append(out, f.Fn, "."+short)
 							} else {
 								// This branch is probably impossible; all functions should be fully qualified.
-								return []string{f.Fn}
+								return append(out, f.Fn)
 							}
 						},
 						spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
