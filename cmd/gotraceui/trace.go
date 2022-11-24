@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -587,6 +588,8 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	lastMPerP := map[int32]int32{}
 	// set of gids currently in mark assist
 	inMarkAssist := map[uint64]struct{}{}
+	blockingSyscallPerP := map[int32]EventID{}
+	blockingSyscallMPerG := map[uint64]int32{}
 
 	// FIXME(dh): rename function. or remove it alright
 	addEventToCurrentSpan := func(gid uint64, ev EventID) {
@@ -771,12 +774,41 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			pState = pStopG
 			state = stateBlockedSyscall
 
+			// EvGoSysblock will be followed by ProcStop. Leave a note for ProcStop to start a new span for the blocking
+			// syscall. Also record enough data for EvGoSysExit to finish that span.
+			blockingSyscallPerP[ev.P] = EventID(evID)
+			blockingSyscallMPerG[ev.G] = lastMPerP[ev.P]
+
 		case trace.EvGoInSyscall:
 			gid = ev.G
 			state = stateBlockedSyscall
 		case trace.EvGoSysExit:
 			gid = ev.G
 			state = stateReady
+
+			if mid, ok := blockingSyscallMPerG[ev.G]; ok {
+				delete(blockingSyscallMPerG, ev.G)
+				m := getM(mid)
+				span := &m.spans[len(m.spans)-1]
+				switch span.state {
+				case stateBlockedSyscall:
+					// We didn't see an EvProcStart for this M
+					span.end = ev.Ts
+				case stateRunningP:
+					// We saw a EvProcStart for this M before we saw the EvGoSysExit. The blocking syscall span will be
+					// the second last span, and we'll have to slightly adjust its end time to not exceed the next
+					// span's start time.
+
+					// XXX guard against malformed traces
+					pspan := &m.spans[len(m.spans)-2]
+					if pspan.state != stateBlockedSyscall {
+						return nil, errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
+					}
+					pspan.end = span.start
+				default:
+					panic(fmt.Sprintf("unexpected state %d", span.state))
+				}
+			}
 
 		case trace.EvProcStart:
 			mid := ev.Args[0]
@@ -788,6 +820,12 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			m := getM(lastMPerP[ev.P])
 			span := &m.spans[len(m.spans)-1]
 			span.end = ev.Ts
+
+			if sevID, ok := blockingSyscallPerP[ev.P]; ok {
+				delete(blockingSyscallPerP, ev.P)
+				m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateBlockedSyscall, event_: packEventID(sevID)})
+			}
+
 			continue
 
 		case trace.EvGCMarkAssistStart:
@@ -972,6 +1010,9 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			p.spans[len(p.spans)-1].end = ev.Ts
 			mid := lastMPerP[p.id]
 			m := getM(mid)
+			if len(m.goroutines) == 0 {
+				return nil, fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
+			}
 			m.goroutines[len(m.goroutines)-1].end = ev.Ts
 		}
 	}

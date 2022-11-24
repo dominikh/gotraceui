@@ -884,9 +884,17 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 							if len(spans) != 1 {
 								return nil
 							}
-							return []string{
-								local.Sprintf("p%d", tr.Event(spans[0].event()).P),
-								"",
+							s := &spans[0]
+							switch s.state {
+							case stateRunningP:
+								return []string{
+									local.Sprintf("p%d", tr.Event(spans[0].event()).P),
+									"",
+								}
+							case stateBlockedSyscall:
+								return []string{"syscall"}
+							default:
+								panic(fmt.Sprintf("unexpected state %d", s.state))
 							}
 						},
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
