@@ -973,6 +973,29 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 							label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
 							return theme.Tooltip{}.Layout(win, gtx, label)
 						},
+						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+							var items []*theme.MenuItem
+							items = append(items, newZoomMenuItem(tl, spans))
+
+							if len(spans) == 1 {
+								s := &spans[0]
+								switch s.state {
+								case stateRunningP:
+									pid := tr.Event(s.event()).P
+									items = append(items, &theme.MenuItem{
+										Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
+										Do: func(gtx layout.Context) {
+											tl.scrollToActivity(gtx, tr.getP(pid))
+										},
+									})
+								case stateBlockedSyscall:
+								default:
+									panic(fmt.Sprintf("unexpected state %d", s.state))
+								}
+							}
+
+							return items
+						},
 					}
 				case 1:
 					out[i] = ActivityWidgetTrack{
@@ -1048,6 +1071,28 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 							}
 						},
 						spanTooltip: processorSpanTooltip,
+						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+							var items []*theme.MenuItem
+							items = append(items, newZoomMenuItem(tl, spans))
+
+							if len(spans) == 1 {
+								s := &spans[0]
+								switch s.state {
+								case stateRunningG:
+									gid := tr.Event(s.event()).G
+									items = append(items, &theme.MenuItem{
+										Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
+										Do: func(gtx layout.Context) {
+											tl.scrollToActivity(gtx, tr.getG(gid))
+										},
+									})
+								default:
+									panic(fmt.Sprintf("unexpected state %d", s.state))
+								}
+							}
+
+							return items
+						},
 					}
 				}
 			}
@@ -1179,7 +1224,7 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 							items = append(items, &theme.MenuItem{
 								Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 								Do: func(gtx layout.Context) {
-									tl.scrollToActivity(gtx, tr.getG(tr.Event((spans[0].event())).G))
+									tl.scrollToActivity(gtx, tr.getG(gid))
 								},
 							})
 						}
