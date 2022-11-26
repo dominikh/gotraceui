@@ -894,6 +894,9 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 }
 
 func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
+	if !supportMachineActivities {
+		panic("NewMachineWidget was called despite supportmachineActivities == false")
+	}
 	tr := tl.trace
 	return &ActivityWidget{
 		tracks: []Track{

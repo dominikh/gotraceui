@@ -14,6 +14,11 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
+// This boolean guards all code involving displaying machine activities. That feature is currently broken, because the
+// trace parser only produces an event ordering that is consistent for goroutines, but not for machines. For example, it
+// may try to start a P on an M that is currently blocked on a syscall.
+const supportMachineActivities = false
+
 type schedulingState uint8
 
 const (
@@ -585,6 +590,9 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	}
 	msByID := map[int32]*Machine{}
 	getM := func(mid int32) *Machine {
+		if !supportMachineActivities {
+			panic("getM was called despite supportmachineActivities == false")
+		}
 		m, ok := msByID[mid]
 		if ok {
 			return m
@@ -627,7 +635,9 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			eventsPerP[ev.P]++
 			gid = ev.G
 		case trace.EvProcStart:
-			eventsPerM[int32(ev.Args[0])]++
+			if supportMachineActivities {
+				eventsPerM[int32(ev.Args[0])]++
+			}
 			continue
 		case trace.EvGCStart, trace.EvGCSTWStart, trace.EvGCDone, trace.EvGCSTWDone,
 			trace.EvHeapAlloc, trace.EvHeapGoal, trace.EvGomaxprocs, trace.EvUserTaskCreate,
@@ -645,8 +655,10 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	for pid, n := range eventsPerP {
 		getP(pid).spans = make(Spans, 0, n)
 	}
-	for mid, n := range eventsPerM {
-		getM(mid).spans = make(Spans, 0, n)
+	if supportMachineActivities {
+		for mid, n := range eventsPerM {
+			getM(mid).spans = make(Spans, 0, n)
+		}
 	}
 
 	userRegionDepths := map[uint64]int{}
@@ -798,44 +810,50 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			gid = ev.G
 			state = stateReady
 
-			if mid, ok := blockingSyscallMPerG[ev.G]; ok {
-				delete(blockingSyscallMPerG, ev.G)
-				m := getM(mid)
-				span := &m.spans[len(m.spans)-1]
-				switch span.state {
-				case stateBlockedSyscall:
-					// We didn't see an EvProcStart for this M
-					span.end = ev.Ts
-				case stateRunningP:
-					// We saw a EvProcStart for this M before we saw the EvGoSysExit. The blocking syscall span will be
-					// the second last span, and we'll have to slightly adjust its end time to not exceed the next
-					// span's start time.
+			if supportMachineActivities {
+				if mid, ok := blockingSyscallMPerG[ev.G]; ok {
+					delete(blockingSyscallMPerG, ev.G)
+					m := getM(mid)
+					span := &m.spans[len(m.spans)-1]
+					switch span.state {
+					case stateBlockedSyscall:
+						// We didn't see an EvProcStart for this M
+						span.end = ev.Ts
+					case stateRunningP:
+						// We saw a EvProcStart for this M before we saw the EvGoSysExit. The blocking syscall span will be
+						// the second last span, and we'll have to slightly adjust its end time to not exceed the next
+						// span's start time.
 
-					// XXX guard against malformed traces
-					pspan := &m.spans[len(m.spans)-2]
-					if pspan.state != stateBlockedSyscall {
-						return nil, errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
+						// XXX guard against malformed traces
+						pspan := &m.spans[len(m.spans)-2]
+						if pspan.state != stateBlockedSyscall {
+							return nil, errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
+						}
+						pspan.end = span.start
+					default:
+						panic(fmt.Sprintf("unexpected state %d", span.state))
 					}
-					pspan.end = span.start
-				default:
-					panic(fmt.Sprintf("unexpected state %d", span.state))
 				}
 			}
 
 		case trace.EvProcStart:
-			mid := ev.Args[0]
-			m := getM(int32(mid))
-			m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateRunningP, event_: packEventID(EventID(evID))})
-			lastMPerP[ev.P] = m.id
+			if supportMachineActivities {
+				mid := ev.Args[0]
+				m := getM(int32(mid))
+				m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateRunningP, event_: packEventID(EventID(evID))})
+				lastMPerP[ev.P] = m.id
+			}
 			continue
 		case trace.EvProcStop:
-			m := getM(lastMPerP[ev.P])
-			span := &m.spans[len(m.spans)-1]
-			span.end = ev.Ts
+			if supportMachineActivities {
+				m := getM(lastMPerP[ev.P])
+				span := &m.spans[len(m.spans)-1]
+				span.end = ev.Ts
 
-			if sevID, ok := blockingSyscallPerP[ev.P]; ok {
-				delete(blockingSyscallPerP, ev.P)
-				m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateBlockedSyscall, event_: packEventID(sevID)})
+				if sevID, ok := blockingSyscallPerP[ev.P]; ok {
+					delete(blockingSyscallPerP, ev.P)
+					m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateBlockedSyscall, event_: packEventID(sevID)})
+				}
 			}
 
 			continue
@@ -1013,19 +1031,23 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		case pRunG:
 			p := getP(ev.P)
 			p.spans = append(p.spans, Span{start: ev.Ts, state: stateRunningG, event_: packEventID(EventID(evID))})
-			mid := lastMPerP[p.id]
-			m := getM(mid)
-			m.goroutines = append(m.goroutines, Span{start: ev.Ts, event_: packEventID(EventID(evID)), state: stateRunningG})
+			if supportMachineActivities {
+				mid := lastMPerP[p.id]
+				m := getM(mid)
+				m.goroutines = append(m.goroutines, Span{start: ev.Ts, event_: packEventID(EventID(evID)), state: stateRunningG})
+			}
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
 			p.spans[len(p.spans)-1].end = ev.Ts
-			mid := lastMPerP[p.id]
-			m := getM(mid)
-			if len(m.goroutines) == 0 {
-				return nil, fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
+			if supportMachineActivities {
+				mid := lastMPerP[p.id]
+				m := getM(mid)
+				if len(m.goroutines) == 0 {
+					return nil, fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
+				}
+				m.goroutines[len(m.goroutines)-1].end = ev.Ts
 			}
-			m.goroutines[len(m.goroutines)-1].end = ev.Ts
 		}
 	}
 
@@ -1130,19 +1152,21 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		return ps[i].id < ps[j].id
 	})
 
-	for _, m := range msByID {
-		// OPT(dh): preallocate ms
-		ms = append(ms, m)
-		if len(m.spans) > 0 {
-			if last := &m.spans[len(m.spans)-1]; last.end == -1 {
-				last.end = res.Events[len(res.Events)-1].Ts
+	if supportMachineActivities {
+		for _, m := range msByID {
+			// OPT(dh): preallocate ms
+			ms = append(ms, m)
+			if len(m.spans) > 0 {
+				if last := &m.spans[len(m.spans)-1]; last.end == -1 {
+					last.end = res.Events[len(res.Events)-1].Ts
+				}
 			}
 		}
-	}
 
-	sort.Slice(ms, func(i, j int) bool {
-		return ms[i].id < ms[j].id
-	})
+		sort.Slice(ms, func(i, j int) bool {
+			return ms[i].id < ms[j].id
+		})
+	}
 
 	if exitAfterLoading {
 		return nil, errExitAfterLoading
