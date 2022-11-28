@@ -205,7 +205,7 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 		}
 		win.stats = NewGoroutineStats(g, w.trace)
 		w.goroutineWindows[g.id] = win
-		// XXX computing the label is duplicated with rendering the activity widget
+		// XXX computing the label is duplicated with rendering the timeline widget
 		var l string
 		if g.function != "" {
 			l = local.Sprintf("goroutine %d: %s", g.id, g.function)
@@ -242,7 +242,7 @@ func shortenFunctionName(s string) string {
 type Command func(*MainWindow, layout.Context)
 
 type MainWindow struct {
-	tl       Timeline
+	canvas   Canvas
 	theme    *theme.Theme
 	trace    *Trace
 	commands chan Command
@@ -271,12 +271,12 @@ func NewMainWindow() *MainWindow {
 		debugWindow:                 NewDebugWindow(),
 	}
 
-	win.tl.axis.tl = &win.tl
+	win.canvas.axis.cv = &win.canvas
 
 	return win
 }
 
-type activityFilter struct {
+type timelineFilter struct {
 	invalid bool
 	parts   []struct {
 		prefix string
@@ -287,8 +287,8 @@ type activityFilter struct {
 	}
 }
 
-func newActivityFilter(s string) theme.Filter[fmt.Stringer] {
-	out := &activityFilter{}
+func newTimelineFilter(s string) theme.Filter[fmt.Stringer] {
+	out := &timelineFilter{}
 	for _, field := range strings.Fields(s) {
 		prefix, value, found := strings.Cut(field, ":")
 		if !found {
@@ -321,7 +321,7 @@ func newActivityFilter(s string) theme.Filter[fmt.Stringer] {
 	return out
 }
 
-func (f *activityFilter) Filter(item fmt.Stringer) bool {
+func (f *timelineFilter) Filter(item fmt.Stringer) bool {
 	if f.invalid {
 		return false
 	}
@@ -411,16 +411,16 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			case GoroutineLinkKindOpenWindow:
 				mwin.openGoroutineWindow(l.Goroutine)
 			case GoroutineLinkKindScroll:
-				mwin.tl.scrollToActivity(gtx, l.Goroutine)
+				mwin.canvas.scrollToTimeline(gtx, l.Goroutine)
 			case GoroutineLinkKindZoom:
-				y := mwin.tl.activityY(gtx, l.Goroutine)
-				mwin.tl.navigateTo(gtx, l.Goroutine.spans.Start(mwin.trace), l.Goroutine.spans.End(), y)
+				y := mwin.canvas.timelineY(gtx, l.Goroutine)
+				mwin.canvas.navigateTo(gtx, l.Goroutine.spans.Start(mwin.trace), l.Goroutine.spans.End(), y)
 			default:
 				panic(l.Kind)
 			}
 		case *TimestampLink:
-			d := mwin.tl.end - mwin.tl.start
-			mwin.tl.navigateTo(gtx, l.Ts, l.Ts+d, mwin.tl.y)
+			d := mwin.canvas.end - mwin.canvas.start
+			mwin.canvas.navigateTo(gtx, l.Ts, l.Ts+d, mwin.canvas.y)
 		default:
 			panic(l)
 		}
@@ -455,7 +455,7 @@ type MainMenu struct {
 		ZoomToFit            theme.MenuItem
 		JumpToBeginning      theme.MenuItem
 		ToggleCompactDisplay theme.MenuItem
-		ToggleActivityLabels theme.MenuItem
+		ToggleTimelineLabels theme.MenuItem
 		ToggleSampleTracks   theme.MenuItem
 	}
 
@@ -477,12 +477,12 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 
 	notMainDisabled := func() bool { return w.state != "main" }
 	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
-	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of activity list"), Disabled: notMainDisabled}
-	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible activities"), Disabled: notMainDisabled}
+	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of canvas"), Disabled: notMainDisabled}
+	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible timelines"), Disabled: notMainDisabled}
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
-	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.tl.activity.compact), Disabled: notMainDisabled}
-	m.Display.ToggleActivityLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide activity labels", "Show activity labels", &w.tl.activity.displayAllLabels), Disabled: notMainDisabled}
-	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.tl.activity.displaySampleTracks), Disabled: notMainDisabled}
+	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.canvas.timeline.compact), Disabled: notMainDisabled}
+	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &w.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
+	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.canvas.timeline.displaySampleTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
@@ -512,7 +512,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 					theme.MenuDivider{}.Layout,
 
 					m.Display.ToggleCompactDisplay.Layout,
-					m.Display.ToggleActivityLabels.Layout,
+					m.Display.ToggleTimelineLabels.Layout,
 					m.Display.ToggleSampleTracks.Layout,
 					// TODO(dh): add items for STW and GC overlays
 					// TODO(dh): add item for tooltip display
@@ -667,7 +667,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 											items = append(items, g)
 										}
 										w.ww.SetItems(items)
-										w.ww.BuildFilter = newActivityFilter
+										w.ww.BuildFilter = newTimelineFilter
 									}
 								}
 							}
@@ -675,31 +675,31 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 						if mainMenu.Display.UndoNavigation.Clicked() {
 							win.Menu.Close()
-							w.tl.UndoNavigation(gtx)
+							w.canvas.UndoNavigation(gtx)
 						}
 						if mainMenu.Display.ScrollToTop.Clicked() {
 							win.Menu.Close()
-							w.tl.ScrollToTop(gtx)
+							w.canvas.ScrollToTop(gtx)
 						}
 						if mainMenu.Display.ZoomToFit.Clicked() {
 							win.Menu.Close()
-							w.tl.ZoomToFitCurrentView(gtx)
+							w.canvas.ZoomToFitCurrentView(gtx)
 						}
 						if mainMenu.Display.JumpToBeginning.Clicked() {
 							win.Menu.Close()
-							w.tl.JumpToBeginning(gtx)
+							w.canvas.JumpToBeginning(gtx)
 						}
 						if mainMenu.Display.ToggleCompactDisplay.Clicked() {
 							win.Menu.Close()
-							w.tl.ToggleCompactDisplay()
+							w.canvas.ToggleCompactDisplay()
 						}
-						if mainMenu.Display.ToggleActivityLabels.Clicked() {
+						if mainMenu.Display.ToggleTimelineLabels.Clicked() {
 							win.Menu.Close()
-							w.tl.ToggleActivityLabels()
+							w.canvas.ToggleTimelineLabels()
 						}
 						if mainMenu.Display.ToggleSampleTracks.Clicked() {
 							win.Menu.Close()
-							w.tl.ToggleSampleTracks()
+							w.canvas.ToggleSampleTracks()
 						}
 						if mainMenu.Analyze.OpenHeatmap.Clicked() {
 							win.Menu.Close()
@@ -726,7 +726,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							}
 						}
 
-						for _, g := range w.tl.clickedGoroutineActivities {
+						for _, g := range w.canvas.clickedGoroutineTimelines {
 							w.openGoroutineWindow(g)
 						}
 
@@ -734,7 +734,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 						if w.ww != nil {
 							if item, ok := w.ww.Confirmed(); ok {
-								w.tl.scrollToActivity(gtx, item)
+								w.canvas.scrollToTimeline(gtx, item)
 								w.ww = nil
 							} else if w.ww.Cancelled() {
 								w.ww = nil
@@ -761,11 +761,11 @@ func (w *MainWindow) Run(win *app.Window) error {
 							op.InvalidateOp{}.Add(&ops)
 						}
 
-						w.debugWindow.tlStart.addValue(gtx.Now, float64(w.tl.start))
-						w.debugWindow.tlEnd.addValue(gtx.Now, float64(w.tl.end))
-						w.debugWindow.tlY.addValue(gtx.Now, float64(w.tl.y))
+						w.debugWindow.cvStart.addValue(gtx.Now, float64(w.canvas.start))
+						w.debugWindow.cvEnd.addValue(gtx.Now, float64(w.canvas.end))
+						w.debugWindow.cvY.addValue(gtx.Now, float64(w.canvas.y))
 
-						return w.tl.Layout(win, gtx)
+						return w.canvas.Layout(win, gtx)
 
 					default:
 						return layout.Dimensions{}
@@ -801,31 +801,31 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 	start := trace.Timestamp(-slack)
 	end = trace.Timestamp(float64(end) + slack)
 
-	w.tl = Timeline{
+	w.canvas = Canvas{
 		start:       start,
 		end:         end,
 		trace:       t,
 		debugWindow: w.debugWindow,
 	}
 
-	w.tl.activity.displayAllLabels = true
-	w.tl.axis = Axis{tl: &w.tl, theme: w.theme}
-	w.tl.activities = make([]*ActivityWidget, 2, len(t.gs)+len(t.ps)+len(t.ms)+2)
-	w.tl.activities[0] = NewGCWidget(&w.tl, t, t.gc)
-	w.tl.activities[1] = NewSTWWidget(&w.tl, t, t.stw)
+	w.canvas.timeline.displayAllLabels = true
+	w.canvas.axis = Axis{cv: &w.canvas, theme: w.theme}
+	w.canvas.timelines = make([]*TimelineWidget, 2, len(t.gs)+len(t.ps)+len(t.ms)+2)
+	w.canvas.timelines[0] = NewGCWidget(&w.canvas, t, t.gc)
+	w.canvas.timelines[1] = NewSTWWidget(&w.canvas, t, t.stw)
 
-	if supportMachineActivities {
+	if supportMachineTimelines {
 		for _, m := range t.ms {
-			w.tl.activities = append(w.tl.activities, NewMachineWidget(&w.tl, m))
+			w.canvas.timelines = append(w.canvas.timelines, NewMachineWidget(&w.canvas, m))
 		}
 	}
 	for _, p := range t.ps {
-		w.tl.activities = append(w.tl.activities, NewProcessorWidget(&w.tl, p))
+		w.canvas.timelines = append(w.canvas.timelines, NewProcessorWidget(&w.canvas, p))
 	}
 	for _, g := range t.gs {
 		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute sample tracks. This causes the UI to
 		// freeze, because loadTraceImpl runs in the UI goroutine.
-		w.tl.activities = append(w.tl.activities, NewGoroutineWidget(&w.tl, g))
+		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineWidget(&w.canvas, g))
 	}
 
 	w.trace = t

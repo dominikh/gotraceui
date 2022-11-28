@@ -33,10 +33,10 @@ type debugGraph struct {
 }
 
 type DebugWindow struct {
-	tlStart           debugGraph
-	tlEnd             debugGraph
-	tlY               debugGraph
-	tlPxPerNs         debugGraph
+	cvStart           debugGraph
+	cvEnd             debugGraph
+	cvY               debugGraph
+	cvPxPerNs         debugGraph
 	animationProgress debugGraph
 	animationRatio    debugGraph
 	frametimes        debugGraph

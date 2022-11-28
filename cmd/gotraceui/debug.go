@@ -161,26 +161,26 @@ func NewDebugWindow() *DebugWindow {
 		rgba(0xFFEBEFFF),
 	}
 
-	dwin.tlStart = debugGraph{
-		title:           "Timeline start",
+	dwin.cvStart = debugGraph{
+		title:           "Canvas start",
 		width:           timeWindow,
 		background:      bgs[0],
 		stickyLastValue: true,
 	}
-	dwin.tlEnd = debugGraph{
-		title:           "Timeline end",
+	dwin.cvEnd = debugGraph{
+		title:           "Canvas end",
 		width:           timeWindow,
 		background:      bgs[1],
 		stickyLastValue: true,
 	}
-	dwin.tlY = debugGraph{
-		title:           "Timeline Y",
+	dwin.cvY = debugGraph{
+		title:           "Canvas Y",
 		width:           timeWindow,
 		background:      bgs[2],
 		stickyLastValue: true,
 	}
-	dwin.tlPxPerNs = debugGraph{
-		title:           "Timeline pxPerNs (px/ns)",
+	dwin.cvPxPerNs = debugGraph{
+		title:           "Canvas pxPerNs (px/ns)",
 		width:           timeWindow,
 		background:      bgs[3],
 		stickyLastValue: true,
@@ -222,10 +222,10 @@ func (dwin *DebugWindow) Run(win *app.Window) error {
 			}
 
 			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Flexed(1, themeWidget(dwin.tlStart.Layout)),
-				layout.Flexed(1, themeWidget(dwin.tlEnd.Layout)),
-				layout.Flexed(1, themeWidget(dwin.tlY.Layout)),
-				layout.Flexed(1, themeWidget(dwin.tlPxPerNs.Layout)),
+				layout.Flexed(1, themeWidget(dwin.cvStart.Layout)),
+				layout.Flexed(1, themeWidget(dwin.cvEnd.Layout)),
+				layout.Flexed(1, themeWidget(dwin.cvY.Layout)),
+				layout.Flexed(1, themeWidget(dwin.cvPxPerNs.Layout)),
 				layout.Flexed(1, themeWidget(dwin.animationProgress.Layout)),
 				layout.Flexed(1, themeWidget(dwin.animationRatio.Layout)),
 				layout.Flexed(1, themeWidget(dwin.frametimes.Layout)),

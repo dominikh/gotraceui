@@ -66,18 +66,18 @@ type LocationHistoryEntry struct {
 	y     int
 }
 
-type Timeline struct {
+type Canvas struct {
 	trace *Trace
 
 	debugWindow *DebugWindow
 
-	clickedGoroutineActivities []*Goroutine
+	clickedGoroutineTimelines []*Goroutine
 
-	// The region of the timeline that we're displaying, measured in nanoseconds
+	// The region of the canvas that we're displaying, measured in nanoseconds
 	start trace.Timestamp
 	end   trace.Timestamp
-	// Imagine we're drawing all activities onto an infinitely long canvas. Timeline.y specifies the y of that infinite
-	// canvas that the activity section's y == 0 is displaying.
+	// Imagine we're drawing all timelines onto an infinitely long canvas. Canvas.y specifies the y of that infinite
+	// canvas that the timeline section's y == 0 is displaying.
 	y            int
 	cachedHeight int
 
@@ -99,12 +99,12 @@ type Timeline struct {
 	}
 
 	locationHistory []LocationHistoryEntry
-	// All activities. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
-	activities []*ActivityWidget
-	scrollbar  widget.Scrollbar
-	axis       Axis
+	// All timelines. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
+	timelines []*TimelineWidget
+	scrollbar widget.Scrollbar
+	axis      Axis
 
-	// State for dragging the timeline
+	// State for dragging the canvas
 	drag struct {
 		drag    gesture.Drag
 		ready   bool
@@ -125,7 +125,7 @@ type Timeline struct {
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float32
 
-	activity struct {
+	timeline struct {
 		displayAllLabels    bool
 		compact             bool
 		displaySampleTracks bool
@@ -134,15 +134,15 @@ type Timeline struct {
 		// Should GC overlays be shown?
 		showGCOverlays showGCOverlays
 
-		hoveredActivity *ActivityWidget
+		hoveredTimeline *TimelineWidget
 		hoveredSpans    MergedSpans
 		cursorPos       f32.Point
 	}
 
 	contextMenu []*theme.MenuItem
 
-	// prevFrame records the timeline's state in the previous state. It allows reusing the computed displayed spans
-	// between frames if the timeline hasn't changed.
+	// prevFrame records the canvas's state in the previous state. It allows reusing the computed displayed spans
+	// between frames if the canvas hasn't changed.
 	prevFrame struct {
 		start               trace.Timestamp
 		end                 trace.Timestamp
@@ -150,32 +150,32 @@ type Timeline struct {
 		nsPerPx             float32
 		compact             bool
 		displaySampleTracks bool
-		displayedAws        []*ActivityWidget
-		hoveredActivity     *ActivityWidget
+		displayedTws        []*TimelineWidget
+		hoveredTimeline     *TimelineWidget
 		hoveredSpans        MergedSpans
 	}
 }
 
-func (tl *Timeline) rememberLocation() {
+func (cv *Canvas) rememberLocation() {
 	e := LocationHistoryEntry{
-		start: tl.start,
-		end:   tl.end,
-		y:     tl.y,
+		start: cv.start,
+		end:   cv.end,
+		y:     cv.y,
 	}
-	if o, ok := tl.peekLocationHistory(); ok && o == e {
+	if o, ok := cv.peekLocationHistory(); ok && o == e {
 		// don't record duplicate locations
 		return
 	}
-	if len(tl.locationHistory) == maxLocationHistoryEntries {
-		copy(tl.locationHistory, tl.locationHistory[1:])
-		tl.locationHistory[len(tl.locationHistory)-1] = e
+	if len(cv.locationHistory) == maxLocationHistoryEntries {
+		copy(cv.locationHistory, cv.locationHistory[1:])
+		cv.locationHistory[len(cv.locationHistory)-1] = e
 	} else {
-		tl.locationHistory = append(tl.locationHistory, e)
+		cv.locationHistory = append(cv.locationHistory, e)
 	}
 }
 
-func (tl *Timeline) navigateToChecks(start, end trace.Timestamp, y int) bool {
-	if start == tl.start && end == tl.end && y == tl.y {
+func (cv *Canvas) navigateToChecks(start, end trace.Timestamp, y int) bool {
+	if start == cv.start && end == cv.end && y == cv.y {
 		// We're already there, do nothing. In particular, don't push to the location history.
 		return false
 	}
@@ -188,88 +188,88 @@ func (tl *Timeline) navigateToChecks(start, end trace.Timestamp, y int) bool {
 	return true
 }
 
-func (tl *Timeline) cancelNavigation() {
-	tl.animateTo.animating = false
+func (cv *Canvas) cancelNavigation() {
+	cv.animateTo.animating = false
 }
 
-// navigateTo modifes the timeline's start, end and y values, recording the previous location in the undo stack.
+// navigateTo modifes the canvas's start, end and y values, recording the previous location in the undo stack.
 // navigateTo rejects invalid operations, like setting start = end.
-func (tl *Timeline) navigateTo(gtx layout.Context, start, end trace.Timestamp, y int) {
-	if !tl.navigateToChecks(start, end, y) {
+func (cv *Canvas) navigateTo(gtx layout.Context, start, end trace.Timestamp, y int) {
+	if !cv.navigateToChecks(start, end, y) {
 		return
 	}
 
-	tl.rememberLocation()
-	tl.navigateToImpl(gtx, start, end, y)
+	cv.rememberLocation()
+	cv.navigateToImpl(gtx, start, end, y)
 }
 
-func (tl *Timeline) navigateToNoHistory(gtx layout.Context, start, end trace.Timestamp, y int) {
-	if !tl.navigateToChecks(start, end, y) {
+func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start, end trace.Timestamp, y int) {
+	if !cv.navigateToChecks(start, end, y) {
 		return
 	}
 
-	tl.navigateToImpl(gtx, start, end, y)
+	cv.navigateToImpl(gtx, start, end, y)
 }
 
-func (tl *Timeline) navigateToImpl(gtx layout.Context, start, end trace.Timestamp, y int) {
-	tl.animateTo.animating = true
+func (cv *Canvas) navigateToImpl(gtx layout.Context, start, end trace.Timestamp, y int) {
+	cv.animateTo.animating = true
 
-	tl.animateTo.initialStart = tl.start
-	tl.animateTo.initialEnd = tl.end
-	tl.animateTo.initialY = tl.y
+	cv.animateTo.initialStart = cv.start
+	cv.animateTo.initialEnd = cv.end
+	cv.animateTo.initialY = cv.y
 
-	tl.animateTo.targetStart = start
-	tl.animateTo.targetEnd = end
-	tl.animateTo.targetY = y
+	cv.animateTo.targetStart = start
+	cv.animateTo.targetEnd = end
+	cv.animateTo.targetY = y
 
-	tl.animateTo.startedAt = gtx.Now
+	cv.animateTo.startedAt = gtx.Now
 	op.InvalidateOp{}.Add(gtx.Ops)
 }
 
-func (tl *Timeline) peekLocationHistory() (LocationHistoryEntry, bool) {
-	if len(tl.locationHistory) == 0 {
+func (cv *Canvas) peekLocationHistory() (LocationHistoryEntry, bool) {
+	if len(cv.locationHistory) == 0 {
 		return LocationHistoryEntry{}, false
 	}
-	return tl.locationHistory[len(tl.locationHistory)-1], true
+	return cv.locationHistory[len(cv.locationHistory)-1], true
 }
 
-func (tl *Timeline) popLocationHistory() (LocationHistoryEntry, bool) {
+func (cv *Canvas) popLocationHistory() (LocationHistoryEntry, bool) {
 	// XXX support redo
 
-	if len(tl.locationHistory) == 0 {
+	if len(cv.locationHistory) == 0 {
 		return LocationHistoryEntry{}, false
 	}
-	n := len(tl.locationHistory) - 1
-	e := tl.locationHistory[n]
-	tl.locationHistory = tl.locationHistory[:n]
+	n := len(cv.locationHistory) - 1
+	e := cv.locationHistory[n]
+	cv.locationHistory = cv.locationHistory[:n]
 	return e, true
 }
 
-func (tl *Timeline) unchanged() bool {
+func (cv *Canvas) unchanged() bool {
 	if disableCaching {
 		return false
 	}
 
-	return tl.prevFrame.start == tl.start &&
-		tl.prevFrame.end == tl.end &&
-		tl.prevFrame.nsPerPx == tl.nsPerPx &&
-		tl.prevFrame.y == tl.y &&
-		tl.prevFrame.compact == tl.activity.compact &&
-		tl.prevFrame.displaySampleTracks == tl.activity.displaySampleTracks
+	return cv.prevFrame.start == cv.start &&
+		cv.prevFrame.end == cv.end &&
+		cv.prevFrame.nsPerPx == cv.nsPerPx &&
+		cv.prevFrame.y == cv.y &&
+		cv.prevFrame.compact == cv.timeline.compact &&
+		cv.prevFrame.displaySampleTracks == cv.timeline.displaySampleTracks
 }
 
-func (tl *Timeline) startZoomSelection(pos f32.Point) {
-	tl.zoomSelection.active = true
-	tl.zoomSelection.clickAt = pos
+func (cv *Canvas) startZoomSelection(pos f32.Point) {
+	cv.zoomSelection.active = true
+	cv.zoomSelection.clickAt = pos
 }
 
-func (tl *Timeline) abortZoomSelection() {
-	tl.zoomSelection.active = false
+func (cv *Canvas) abortZoomSelection() {
+	cv.zoomSelection.active = false
 }
 
-func (tl *Timeline) endZoomSelection(win *theme.Window, gtx layout.Context, pos f32.Point) {
-	tl.zoomSelection.active = false
-	one := tl.zoomSelection.clickAt.X
+func (cv *Canvas) endZoomSelection(win *theme.Window, gtx layout.Context, pos f32.Point) {
+	cv.zoomSelection.active = false
+	one := cv.zoomSelection.clickAt.X
 	two := pos.X
 
 	startPx := min(one, two)
@@ -278,49 +278,49 @@ func (tl *Timeline) endZoomSelection(win *theme.Window, gtx layout.Context, pos 
 	if startPx < 0 {
 		startPx = 0
 	}
-	if limit := float32(tl.VisibleWidth(win, gtx)); endPx > limit {
+	if limit := float32(cv.VisibleWidth(win, gtx)); endPx > limit {
 		endPx = limit
 	}
 
-	start := tl.pxToTs(startPx)
-	end := tl.pxToTs(endPx)
+	start := cv.pxToTs(startPx)
+	end := cv.pxToTs(endPx)
 	if start == end {
 		// Cannot zoom to a zero width area
 		return
 	}
 
-	tl.navigateTo(gtx, start, end, tl.y)
+	cv.navigateTo(gtx, start, end, cv.y)
 }
 
-func (tl *Timeline) startDrag(pos f32.Point) {
-	tl.cancelNavigation()
-	tl.rememberLocation()
+func (cv *Canvas) startDrag(pos f32.Point) {
+	cv.cancelNavigation()
+	cv.rememberLocation()
 
-	tl.drag.clickAt = pos
-	tl.drag.active = true
-	tl.drag.start = tl.start
-	tl.drag.end = tl.end
-	tl.drag.startY = tl.y
+	cv.drag.clickAt = pos
+	cv.drag.active = true
+	cv.drag.start = cv.start
+	cv.drag.end = cv.end
+	cv.drag.startY = cv.y
 }
 
-func (tl *Timeline) endDrag() {
-	tl.drag.active = false
+func (cv *Canvas) endDrag() {
+	cv.drag.active = false
 }
 
-func (tl *Timeline) dragTo(gtx layout.Context, pos f32.Point) {
-	td := time.Duration(round32(tl.nsPerPx * (tl.drag.clickAt.X - pos.X)))
-	tl.start = tl.drag.start + trace.Timestamp(td)
-	tl.end = tl.drag.end + trace.Timestamp(td)
+func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
+	td := time.Duration(round32(cv.nsPerPx * (cv.drag.clickAt.X - pos.X)))
+	cv.start = cv.drag.start + trace.Timestamp(td)
+	cv.end = cv.drag.end + trace.Timestamp(td)
 
-	yd := int(round32(tl.drag.clickAt.Y - pos.Y))
-	tl.y = tl.drag.startY + yd
-	if tl.y < 0 {
-		tl.y = 0
+	yd := int(round32(cv.drag.clickAt.Y - pos.Y))
+	cv.y = cv.drag.startY + yd
+	if cv.y < 0 {
+		cv.y = 0
 	}
-	// XXX don't allow dragging tl.Y beyond the end
+	// XXX don't allow dragging cv.Y beyond the end
 }
 
-func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
+func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	// TODO(dh): implement location history for zooming. We shouldn't record one entry per call to zoom, and instead
 	// only record on calls that weren't immediately preceeded by other calls to zoom.
 
@@ -328,15 +328,15 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
 		ratio := at.X / float32(gtx.Constraints.Max.X)
-		ds := time.Duration(tl.nsPerPx * 100 * ratio)
-		de := time.Duration(tl.nsPerPx * 100 * (1 - ratio))
-		tl.start += trace.Timestamp(ds)
-		tl.end -= trace.Timestamp(de)
+		ds := time.Duration(cv.nsPerPx * 100 * ratio)
+		de := time.Duration(cv.nsPerPx * 100 * (1 - ratio))
+		cv.start += trace.Timestamp(ds)
+		cv.end -= trace.Timestamp(de)
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := at.X / float32(gtx.Constraints.Max.X)
-		ds := trace.Timestamp(tl.nsPerPx * 100 * ratio)
-		de := trace.Timestamp(tl.nsPerPx * 100 * (1 - ratio))
+		ds := trace.Timestamp(cv.nsPerPx * 100 * ratio)
+		de := trace.Timestamp(cv.nsPerPx * 100 * (1 - ratio))
 
 		// Make sure the user can always zoom out
 		if ds < 1 {
@@ -346,55 +346,55 @@ func (tl *Timeline) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 			de = 1
 		}
 
-		start := tl.start - ds
-		end := tl.end + de
+		start := cv.start - ds
+		end := cv.end + de
 
-		// Limit timeline to roughly one day. There's rno reason to zoom out this far, and zooming out further will lead
+		// Limit canvas to roughly one day. There's rno reason to zoom out this far, and zooming out further will lead
 		// to edge cases and eventually overflow.
 		if time.Duration(end-start) < 24*time.Hour {
-			tl.start = start
-			tl.end = end
+			cv.start = start
+			cv.end = end
 		}
 	}
 
-	if tl.start > tl.end {
-		tl.start = tl.end - 1
+	if cv.start > cv.end {
+		cv.start = cv.end - 1
 	}
 }
 
-func (tl *Timeline) visibleSpans(spans Spans) Spans {
-	// Visible spans have to end after tl.Start and begin before tl.End
+func (cv *Canvas) visibleSpans(spans Spans) Spans {
+	// Visible spans have to end after cv.Start and begin before cv.End
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.end > tl.start
+		return s.end > cv.start
 	})
 	if start == len(spans) {
 		return nil
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.start >= tl.end
+		return s.start >= cv.end
 	})
 
 	return spans[start:end]
 }
 
 //gcassert:inline
-func (tl *Timeline) tsToPx(t trace.Timestamp) float32 {
-	return float32(t-tl.start) / tl.nsPerPx
+func (cv *Canvas) tsToPx(t trace.Timestamp) float32 {
+	return float32(t-cv.start) / cv.nsPerPx
 }
 
 //gcassert:inline
-func (tl *Timeline) pxToTs(px float32) trace.Timestamp {
-	return trace.Timestamp(round32(px*tl.nsPerPx + float32(tl.start)))
+func (cv *Canvas) pxToTs(px float32) trace.Timestamp {
+	return trace.Timestamp(round32(px*cv.nsPerPx + float32(cv.start)))
 }
 
-func (tl *Timeline) ZoomToFitCurrentView(gtx layout.Context) {
-	tr := tl.trace
+func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
+	tr := cv.trace
 	var first, last trace.Timestamp = -1, -1
-	for _, aw := range tl.visibleActivities(gtx) {
-		for _, track := range aw.tracks {
-			if len(track.spans) == 0 || (track.kind == ActivityWidgetTrackSampled && !tl.activity.displaySampleTracks) {
+	for _, tw := range cv.visibleTimelines(gtx) {
+		for _, track := range tw.tracks {
+			if len(track.spans) == 0 || (track.kind == TimelineWidgetTrackSampled && !cv.timeline.displaySampleTracks) {
 				continue
 			}
 
@@ -410,30 +410,30 @@ func (tl *Timeline) ZoomToFitCurrentView(gtx layout.Context) {
 		panic("unreachable")
 	}
 
-	tl.navigateTo(gtx, first, last, tl.y)
+	cv.navigateTo(gtx, first, last, cv.y)
 }
 
-func (tl *Timeline) activityY(gtx layout.Context, act any) int {
+func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
 	// OPT(dh): don't be O(n)
 	off := 0
-	for _, aw := range tl.activities {
-		if act == aw.item {
+	for _, tw := range cv.timelines {
+		if act == tw.item {
 			// TODO(dh): show goroutine at center of window, not the top
 			return off
 		}
-		off += aw.Height(gtx) + gtx.Dp(activityGapDp)
+		off += tw.Height(gtx) + gtx.Dp(timelineGapDp)
 	}
 	panic("unreachable")
 }
 
-func (tl *Timeline) scrollToActivity(gtx layout.Context, act any) {
-	off := tl.activityY(gtx, act)
-	tl.navigateTo(gtx, tl.start, tl.end, off)
+func (cv *Canvas) scrollToTimeline(gtx layout.Context, act any) {
+	off := cv.timelineY(gtx, act)
+	cv.navigateTo(gtx, cv.start, cv.end, off)
 }
 
-// The width in pixels of the visible portion of the timeline, i.e. the part that isn't occupied by the scrollbar.
-func (tl *Timeline) VisibleWidth(win *theme.Window, gtx layout.Context) int {
-	sbWidth := gtx.Dp(theme.Scrollbar(win.Theme, &tl.scrollbar).Width())
+// The width in pixels of the visible portion of the canvas, i.e. the part that isn't occupied by the scrollbar.
+func (cv *Canvas) VisibleWidth(win *theme.Window, gtx layout.Context) int {
+	sbWidth := gtx.Dp(theme.Scrollbar(win.Theme, &cv.scrollbar).Width())
 	return gtx.Constraints.Max.X - sbWidth
 }
 
@@ -445,90 +445,90 @@ func easeInQuart(progress float64) float64 {
 	return progress * progress * progress * progress
 }
 
-// height returns the sum of the heights of all visible activities.
-func (tl *Timeline) height(gtx layout.Context) int {
-	if tl.prevFrame.compact == tl.activity.compact &&
-		tl.prevFrame.displaySampleTracks == tl.activity.displaySampleTracks &&
-		tl.cachedHeight != 0 {
-		return tl.cachedHeight
+// height returns the sum of the heights of all visible timelines.
+func (cv *Canvas) height(gtx layout.Context) int {
+	if cv.prevFrame.compact == cv.timeline.compact &&
+		cv.prevFrame.displaySampleTracks == cv.timeline.displaySampleTracks &&
+		cv.cachedHeight != 0 {
+		return cv.cachedHeight
 	}
 
 	var total int
-	activityGap := gtx.Dp(activityGapDp)
-	for _, aw := range tl.activities {
-		total += aw.Height(gtx)
-		total += activityGap
+	timelineGap := gtx.Dp(timelineGapDp)
+	for _, tw := range cv.timelines {
+		total += tw.Height(gtx)
+		total += timelineGap
 	}
-	tl.cachedHeight = total
+	cv.cachedHeight = total
 	return total
 }
 
-func (tl *Timeline) ToggleSampleTracks() {
-	tl.activity.displaySampleTracks = !tl.activity.displaySampleTracks
+func (cv *Canvas) ToggleSampleTracks() {
+	cv.timeline.displaySampleTracks = !cv.timeline.displaySampleTracks
 }
 
-func (tl *Timeline) UndoNavigation(gtx layout.Context) {
-	if e, ok := tl.popLocationHistory(); ok {
-		tl.navigateToNoHistory(gtx, e.start, e.end, e.y)
+func (cv *Canvas) UndoNavigation(gtx layout.Context) {
+	if e, ok := cv.popLocationHistory(); ok {
+		cv.navigateToNoHistory(gtx, e.start, e.end, e.y)
 	}
 }
 
-func (tl *Timeline) ScrollToTop(gtx layout.Context) {
-	tl.navigateTo(gtx, tl.start, tl.end, 0)
+func (cv *Canvas) ScrollToTop(gtx layout.Context) {
+	cv.navigateTo(gtx, cv.start, cv.end, 0)
 }
 
-func (tl *Timeline) JumpToBeginning(gtx layout.Context) {
-	d := tl.end - tl.start
-	tl.navigateTo(gtx, 0, d, tl.y)
+func (cv *Canvas) JumpToBeginning(gtx layout.Context) {
+	d := cv.end - cv.start
+	cv.navigateTo(gtx, 0, d, cv.y)
 }
 
-func (tl *Timeline) ToggleCompactDisplay() {
-	// FIXME(dh): adjust tl.Y so that the top visible goroutine stays the same
-	tl.activity.compact = !tl.activity.compact
+func (cv *Canvas) ToggleCompactDisplay() {
+	// FIXME(dh): adjust cv.Y so that the top visible goroutine stays the same
+	cv.timeline.compact = !cv.timeline.compact
 }
 
-func (tl *Timeline) ToggleActivityLabels() {
-	tl.activity.displayAllLabels = !tl.activity.displayAllLabels
+func (cv *Canvas) ToggleTimelineLabels() {
+	cv.timeline.displayAllLabels = !cv.timeline.displayAllLabels
 }
 
-func (tl *Timeline) scroll(gtx layout.Context, dx, dy float32) {
+func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 	// TODO(dh): implement location history for scrolling. We shouldn't record one entry per call to scroll, and instead
 	// only record on calls that weren't immediately preceeded by other calls to scroll.
-	tl.y += int(round32(dy))
-	if tl.y < 0 {
-		tl.y = 0
+	cv.y += int(round32(dy))
+	if cv.y < 0 {
+		cv.y = 0
 	}
-	// XXX don't allow dragging tl.y beyond end
+	// XXX don't allow dragging cv.y beyond end
 
-	tl.start += trace.Timestamp(round32(dx * tl.nsPerPx))
-	tl.end += trace.Timestamp(round32(dx * tl.nsPerPx))
+	cv.start += trace.Timestamp(round32(dx * cv.nsPerPx))
+	cv.end += trace.Timestamp(round32(dx * cv.nsPerPx))
 }
 
-func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "main.Timeline.Layout").End()
-	tr := tl.trace
+func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Canvas.Layout").End()
+	tr := cv.trace
 
-	if tl.animateTo.animating {
+	if cv.animateTo.animating {
 		// XXX animation really makes it obvious that our span merging algorithm is unstable
 
-		dt := gtx.Now.Sub(tl.animateTo.startedAt)
+		dt := gtx.Now.Sub(cv.animateTo.startedAt)
 		if dt >= animateLength {
-			tl.start = tl.animateTo.targetStart
-			tl.end = tl.animateTo.targetEnd
-			tl.y = tl.animateTo.targetY
+			cv.start = cv.animateTo.targetStart
+			cv.end = cv.animateTo.targetEnd
+			cv.y = cv.animateTo.targetY
 
-			tl.debugWindow.animationProgress.addValue(gtx.Now, 1)
-			tl.debugWindow.animationRatio.addValue(gtx.Now, 1)
-			tl.animateTo.animating = false
+			cv.debugWindow.animationProgress.addValue(gtx.Now, 1)
+			cv.debugWindow.animationRatio.addValue(gtx.Now, 1)
+			cv.animateTo.animating = false
 		} else {
 			timeRatio := float64(dt) / float64(animateLength)
 			var r float64
 
 			{
-				initialStart := float64(tl.animateTo.initialStart)
-				initialEnd := float64(tl.animateTo.initialEnd)
-				targetStart := float64(tl.animateTo.targetStart)
-				targetEnd := float64(tl.animateTo.targetEnd)
+				initialStart := float64(cv.animateTo.initialStart)
+				initialEnd := float64(cv.animateTo.initialEnd)
+				targetStart := float64(cv.animateTo.targetStart)
+				targetEnd := float64(cv.animateTo.targetEnd)
 
 				initialWidth := initialEnd - initialStart
 				targetWidth := targetEnd - targetStart
@@ -543,31 +543,31 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 				}
 				r = ease(timeRatio)
 
-				tl.debugWindow.animationProgress.addValue(gtx.Now, timeRatio)
-				tl.debugWindow.animationRatio.addValue(gtx.Now, r)
+				cv.debugWindow.animationProgress.addValue(gtx.Now, timeRatio)
+				cv.debugWindow.animationRatio.addValue(gtx.Now, r)
 
 				curStart := initialStart + (targetStart-initialStart)*r
 				curEnd := initialEnd + (targetEnd-initialEnd)*r
 
-				tl.start = trace.Timestamp(curStart)
-				tl.end = trace.Timestamp(curEnd)
+				cv.start = trace.Timestamp(curStart)
+				cv.end = trace.Timestamp(curEnd)
 			}
 
 			// XXX this looks bad when we panned in both X and Y, because the two animations don't run at the same speed
 			// if the distances are different.
 
 			{
-				initialY := float64(tl.animateTo.initialY)
-				targetY := float64(tl.animateTo.targetY)
+				initialY := float64(cv.animateTo.initialY)
+				targetY := float64(cv.animateTo.targetY)
 
-				tl.y = int(initialY + (targetY-initialY)*r)
+				cv.y = int(initialY + (targetY-initialY)*r)
 			}
 
 			op.InvalidateOp{}.Add(gtx.Ops)
 		}
 	}
 
-	for _, ev := range gtx.Events(tl) {
+	for _, ev := range gtx.Events(cv) {
 		switch ev := ev.(type) {
 		case key.Event:
 			if ev.State == key.Press {
@@ -575,31 +575,31 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 				case key.NameHome:
 					switch {
 					case ev.Modifiers == key.ModShortcut:
-						tl.ZoomToFitCurrentView(gtx)
+						cv.ZoomToFitCurrentView(gtx)
 					case ev.Modifiers == key.ModShift:
-						tl.JumpToBeginning(gtx)
+						cv.JumpToBeginning(gtx)
 					case ev.Modifiers == 0:
-						tl.ScrollToTop(gtx)
+						cv.ScrollToTop(gtx)
 					}
 
 				case "S":
-					tl.ToggleSampleTracks()
+					cv.ToggleSampleTracks()
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModShortcut) {
-						tl.UndoNavigation(gtx)
+						cv.UndoNavigation(gtx)
 					}
 
 				case "X":
-					tl.ToggleActivityLabels()
+					cv.ToggleTimelineLabels()
 
 				case "C":
-					tl.ToggleCompactDisplay()
+					cv.ToggleCompactDisplay()
 
 				case "T":
-					tl.activity.showTooltips = (tl.activity.showTooltips + 1) % (showTooltipsNone + 1)
+					cv.timeline.showTooltips = (cv.timeline.showTooltips + 1) % (showTooltipsNone + 1)
 					var s string
-					switch tl.activity.showTooltips {
+					switch cv.timeline.showTooltips {
 					case showTooltipsBoth:
 						s = "Showing all tooltips"
 					case showTooltipsSpans:
@@ -610,9 +610,9 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 					win.ShowNotification(gtx, s)
 
 				case "O":
-					tl.activity.showGCOverlays = (tl.activity.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
+					cv.timeline.showGCOverlays = (cv.timeline.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
 					var s string
-					switch tl.activity.showGCOverlays {
+					switch cv.timeline.showGCOverlays {
 					case showGCOverlaysBoth:
 						s = "Showing STW and GC overlays"
 					case showGCOverlaysSTW:
@@ -625,139 +625,139 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 				}
 			}
 		case pointer.Event:
-			tl.activity.cursorPos = ev.Position
+			cv.timeline.cursorPos = ev.Position
 
 			switch ev.Type {
 			case pointer.Scroll:
 				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
-				tl.abortZoomSelection()
+				cv.abortZoomSelection()
 				if ev.Modifiers == 0 {
-					tl.scroll(gtx, ev.Scroll.X, ev.Scroll.Y)
+					cv.scroll(gtx, ev.Scroll.X, ev.Scroll.Y)
 				} else if ev.Modifiers == key.ModShortcut {
-					tl.zoom(gtx, ev.Scroll.Y, ev.Position)
+					cv.zoom(gtx, ev.Scroll.Y, ev.Position)
 				}
 			}
 		}
 	}
 
-	for _, ev := range tl.drag.drag.Events(gtx.Metric, gtx, gesture.Both) {
+	for _, ev := range cv.drag.drag.Events(gtx.Metric, gtx, gesture.Both) {
 		switch ev.Type {
 		case pointer.Press:
 			if ev.Modifiers == 0 {
-				tl.drag.ready = true
+				cv.drag.ready = true
 			} else if ev.Modifiers == key.ModShortcut {
-				tl.zoomSelection.ready = true
+				cv.zoomSelection.ready = true
 			}
 		case pointer.Drag:
-			tl.activity.cursorPos = ev.Position
-			if tl.drag.ready && !tl.drag.active {
-				tl.startDrag(ev.Position)
-			} else if tl.zoomSelection.ready && !tl.zoomSelection.active {
-				tl.startZoomSelection(ev.Position)
+			cv.timeline.cursorPos = ev.Position
+			if cv.drag.ready && !cv.drag.active {
+				cv.startDrag(ev.Position)
+			} else if cv.zoomSelection.ready && !cv.zoomSelection.active {
+				cv.startZoomSelection(ev.Position)
 			}
-			if tl.drag.active {
-				tl.dragTo(gtx, ev.Position)
+			if cv.drag.active {
+				cv.dragTo(gtx, ev.Position)
 			}
 		case pointer.Release:
-			tl.drag.ready = false
-			tl.zoomSelection.ready = false
-			if tl.drag.active {
-				tl.endDrag()
+			cv.drag.ready = false
+			cv.zoomSelection.ready = false
+			if cv.drag.active {
+				cv.endDrag()
 			}
-			if tl.zoomSelection.active {
-				tl.endZoomSelection(win, gtx, ev.Position)
+			if cv.zoomSelection.active {
+				cv.endZoomSelection(win, gtx, ev.Position)
 			}
 		}
 	}
 
 	var axisHeight int
 
-	// Draw axis and activities
+	// Draw axis and timelines
 	func(gtx layout.Context) {
-		gtx.Constraints.Max.X = tl.VisibleWidth(win, gtx)
+		gtx.Constraints.Max.X = cv.VisibleWidth(win, gtx)
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-		tl.clickedGoroutineActivities = tl.clickedGoroutineActivities[:0]
+		cv.clickedGoroutineTimelines = cv.clickedGoroutineTimelines[:0]
 
-		if d := tl.scrollbar.ScrollDistance(); d != 0 {
+		if d := cv.scrollbar.ScrollDistance(); d != 0 {
 			// TODO(dh): because scroll amounts are relative even when the user clicks on a specific spot on the
 			// scrollbar, and because we've already executed this frame's navigation animation step, applying the
-			// delta to tl.y can leave it in a different position than where the user clicked.
+			// delta to cv.y can leave it in a different position than where the user clicked.
 			//
 			// TODO(dh): add another screen worth of goroutines so the user can scroll a bit further
 
-			tl.cancelNavigation()
+			cv.cancelNavigation()
 
-			totalHeight := tl.height(gtx)
-			tl.y += int(round32(d * float32(totalHeight)))
-			if tl.y < 0 {
-				tl.y = 0
+			totalHeight := cv.height(gtx)
+			cv.y += int(round32(d * float32(totalHeight)))
+			if cv.y < 0 {
+				cv.y = 0
 			}
 		}
 
-		tl.activity.hoveredSpans = nil
-		tl.activity.hoveredActivity = nil
-		for _, aw := range tl.prevFrame.displayedAws {
-			if spans := aw.NavigatedSpans(); len(spans) > 0 {
+		cv.timeline.hoveredSpans = nil
+		cv.timeline.hoveredTimeline = nil
+		for _, tw := range cv.prevFrame.displayedTws {
+			if spans := tw.NavigatedSpans(); len(spans) > 0 {
 				start := spans.Start(tr)
 				end := spans.End()
-				tl.navigateTo(gtx, start, end, tl.y)
+				cv.navigateTo(gtx, start, end, cv.y)
 				break
 			}
 		}
-		for _, aw := range tl.prevFrame.displayedAws {
-			if aw.hovered {
-				tl.activity.hoveredActivity = aw
-				if spans := aw.HoveredSpans(); len(spans) > 0 {
-					tl.activity.hoveredSpans = spans
+		for _, tw := range cv.prevFrame.displayedTws {
+			if tw.hovered {
+				cv.timeline.hoveredTimeline = tw
+				if spans := tw.HoveredSpans(); len(spans) > 0 {
+					cv.timeline.hoveredSpans = spans
 				}
 				break
 			}
 		}
 
-		for _, item := range tl.contextMenu {
+		for _, item := range cv.contextMenu {
 			if item.Clicked() {
 				item.Do(gtx)
 				win.CloseContextMenu()
 			}
 		}
 
-		tl.nsPerPx = float32(tl.end-tl.start) / float32(gtx.Constraints.Max.X)
-		tl.debugWindow.tlPxPerNs.addValue(gtx.Now, 1.0/float64(tl.nsPerPx))
+		cv.nsPerPx = float32(cv.end-cv.start) / float32(gtx.Constraints.Max.X)
+		cv.debugWindow.cvPxPerNs.addValue(gtx.Now, 1.0/float64(cv.nsPerPx))
 
 		if debug {
-			if tl.end < tl.start {
+			if cv.end < cv.start {
 				panic("XXX")
 			}
 		}
 
 		// Set up event handlers
-		tl.drag.drag.Add(gtx.Ops)
+		cv.drag.drag.Add(gtx.Ops)
 		pointer.InputOp{
-			Tag:          tl,
+			Tag:          cv,
 			ScrollBounds: image.Rectangle{Min: image.Pt(-100, -100), Max: image.Pt(100, 100)},
 			Types:        pointer.Move | pointer.Scroll,
 		}.Add(gtx.Ops)
-		if tl.drag.active {
+		if cv.drag.active {
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
-		key.InputOp{Tag: tl, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
-		key.FocusOp{Tag: tl}.Add(gtx.Ops)
+		key.InputOp{Tag: cv, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
+		key.FocusOp{Tag: cv}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
-			for _, s := range tl.visibleSpans(spans) {
+			for _, s := range cv.visibleSpans(spans) {
 				start := s.start
 				end := s.end
 
-				if start < tl.start {
-					start = tl.start
+				if start < cv.start {
+					start = cv.start
 				}
-				if end > tl.end {
-					end = tl.end
+				if end > cv.end {
+					end = cv.end
 				}
 
-				xMin := tl.tsToPx(start)
-				xMax := tl.tsToPx(end)
+				xMin := cv.tsToPx(start)
+				xMax := cv.tsToPx(end)
 				if xMax-xMin < 1 {
 					continue
 				}
@@ -770,28 +770,28 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			}
 		}
 
-		// Draw axis and activities
+		// Draw axis and timelines
 		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			// Draw STW and GC regions
 			// TODO(dh): make this be optional
 			tickHeight := gtx.Dp(tickHeightDp)
-			drawRegionOverlays(tl.trace.gc, colors[colorStateGC], tickHeight)
-			drawRegionOverlays(tl.trace.stw, colors[colorStateBlocked], tickHeight)
+			drawRegionOverlays(cv.trace.gc, colors[colorStateGC], tickHeight)
+			drawRegionOverlays(cv.trace.stw, colors[colorStateBlocked], tickHeight)
 
-			dims := tl.axis.Layout(win, gtx)
+			dims := cv.axis.Layout(win, gtx)
 			axisHeight = dims.Size.Y
 
 			return dims
 		}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			dims, aws := tl.layoutActivities(win, gtx)
-			tl.prevFrame.displayedAws = aws
+			dims, tws := cv.layoutTimelines(win, gtx)
+			cv.prevFrame.displayedTws = tws
 			return dims
 		}))
 
 		// Draw zoom selection
-		if tl.zoomSelection.active {
-			one := tl.zoomSelection.clickAt.X
-			two := tl.activity.cursorPos.X
+		if cv.zoomSelection.active {
+			one := cv.zoomSelection.clickAt.X
+			two := cv.timeline.cursorPos.X
 			rect := FRect{
 				Min: f32.Pt(min(one, two), 0),
 				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
@@ -800,46 +800,46 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		}
 
 		// Draw STW and GC overlays
-		if tl.activity.showGCOverlays >= showGCOverlaysBoth {
-			drawRegionOverlays(tl.trace.gc, rgba(0x9C6FD633), gtx.Constraints.Max.Y)
+		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
+			drawRegionOverlays(cv.trace.gc, rgba(0x9C6FD633), gtx.Constraints.Max.Y)
 		}
-		if tl.activity.showGCOverlays >= showGCOverlaysSTW {
-			drawRegionOverlays(tl.trace.stw, rgba(0xBA414133), gtx.Constraints.Max.Y)
+		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
+			drawRegionOverlays(cv.trace.stw, rgba(0xBA414133), gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
 		rect := clip.Rect{
-			Min: image.Pt(int(round32(tl.activity.cursorPos.X)), 0),
-			Max: image.Pt(int(round32(tl.activity.cursorPos.X+1)), gtx.Constraints.Max.Y),
+			Min: image.Pt(int(round32(cv.timeline.cursorPos.X)), 0),
+			Max: image.Pt(int(round32(cv.timeline.cursorPos.X+1)), gtx.Constraints.Max.Y),
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-		tl.prevFrame.start = tl.start
-		tl.prevFrame.end = tl.end
-		tl.prevFrame.nsPerPx = tl.nsPerPx
-		tl.prevFrame.y = tl.y
-		tl.prevFrame.compact = tl.activity.compact
-		tl.prevFrame.displaySampleTracks = tl.activity.displaySampleTracks
-		tl.prevFrame.hoveredSpans = tl.activity.hoveredSpans
-		tl.prevFrame.hoveredActivity = tl.activity.hoveredActivity
+		cv.prevFrame.start = cv.start
+		cv.prevFrame.end = cv.end
+		cv.prevFrame.nsPerPx = cv.nsPerPx
+		cv.prevFrame.y = cv.y
+		cv.prevFrame.compact = cv.timeline.compact
+		cv.prevFrame.displaySampleTracks = cv.timeline.displaySampleTracks
+		cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
+		cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 	}(gtx)
 
 	// Draw scrollbar
 	func(gtx layout.Context) {
-		defer op.Offset(image.Pt(tl.VisibleWidth(win, gtx), axisHeight)).Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(cv.VisibleWidth(win, gtx), axisHeight)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= axisHeight
 
-		activityGap := gtx.Dp(activityGapDp)
+		timelineGap := gtx.Dp(timelineGapDp)
 
-		totalHeight := tl.height(gtx)
-		if len(tl.activities) > 0 {
+		totalHeight := cv.height(gtx)
+		if len(cv.timelines) > 0 {
 			// Allow scrolling past the last goroutine
-			totalHeight += tl.activities[len(tl.activities)-1].Height(gtx) + activityGap
+			totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx) + timelineGap
 		}
 
 		fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
-		offset := float32(tl.y) / float32(totalHeight)
-		sb := theme.Scrollbar(win.Theme, &tl.scrollbar)
+		offset := float32(cv.y) / float32(totalHeight)
+		sb := theme.Scrollbar(win.Theme, &cv.scrollbar)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 	}(gtx)
 
@@ -848,19 +848,19 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 	}
 }
 
-func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
-	activityGap := gtx.Dp(activityGapDp)
+func (cv *Canvas) visibleTimelines(gtx layout.Context) []*TimelineWidget {
+	timelineGap := gtx.Dp(timelineGapDp)
 
 	start := -1
 	end := -1
-	// OPT(dh): at least use binary search to find the range of activities we need to draw. now that activity heights
+	// OPT(dh): at least use binary search to find the range of timelines we need to draw. now that timeline heights
 	// aren't constant anymore, however, this is more complicated.
-	y := -tl.y
-	for i, aw := range tl.activities {
-		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
-		awHeight := aw.Height(gtx)
-		if y < -awHeight {
-			y += activityGap + awHeight
+	y := -cv.y
+	for i, tw := range cv.timelines {
+		// Don't draw timelines that would be fully hidden, but do draw partially hidden ones
+		twHeight := tw.Height(gtx)
+		if y < -twHeight {
+			y += timelineGap + twHeight
 			continue
 		}
 		if start == -1 {
@@ -870,40 +870,40 @@ func (tl *Timeline) visibleActivities(gtx layout.Context) []*ActivityWidget {
 			end = i
 			break
 		}
-		y += activityGap + awHeight
+		y += timelineGap + twHeight
 	}
 
 	if start == -1 {
-		// No visible activities
+		// No visible timelines
 		return nil
 	}
 
 	if end == -1 {
-		end = len(tl.activities)
+		end = len(cv.timelines)
 	}
 
-	return tl.activities[start:end]
+	return cv.timelines[start:end]
 }
 
-func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*ActivityWidget) {
+func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*TimelineWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	activityGap := gtx.Dp(activityGapDp)
+	timelineGap := gtx.Dp(timelineGapDp)
 
-	// OPT(dh): at least use binary search to find the range of activities we need to draw. now that activity heights
+	// OPT(dh): at least use binary search to find the range of timelines we need to draw. now that timeline heights
 	// aren't constant anymore, however, this is more complicated.
 	start := -1
 	end := -1
-	y := -tl.y
+	y := -cv.y
 
-	for _, aw := range tl.prevFrame.displayedAws {
-		aw.displayed = false
+	for _, tw := range cv.prevFrame.displayedTws {
+		tw.displayed = false
 	}
-	for i, aw := range tl.activities {
-		// Don't draw activities that would be fully hidden, but do draw partially hidden ones
-		awHeight := aw.Height(gtx)
-		if y < -awHeight {
-			y += activityGap + awHeight
+	for i, tw := range cv.timelines {
+		// Don't draw timelines that would be fully hidden, but do draw partially hidden ones
+		twHeight := tw.Height(gtx)
+		if y < -twHeight {
+			y += timelineGap + twHeight
 			continue
 		}
 		if y > gtx.Constraints.Max.Y {
@@ -915,29 +915,29 @@ func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (lay
 		}
 
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		topBorder := i > 0 && tl.activities[i-1].hovered
-		aw.Layout(win, gtx, tl.activity.displayAllLabels, tl.activity.compact, topBorder, &tl.trackSpanLabels)
+		topBorder := i > 0 && cv.timelines[i-1].hovered
+		tw.Layout(win, gtx, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
-		y += activityGap + awHeight
+		y += timelineGap + twHeight
 
-		if aw.LabelClicked() {
-			if g, ok := aw.item.(*Goroutine); ok {
-				tl.clickedGoroutineActivities = append(tl.clickedGoroutineActivities, g)
+		if tw.LabelClicked() {
+			if g, ok := tw.item.(*Goroutine); ok {
+				cv.clickedGoroutineTimelines = append(cv.clickedGoroutineTimelines, g)
 			}
 		}
 	}
-	for _, aw := range tl.prevFrame.displayedAws {
-		if !aw.displayed {
-			// The activity was displayed last frame but wasn't this frame -> notify it that it is no longer visible so
+	for _, tw := range cv.prevFrame.displayedTws {
+		if !tw.displayed {
+			// The timeline was displayed last frame but wasn't this frame -> notify it that it is no longer visible so
 			// that it can release temporary resources.
-			aw.notifyHidden()
+			tw.notifyHidden()
 		}
 	}
 
-	var out []*ActivityWidget
+	var out []*TimelineWidget
 	if start != -1 {
-		out = tl.activities[start : end+1]
+		out = cv.timelines[start : end+1]
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
@@ -945,7 +945,7 @@ func (tl *Timeline) layoutActivities(win *theme.Window, gtx layout.Context) (lay
 
 type Axis struct {
 	theme *theme.Theme
-	tl    *Timeline
+	cv    *Canvas
 
 	ticksOps reusableOps
 
@@ -958,13 +958,13 @@ type Axis struct {
 }
 
 func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
-	if axis.tl.nsPerPx == 0 {
+	if axis.cv.nsPerPx == 0 {
 		return 0, false
 	}
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
 	minTickDistance := gtx.Dp(minTickDistanceDp)
 	for t := time.Duration(1); true; t *= 10 {
-		tickDistance := int(round32(float32(t) / axis.tl.nsPerPx))
+		tickDistance := int(round32(float32(t) / axis.cv.nsPerPx))
 		if tickDistance >= minTickDistance {
 			return t, true
 		}
@@ -991,20 +991,20 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	var labels []string
-	if axis.tl.unchanged() {
+	if axis.cv.unchanged() {
 		axis.prevFrame.call.Add(gtx.Ops)
 		return axis.prevFrame.dims
-	} else if axis.tl.prevFrame.nsPerPx == axis.tl.nsPerPx {
+	} else if axis.cv.prevFrame.nsPerPx == axis.cv.nsPerPx {
 		// Panning only changes the first label
 		labels = axis.prevFrame.labels
-		labels[0] = formatTimestamp(axis.tl.start)
+		labels[0] = formatTimestamp(axis.cv.start)
 	} else {
-		for t := axis.tl.start; t < axis.tl.end; t += trace.Timestamp(tickInterval) {
-			if t == axis.tl.start {
+		for t := axis.cv.start; t < axis.cv.end; t += trace.Timestamp(tickInterval) {
+			if t == axis.cv.start {
 				labels = append(labels, formatTimestamp(t))
 			} else {
 				// TODO separate value and unit symbol with a space
-				labels = append(labels, fmt.Sprintf("+%s", time.Duration(t-axis.tl.start)))
+				labels = append(labels, fmt.Sprintf("+%s", time.Duration(t-axis.cv.start)))
 			}
 		}
 		axis.prevFrame.labels = labels
@@ -1023,9 +1023,9 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	var ticksPath clip.Path
 	ticksPath.Begin(axis.ticksOps.get())
 	i := 0
-	for t := axis.tl.start; t < axis.tl.end; t += trace.Timestamp(tickInterval) {
-		start := axis.tl.tsToPx(t) - tickWidth/2
-		end := axis.tl.tsToPx(t) + tickWidth/2
+	for t := axis.cv.start; t < axis.cv.end; t += trace.Timestamp(tickInterval) {
+		start := axis.cv.tsToPx(t) - tickWidth/2
+		end := axis.cv.tsToPx(t) + tickWidth/2
 		rect := FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
@@ -1033,8 +1033,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := axis.tl.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) - tickWidth/2
-			smallEnd := axis.tl.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) + tickWidth/2
+			smallStart := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) - tickWidth/2
+			smallEnd := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -1046,7 +1046,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			rect.IntoPath(&ticksPath)
 		}
 
-		if t == axis.tl.start {
+		if t == axis.cv.start {
 			label := labels[i]
 			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
 			dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, text.Font{}, axis.theme.TextSize, label)

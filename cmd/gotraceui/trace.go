@@ -14,10 +14,10 @@ import (
 	"honnef.co/go/gotraceui/trace"
 )
 
-// This boolean guards all code involving displaying machine activities. That feature is currently broken, because the
+// This boolean guards all code involving displaying machine timelines. That feature is currently broken, because the
 // trace parser only produces an event ordering that is consistent for goroutines, but not for machines. For example, it
 // may try to start a P on an M that is currently blocked on a syscall.
-const supportMachineActivities = false
+const supportMachineTimelines = false
 
 type schedulingState uint8
 
@@ -590,7 +590,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	}
 	msByID := map[int32]*Machine{}
 	getM := func(mid int32) *Machine {
-		if !supportMachineActivities {
+		if !supportMachineTimelines {
 			panic("getM was called despite supportmachineActivities == false")
 		}
 		m, ok := msByID[mid]
@@ -635,7 +635,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			eventsPerP[ev.P]++
 			gid = ev.G
 		case trace.EvProcStart:
-			if supportMachineActivities {
+			if supportMachineTimelines {
 				eventsPerM[int32(ev.Args[0])]++
 			}
 			continue
@@ -655,7 +655,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	for pid, n := range eventsPerP {
 		getP(pid).spans = make(Spans, 0, n)
 	}
-	if supportMachineActivities {
+	if supportMachineTimelines {
 		for mid, n := range eventsPerM {
 			getM(mid).spans = make(Spans, 0, n)
 		}
@@ -810,7 +810,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			gid = ev.G
 			state = stateReady
 
-			if supportMachineActivities {
+			if supportMachineTimelines {
 				if mid, ok := blockingSyscallMPerG[ev.G]; ok {
 					delete(blockingSyscallMPerG, ev.G)
 					m := getM(mid)
@@ -837,7 +837,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			}
 
 		case trace.EvProcStart:
-			if supportMachineActivities {
+			if supportMachineTimelines {
 				mid := ev.Args[0]
 				m := getM(int32(mid))
 				m.spans = append(m.spans, Span{start: ev.Ts, end: -1, state: stateRunningP, event_: packEventID(EventID(evID))})
@@ -845,7 +845,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			}
 			continue
 		case trace.EvProcStop:
-			if supportMachineActivities {
+			if supportMachineTimelines {
 				m := getM(lastMPerP[ev.P])
 				span := &m.spans[len(m.spans)-1]
 				span.end = ev.Ts
@@ -1031,7 +1031,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		case pRunG:
 			p := getP(ev.P)
 			p.spans = append(p.spans, Span{start: ev.Ts, state: stateRunningG, event_: packEventID(EventID(evID))})
-			if supportMachineActivities {
+			if supportMachineTimelines {
 				mid := lastMPerP[p.id]
 				m := getM(mid)
 				m.goroutines = append(m.goroutines, Span{start: ev.Ts, event_: packEventID(EventID(evID)), state: stateRunningG})
@@ -1040,7 +1040,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			// XXX guard against malformed traces
 			p := getP(ev.P)
 			p.spans[len(p.spans)-1].end = ev.Ts
-			if supportMachineActivities {
+			if supportMachineTimelines {
 				mid := lastMPerP[p.id]
 				m := getM(mid)
 				if len(m.goroutines) == 0 {
@@ -1152,7 +1152,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		return ps[i].id < ps[j].id
 	})
 
-	if supportMachineActivities {
+	if supportMachineTimelines {
 		for _, m := range msByID {
 			// OPT(dh): preallocate ms
 			ms = append(ms, m)

@@ -28,34 +28,34 @@ import (
 
 const (
 	// XXX the label height depends on the font used
-	activityLabelHeightDp unit.Dp = 20
-	activityTrackHeightDp unit.Dp = 16
-	activityGapDp         unit.Dp = 5
-	activityTrackGapDp    unit.Dp = 2
+	timelineLabelHeightDp unit.Dp = 20
+	timelineTrackHeightDp unit.Dp = 16
+	timelineGapDp         unit.Dp = 5
+	timelineTrackGapDp    unit.Dp = 2
 )
 
-type ActivityWidgetTrackKind uint8
+type TimelineWidgetTrackKind uint8
 
 const (
-	ActivityWidgetTrackUnspecified ActivityWidgetTrackKind = iota
-	ActivityWidgetTrackSampled
-	ActivityWidgetTrackUserRegions
+	TimelineWidgetTrackUnspecified TimelineWidgetTrackKind = iota
+	TimelineWidgetTrackSampled
+	TimelineWidgetTrackUserRegions
 )
 
-type ActivityWidget struct {
+type TimelineWidget struct {
 	// Inputs
 	tracks            []Track
-	trackWidgets      []ActivityWidgetTrack
-	buildTrackWidgets func([]Track, []ActivityWidgetTrack)
+	trackWidgets      []TimelineWidgetTrack
+	buildTrackWidgets func([]Track, []TimelineWidgetTrack)
 
-	widgetTooltip   func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions
-	invalidateCache func(aw *ActivityWidget) bool
-	tl              *Timeline
+	widgetTooltip   func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions
+	invalidateCache func(tw *TimelineWidget) bool
+	cv              *Canvas
 	item            any
 	labelClick      gesture.Click
 	label           string
 
-	// Set to true by the Layout method. This is used to track which activities have been shown during a frame.
+	// Set to true by the Layout method. This is used to track which timelines have been shown during a frame.
 	displayed bool
 
 	labelClicks int
@@ -63,9 +63,9 @@ type ActivityWidget struct {
 	pointerAt f32.Point
 	hovered   bool
 
-	// OPT(dh): Only one activity can have hovered or activated spans, so we could track this directly in Timeline, and
-	// save 48 bytes per activity (which means per goroutine). However, the current API is cleaner, because
-	// ActivityWidget doesn't have to mutate Timeline's state.
+	// OPT(dh): Only one timeline can have hovered or activated spans, so we could track this directly in Canvas, and
+	// save 48 bytes per timeline (which means per goroutine). However, the current API is cleaner, because
+	// TimelineWidget doesn't have to mutate Timeline's state.
 	navigatedSpans MergedSpans
 	hoveredSpans   MergedSpans
 
@@ -88,24 +88,24 @@ type SpanTooltipState struct {
 }
 
 type Track struct {
-	kind   ActivityWidgetTrackKind
+	kind   TimelineWidgetTrackKind
 	spans  Spans
 	events []EventID
 }
 
-func newZoomMenuItem(tl *Timeline, spans MergedSpans) *theme.MenuItem {
+func newZoomMenuItem(cv *Canvas, spans MergedSpans) *theme.MenuItem {
 	return &theme.MenuItem{
 		Label:    PlainLabel("Zoom"),
 		Shortcut: key.ModShortcut.String() + "+LMB",
 		Do: func(gtx layout.Context) {
-			start := spans.Start(tl.trace)
+			start := spans.Start(cv.trace)
 			end := spans.End()
-			tl.navigateTo(gtx, start, end, tl.y)
+			cv.navigateTo(gtx, start, end, cv.y)
 		},
 	}
 }
 
-type ActivityWidgetTrack struct {
+type TimelineWidgetTrack struct {
 	*Track
 
 	highlightSpan func(spans MergedSpans) bool
@@ -115,9 +115,9 @@ type ActivityWidgetTrack struct {
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
 	spanContextMenu func(spans MergedSpans, tr *Trace) []*theme.MenuItem
 
-	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in ActivityWidget,
-	// and save 48 bytes per track. However, the current API is cleaner, because ActivityWidgetTrack doesn't have to
-	// mutate ActivityWidget's state.
+	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in TimelineWidget,
+	// and save 48 bytes per track. However, the current API is cleaner, because TimelineWidgetTrack doesn't have to
+	// mutate TimelineWidget's state.
 	navigatedSpans MergedSpans
 	hoveredSpans   MergedSpans
 
@@ -141,81 +141,81 @@ type ActivityWidgetTrack struct {
 	}
 }
 
-func (track *ActivityWidgetTrack) NavigatedSpans() MergedSpans {
+func (track *TimelineWidgetTrack) NavigatedSpans() MergedSpans {
 	return track.navigatedSpans
 }
 
-func (track *ActivityWidgetTrack) HoveredSpans() MergedSpans {
+func (track *TimelineWidgetTrack) HoveredSpans() MergedSpans {
 	return track.hoveredSpans
 }
 
-func (aw *ActivityWidget) NavigatedSpans() MergedSpans {
-	return aw.navigatedSpans
+func (tw *TimelineWidget) NavigatedSpans() MergedSpans {
+	return tw.navigatedSpans
 }
 
-func (aw *ActivityWidget) HoveredSpans() MergedSpans {
-	return aw.hoveredSpans
+func (tw *TimelineWidget) HoveredSpans() MergedSpans {
+	return tw.hoveredSpans
 }
 
-func (aw *ActivityWidget) LabelClicked() bool {
-	if aw.labelClicks > 0 {
-		aw.labelClicks--
+func (tw *TimelineWidget) LabelClicked() bool {
+	if tw.labelClicks > 0 {
+		tw.labelClicks--
 		return true
 	} else {
 		return false
 	}
 }
 
-func (aw *ActivityWidget) Height(gtx layout.Context) int {
+func (tw *TimelineWidget) Height(gtx layout.Context) int {
 	enabledTracks := 0
-	for i := range aw.tracks {
-		track := &aw.tracks[i]
-		if track.kind != ActivityWidgetTrackSampled || aw.tl.activity.displaySampleTracks {
+	for i := range tw.tracks {
+		track := &tw.tracks[i]
+		if track.kind != TimelineWidgetTrackSampled || tw.cv.timeline.displaySampleTracks {
 			enabledTracks++
 		}
 	}
-	if aw.tl.activity.compact {
-		return (gtx.Dp(activityTrackHeightDp) + gtx.Dp(activityTrackGapDp)) * enabledTracks
+	if tw.cv.timeline.compact {
+		return (gtx.Dp(timelineTrackHeightDp) + gtx.Dp(timelineTrackGapDp)) * enabledTracks
 	} else {
-		return (gtx.Dp(activityTrackHeightDp)+gtx.Dp(activityTrackGapDp))*enabledTracks + gtx.Dp(activityLabelHeightDp)
+		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + gtx.Dp(timelineLabelHeightDp)
 	}
 }
 
 // notifyHidden informs the widget that it is no longer visible.
-func (aw *ActivityWidget) notifyHidden() {
-	aw.trackWidgets = nil
+func (tw *TimelineWidget) notifyHidden() {
+	tw.trackWidgets = nil
 }
 
-func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "main.ActivityWidget.Layout").End()
+func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.TimelineWidget.Layout").End()
 
-	// TODO(dh): we could replace all uses of activityHeight by using normal Gio widget patterns: lay out all the
+	// TODO(dh): we could replace all uses of timelineHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
 	// and pointer input. When we reuse the previous frame and need to return dimensions, we should use a stored value
-	// of the height. Making the change isn't currently worth it, though, because we still need ActivityWidget.Height to
+	// of the height. Making the change isn't currently worth it, though, because we still need TimelineWidget.Height to
 	// exist so we can compute the scrollbar, and so we can jump to goroutines, which needs to compute an offset. In
 	// both cases we don't want to lay out every widget to figure out its size.
-	activityHeight := aw.Height(gtx)
-	activityTrackGap := gtx.Dp(activityTrackGapDp)
-	activityLabelHeight := gtx.Dp(activityLabelHeightDp)
+	timelineHeight := tw.Height(gtx)
+	timelineTrackGap := gtx.Dp(timelineTrackGapDp)
+	timelineLabelHeight := gtx.Dp(timelineLabelHeightDp)
 
-	aw.displayed = true
+	tw.displayed = true
 
-	aw.navigatedSpans = nil
-	aw.hoveredSpans = nil
+	tw.navigatedSpans = nil
+	tw.hoveredSpans = nil
 
 	var widgetClicked bool
 
-	for _, e := range gtx.Events(aw) {
+	for _, e := range gtx.Events(tw) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Enter, pointer.Move:
-			aw.hovered = true
-			aw.pointerAt = ev.Position
+			tw.hovered = true
+			tw.pointerAt = ev.Position
 		case pointer.Drag:
-			aw.pointerAt = ev.Position
+			tw.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
-			aw.hovered = false
+			tw.hovered = false
 		case pointer.Press:
 			// If any part of the widget has been clicked then don't reuse the cached macro; we have to figure out what
 			// was clicked and react to it.
@@ -226,115 +226,115 @@ func (aw *ActivityWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 		}
 	}
 
-	aw.labelClicks = 0
+	tw.labelClicks = 0
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
-	for _, ev := range aw.labelClick.Events(gtx.Queue) {
+	for _, ev := range tw.labelClick.Events(gtx.Queue) {
 		if ev.Type == gesture.TypeClick {
 			if ev.Modifiers == 0 {
-				aw.labelClicks++
+				tw.labelClicks++
 			} else if ev.Modifiers == key.ModShortcut {
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
-				aw.navigatedSpans = MergedSpans(aw.tracks[0].spans)
+				tw.navigatedSpans = MergedSpans(tw.tracks[0].spans)
 			}
 		}
 	}
 
 	if !widgetClicked &&
-		aw.tl.unchanged() &&
-		!aw.hovered && !aw.prevFrame.hovered &&
-		forceLabel == aw.prevFrame.forceLabel &&
-		compact == aw.prevFrame.compact &&
-		(aw.invalidateCache == nil || !aw.invalidateCache(aw)) &&
-		topBorder == aw.prevFrame.topBorder &&
-		gtx.Constraints == aw.prevFrame.constraints {
+		tw.cv.unchanged() &&
+		!tw.hovered && !tw.prevFrame.hovered &&
+		forceLabel == tw.prevFrame.forceLabel &&
+		compact == tw.prevFrame.compact &&
+		(tw.invalidateCache == nil || !tw.invalidateCache(tw)) &&
+		topBorder == tw.prevFrame.topBorder &&
+		gtx.Constraints == tw.prevFrame.constraints {
 
-		// OPT(dh): instead of avoiding cached ops completely when the activity is hovered, draw the tooltip
+		// OPT(dh): instead of avoiding cached ops completely when the timeline is hovered, draw the tooltip
 		// separately.
-		aw.prevFrame.call.Add(gtx.Ops)
-		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
+		tw.prevFrame.call.Add(gtx.Ops)
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 	}
 
-	aw.prevFrame.hovered = aw.hovered
-	aw.prevFrame.forceLabel = forceLabel
-	aw.prevFrame.compact = compact
-	aw.prevFrame.topBorder = topBorder
-	aw.prevFrame.constraints = gtx.Constraints
+	tw.prevFrame.hovered = tw.hovered
+	tw.prevFrame.forceLabel = forceLabel
+	tw.prevFrame.compact = compact
+	tw.prevFrame.topBorder = topBorder
+	tw.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
-	gtx.Ops = aw.prevFrame.ops.get()
+	gtx.Ops = tw.prevFrame.ops.get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
 		call.Add(origOps)
-		aw.prevFrame.call = call
+		tw.prevFrame.call = call
 	}()
 
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, activityHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: aw, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: tw, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 
 	if !compact {
-		if aw.hovered || forceLabel || topBorder {
-			// Draw border at top of the activity
-			paint.FillShape(gtx.Ops, colors[colorActivityBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
+		if tw.hovered || forceLabel || topBorder {
+			// Draw border at top of the timeline
+			paint.FillShape(gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
-		if aw.hovered || forceLabel {
+		if tw.hovered || forceLabel {
 			labelGtx := gtx
 			labelGtx.Constraints.Min = image.Point{}
-			labelDims := mywidget.TextLine{Color: colors[colorActivityLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, aw.label)
+			labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tw.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &aw.label, Types: pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
-			aw.labelClick.Add(gtx.Ops)
+			pointer.InputOp{Tag: &tw.label, Types: pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			tw.labelClick.Add(gtx.Ops)
 			pointer.CursorPointer.Add(gtx.Ops)
 			stack.Pop()
 		}
 
-		if aw.widgetTooltip != nil && aw.tl.activity.showTooltips == showTooltipsBoth && aw.labelClick.Hovered() {
+		if tw.widgetTooltip != nil && tw.cv.timeline.showTooltips == showTooltipsBoth && tw.labelClick.Hovered() {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-				return aw.widgetTooltip(win, gtx, aw)
+				return tw.widgetTooltip(win, gtx, tw)
 			})
 		}
 
-		defer op.Offset(image.Pt(0, activityLabelHeight)).Push(gtx.Ops).Pop()
+		defer op.Offset(image.Pt(0, timelineLabelHeight)).Push(gtx.Ops).Pop()
 	}
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
-	if aw.trackWidgets == nil {
+	if tw.trackWidgets == nil {
 		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
-		// activities.
-		out := make([]ActivityWidgetTrack, len(aw.tracks))
-		if aw.buildTrackWidgets != nil {
-			aw.buildTrackWidgets(aw.tracks, out)
+		// timelines.
+		out := make([]TimelineWidgetTrack, len(tw.tracks))
+		if tw.buildTrackWidgets != nil {
+			tw.buildTrackWidgets(tw.tracks, out)
 		} else {
-			for i := range aw.tracks {
-				out[i].Track = &aw.tracks[i]
+			for i := range tw.tracks {
+				out[i].Track = &tw.tracks[i]
 			}
 		}
-		aw.trackWidgets = out
+		tw.trackWidgets = out
 	}
 
-	for i := range aw.trackWidgets {
-		track := &aw.trackWidgets[i]
-		if track.kind == ActivityWidgetTrackSampled && !aw.tl.activity.displaySampleTracks {
+	for i := range tw.trackWidgets {
+		track := &tw.trackWidgets[i]
+		if track.kind == TimelineWidgetTrackSampled && !tw.cv.timeline.displaySampleTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, aw.tl, trackSpanLabels)
-		op.Offset(image.Pt(0, dims.Size.Y+activityTrackGap)).Add(gtx.Ops)
+		dims := track.Layout(win, gtx, tw.cv, trackSpanLabels)
+		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); len(spans) != 0 {
-			aw.hoveredSpans = spans
+			tw.hoveredSpans = spans
 		}
 		if spans := track.NavigatedSpans(); len(spans) != 0 {
-			aw.navigatedSpans = spans
+			tw.navigatedSpans = spans
 		}
 	}
 	stack.Pop()
 
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, activityHeight)}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }
 
 func defaultSpanColor(spans MergedSpans) [2]colorIndex {
@@ -354,7 +354,7 @@ func defaultSpanColor(spans MergedSpans) [2]colorIndex {
 
 type renderedSpansIterator struct {
 	offset  int
-	tl      *Timeline
+	cv      *Canvas
 	spans   Spans
 	prevEnd trace.Timestamp
 }
@@ -367,10 +367,10 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 		return nil, 0, 0, false
 	}
 
-	nsPerPx := float32(it.tl.nsPerPx)
+	nsPerPx := float32(it.cv.nsPerPx)
 	minSpanWidthD := time.Duration(math.Ceil(float64(gtx.Dp(minSpanWidthDp)) * float64(nsPerPx)))
 	startOffset := offset
-	tlStart := it.tl.start
+	cvStart := it.cv.start
 
 	s := &spans[offset]
 	offset++
@@ -433,16 +433,16 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 
 	it.offset = offset
 	it.prevEnd = end
-	startPx = float32(start-tlStart) / nsPerPx
-	endPx = float32(end-tlStart) / nsPerPx
+	startPx = float32(start-cvStart) / nsPerPx
+	endPx = float32(end-cvStart) / nsPerPx
 	return MergedSpans(spans[startOffset:offset]), startPx, endPx, true
 }
 
-func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, labelsOut *[]string) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "main.ActivityWidgetTrack.Layout").End()
+func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, labelsOut *[]string) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
 
-	tr := tl.trace
-	trackHeight := gtx.Dp(activityTrackHeightDp)
+	tr := cv.trace
+	trackHeight := gtx.Dp(timelineTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
@@ -483,7 +483,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 	track.click.Add(gtx.Ops)
 
-	// Draw activity lifetimes
+	// Draw timeline lifetimes
 	//
 	// We batch draw operations by color to avoid making thousands of draw calls. See
 	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
@@ -519,13 +519,13 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			if trackContextMenuSpans {
 				var items []theme.Widget
 				if track.spanContextMenu != nil {
-					tl.contextMenu = track.spanContextMenu(dspSpans, tr)
-					for _, item := range tl.contextMenu {
+					cv.contextMenu = track.spanContextMenu(dspSpans, tr)
+					for _, item := range cv.contextMenu {
 						items = append(items, item.Layout)
 					}
 				} else {
-					tl.contextMenu = []*theme.MenuItem{newZoomMenuItem(tl, dspSpans)}
-					items = append(items, (tl.contextMenu[0]).Layout)
+					cv.contextMenu = []*theme.MenuItem{newZoomMenuItem(cv, dspSpans)}
+					items = append(items, (cv.contextMenu[0]).Layout)
 				}
 				win.SetContextMenu(((&theme.MenuGroup{
 					Items: items,
@@ -552,7 +552,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 		// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
 		//
-		// OPT(dh): for activities that have no gaps between any of the spans this can be drawn as a single rectangle
+		// OPT(dh): for timelines that have no gaps between any of the spans this can be drawn as a single rectangle
 		// covering all spans.
 		outlinesPath.MoveTo(minP)
 		outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
@@ -587,7 +587,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		p.Close()
 
 		var spanTooltipState SpanTooltipState
-		if tl.activity.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+		if cv.timeline.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
 			events := dspSpans.Events(track.events, tr)
 
 			spanTooltipState = SpanTooltipState{
@@ -608,7 +608,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 			for i := 0; i < len(events); i++ {
 				ev := events[i]
-				px := tl.tsToPx(tr.Event(ev).Ts)
+				px := cv.tsToPx(tr.Event(ev).Ts)
 
 				if px+dotRadiusX < minP.X {
 					continue
@@ -622,7 +622,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 				oldi := i
 				for i = i + 1; i < len(events); i++ {
 					ev := events[i]
-					px := tl.tsToPx(tr.Event(ev).Ts)
+					px := cv.tsToPx(tr.Event(ev).Ts)
 					if px < end+dotRadiusX*2+dotGap {
 						end = px
 					} else {
@@ -649,7 +649,7 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 				eventsPath.LineTo(f32.Pt(minX, maxY))
 				eventsPath.Close()
 
-				if tl.activity.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= minX && track.pointerAt.X < maxX {
+				if cv.timeline.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= minX && track.pointerAt.X < maxX {
 					spanTooltipState.eventsUnderCursor = events[oldi : i+1]
 				}
 			}
@@ -720,15 +720,15 @@ func (track *ActivityWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		first = false
 	}
 
-	if tl.unchanged() && track.prevFrame.dspSpans != nil {
+	if cv.unchanged() && track.prevFrame.dspSpans != nil {
 		for _, prevSpans := range track.prevFrame.dspSpans {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
 	} else {
 		allDspSpans := track.prevFrame.dspSpans[:0]
 		it := renderedSpansIterator{
-			tl:    tl,
-			spans: tl.visibleSpans(track.spans),
+			cv:    cv,
+			spans: cv.visibleSpans(track.spans),
 		}
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
@@ -893,38 +893,38 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	return theme.Tooltip{}.Layout(win, gtx, l)
 }
 
-func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
-	if !supportMachineActivities {
+func NewMachineWidget(cv *Canvas, m *Machine) *TimelineWidget {
+	if !supportMachineTimelines {
 		panic("NewMachineWidget was called despite supportmachineActivities == false")
 	}
-	tr := tl.trace
-	return &ActivityWidget{
+	tr := cv.trace
+	return &TimelineWidget{
 		tracks: []Track{
 			{spans: m.spans},
 			{spans: m.goroutines},
 		},
-		tl:    tl,
+		cv:    cv,
 		item:  m,
 		label: local.Sprintf("Machine %d", m.id),
 
-		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
 			for i := range tracks {
 				track := &tracks[i]
 				switch i {
 				case 0:
-					out[i] = ActivityWidgetTrack{
+					out[i] = TimelineWidgetTrack{
 						Track: track,
 						highlightSpan: func(spans MergedSpans) bool {
-							if haw := tl.activity.hoveredActivity; haw != nil {
+							if htw := cv.timeline.hoveredTimeline; htw != nil {
 								var target int32
-								switch hitem := haw.item.(type) {
+								switch hitem := htw.item.(type) {
 								case *Processor:
 									target = hitem.id
 								case *Machine:
-									if len(tl.activity.hoveredSpans) != 1 {
+									if len(cv.timeline.hoveredSpans) != 1 {
 										return false
 									}
-									o := &tl.activity.hoveredSpans[0]
+									o := &cv.timeline.hoveredSpans[0]
 									if o.state != stateRunningP {
 										return false
 									}
@@ -978,7 +978,7 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 						},
 						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, newZoomMenuItem(tl, spans))
+							items = append(items, newZoomMenuItem(cv, spans))
 
 							if len(spans) == 1 {
 								s := &spans[0]
@@ -988,7 +988,7 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 									items = append(items, &theme.MenuItem{
 										Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
 										Do: func(gtx layout.Context) {
-											tl.scrollToActivity(gtx, tr.getP(pid))
+											cv.scrollToTimeline(gtx, tr.getP(pid))
 										},
 									})
 								case stateBlockedSyscall:
@@ -1001,28 +1001,28 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 						},
 					}
 				case 1:
-					out[i] = ActivityWidgetTrack{
+					out[i] = TimelineWidgetTrack{
 						Track: track,
 						highlightSpan: func(spans MergedSpans) bool {
-							if haw := tl.activity.hoveredActivity; haw != nil {
+							if htw := cv.timeline.hoveredTimeline; htw != nil {
 								var target uint64
-								switch hitem := haw.item.(type) {
+								switch hitem := htw.item.(type) {
 								case *Goroutine:
 									target = hitem.id
 								case *Processor:
-									if len(tl.activity.hoveredSpans) != 1 {
+									if len(cv.timeline.hoveredSpans) != 1 {
 										return false
 									}
-									o := &tl.activity.hoveredSpans[0]
+									o := &cv.timeline.hoveredSpans[0]
 									if o.state != stateRunningG {
 										return false
 									}
 									target = tr.Event(o.event()).G
 								case *Machine:
-									if len(tl.activity.hoveredSpans) != 1 {
+									if len(cv.timeline.hoveredSpans) != 1 {
 										return false
 									}
-									o := &tl.activity.hoveredSpans[0]
+									o := &cv.timeline.hoveredSpans[0]
 									if o.state != stateRunningG {
 										return false
 									}
@@ -1076,7 +1076,7 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 						spanTooltip: processorSpanTooltip,
 						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, newZoomMenuItem(tl, spans))
+							items = append(items, newZoomMenuItem(cv, spans))
 
 							if len(spans) == 1 {
 								s := &spans[0]
@@ -1086,7 +1086,7 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 									items = append(items, &theme.MenuItem{
 										Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 										Do: func(gtx layout.Context) {
-											tl.scrollToActivity(gtx, tr.getG(gid))
+											cv.scrollToTimeline(gtx, tr.getG(gid))
 										},
 									})
 								default:
@@ -1101,26 +1101,26 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 			}
 		},
 
-		widgetTooltip: func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
-			return MachineTooltip{m, tl.trace}.Layout(win, gtx)
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions {
+			return MachineTooltip{m, cv.trace}.Layout(win, gtx)
 		},
-		invalidateCache: func(aw *ActivityWidget) bool {
-			if tl.prevFrame.hoveredActivity != tl.activity.hoveredActivity {
+		invalidateCache: func(tw *TimelineWidget) bool {
+			if cv.prevFrame.hoveredTimeline != cv.timeline.hoveredTimeline {
 				return true
 			}
 
-			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
+			if len(cv.prevFrame.hoveredSpans) == 0 && len(cv.timeline.hoveredSpans) == 0 {
 				// Nothing hovered in either frame.
 				return false
 			}
 
-			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.activity.hoveredSpans) > 1 {
+			if len(cv.prevFrame.hoveredSpans) > 1 && len(cv.timeline.hoveredSpans) > 1 {
 				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 				// frames, then nothing changes for rendering.
 				return false
 			}
 
-			if len(tl.prevFrame.hoveredSpans) != len(tl.activity.hoveredSpans) {
+			if len(cv.prevFrame.hoveredSpans) != len(cv.timeline.hoveredSpans) {
 				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 				// previously highlighted.
 				//
@@ -1129,7 +1129,7 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tr.Event(tl.prevFrame.hoveredSpans[0].event()).P != tr.Event(tl.activity.hoveredSpans[0].event()).P {
+			if tr.Event(cv.prevFrame.hoveredSpans[0].event()).P != tr.Event(cv.timeline.hoveredSpans[0].event()).P {
 				return true
 			}
 
@@ -1138,33 +1138,33 @@ func NewMachineWidget(tl *Timeline, m *Machine) *ActivityWidget {
 	}
 }
 
-func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
-	tr := tl.trace
-	return &ActivityWidget{
+func NewProcessorWidget(cv *Canvas, p *Processor) *TimelineWidget {
+	tr := cv.trace
+	return &TimelineWidget{
 		tracks: []Track{{spans: p.spans}},
 
-		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
 			for i := range tracks {
 				track := &tracks[i]
-				out[i] = ActivityWidgetTrack{
+				out[i] = TimelineWidgetTrack{
 					Track: track,
 					highlightSpan: func(spans MergedSpans) bool {
-						if haw := tl.activity.hoveredActivity; haw != nil {
+						if htw := cv.timeline.hoveredTimeline; htw != nil {
 							var target uint64
-							switch hitem := haw.item.(type) {
+							switch hitem := htw.item.(type) {
 							case *Goroutine:
 								target = hitem.id
 							case *Processor:
-								if len(tl.activity.hoveredSpans) != 1 {
+								if len(cv.timeline.hoveredSpans) != 1 {
 									return false
 								}
-								o := &tl.activity.hoveredSpans[0]
+								o := &cv.timeline.hoveredSpans[0]
 								target = tr.Event(o.event()).G
 							case *Machine:
-								if len(tl.activity.hoveredSpans) != 1 {
+								if len(cv.timeline.hoveredSpans) != 1 {
 									return false
 								}
-								o := &tl.activity.hoveredSpans[0]
+								o := &cv.timeline.hoveredSpans[0]
 								if o.state != stateRunningG {
 									return false
 								}
@@ -1220,14 +1220,14 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 					spanTooltip: processorSpanTooltip,
 					spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
 						var items []*theme.MenuItem
-						items = append(items, newZoomMenuItem(tl, spans))
+						items = append(items, newZoomMenuItem(cv, spans))
 
 						if len(spans) == 1 {
 							gid := tr.Event((spans[0].event())).G
 							items = append(items, &theme.MenuItem{
 								Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 								Do: func(gtx layout.Context) {
-									tl.scrollToActivity(gtx, tr.getG(gid))
+									cv.scrollToTimeline(gtx, tr.getG(gid))
 								},
 							})
 						}
@@ -1238,26 +1238,26 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 			}
 		},
 
-		widgetTooltip: func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
-			return ProcessorTooltip{p, tl.trace}.Layout(win, gtx)
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions {
+			return ProcessorTooltip{p, cv.trace}.Layout(win, gtx)
 		},
-		invalidateCache: func(aw *ActivityWidget) bool {
-			if tl.prevFrame.hoveredActivity != tl.activity.hoveredActivity {
+		invalidateCache: func(tw *TimelineWidget) bool {
+			if cv.prevFrame.hoveredTimeline != cv.timeline.hoveredTimeline {
 				return true
 			}
 
-			if len(tl.prevFrame.hoveredSpans) == 0 && len(tl.activity.hoveredSpans) == 0 {
+			if len(cv.prevFrame.hoveredSpans) == 0 && len(cv.timeline.hoveredSpans) == 0 {
 				// Nothing hovered in either frame.
 				return false
 			}
 
-			if len(tl.prevFrame.hoveredSpans) > 1 && len(tl.activity.hoveredSpans) > 1 {
+			if len(cv.prevFrame.hoveredSpans) > 1 && len(cv.timeline.hoveredSpans) > 1 {
 				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 				// frames, then nothing changes for rendering.
 				return false
 			}
 
-			if len(tl.prevFrame.hoveredSpans) != len(tl.activity.hoveredSpans) {
+			if len(cv.prevFrame.hoveredSpans) != len(cv.timeline.hoveredSpans) {
 				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 				// previously highlighted.
 				//
@@ -1266,13 +1266,13 @@ func NewProcessorWidget(tl *Timeline, p *Processor) *ActivityWidget {
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tr.Event(tl.prevFrame.hoveredSpans[0].event()).G != tr.Event(tl.activity.hoveredSpans[0].event()).G {
+			if tr.Event(cv.prevFrame.hoveredSpans[0].event()).G != tr.Event(cv.timeline.hoveredSpans[0].event()).G {
 				return true
 			}
 
 			return false
 		},
-		tl:    tl,
+		cv:    cv,
 		item:  p,
 		label: local.Sprintf("Processor %d", p.id),
 	}
@@ -1550,7 +1550,7 @@ var spanStateLabels = [...][]string{
 	stateLast:                    nil,
 }
 
-func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
+func NewGoroutineWidget(cv *Canvas, g *Goroutine) *TimelineWidget {
 	var l string
 	if g.function != "" {
 		l = local.Sprintf("goroutine %d: %s", g.id, g.function)
@@ -1558,20 +1558,20 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 		l = local.Sprintf("goroutine %d", g.id)
 	}
 
-	aw := &ActivityWidget{
+	tw := &TimelineWidget{
 		tracks: []Track{{
 			spans:  g.spans,
 			events: g.events,
 		}},
-		buildTrackWidgets: func(tracks []Track, out []ActivityWidgetTrack) {
+		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
 			sampledTrackBase := -1
 			for i := range tracks {
 				i := i
 
 				track := &tracks[i]
 				switch track.kind {
-				case ActivityWidgetTrackUnspecified:
-					out[i] = ActivityWidgetTrack{
+				case TimelineWidgetTrackUnspecified:
+					out[i] = TimelineWidgetTrack{
 						Track: track,
 						spanLabel: func(spans MergedSpans, _ *Trace, out []string) []string {
 							if len(spans) != 1 {
@@ -1582,7 +1582,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 						spanTooltip: goroutineSpanTooltip,
 						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, newZoomMenuItem(tl, spans))
+							items = append(items, newZoomMenuItem(cv, spans))
 
 							if len(spans) == 1 {
 								switch spans[0].state {
@@ -1592,7 +1592,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 									items = append(items, &theme.MenuItem{
 										Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
 										Do: func(gtx layout.Context) {
-											tl.scrollToActivity(gtx, tr.getP(tr.Event((spans[0].event())).P))
+											cv.scrollToTimeline(gtx, tr.getP(tr.Event((spans[0].event())).P))
 										},
 									})
 
@@ -1604,7 +1604,7 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 											Label: PlainLabel(local.Sprintf("Scroll to unblocking goroutine %d", gid)),
 											Do: func(gtx layout.Context) {
 												gid, _ := unblockedByGoroutine(tr, &spans[0])
-												tl.scrollToActivity(gtx, tr.getG(gid))
+												cv.scrollToTimeline(gtx, tr.getG(gid))
 											},
 										})
 									}
@@ -1615,8 +1615,8 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 						},
 					}
 
-				case ActivityWidgetTrackUserRegions:
-					out[i] = ActivityWidgetTrack{
+				case TimelineWidgetTrackUserRegions:
+					out[i] = TimelineWidgetTrack{
 						Track: track,
 						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
 							if len(spans) != 1 {
@@ -1636,11 +1636,11 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 						},
 					}
 
-				case ActivityWidgetTrackSampled:
+				case TimelineWidgetTrackSampled:
 					if sampledTrackBase == -1 {
 						sampledTrackBase = i
 					}
-					out[i] = ActivityWidgetTrack{
+					out[i] = TimelineWidgetTrack{
 						Track: track,
 
 						// TODO(dh): should we highlight hovered spans that share the same function?
@@ -1683,29 +1683,29 @@ func NewGoroutineWidget(tl *Timeline, g *Goroutine) *ActivityWidget {
 					}
 
 				default:
-					panic(fmt.Sprintf("unexpected activity track kind %d", track.kind))
+					panic(fmt.Sprintf("unexpected timeline track kind %d", track.kind))
 				}
 			}
 		},
-		widgetTooltip: func(win *theme.Window, gtx layout.Context, aw *ActivityWidget) layout.Dimensions {
-			return GoroutineTooltip{g, tl.trace}.Layout(win, gtx)
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions {
+			return GoroutineTooltip{g, cv.trace}.Layout(win, gtx)
 		},
-		tl:    tl,
+		cv:    cv,
 		item:  g,
 		label: l,
 	}
 
 	for _, ug := range g.userRegions {
-		aw.tracks = append(aw.tracks, Track{spans: ug, kind: ActivityWidgetTrackUserRegions})
+		tw.tracks = append(tw.tracks, Track{spans: ug, kind: TimelineWidgetTrackUserRegions})
 	}
 
-	addSampleTracks(aw, g)
+	addSampleTracks(tw, g)
 
-	return aw
+	return tw
 }
 
-func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
-	tl := aw.tl
+func addSampleTracks(tw *TimelineWidget, g *Goroutine) {
+	cv := tw.cv
 
 	var sampleTracks []Track
 	offSpans := 0
@@ -1755,7 +1755,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			break
 		}
 
-		ev := &tl.trace.Events[evID]
+		ev := &cv.trace.Events[evID]
 
 		var stk []uint64
 		// We benefit from primarily two kinds of events (aside from CPU samples): Blocking events (sleeps, selects,
@@ -1771,7 +1771,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 		case trace.EvGoSysBlock:
 			// These are very short-lived spans that would unfairly represent the time taken by syscalls.
 		default:
-			stk = tl.trace.Stacks[ev.StkID]
+			stk = cv.trace.Stacks[ev.StkID]
 		}
 		if stk == nil {
 			// Continue the previous stack trace if this event didn't contain a useful one. This happens both when we
@@ -1783,10 +1783,10 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 		if isSample {
 			// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
 			// collected by the runtime tracer.
-			if len(stk) > 0 && tl.trace.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
+			if len(stk) > 0 && cv.trace.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
 				stk = stk[:len(stk)-1]
 			}
-			if len(stk) > 0 && tl.trace.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
+			if len(stk) > 0 && cv.trace.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
 				stk = stk[:len(stk)-1]
 			}
 		}
@@ -1803,7 +1803,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 		prevFns = grow(prevFns, len(stk))
 		var end trace.Timestamp
 		if endEvID, _, ok := nextEvent(false); ok {
-			end = tl.trace.Events[endEvID].Ts
+			end = cv.trace.Events[endEvID].Ts
 		} else {
 			end = g.spans.End()
 		}
@@ -1812,8 +1812,8 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]
 				prevFn := prevFns[i]
-				fn := tl.trace.PCs[stk[len(stk)-i-1]].Fn
-				if prevSpan.end == tl.trace.Events[evID].Ts && prevFn == fn {
+				fn := cv.trace.PCs[stk[len(stk)-i-1]].Fn
+				if prevSpan.end == cv.trace.Events[evID].Ts && prevFn == fn {
 					// This is a continuation of the previous span
 					//
 					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
@@ -1843,7 +1843,7 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 				}
 				spans = append(spans, span)
 				sampleTracks[i].spans = spans
-				prevFns[i] = tl.trace.PCs[stk[len(stk)-i-1]].Fn
+				prevFns[i] = cv.trace.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
 
@@ -1851,25 +1851,25 @@ func addSampleTracks(aw *ActivityWidget, g *Goroutine) {
 	}
 
 	for i := range sampleTracks {
-		sampleTracks[i].kind = ActivityWidgetTrackSampled
+		sampleTracks[i].kind = TimelineWidgetTrackSampled
 	}
 
-	aw.tracks = append(aw.tracks, sampleTracks...)
+	tw.tracks = append(tw.tracks, sampleTracks...)
 }
 
-func NewGCWidget(tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
-	return &ActivityWidget{
+func NewGCWidget(cv *Canvas, trace *Trace, spans Spans) *TimelineWidget {
+	return &TimelineWidget{
 		tracks: []Track{{spans: spans}},
-		tl:     tl,
+		cv:     cv,
 		item:   spans,
 		label:  "GC",
 	}
 }
 
-func NewSTWWidget(tl *Timeline, trace *Trace, spans Spans) *ActivityWidget {
-	return &ActivityWidget{
+func NewSTWWidget(cv *Canvas, trace *Trace, spans Spans) *TimelineWidget {
+	return &TimelineWidget{
 		tracks: []Track{{spans: spans}},
-		tl:     tl,
+		cv:     cv,
 		item:   spans,
 		label:  "STW",
 	}

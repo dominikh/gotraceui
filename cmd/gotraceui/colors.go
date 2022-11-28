@@ -26,8 +26,8 @@ var colors = [...]color.NRGBA{
 	colorTick:          rgba(0x000000FF),
 	colorTickLabel:     rgba(0x000000FF),
 
-	colorActivityLabel:  rgba(0x888888FF),
-	colorActivityBorder: rgba(0xDDDDDDFF),
+	colorTimelineLabel:  rgba(0x888888FF),
+	colorTimelineBorder: rgba(0xDDDDDDFF),
 
 	// TODO(dh): find a nice color for this
 	colorSpanWithEvents: rgba(0xFF00FFFF),
@@ -63,8 +63,8 @@ const (
 	colorTick
 	colorTickLabel
 
-	colorActivityLabel
-	colorActivityBorder
+	colorTimelineLabel
+	colorTimelineBorder
 
 	colorSpanWithEvents
 	colorSpanOutline
