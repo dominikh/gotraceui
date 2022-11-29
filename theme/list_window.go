@@ -16,21 +16,21 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 )
 
-type listWindowItem[T any] struct {
+type listWindowItem struct {
 	index int
-	item  T
+	item  fmt.Stringer
 	s     string
 	click widget.Clickable
 }
 
-type Filter[T any] interface {
-	Filter(item T) bool
+type Filter interface {
+	Filter(item fmt.Stringer) bool
 }
 
-type ListWindow[T fmt.Stringer] struct {
-	BuildFilter func(string) Filter[T]
+type ListWindow struct {
+	BuildFilter func(string) Filter
 
-	items []listWindowItem[T]
+	items []listWindowItem
 
 	filtered []int
 	// index of the selected item in the filtered list
@@ -43,8 +43,8 @@ type ListWindow[T fmt.Stringer] struct {
 	list  widget.List
 }
 
-func NewListWindow[T fmt.Stringer](th *Theme) *ListWindow[T] {
-	return &ListWindow[T]{
+func NewListWindow(th *Theme) *ListWindow {
+	return &ListWindow{
 		theme: th,
 		input: widget.Editor{
 			SingleLine: true,
@@ -58,11 +58,11 @@ func NewListWindow[T fmt.Stringer](th *Theme) *ListWindow[T] {
 	}
 }
 
-func (w *ListWindow[T]) SetItems(items []T) {
-	w.items = make([]listWindowItem[T], len(items))
+func (w *ListWindow) SetItems(items []fmt.Stringer) {
+	w.items = make([]listWindowItem, len(items))
 	w.filtered = make([]int, len(items))
 	for i, item := range items {
-		w.items[i] = listWindowItem[T]{
+		w.items[i] = listWindowItem{
 			item:  item,
 			index: i,
 			s:     item.String(),
@@ -71,11 +71,10 @@ func (w *ListWindow[T]) SetItems(items []T) {
 	}
 }
 
-func (w *ListWindow[T]) Cancelled() bool { return w.cancelled }
-func (w *ListWindow[T]) Confirmed() (T, bool) {
+func (w *ListWindow) Cancelled() bool { return w.cancelled }
+func (w *ListWindow) Confirmed() (any, bool) {
 	if !w.done {
-		var zero T
-		return zero, false
+		return nil, false
 	}
 	w.done = false
 	return w.items[w.filtered[w.index]].item, true
@@ -86,7 +85,7 @@ func (w *ListWindow[T]) Confirmed() (T, bool) {
 // the input tree. That means that typing in an editor can trigger our single-key shortcuts.
 var editorKeyset = key.Set("↓|↑|⎋|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z")
 
-func (w *ListWindow[T]) Layout(gtx layout.Context) layout.Dimensions {
+func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ListWindow.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 

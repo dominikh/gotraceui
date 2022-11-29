@@ -6,6 +6,7 @@ import (
 	"io"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -397,13 +398,26 @@ type Processor struct {
 
 	// Labels used for spans representing this processor
 	spanLabels []string
+	// Strings used for matching timeline filters
+	filterLabels []string
+}
+
+func (p *Processor) FilterLabels() []string {
+	if p.filterLabels == nil {
+		p.filterLabels = []string{
+			strconv.FormatInt(int64(p.id), 10),
+			local.Sprintf("%d", p.id),
+			fmt.Sprintf("p%d", p.id),
+			local.Sprintf("p%d", p.id),
+			"processor", // allow queries like "processor 1234" to work
+		}
+	}
+	return p.filterLabels
 }
 
 func (p *Processor) String() string {
 	return fmt.Sprintf("processor %d", p.id)
 }
-
-// XXX goroutine 0 seems to be special and doesn't get (un)scheduled. look into that.
 
 type Goroutine struct {
 	id          uint64
@@ -415,11 +429,28 @@ type Goroutine struct {
 
 	// Labels used for spans representing this goroutine
 	spanLabels []string
+	// Strings used for matching timeline filters
+	filterLabels []string
 
 	statistics struct {
 		blocked, inactive, running, gcAssist             time.Duration
 		blockedPct, inactivePct, runningPct, gcAssistPct float32
 	}
+}
+
+func (g *Goroutine) FilterLabels() []string {
+	if g.filterLabels == nil {
+		g.filterLabels = []string{
+			strconv.FormatUint(g.id, 10),
+			local.Sprintf("%d", g.id),
+			fmt.Sprintf("g%d", g.id),
+			local.Sprintf("g%d", g.id),
+			g.function,
+			strings.ToLower(g.function),
+			"goroutine", // allow queries like "goroutine 1234" to work
+		}
+	}
+	return g.filterLabels
 }
 
 func (g *Goroutine) computeStatistics(tr *Trace) {

@@ -253,7 +253,7 @@ type MainWindow struct {
 	// TODO(dh): use enum for state
 	state    string
 	progress float32
-	ww       *theme.ListWindow[fmt.Stringer]
+	ww       *theme.ListWindow
 	err      error
 
 	notifyGoroutineWindowClosed chan uint64
@@ -287,7 +287,11 @@ type timelineFilter struct {
 	}
 }
 
-func newTimelineFilter(s string) theme.Filter[fmt.Stringer] {
+type filterLabeler interface {
+	FilterLabels() []string
+}
+
+func newTimelineFilter(s string) theme.Filter {
 	out := &timelineFilter{}
 	for _, field := range strings.Fields(s) {
 		prefix, value, found := strings.Cut(field, ":")
@@ -339,17 +343,15 @@ func (f *timelineFilter) Filter(item fmt.Stringer) bool {
 			}
 
 		case "":
-			// TODO(dh): support case insensitive search
-			var s string
-			switch item := item.(type) {
-			case *Goroutine:
-				s = item.function
-			case *Processor:
-				s = strconv.FormatUint(uint64(item.id), 10)
-			default:
-				panic(fmt.Sprintf("unhandled type %T", item))
+			ss := item.(filterLabeler).FilterLabels()
+			any := false
+			for _, s := range ss {
+				if strings.Contains(s, p.value.s) {
+					any = true
+					break
+				}
 			}
-			if !strings.Contains(s, p.value.s) {
+			if !any {
 				return false
 			}
 
@@ -657,7 +659,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 								if ev.State == key.Press && w.ww == nil {
 									switch ev.Name {
 									case "G":
-										w.ww = theme.NewListWindow[fmt.Stringer](w.theme)
+										w.ww = theme.NewListWindow(w.theme)
 										items := make([]fmt.Stringer, 0, 2+len(w.trace.ps)+len(w.trace.gs))
 										// XXX the GC and STW widgets should also be added here
 										for _, p := range w.trace.ps {
