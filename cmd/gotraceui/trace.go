@@ -186,12 +186,6 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 	return &t.Events[ev]
 }
 
-// TODO(dh): remove this method. This was useful when Span didn't have a start field, but now it does. Move the method to Span.
-//gcassert:inline
-func (t *Trace) Duration(s *Span) time.Duration {
-	return time.Duration(s.end - s.start)
-}
-
 func (t *Trace) Task(id uint64) *Task {
 	idx, found := sort.Find(len(t.tasks), func(i int) int {
 		oid := t.tasks[i].id
@@ -345,6 +339,11 @@ func (s *Span) Events(all []EventID, tr *Trace) []EventID {
 }
 
 //gcassert:inline
+func (s *Span) Duration() time.Duration {
+	return time.Duration(s.end - s.start)
+}
+
+//gcassert:inline
 func (s *Span) event() EventID {
 	return EventID(s.event_[0]) |
 		EventID(s.event_[1])<<8 |
@@ -461,7 +460,7 @@ func (g *Goroutine) computeStatistics(tr *Trace) {
 	var blocked, inactive, running, gcAssist time.Duration
 	for i := range g.spans {
 		s := &g.spans[i]
-		d := tr.Duration(s)
+		d := s.Duration()
 		switch s.state {
 		case stateInactive:
 			inactive += d

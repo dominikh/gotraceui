@@ -792,7 +792,7 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	var userD, gcD time.Duration
 	for i := range tt.p.spans {
 		s := &tt.p.spans[i]
-		d := tr.Duration(s)
+		d := s.Duration()
 
 		ev := tr.Events[s.event()]
 		switch ev.Type {
@@ -859,7 +859,7 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	var procD, syscallD time.Duration
 	for i := range tt.m.spans {
 		s := &tt.m.spans[i]
-		d := tr.Duration(s)
+		d := s.Duration()
 
 		ev := tr.Events[s.event()]
 		switch ev.Type {

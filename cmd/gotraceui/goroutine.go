@@ -252,18 +252,18 @@ func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 	gst := &GoroutineStats{}
 
 	for i := range g.spans {
-		span := &g.spans[i]
-		s := &gst.stats[span.state]
-		s.count++
-		d := tr.Duration(span)
-		if d > s.max {
-			s.max = d
+		s := &g.spans[i]
+		stat := &gst.stats[s.state]
+		stat.count++
+		d := s.Duration()
+		if d > stat.max {
+			stat.max = d
 		}
-		if d < s.min || s.min == 0 {
-			s.min = d
+		if d < stat.min || stat.min == 0 {
+			stat.min = d
 		}
-		s.total += d
-		s.values = append(s.values, d)
+		stat.total += d
+		stat.values = append(stat.values, d)
 	}
 
 	for state := range gst.stats {
