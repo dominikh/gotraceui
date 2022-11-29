@@ -144,10 +144,7 @@ func (w *MainWindow) openHeatmap() {
 
 func shortenFunctionName(s string) string {
 	fields := strings.Split(s, ".")
-	short := fields[len(fields)-1]
-	// TODO(dh): the short name isn't ideal for anonymous functions, as we turn
-	// "pkg.(type).fn.func1" into ".func1", when really it should be ".fn.func1".
-	return short
+	return fields[len(fields)-1]
 }
 
 type Command func(*MainWindow, layout.Context)

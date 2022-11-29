@@ -262,9 +262,6 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			paint.FillShape(&hm.cachedOps, c, clip.Outline{Path: paths[i].End()}.Op())
 		}
 
-		// XXX we still have gaps between rectangles sometimes. god damn floating point imprecision. do we wanna go back
-		// to integer corodinates?
-
 		stack.Pop()
 		hm.cachedMacro = m.Stop()
 

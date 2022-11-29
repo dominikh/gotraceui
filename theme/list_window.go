@@ -107,10 +107,8 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 				return item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					var c color.NRGBA
 					if index == w.index {
-						// XXX make this pretty, don't just change the font color
 						c = rgba(0xFF0000FF)
 					} else if item.click.Hovered() {
-						// XXX make this pretty, don't just change the font color
 						c = rgba(0xFF00FFFF)
 					} else {
 						c = rgba(0x000000FF)
