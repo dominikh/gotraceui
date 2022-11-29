@@ -148,16 +148,12 @@ import (
 // FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
 //   will be selected, and pressing enter will panic, trying to access index -1
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
-// XXX how do we have a minimum inactive span of length 0?
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
 //   rendering the tooltip alone takes ~16ms
 // TODO(dh): allow computing statistics for a selectable region of time
-// TODO(dh): hovering over spans in the goroutine timelines highlights goroutines in the processor timelines. that's a
-//   happy accident. however, it doesn't work reliably, because we just look at trace.Event.G for the matching, and for
-//   some events, like unblocking, that's the wrong G.
 // TODO(dh): use the GC-purple color in the GC and STW timelines
 // TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
 //   highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
