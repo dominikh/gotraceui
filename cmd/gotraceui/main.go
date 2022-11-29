@@ -62,8 +62,6 @@ import (
 */
 
 // TODO(dh): standardize whether we pass Theme as an argument to Layout or store it in the type
-// FIXME(dh): in ListWindow, when all items got filtered away and we change the filter so there are items again, no item
-//   will be selected, and pressing enter will panic, trying to access index -1
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
 // OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details

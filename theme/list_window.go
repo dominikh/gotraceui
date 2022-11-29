@@ -197,9 +197,10 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 			}
 			// TODO(dh): if the previously selected entry hasn't been filtered away, then it should stay selected.
 			if w.index >= len(w.filtered) {
-				// XXX if there are no items, then this sets w.index to -1, causing two bugs: hitting return will panic,
-				// and once there are items again, none of them will be selected
 				w.index = len(w.filtered) - 1
+			}
+			if w.index < 0 && len(w.filtered) > 0 {
+				w.index = 0
 			}
 		case widget.SubmitEvent:
 			if len(w.filtered) != 0 {
