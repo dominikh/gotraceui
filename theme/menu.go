@@ -177,7 +177,7 @@ func (item *MenuItem) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	defer rtrace.StartRegion(context.Background(), "theme.MenuItem.Layout").End()
 
 	fg := menuTextColor
-	disabled := false || (item.Disabled != nil && item.Disabled())
+	disabled := item.Disabled != nil && item.Disabled()
 	if disabled {
 		fg = menuDisabledTextColor
 	}
@@ -212,6 +212,9 @@ func (item *MenuItem) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 }
 
 func (item *MenuItem) Clicked() bool {
+	if item.Disabled != nil && item.Disabled() {
+		return false
+	}
 	return item.click.Clicked()
 }
 
