@@ -392,7 +392,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
 	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.canvas.timeline.compact), Disabled: notMainDisabled}
 	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &w.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
-	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide sample tracks", "Display sample tracks", &w.canvas.timeline.displaySampleTracks), Disabled: notMainDisabled}
+	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide CPU (pprof) samples", "Display CPU (pprof) samples", &w.canvas.timeline.displaySampleTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
