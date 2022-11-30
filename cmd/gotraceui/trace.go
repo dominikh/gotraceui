@@ -149,13 +149,14 @@ var legalStateTransitions = [256][stateLast]bool{
 
 type Trace struct {
 	// OPT(dh): can we get rid of all these pointers?
-	gs     []*Goroutine
-	gsByID map[uint64]*Goroutine
-	ps     []*Processor
-	ms     []*Machine
-	gc     Spans
-	stw    Spans
-	tasks  []*Task
+	gs            []*Goroutine
+	gsByID        map[uint64]*Goroutine
+	ps            []*Processor
+	ms            []*Machine
+	gc            Spans
+	stw           Spans
+	tasks         []*Task
+	hasCPUSamples bool
 	trace.ParseResult
 }
 
@@ -561,6 +562,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	var gc Spans
 	var stw Spans
 	var tasks []*Task
+	var hasCPUSamples bool
 
 	p, err := trace.NewParser(f)
 	if err != nil {
@@ -1026,6 +1028,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		case trace.EvCPUSample:
 			g := getG(ev.G)
 			g.cpuSamples = append(g.cpuSamples, EventID(evID))
+			hasCPUSamples = true
 			continue
 
 		default:
@@ -1207,14 +1210,15 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	})
 
 	tr := &Trace{
-		gs:          gs,
-		gsByID:      gsByID,
-		ps:          ps,
-		ms:          ms,
-		gc:          gc,
-		stw:         stw,
-		tasks:       tasks,
-		ParseResult: res,
+		gs:            gs,
+		gsByID:        gsByID,
+		ps:            ps,
+		ms:            ms,
+		gc:            gc,
+		stw:           stw,
+		tasks:         tasks,
+		hasCPUSamples: hasCPUSamples,
+		ParseResult:   res,
 	}
 	for _, g := range tr.gs {
 		g.computeStatistics(tr)

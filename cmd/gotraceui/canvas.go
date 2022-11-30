@@ -583,7 +583,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					}
 
 				case "S":
-					cv.ToggleSampleTracks()
+					if tr.hasCPUSamples {
+						cv.ToggleSampleTracks()
+					}
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModShortcut) {
