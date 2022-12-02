@@ -773,22 +773,24 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 
 		// Draw axis and timelines
-		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			// Draw STW and GC regions
-			// TODO(dh): make this be optional
-			tickHeight := gtx.Dp(tickHeightDp)
-			drawRegionOverlays(cv.trace.gc, colors[colorStateGC], tickHeight)
-			drawRegionOverlays(cv.trace.stw, colors[colorStateBlocked], tickHeight)
+		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// Draw STW and GC regions
+				// TODO(dh): make this be optional
+				tickHeight := gtx.Dp(tickHeightDp)
+				drawRegionOverlays(cv.trace.gc, colors[colorStateGC], tickHeight)
+				drawRegionOverlays(cv.trace.stw, colors[colorStateBlocked], tickHeight)
 
-			dims := cv.axis.Layout(win, gtx)
-			axisHeight = dims.Size.Y
+				dims := cv.axis.Layout(win, gtx)
+				axisHeight = dims.Size.Y
 
-			return dims
-		}), layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			dims, tws := cv.layoutTimelines(win, gtx)
-			cv.prevFrame.displayedTws = tws
-			return dims
-		}))
+				return dims
+			}),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				dims, tws := cv.layoutTimelines(win, gtx)
+				cv.prevFrame.displayedTws = tws
+				return dims
+			}))
 
 		// Draw zoom selection
 		if cv.zoomSelection.active {
