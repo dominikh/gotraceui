@@ -421,7 +421,7 @@ func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
 			// TODO(dh): show goroutine at center of window, not the top
 			return off
 		}
-		off += tw.Height(gtx) + gtx.Dp(timelineGapDp)
+		off += tw.Height(gtx)
 	}
 	panic("unreachable")
 }
@@ -454,10 +454,8 @@ func (cv *Canvas) height(gtx layout.Context) int {
 	}
 
 	var total int
-	timelineGap := gtx.Dp(timelineGapDp)
 	for _, tw := range cv.timelines {
 		total += tw.Height(gtx)
-		total += timelineGap
 	}
 	cv.cachedHeight = total
 	return total
@@ -833,12 +831,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		defer op.Offset(image.Pt(cv.VisibleWidth(win, gtx), axisHeight)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= axisHeight
 
-		timelineGap := gtx.Dp(timelineGapDp)
-
 		totalHeight := cv.height(gtx)
 		if len(cv.timelines) > 0 {
 			// Allow scrolling past the last goroutine
-			totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx) + timelineGap
+			totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx)
 		}
 
 		fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
@@ -853,8 +849,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 }
 
 func (cv *Canvas) visibleTimelines(gtx layout.Context) []*TimelineWidget {
-	timelineGap := gtx.Dp(timelineGapDp)
-
 	start := -1
 	end := -1
 	// OPT(dh): at least use binary search to find the range of timelines we need to draw. now that timeline heights
@@ -864,7 +858,7 @@ func (cv *Canvas) visibleTimelines(gtx layout.Context) []*TimelineWidget {
 		// Don't draw timelines that would be fully hidden, but do draw partially hidden ones
 		twHeight := tw.Height(gtx)
 		if y < -twHeight {
-			y += timelineGap + twHeight
+			y += twHeight
 			continue
 		}
 		if start == -1 {
@@ -874,7 +868,7 @@ func (cv *Canvas) visibleTimelines(gtx layout.Context) []*TimelineWidget {
 			end = i
 			break
 		}
-		y += timelineGap + twHeight
+		y += twHeight
 	}
 
 	if start == -1 {
@@ -892,8 +886,6 @@ func (cv *Canvas) visibleTimelines(gtx layout.Context) []*TimelineWidget {
 func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*TimelineWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	timelineGap := gtx.Dp(timelineGapDp)
-
 	// OPT(dh): at least use binary search to find the range of timelines we need to draw. now that timeline heights
 	// aren't constant anymore, however, this is more complicated.
 	start := -1
@@ -907,7 +899,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		// Don't draw timelines that would be fully hidden, but do draw partially hidden ones
 		twHeight := tw.Height(gtx)
 		if y < -twHeight {
-			y += timelineGap + twHeight
+			y += twHeight
 			continue
 		}
 		if y > gtx.Constraints.Max.Y {
@@ -923,7 +915,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		tw.Layout(win, gtx, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
-		y += timelineGap + twHeight
+		y += twHeight
 
 		if tw.LabelClicked() {
 			if g, ok := tw.item.(*Goroutine); ok {

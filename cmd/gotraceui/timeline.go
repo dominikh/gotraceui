@@ -168,6 +168,7 @@ func (tw *TimelineWidget) LabelClicked() bool {
 }
 
 func (tw *TimelineWidget) Height(gtx layout.Context) int {
+	timelineGap := gtx.Dp(timelineGapDp)
 	enabledTracks := 0
 	for i := range tw.tracks {
 		track := &tw.tracks[i]
@@ -176,9 +177,9 @@ func (tw *TimelineWidget) Height(gtx layout.Context) int {
 		}
 	}
 	if tw.cv.timeline.compact {
-		return (gtx.Dp(timelineTrackHeightDp) + gtx.Dp(timelineTrackGapDp)) * enabledTracks
+		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + timelineGap
 	} else {
-		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + gtx.Dp(timelineLabelHeightDp)
+		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + gtx.Dp(timelineLabelHeightDp) + timelineGap
 	}
 }
 
