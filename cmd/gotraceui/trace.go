@@ -611,11 +611,8 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			return p
 		}
 		p = &Processor{
-			id: pid,
-			spanLabels: []string{
-				local.Sprintf("p%d", pid),
-				"",
-			},
+			id:         pid,
+			spanLabels: []string{local.Sprintf("p%d", pid)},
 		}
 		psByID[pid] = p
 		return p
@@ -1150,20 +1147,19 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
 	for _, g := range gsByID {
 		if len(g.spans) != 0 {
-			// 4th element should always be "" to avoid truncation
-			spanLabels := make([]string, 4)
+			var spanLabels []string
 			if g.function != "" {
 				short := shortenFunctionName(g.function)
-				spanLabels[0] = local.Sprintf("g%d: %s", g.id, g.function)
+				spanLabels = append(spanLabels, local.Sprintf("g%d: %s", g.id, g.function))
 				if short != g.function {
-					spanLabels[1] = local.Sprintf("g%d: .%s", g.id, short)
-					spanLabels[2] = local.Sprintf("g%d", g.id)
+					spanLabels = append(spanLabels, local.Sprintf("g%d: .%s", g.id, short))
+					spanLabels = append(spanLabels, local.Sprintf("g%d", g.id))
 				} else {
 					// This branch is probably impossible; all functions should be fully qualified.
-					spanLabels[1] = local.Sprintf("g%d", g.id)
+					spanLabels = append(spanLabels, local.Sprintf("g%d", g.id))
 				}
 			} else {
-				spanLabels[0] = local.Sprintf("g%d", g.id)
+				spanLabels = append(spanLabels, local.Sprintf("g%d", g.id))
 			}
 			g.spanLabels = spanLabels
 

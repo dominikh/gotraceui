@@ -701,7 +701,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			//
 			// We don't try to render a label for very small spans.
 			if *labelsOut = track.spanLabel(dspSpans, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
-				for i, label := range *labelsOut {
+				for _, label := range *labelsOut {
 					if label == "" {
 						continue
 					}
@@ -709,8 +709,9 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 					macro := op.Record(labelsOps)
 					// OPT(dh): cache mapping from label to size. probably put a size limit on the cache, in case users generate millions of unique labels
 					dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
-					if float32(dims.Size.X) > endPx-startPx && i != len(*labelsOut)-1 {
-						// This label doesn't fit. If the callback provided more labels, try those instead.
+					if float32(dims.Size.X) > endPx-startPx {
+						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise
+						// give up. Truncating labels is almost never a good idea and usually leads to ambiguous text.
 						macro.Stop()
 						continue
 					}
