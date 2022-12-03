@@ -52,7 +52,8 @@ const (
 
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
 
-	spanBorderWidthDp unit.Dp = 1
+	spanBorderWidthDp            unit.Dp = 1
+	spanHighlightedBorderWidthDp unit.Dp = 2
 )
 
 const animateLength = 250 * time.Millisecond

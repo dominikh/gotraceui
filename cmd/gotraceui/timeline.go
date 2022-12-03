@@ -122,11 +122,12 @@ type TimelineWidgetTrack struct {
 	hoveredSpans   MergedSpans
 
 	// op lists get reused between frames to avoid generating garbage
-	ops          [colorStateLast * 2]op.Ops
-	outlinesOps  reusableOps
-	highlightOps reusableOps
-	eventsOps    reusableOps
-	labelsOps    reusableOps
+	ops                             [colorStateLast * 2]op.Ops
+	outlinesOps                     reusableOps
+	highlightedPrimaryOutlinesOps   reusableOps
+	highlightedSecondaryOutlinesOps reusableOps
+	eventsOps                       reusableOps
+	labelsOps                       reusableOps
 
 	pointerAt f32.Point
 	hovered   bool
@@ -444,6 +445,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	tr := cv.trace
 	trackHeight := gtx.Dp(timelineTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
+	spanHighlightedBorderWidth := gtx.Dp(spanHighlightedBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	track.navigatedSpans = nil
@@ -497,10 +499,12 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	paths := [colorStateLast * 2]clip.Path{}
 
 	var outlinesPath clip.Path
-	var highlightPath clip.Path
+	var highlightedPrimaryOutlinesPath clip.Path
+	var highlightedSecondaryOutlinesPath clip.Path
 	var eventsPath clip.Path
 	outlinesPath.Begin(track.outlinesOps.get())
-	highlightPath.Begin(track.highlightOps.get())
+	highlightedPrimaryOutlinesPath.Begin(track.highlightedPrimaryOutlinesOps.get())
+	highlightedSecondaryOutlinesPath.Begin(track.highlightedSecondaryOutlinesOps.get())
 	eventsPath.Begin(track.eventsOps.get())
 	labelsOps := track.labelsOps.get()
 	labelsMacro := op.Record(labelsOps)
@@ -512,7 +516,12 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	first := true
 	var prevEndPx float32
 	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
+		hovered := false
 		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+			// Highlight the span under the cursor
+			hovered = true
+			track.hoveredSpans = dspSpans
+
 			if trackNavigatedSpans {
 				track.navigatedSpans = dspSpans
 			}
@@ -531,7 +540,6 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 					Items: items,
 				}).Layout))
 			}
-			track.hoveredSpans = dspSpans
 		}
 
 		var cs [2]colorIndex
@@ -550,30 +558,52 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		minP = f32.Pt((max(startPx, 0)), 0)
 		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(trackHeight))
 
-		// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
-		//
-		// OPT(dh): for timelines that have no gaps between any of the spans this can be drawn as a single rectangle
-		// covering all spans.
-		outlinesPath.MoveTo(minP)
-		outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-		outlinesPath.LineTo(maxP)
-		outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-		outlinesPath.Close()
-
-		if first && startPx < 0 {
-			// Never draw a left border for spans truncated spans
-		} else if !first && startPx == prevEndPx {
-			// Don't draw left border if it'd touch a right border
+		var highlighted bool
+		if track.highlightSpan != nil {
+			highlighted = track.highlightSpan(dspSpans)
+		}
+		if hovered {
+			highlightedPrimaryOutlinesPath.MoveTo(minP)
+			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			highlightedPrimaryOutlinesPath.LineTo(maxP)
+			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			highlightedPrimaryOutlinesPath.Close()
+		} else if highlighted {
+			highlightedSecondaryOutlinesPath.MoveTo(minP)
+			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			highlightedSecondaryOutlinesPath.LineTo(maxP)
+			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			highlightedSecondaryOutlinesPath.Close()
 		} else {
-			minP.X += float32(spanBorderWidth)
+			// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
+			//
+			// OPT(dh): for timelines that have no gaps between any of the spans this can be drawn as a single rectangle
+			// covering all spans.
+			outlinesPath.MoveTo(minP)
+			outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			outlinesPath.LineTo(maxP)
+			outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			outlinesPath.Close()
+		}
+
+		borderWidth := spanBorderWidth
+		if hovered || highlighted {
+			borderWidth = spanHighlightedBorderWidth
+		}
+		if first && startPx < 0 {
+			// Never draw a left border for truncated spans
+		} else if !first && startPx == prevEndPx && !(highlighted || hovered) {
+			// Don't draw left border if it'd touch a right border, unless the span is highlighted
+		} else {
+			minP.X += float32(borderWidth)
 		}
 		prevEndPx = endPx
 
-		minP.Y += float32(spanBorderWidth)
+		minP.Y += float32(borderWidth)
 		if endPx <= float32(gtx.Constraints.Max.X) {
-			maxP.X -= float32(spanBorderWidth)
+			maxP.X -= float32(borderWidth)
 		}
-		maxP.Y -= float32(spanBorderWidth)
+		maxP.Y -= float32(borderWidth)
 
 		pathID := cs[0]
 		if cs[1] != 0 {
@@ -663,18 +693,6 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			})
 		}
 
-		if track.highlightSpan != nil && track.highlightSpan(dspSpans) {
-			minP := minP
-			maxP := maxP
-			minP.Y += float32((trackHeight - spanBorderWidth*2) / 2)
-
-			highlightPath.MoveTo(minP)
-			highlightPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			highlightPath.LineTo(maxP)
-			highlightPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			highlightPath.Close()
-		}
-
 		if len(dspSpans) == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
 			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
 			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
@@ -749,6 +767,8 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
 	// specific instance.
 	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorSpanHighlightedSecondaryOutline], clip.Outline{Path: highlightedSecondaryOutlinesPath.End()}.Op())
+	paint.FillShape(gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: highlightedPrimaryOutlinesPath.End()}.Op())
 
 	// Then draw the spans
 	for cIdx := range paths {
@@ -767,7 +787,6 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			stack.Pop()
 		}
 	}
-	paint.FillShape(gtx.Ops, colors[colorSpanWithEvents], clip.Outline{Path: highlightPath.End()}.Op())
 	paint.FillShape(gtx.Ops, rgba(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
 
 	// Finally print labels on top

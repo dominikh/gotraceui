@@ -30,8 +30,10 @@ var colors = [...]color.NRGBA{
 	colorTimelineBorder: rgba(0xDDDDDDFF),
 
 	// TODO(dh): find a nice color for this
-	colorSpanWithEvents: rgba(0xFF00FFFF),
-	colorSpanOutline:    rgba(0x000000FF),
+	colorSpanWithEvents:                  rgba(0xFF00FFFF),
+	colorSpanOutline:                     rgba(0x000000FF),
+	colorSpanHighlightedPrimaryOutline:   rgba(0xFF00FFFF),
+	colorSpanHighlightedSecondaryOutline: rgba(0x6FFF00FF),
 }
 
 type colorIndex uint8
@@ -68,6 +70,8 @@ const (
 
 	colorSpanWithEvents
 	colorSpanOutline
+	colorSpanHighlightedPrimaryOutline
+	colorSpanHighlightedSecondaryOutline
 )
 
 var stateColors = [256]colorIndex{
