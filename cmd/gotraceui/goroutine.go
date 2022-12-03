@@ -248,7 +248,7 @@ type GoroutineStat struct {
 	values          []time.Duration
 }
 
-func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
+func NewGoroutineStats(g *Goroutine) *GoroutineStats {
 	gst := &GoroutineStats{}
 
 	for i := range g.spans {
@@ -301,7 +301,7 @@ func NewGoroutineStats(g *Goroutine, tr *Trace) *GoroutineStats {
 
 	gst.sort()
 
-	gst.start = g.spans.Start(tr)
+	gst.start = g.spans.Start()
 	gst.end = g.spans.End()
 
 	return gst

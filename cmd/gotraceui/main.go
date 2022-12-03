@@ -114,7 +114,7 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 			trace: w.trace,
 			g:     g,
 		}
-		win.stats = NewGoroutineStats(g, w.trace)
+		win.stats = NewGoroutineStats(g)
 		w.goroutineWindows[g.id] = win
 		// XXX computing the label is duplicated with rendering the timeline widget
 		var l string
@@ -324,7 +324,7 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				mwin.canvas.scrollToTimeline(gtx, l.Goroutine)
 			case GoroutineLinkKindZoom:
 				y := mwin.canvas.timelineY(gtx, l.Goroutine)
-				mwin.canvas.navigateTo(gtx, l.Goroutine.spans.Start(mwin.trace), l.Goroutine.spans.End(), y)
+				mwin.canvas.navigateTo(gtx, l.Goroutine.spans.Start(), l.Goroutine.spans.End(), y)
 			default:
 				panic(l.Kind)
 			}

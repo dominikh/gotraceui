@@ -249,12 +249,12 @@ type Spans []Span
 // new slice, instead of slicing an existing one. However, a slice is easier to access and iterate over.
 type MergedSpans []Span
 
-func (ms MergedSpans) Start(tr *Trace) trace.Timestamp           { return Spans(ms).Start(tr) }
+func (ms MergedSpans) Start() trace.Timestamp                    { return Spans(ms).Start() }
 func (ms MergedSpans) End() trace.Timestamp                      { return Spans(ms).End() }
-func (ms MergedSpans) Duration(tr *Trace) time.Duration          { return Spans(ms).Duration(tr) }
+func (ms MergedSpans) Duration() time.Duration                   { return Spans(ms).Duration() }
 func (ms MergedSpans) Events(all []EventID, tr *Trace) []EventID { return Spans(ms).Events(all, tr) }
 
-func (spans Spans) Start(tr *Trace) trace.Timestamp {
+func (spans Spans) Start() trace.Timestamp {
 	if len(spans) == 0 {
 		return 0
 	}
@@ -268,8 +268,8 @@ func (spans Spans) End() trace.Timestamp {
 	return spans[len(spans)-1].end
 }
 
-func (spans Spans) Duration(tr *Trace) time.Duration {
-	return time.Duration(spans.End() - spans.Start(tr))
+func (spans Spans) Duration() time.Duration {
+	return time.Duration(spans.End() - spans.Start())
 }
 
 func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
@@ -282,7 +282,7 @@ func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
 		return tr.Event(ev).Ts >= spans.End()
 	})
 
-	sTs := spans.Start(tr)
+	sTs := spans.Start()
 
 	start := sort.Search(len(all[:end]), func(i int) bool {
 		ev := all[i]
@@ -453,8 +453,8 @@ func (g *Goroutine) FilterLabels() []string {
 	return g.filterLabels
 }
 
-func (g *Goroutine) computeStatistics(tr *Trace) {
-	start := g.spans.Start(tr)
+func (g *Goroutine) computeStatistics() {
+	start := g.spans.Start()
 	end := g.spans.End()
 	d := time.Duration(end - start)
 
@@ -1221,7 +1221,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		ParseResult:   res,
 	}
 	for _, g := range tr.gs {
-		g.computeStatistics(tr)
+		g.computeStatistics()
 	}
 
 	return tr, nil

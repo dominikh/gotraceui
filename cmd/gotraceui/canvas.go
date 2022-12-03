@@ -391,7 +391,6 @@ func (cv *Canvas) pxToTs(px float32) trace.Timestamp {
 }
 
 func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
-	tr := cv.trace
 	var first, last trace.Timestamp = -1, -1
 	for _, tw := range cv.visibleTimelines(gtx) {
 		for _, track := range tw.tracks {
@@ -399,7 +398,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 				continue
 			}
 
-			if t := track.spans.Start(tr); t < first || first == -1 {
+			if t := track.spans.Start(); t < first || first == -1 {
 				first = t
 			}
 			if t := track.spans.End(); t > last {
@@ -702,7 +701,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		cv.timeline.hoveredTimeline = nil
 		for _, tw := range cv.prevFrame.displayedTws {
 			if spans := tw.NavigatedSpans(); len(spans) > 0 {
-				start := spans.Start(tr)
+				start := spans.Start()
 				end := spans.End()
 				cv.navigateTo(gtx, start, end, cv.y)
 				break

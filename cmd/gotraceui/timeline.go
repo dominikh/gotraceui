@@ -98,7 +98,7 @@ func newZoomMenuItem(cv *Canvas, spans MergedSpans) *theme.MenuItem {
 		Label:    PlainLabel("Zoom"),
 		Shortcut: key.ModShortcut.String() + "+LMB",
 		Do: func(gtx layout.Context) {
-			start := spans.Start(cv.trace)
+			start := spans.Start()
 			end := spans.End()
 			cv.navigateTo(gtx, start, end, cv.y)
 		},
@@ -858,7 +858,7 @@ func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration()))
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
@@ -992,7 +992,7 @@ func NewMachineWidget(cv *Canvas, m *Machine) *TimelineWidget {
 							} else {
 								label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 							}
-							label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
+							label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration()))
 							return theme.Tooltip{}.Layout(win, gtx, label)
 						},
 						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
@@ -1305,8 +1305,7 @@ type GoroutineTooltip struct {
 func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineTooltip.Layout").End()
 
-	tr := tt.trace
-	start := tt.g.spans.Start(tr)
+	start := tt.g.spans.Start()
 	end := tt.g.spans.End()
 	d := time.Duration(end - start)
 
@@ -1480,7 +1479,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		}
 	}
 
-	label += fmt.Sprintf("Duration: %s\n", roundDuration(state.spans.Duration(tr)))
+	label += fmt.Sprintf("Duration: %s\n", roundDuration(state.spans.Duration()))
 
 	if len(state.events) > 0 {
 		label += local.Sprintf("Events in span: %d\n", len(state.events))
@@ -1546,7 +1545,7 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration(tr)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration()))
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
@@ -1696,7 +1695,7 @@ func NewGoroutineWidget(cv *Canvas, g *Goroutine) *TimelineWidget {
 							}
 							// We round the duration, in addition to saying "up to", to make it more obvious that the
 							// duration is a guess
-							label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration(tr)))
+							label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration()))
 							return theme.Tooltip{}.Layout(win, gtx, label)
 						},
 					}
