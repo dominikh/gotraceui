@@ -1169,16 +1169,28 @@ func NewProcessorWidget(cv *Canvas, p *Processor) *TimelineWidget {
 					Track: track,
 					highlightSpan: func(spans MergedSpans) bool {
 						if htw := cv.timeline.hoveredTimeline; htw != nil {
-							var target uint64
+							target := struct {
+								g          uint64
+								start, end trace.Timestamp
+							}{^uint64(0), -1, -1}
 							switch hitem := htw.item.(type) {
 							case *Goroutine:
-								target = hitem.id
+								if len(cv.timeline.hoveredSpans) == 0 {
+									// A goroutine timeline is hovered, but no spans within are.
+									target.g = hitem.id
+								} else {
+									// A (merged) span in a goroutine timeline is hovered. Highlight processor spans for
+									// the same goroutine if they overlap with the highlighted span.
+									target.g = hitem.id
+									target.start = cv.timeline.hoveredSpans.Start()
+									target.end = cv.timeline.hoveredSpans.End()
+								}
 							case *Processor:
 								if len(cv.timeline.hoveredSpans) != 1 {
 									return false
 								}
 								o := &cv.timeline.hoveredSpans[0]
-								target = tr.Event(o.event()).G
+								target.g = tr.Event(o.event()).G
 							case *Machine:
 								if len(cv.timeline.hoveredSpans) != 1 {
 									return false
@@ -1187,14 +1199,14 @@ func NewProcessorWidget(cv *Canvas, p *Processor) *TimelineWidget {
 								if o.state != stateRunningG {
 									return false
 								}
-								target = tr.Event(o.event()).G
+								target.g = tr.Event(o.event()).G
 
 							default:
 								return false
 							}
 							for i := range spans {
 								// OPT(dh): don't be O(n)
-								if tr.Event(spans[i].event()).G == target {
+								if tr.Event(spans[i].event()).G == target.g && (target.start == -1 || ((target.start < spans[i].end) && (target.end >= spans[i].start))) {
 									return true
 								}
 							}
