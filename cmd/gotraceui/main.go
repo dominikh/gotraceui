@@ -738,6 +738,9 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineWidget(&w.canvas, g))
 	}
 
+	// We no longer need this.
+	t.cpuSamples = nil
+
 	w.trace = t
 }
 

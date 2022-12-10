@@ -1731,27 +1731,28 @@ func NewGoroutineWidget(cv *Canvas, g *Goroutine) *TimelineWidget {
 		tw.tracks = append(tw.tracks, Track{spans: ug, kind: TimelineWidgetTrackUserRegions})
 	}
 
-	addSampleTracks(tw, g)
+	addSampleTracks(tw, g, cv.trace)
 
 	return tw
 }
 
-func addSampleTracks(tw *TimelineWidget, g *Goroutine) {
+func addSampleTracks(tw *TimelineWidget, g *Goroutine, tr *Trace) {
 	cv := tw.cv
 
 	var sampleTracks []Track
 	offSpans := 0
 	offSamples := 0
+	cpuSamples := tr.cpuSamples[g.id]
 
 	nextEvent := func(advance bool) (EventID, bool, bool) {
-		if offSpans == len(g.spans) && offSamples == len(g.cpuSamples) {
+		if offSpans == len(g.spans) && offSamples == len(cpuSamples) {
 			return 0, false, false
 		}
 
 		if offSpans < len(g.spans) {
 			id := g.spans[offSpans].event()
-			if offSamples < len(g.cpuSamples) {
-				oid := g.cpuSamples[offSamples]
+			if offSamples < len(cpuSamples) {
+				oid := cpuSamples[offSamples]
 				if id <= oid {
 					if advance {
 						offSpans++
@@ -1770,7 +1771,7 @@ func addSampleTracks(tw *TimelineWidget, g *Goroutine) {
 				return id, false, true
 			}
 		} else {
-			id := g.cpuSamples[offSamples]
+			id := cpuSamples[offSamples]
 			if advance {
 				offSamples++
 			}

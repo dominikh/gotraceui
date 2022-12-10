@@ -157,6 +157,11 @@ type Trace struct {
 	stw           Spans
 	tasks         []*Task
 	hasCPUSamples bool
+
+	// mapping from Goroutine ID to list of CPU sample events. Populated when loading the trace, and cleared by
+	// addSampleTracks once no longer needed.
+	cpuSamples map[uint64][]EventID
+
 	trace.ParseResult
 }
 
@@ -425,7 +430,6 @@ type Goroutine struct {
 	spans       Spans
 	userRegions []Spans
 	events      []EventID
-	cpuSamples  []EventID
 
 	// Labels used for spans representing this goroutine
 	spanLabels []string
@@ -639,6 +643,8 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	inMarkAssist := map[uint64]struct{}{}
 	blockingSyscallPerP := map[int32]EventID{}
 	blockingSyscallMPerG := map[uint64]int32{}
+	// map from gid to CPU samples
+	cpuSamples := map[uint64][]EventID{}
 
 	// FIXME(dh): rename function. or remove it alright
 	addEventToCurrentSpan := func(gid uint64, ev EventID) {
@@ -1023,8 +1029,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 			continue
 
 		case trace.EvCPUSample:
-			g := getG(ev.G)
-			g.cpuSamples = append(g.cpuSamples, EventID(evID))
+			cpuSamples[ev.G] = append(cpuSamples[ev.G], EventID(evID))
 			hasCPUSamples = true
 			continue
 
@@ -1214,6 +1219,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		stw:           stw,
 		tasks:         tasks,
 		hasCPUSamples: hasCPUSamples,
+		cpuSamples:    cpuSamples,
 		ParseResult:   res,
 	}
 	for _, g := range tr.gs {
