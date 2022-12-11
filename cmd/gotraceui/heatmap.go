@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace/ptrace"
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
@@ -307,9 +308,9 @@ type HeatmapWindow struct {
 func (hwin *HeatmapWindow) Run(win *app.Window) error {
 	xStep := 100 * time.Millisecond
 	yStep := 1
-	buckets := make([][]int, len(hwin.trace.ps))
-	for i, p := range hwin.trace.ps {
-		buckets[i] = computeProcessorBusy(hwin.trace, p, xStep)
+	buckets := make([][]int, len(hwin.trace.Processors))
+	for i, p := range hwin.trace.Processors {
+		buckets[i] = ptrace.ComputeProcessorBusy(hwin.trace.Trace, p, xStep)
 	}
 	hm := NewHeatMap(xStep, yStep, 100, buckets)
 

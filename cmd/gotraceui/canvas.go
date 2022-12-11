@@ -12,6 +12,7 @@ import (
 
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
+	"honnef.co/go/gotraceui/trace/ptrace"
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
@@ -72,7 +73,7 @@ type Canvas struct {
 
 	debugWindow *DebugWindow
 
-	clickedGoroutineTimelines []*Goroutine
+	clickedGoroutineTimelines []*ptrace.Goroutine
 
 	// The region of the canvas that we're displaying, measured in nanoseconds
 	start trace.Timestamp
@@ -363,18 +364,18 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (cv *Canvas) visibleSpans(spans Spans) Spans {
+func (cv *Canvas) visibleSpans(spans ptrace.Spans) ptrace.Spans {
 	// Visible spans have to end after cv.Start and begin before cv.End
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.end > cv.start
+		return s.End > cv.start
 	})
 	if start == len(spans) {
 		return nil
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.start >= cv.end
+		return s.Start >= cv.end
 	})
 
 	return spans[start:end]
@@ -581,7 +582,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					}
 
 				case "S":
-					if tr.hasCPUSamples {
+					if tr.HasCPUSamples {
 						cv.ToggleSampleTracks()
 					}
 
@@ -744,10 +745,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		key.InputOp{Tag: cv, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: cv}.Add(gtx.Ops)
 
-		drawRegionOverlays := func(spans Spans, c color.NRGBA, height int) {
+		drawRegionOverlays := func(spans ptrace.Spans, c color.NRGBA, height int) {
 			for _, s := range cv.visibleSpans(spans) {
-				start := s.start
-				end := s.end
+				start := s.Start
+				end := s.End
 
 				if start < cv.start {
 					start = cv.start
@@ -776,8 +777,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				// Draw STW and GC regions
 				// TODO(dh): make this be optional
 				tickHeight := gtx.Dp(tickHeightDp)
-				drawRegionOverlays(cv.trace.gc, colors[colorStateGC], tickHeight)
-				drawRegionOverlays(cv.trace.stw, colors[colorStateBlocked], tickHeight)
+				drawRegionOverlays(cv.trace.GC, colors[colorStateGC], tickHeight)
+				drawRegionOverlays(cv.trace.STW, colors[colorStateBlocked], tickHeight)
 
 				dims := cv.axis.Layout(win, gtx)
 				axisHeight = dims.Size.Y
@@ -803,10 +804,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw STW and GC overlays
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
-			drawRegionOverlays(cv.trace.gc, rgba(0x9C6FD633), gtx.Constraints.Max.Y)
+			drawRegionOverlays(cv.trace.GC, rgba(0x9C6FD633), gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
-			drawRegionOverlays(cv.trace.stw, rgba(0xBA414133), gtx.Constraints.Max.Y)
+			drawRegionOverlays(cv.trace.STW, rgba(0xBA414133), gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
@@ -918,7 +919,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		y += twHeight
 
 		if tw.LabelClicked() {
-			if g, ok := tw.item.(*Goroutine); ok {
+			if g, ok := tw.item.(*ptrace.Goroutine); ok {
 				cv.clickedGoroutineTimelines = append(cv.clickedGoroutineTimelines, g)
 			}
 		}

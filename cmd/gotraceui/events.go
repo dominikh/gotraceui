@@ -8,6 +8,7 @@ import (
 
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
+	"honnef.co/go/gotraceui/trace/ptrace"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -20,14 +21,14 @@ import (
 
 type Events struct {
 	trace     *Trace
-	allEvents []EventID
+	allEvents []ptrace.EventID
 	filter    struct {
 		showGoCreate  widget.Bool
 		showGoUnblock widget.Bool
 		showGoSysCall widget.Bool
 		showUserLog   widget.Bool
 	}
-	filteredEvents []EventID
+	filteredEvents []ptrace.EventID
 	grid           outlay.Grid
 
 	// slice used by ClickedLinks
@@ -155,7 +156,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			// XXX styledtext wraps our spans if the window is too small
 
 			addSpanG := func(gid uint64) {
-				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.getG(gid), GoroutineLinkKindOpenWindow}))
+				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.G(gid), GoroutineLinkKindOpenWindow}))
 			}
 
 			addSpanTs := func(ts trace.Timestamp) {

@@ -1,4 +1,4 @@
-package main
+package ptrace
 
 import (
 	"fmt"
@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-func computeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []int {
+func ComputeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []int {
 	total := tr.Events[len(tr.Events)-1].Ts
 	buckets := make([]time.Duration, int(math.Ceil(float64(total)/float64(bucketSize))))
-	for _, span := range p.spans {
-		d := time.Duration(span.end - span.start)
-		bucket := time.Duration(span.start) / bucketSize
-		bucketRemainder := bucketSize - (time.Duration(span.start) % bucketSize)
+	for _, span := range p.Spans {
+		d := time.Duration(span.End - span.Start)
+		bucket := time.Duration(span.Start) / bucketSize
+		bucketRemainder := bucketSize - (time.Duration(span.Start) % bucketSize)
 
 		for d > bucketRemainder {
 			buckets[bucket] += bucketRemainder

@@ -2,7 +2,6 @@ package theme
 
 import (
 	"context"
-	"fmt"
 	"image/color"
 	rtrace "runtime/trace"
 
@@ -16,21 +15,22 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 )
 
-type listWindowItem struct {
-	index int
-	item  fmt.Stringer
-	s     string
-	click widget.Clickable
+type ListWindowItem struct {
+	Item         any
+	Label        string
+	FilterLabels []string
+	index        int
+	click        widget.Clickable
 }
 
 type Filter interface {
-	Filter(item fmt.Stringer) bool
+	Filter(item ListWindowItem) bool
 }
 
 type ListWindow struct {
 	BuildFilter func(string) Filter
 
-	items []listWindowItem
+	items []ListWindowItem
 
 	filtered []int
 	// index of the selected item in the filtered list
@@ -58,15 +58,11 @@ func NewListWindow(th *Theme) *ListWindow {
 	}
 }
 
-func (w *ListWindow) SetItems(items []fmt.Stringer) {
-	w.items = make([]listWindowItem, len(items))
+func (w *ListWindow) SetItems(items []ListWindowItem) {
+	w.items = items
 	w.filtered = make([]int, len(items))
-	for i, item := range items {
-		w.items[i] = listWindowItem{
-			item:  item,
-			index: i,
-			s:     item.String(),
-		}
+	for i := range w.items {
+		w.items[i].index = i
 		w.filtered[i] = i
 	}
 }
@@ -77,7 +73,7 @@ func (w *ListWindow) Confirmed() (any, bool) {
 		return nil, false
 	}
 	w.done = false
-	return w.items[w.filtered[w.index]].item, true
+	return w.items[w.filtered[w.index]].Item, true
 }
 
 // Don't bubble up normal key presses. This is a workaround for Gio's input handling. The editor widget
@@ -113,7 +109,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						c = rgba(0x000000FF)
 					}
-					return mywidget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.s)
+					return mywidget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.Label)
 				})
 			})
 		}
@@ -189,7 +185,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 			w.filtered = w.filtered[:0]
 			f := w.BuildFilter(w.input.Text())
 			for _, item := range w.items {
-				if f.Filter(item.item) {
+				if f.Filter(item) {
 					w.filtered = append(w.filtered, item.index)
 				}
 			}

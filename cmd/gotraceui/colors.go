@@ -1,6 +1,10 @@
 package main
 
-import "image/color"
+import (
+	"image/color"
+
+	"honnef.co/go/gotraceui/trace/ptrace"
+)
 
 var colors = [...]color.NRGBA{
 	colorStateInactive: rgba(0x888888FF),
@@ -76,34 +80,34 @@ const (
 
 var stateColors = [256]colorIndex{
 	// per-G states
-	stateInactive:                colorStateInactive,
-	stateActive:                  colorStateActive,
-	stateBlocked:                 colorStateBlocked,
-	stateBlockedSend:             colorStateBlockedHappensBefore,
-	stateBlockedRecv:             colorStateBlockedHappensBefore,
-	stateBlockedSelect:           colorStateBlockedHappensBefore,
-	stateBlockedSync:             colorStateBlockedHappensBefore,
-	stateBlockedCond:             colorStateBlockedHappensBefore,
-	stateBlockedNet:              colorStateBlockedNet,
-	stateBlockedGC:               colorStateBlockedGC,
-	stateBlockedSyscall:          colorStateBlockedSyscall,
-	stateStuck:                   colorStateStuck,
-	stateReady:                   colorStateReady,
-	stateCreated:                 colorStateReady,
-	stateGCMarkAssist:            colorStateGC,
-	stateGCSweep:                 colorStateGC,
-	stateGCIdle:                  colorStateGC,
-	stateGCDedicated:             colorStateGC,
-	stateBlockedSyncOnce:         colorStateBlockedHappensBefore,
-	stateBlockedSyncTriggeringGC: colorStateGC,
-	stateUserRegion:              colorStateUserRegion,
-	stateDone:                    colorStateUnknown, // no span with this state should be rendered
+	ptrace.StateInactive:                colorStateInactive,
+	ptrace.StateActive:                  colorStateActive,
+	ptrace.StateBlocked:                 colorStateBlocked,
+	ptrace.StateBlockedSend:             colorStateBlockedHappensBefore,
+	ptrace.StateBlockedRecv:             colorStateBlockedHappensBefore,
+	ptrace.StateBlockedSelect:           colorStateBlockedHappensBefore,
+	ptrace.StateBlockedSync:             colorStateBlockedHappensBefore,
+	ptrace.StateBlockedCond:             colorStateBlockedHappensBefore,
+	ptrace.StateBlockedNet:              colorStateBlockedNet,
+	ptrace.StateBlockedGC:               colorStateBlockedGC,
+	ptrace.StateBlockedSyscall:          colorStateBlockedSyscall,
+	ptrace.StateStuck:                   colorStateStuck,
+	ptrace.StateReady:                   colorStateReady,
+	ptrace.StateCreated:                 colorStateReady,
+	ptrace.StateGCMarkAssist:            colorStateGC,
+	ptrace.StateGCSweep:                 colorStateGC,
+	ptrace.StateGCIdle:                  colorStateGC,
+	ptrace.StateGCDedicated:             colorStateGC,
+	ptrace.StateBlockedSyncOnce:         colorStateBlockedHappensBefore,
+	ptrace.StateBlockedSyncTriggeringGC: colorStateGC,
+	ptrace.StateUserRegion:              colorStateUserRegion,
+	ptrace.StateDone:                    colorStateUnknown, // no span with this state should be rendered
 
 	// per-P states
-	stateRunningG: colorStateActive,
+	ptrace.StateRunningG: colorStateActive,
 
 	// per-M states
-	stateRunningP: colorStateActive,
+	ptrace.StateRunningP: colorStateActive,
 }
 
 func rgba(c uint32) color.NRGBA {

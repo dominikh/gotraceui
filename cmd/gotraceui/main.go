@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	"io"
 	"log"
 	"os"
 	"runtime"
@@ -17,6 +18,7 @@ import (
 	mylayout "honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
+	"honnef.co/go/gotraceui/trace/ptrace"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -78,6 +80,11 @@ import (
 //   leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
 //   goroutine. To avoid confusion, we should remove those stacks altogether.
 
+// This boolean guards all code involving displaying machine timelines. That feature is currently broken, because the
+// trace parser only produces an event ordering that is consistent for goroutines, but not for machines. For example, it
+// may try to start a P on an M that is currently blocked on a syscall.
+const supportMachineTimelines = false
+
 var (
 	cpuprofile       string
 	memprofileLoad   string
@@ -90,8 +97,6 @@ var (
 
 var goFonts = gofont.Collection()
 
-type EventID uint64
-
 type reusableOps struct {
 	ops op.Ops
 }
@@ -102,8 +107,8 @@ func (rops *reusableOps) get() *op.Ops {
 	return &rops.ops
 }
 
-func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
-	_, ok := w.goroutineWindows[g.id]
+func (w *MainWindow) openGoroutineWindow(g *ptrace.Goroutine) {
+	_, ok := w.goroutineWindows[g.ID]
 	if ok {
 		// XXX try to activate (bring to the front) the existing window
 	} else {
@@ -115,18 +120,18 @@ func (w *MainWindow) openGoroutineWindow(g *Goroutine) {
 			g:     g,
 		}
 		win.stats = NewGoroutineStats(g)
-		w.goroutineWindows[g.id] = win
+		w.goroutineWindows[g.ID] = win
 		// XXX computing the label is duplicated with rendering the timeline widget
 		var l string
-		if g.function != "" {
-			l = local.Sprintf("goroutine %d: %s", g.id, g.function)
+		if g.Function != "" {
+			l = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
 		} else {
-			l = local.Sprintf("goroutine %d", g.id)
+			l = local.Sprintf("goroutine %d", g.ID)
 		}
 		go func() {
 			// XXX handle error?
 			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
-			w.notifyGoroutineWindowClosed <- g.id
+			w.notifyGoroutineWindowClosed <- g.ID
 		}()
 	}
 }
@@ -160,7 +165,7 @@ type MainWindow struct {
 	win *app.Window
 	// TODO(dh): use enum for state
 	state    string
-	progress float32
+	progress float64
 	ww       *theme.ListWindow
 	err      error
 
@@ -193,10 +198,6 @@ type timelineFilter struct {
 			n uint64
 		}
 	}
-}
-
-type filterLabeler interface {
-	FilterLabels() []string
 }
 
 func newTimelineFilter(s string) theme.Filter {
@@ -233,7 +234,7 @@ func newTimelineFilter(s string) theme.Filter {
 	return out
 }
 
-func (f *timelineFilter) Filter(item fmt.Stringer) bool {
+func (f *timelineFilter) Filter(item theme.ListWindowItem) bool {
 	if f.invalid {
 		return false
 	}
@@ -241,17 +242,17 @@ func (f *timelineFilter) Filter(item fmt.Stringer) bool {
 	for _, p := range f.parts {
 		switch p.prefix {
 		case "gid":
-			if item, ok := item.(*Goroutine); !ok || item.id != p.value.n {
+			if item, ok := item.Item.(*ptrace.Goroutine); !ok || item.ID != p.value.n {
 				return false
 			}
 
 		case "pid":
-			if item, ok := item.(*Processor); !ok || uint64(item.id) != p.value.n {
+			if item, ok := item.Item.(*ptrace.Processor); !ok || uint64(item.ID) != p.value.n {
 				return false
 			}
 
 		case "":
-			ss := item.(filterLabeler).FilterLabels()
+			ss := item.FilterLabels
 			any := false
 			for _, s := range ss {
 				if strings.Contains(s, p.value.s) {
@@ -289,13 +290,13 @@ func (mwin *MainWindow) SetError(err error) {
 	}
 }
 
-func (mwin *MainWindow) SetProgress(p float32) {
+func (mwin *MainWindow) SetProgress(p float64) {
 	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.progress = p
 	}
 }
 
-func (mwin *MainWindow) SetProgressLossy(p float32) {
+func (mwin *MainWindow) SetProgressLossy(p float64) {
 	fn := func(mwin *MainWindow, _ layout.Context) {
 		mwin.progress = p
 	}
@@ -324,7 +325,7 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				mwin.canvas.scrollToTimeline(gtx, l.Goroutine)
 			case GoroutineLinkKindZoom:
 				y := mwin.canvas.timelineY(gtx, l.Goroutine)
-				mwin.canvas.navigateTo(gtx, l.Goroutine.spans.Start(), l.Goroutine.spans.End(), y)
+				mwin.canvas.navigateTo(gtx, l.Goroutine.Spans.Start(), l.Goroutine.Spans.End(), y)
 			default:
 				panic(l.Kind)
 			}
@@ -393,7 +394,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.canvas.timeline.compact), Disabled: notMainDisabled}
 	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &w.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
 	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide CPU (pprof) samples", "Display CPU (pprof) samples", &w.canvas.timeline.displaySampleTracks), Disabled: func() bool {
-		return w.state != "main" || !w.trace.hasCPUSamples
+		return w.state != "main" || !w.trace.HasCPUSamples
 	}}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
@@ -552,7 +553,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							gtx := gtx
 							gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
 							gtx.Constraints.Max = gtx.Constraints.Min
-							theme.ProgressBar(w.theme, w.progress).Layout(gtx)
+							theme.ProgressBar(w.theme, float32(w.progress)).Layout(gtx)
 						}()
 
 						call := m.Stop()
@@ -568,13 +569,28 @@ func (w *MainWindow) Run(win *app.Window) error {
 									switch ev.Name {
 									case "G":
 										w.ww = theme.NewListWindow(w.theme)
-										items := make([]fmt.Stringer, 0, 2+len(w.trace.ps)+len(w.trace.gs))
+										items := make([]theme.ListWindowItem, 0, 2+len(w.trace.Processors)+len(w.trace.Goroutines))
 										// XXX the GC and STW widgets should also be added here
-										for _, p := range w.trace.ps {
-											items = append(items, p)
+										for _, p := range w.trace.Processors {
+											items = append(items, theme.ListWindowItem{
+												Item:         p,
+												Label:        local.Sprintf("processor %d", p.ID),
+												FilterLabels: w.trace.processorFilterLabels(p),
+											})
 										}
-										for _, g := range w.trace.gs {
-											items = append(items, g)
+										for _, g := range w.trace.Goroutines {
+											var label string
+											if g.Function == "" {
+												// At least GCSweepStart can happen on g0
+												label = local.Sprintf("goroutine %d", g.ID)
+											} else {
+												label = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
+											}
+											items = append(items, theme.ListWindowItem{
+												Item:         g,
+												Label:        label,
+												FilterLabels: w.trace.goroutineFilterLabels(g),
+											})
 										}
 										w.ww.SetItems(items)
 										w.ww.BuildFilter = newTimelineFilter
@@ -690,19 +706,50 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 func (w *MainWindow) loadTraceImpl(t *Trace) {
 	var end trace.Timestamp
-	for _, g := range t.gs {
-		if len(g.spans) > 0 {
-			if d := g.spans.End(); d > end {
-				end = d
-			}
+	for _, g := range t.Goroutines {
+		if d := g.Spans.End(); d > end {
+			end = d
 		}
 	}
-	for _, p := range t.ps {
-		if len(p.spans) > 0 {
-			if d := p.spans.End(); d > end {
-				end = d
-			}
+	for _, p := range t.Processors {
+		if d := p.Spans.End(); d > end {
+			end = d
 		}
+	}
+
+	if len(t.Goroutines) > 0 {
+		t.allGoroutineSpanLabels = make([][]string, len(t.Goroutines))
+		t.allGoroutineFilterLabels = make([][]string, len(t.Goroutines))
+
+		for seqID, g := range t.Goroutines {
+			var spanLabels []string
+			if g.Function != "" {
+				short := shortenFunctionName(g.Function)
+				spanLabels = append(spanLabels, local.Sprintf("g%d: %s", g.ID, g.Function))
+				if short != g.Function {
+					spanLabels = append(spanLabels, local.Sprintf("g%d: .%s", g.ID, short))
+					spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
+				} else {
+					// This branch is probably impossible; all functions should be fully qualified.
+					spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
+				}
+			} else {
+				spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
+			}
+			t.allGoroutineSpanLabels[seqID] = spanLabels
+		}
+
+		// XXX do filter labels, too
+	}
+	if len(t.Processors) > 0 {
+		t.allProcessorSpanLabels = make([][]string, len(t.Processors))
+		t.allProcessorFilterLabels = make([][]string, len(t.Processors))
+
+		for seqID, p := range t.Processors {
+			t.allProcessorSpanLabels[seqID] = append(t.allProcessorSpanLabels[seqID], local.Sprintf("p%d", p.ID))
+		}
+
+		// XXX do filter labels, too
 	}
 
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
@@ -720,26 +767,26 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 
 	w.canvas.timeline.displayAllLabels = true
 	w.canvas.axis = Axis{cv: &w.canvas, theme: w.theme}
-	w.canvas.timelines = make([]*TimelineWidget, 2, len(t.gs)+len(t.ps)+len(t.ms)+2)
-	w.canvas.timelines[0] = NewGCWidget(&w.canvas, t, t.gc)
-	w.canvas.timelines[1] = NewSTWWidget(&w.canvas, t, t.stw)
+	w.canvas.timelines = make([]*TimelineWidget, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
+	w.canvas.timelines[0] = NewGCWidget(&w.canvas, t, t.GC)
+	w.canvas.timelines[1] = NewSTWWidget(&w.canvas, t, t.STW)
 
 	if supportMachineTimelines {
-		for _, m := range t.ms {
+		for _, m := range t.Machines {
 			w.canvas.timelines = append(w.canvas.timelines, NewMachineWidget(&w.canvas, m))
 		}
 	}
-	for _, p := range t.ps {
+	for _, p := range t.Processors {
 		w.canvas.timelines = append(w.canvas.timelines, NewProcessorWidget(&w.canvas, p))
 	}
-	for _, g := range t.gs {
+	for _, g := range t.Goroutines {
 		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute sample tracks. This causes the UI to
 		// freeze, because loadTraceImpl runs in the UI goroutine.
 		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineWidget(&w.canvas, g))
 	}
 
 	// We no longer need this.
-	t.cpuSamples = nil
+	t.CPUSamples = nil
 
 	w.trace = t
 }
@@ -808,7 +855,7 @@ const (
 )
 
 type GoroutineLink struct {
-	Goroutine *Goroutine
+	Goroutine *ptrace.Goroutine
 	Kind      GoroutineLinkKind
 }
 
@@ -869,8 +916,12 @@ func main() {
 		if memprofileLoad != "" {
 			writeMemprofile(memprofileLoad)
 		}
-		if err == errExitAfterLoading || err == errExitAfterParsing {
+		if err == errExitAfterParsing {
 			errs <- err
+			return
+		}
+		if exitAfterLoading {
+			errs <- errExitAfterLoading
 			return
 		}
 		if err != nil {
@@ -919,6 +970,27 @@ func main() {
 		os.Exit(0)
 	}()
 	app.Main()
+}
+
+func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
+	p := func(p float64) {
+		progresser.SetProgressLossy(p / 2)
+	}
+	t, err := trace.Parse(f, p)
+	if err != nil {
+		return nil, err
+	}
+	if exitAfterParsing {
+		return nil, errExitAfterParsing
+	}
+	p = func(p float64) {
+		progresser.SetProgressLossy(0.5 + p/2)
+	}
+	pt, err := ptrace.Parse(t, p)
+	if err != nil {
+		return nil, err
+	}
+	return &Trace{Trace: pt}, nil
 }
 
 const allocatorBucketSize = 64
@@ -1071,4 +1143,16 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 			})
 		}
 	})
+}
+
+func fromUint40(n *[5]byte) int {
+	if *n == ([5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}) {
+		return -1
+	}
+
+	return int(uint64(n[0]) |
+		uint64(n[1])<<8 |
+		uint64(n[2])<<16 |
+		uint64(n[3])<<24 |
+		uint64(n[4])<<32)
 }

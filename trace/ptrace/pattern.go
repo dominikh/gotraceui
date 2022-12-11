@@ -1,55 +1,55 @@
-package main
+package ptrace
 
 import "honnef.co/go/gotraceui/trace"
 
-type spanTags uint8
+type SpanTags uint8
 
 const (
-	spanTagNetwork spanTags = 1 << iota
-	spanTagTCP
-	spanTagTLS
-	spanTagRead
-	spanTagAccept
-	spanTagDial
-	spanTagHTTP
+	SpanTagNetwork SpanTags = 1 << iota
+	SpanTagTCP
+	SpanTagTLS
+	SpanTagRead
+	SpanTagAccept
+	SpanTagDial
+	SpanTagHTTP
 )
 
 type pattern struct {
-	state schedulingState
+	state SchedulingState
 	// fns looks for functions in the stack at absolute offsets
 	fns []string
 
 	// relFns looks for runs of functions in the stack, at no particular offsets
 	relFns [][]string
 
-	newState schedulingState
+	newState SchedulingState
 	at       uint8
-	tags     spanTags
+	tags     SpanTags
 }
 
 // TODO(dh): implement a pattern language similar to that used in Staticcheck so that we can express ANDs and ORs
 // without having to write a bunch of Go.
 var patterns = [256][]pattern{
-	stateBlocked: {
+	StateBlocked: {
 		{
-			state: stateBlocked,
+			state: StateBlocked,
 			fns: []string{
 				0: "runtime.ReadTrace",
 			},
-			newState: stateInactive,
+			newState: StateInactive,
 		},
 	},
 
-	stateBlockedRecv: {
+	StateBlockedRecv: {
 		{
-			state: stateBlockedRecv,
+			state: StateBlockedRecv,
 			fns: []string{
 				0: "runtime.chanrecv1",
 			},
 			at: 1,
 		},
 		{
-			state: stateBlockedRecv,
+			state: StateBlockedRecv,
 			fns: []string{
 				0: "runtime.chanrecv2",
 			},
@@ -57,9 +57,9 @@ var patterns = [256][]pattern{
 		},
 	},
 
-	stateBlockedSend: {
+	StateBlockedSend: {
 		{
-			state: stateBlockedSend,
+			state: StateBlockedSend,
 			fns: []string{
 				0: "runtime.chansend1",
 			},
@@ -67,29 +67,29 @@ var patterns = [256][]pattern{
 		},
 	},
 
-	stateBlockedSync: {
+	StateBlockedSync: {
 		{
-			state: stateBlockedSync,
+			state: StateBlockedSync,
 			fns: []string{
 				0: "runtime.gcStart",
 			},
-			newState: stateBlockedSyncTriggeringGC,
+			newState: StateBlockedSyncTriggeringGC,
 		},
 		{
-			state: stateBlockedSync,
+			state: StateBlockedSync,
 			fns: []string{
 				0: "sync.(*Mutex).Lock",
 				1: "sync.(*Once).doSlow",
 				2: "sync.(*Once).Do",
 			},
-			newState: stateBlockedSyncOnce,
+			newState: StateBlockedSyncOnce,
 			at:       3,
 		},
 	},
 
-	stateBlockedCond: {
+	StateBlockedCond: {
 		{
-			state: stateBlockedCond,
+			state: StateBlockedCond,
 			fns: []string{
 				0: "sync.(*Cond).Wait",
 			},
@@ -97,114 +97,114 @@ var patterns = [256][]pattern{
 		},
 	},
 
-	stateBlockedNet: {
+	StateBlockedNet: {
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			fns: []string{
 				0: "internal/poll.(*FD).Read",
 			},
-			tags: spanTagRead,
+			tags: SpanTagRead,
 			at:   1,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			fns: []string{
 				0: "internal/poll.(*FD).Read",
 				1: "net.(*netFD).Read",
 			},
-			tags: spanTagNetwork,
+			tags: SpanTagNetwork,
 			at:   2,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			fns: []string{
 				0: "internal/poll.(*FD).Accept",
 			},
-			tags: spanTagAccept,
+			tags: SpanTagAccept,
 			at:   1,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			fns: []string{
 				0: "internal/poll.(*FD).Accept",
 				1: "net.(*netFD).accept",
 			},
 			at:   2,
-			tags: spanTagNetwork,
+			tags: SpanTagNetwork,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			fns: []string{
 				0: "internal/poll.(*FD).Accept",
 				2: "net.(*TCPListener).accept",
 				3: "net.(*TCPListener).Accept",
 			},
 			at:   4,
-			tags: spanTagTCP,
+			tags: SpanTagTCP,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"net.(*sysDialer).dialSingle"},
 			},
-			tags: spanTagDial,
+			tags: SpanTagDial,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"net.(*sysDialer).dialTCP"},
 			},
-			tags: spanTagTCP,
+			tags: SpanTagTCP,
 		},
 
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"crypto/tls.(*Conn).readFromUntil"},
 			},
-			tags: spanTagTLS,
+			tags: SpanTagTLS,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"crypto/tls.(*listener).Accept"},
 			},
-			tags: spanTagTLS,
+			tags: SpanTagTLS,
 		},
 
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"net/http.(*connReader).Read"},
 			},
-			tags: spanTagHTTP,
+			tags: SpanTagHTTP,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"net/http.(*persistConn).Read"},
 			},
-			tags: spanTagHTTP,
+			tags: SpanTagHTTP,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"net/http.(*http2clientConnReadLoop).run"},
 			},
-			tags: spanTagHTTP,
+			tags: SpanTagHTTP,
 		},
 		{
-			state: stateBlockedNet,
+			state: StateBlockedNet,
 			relFns: [][]string{
 				{"net/http.(*Server).Serve"},
 			},
-			tags: spanTagHTTP,
+			tags: SpanTagHTTP,
 		},
 	},
 
-	stateBlockedSelect: {
+	StateBlockedSelect: {
 		{
-			state: stateBlockedSelect,
+			state: StateBlockedSelect,
 			at:    1,
 		},
 	},
@@ -214,7 +214,7 @@ func applyPatterns(s Span, pcs map[uint64]trace.Frame, stack []uint64) Span {
 	// OPT(dh): be better than O(n)
 
 patternLoop:
-	for _, p := range patterns[s.state] {
+	for _, p := range patterns[s.State] {
 		if len(stack) < len(p.fns) {
 			continue
 		}
@@ -262,17 +262,17 @@ patternLoop:
 
 		if p.at != 0 {
 			if int(p.at) < len(stack) {
-				s.at = p.at
+				s.At = p.at
 			} else {
 				continue
 			}
 		}
 
-		if p.newState != stateNone {
-			s.state = p.newState
+		if p.newState != StateNone {
+			s.State = p.newState
 		}
 
-		s.tags |= p.tags
+		s.Tags |= p.tags
 	}
 
 	return s

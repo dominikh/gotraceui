@@ -25,7 +25,7 @@ func TestCorruptedInputs(t *testing.T) {
 		"go 1.5 trace\x00\x00\x00\x00\xc3\x0200",
 	}
 	for _, data := range tests {
-		res, err := Parse(strings.NewReader(data))
+		res, err := Parse(strings.NewReader(data), nil)
 		if err == nil || res.Events != nil || res.Stacks != nil {
 			t.Fatalf("no error on input: %q", data)
 		}
@@ -56,7 +56,7 @@ func FuzzParse(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, in []byte) {
 		// Trivial test that makes sure parsing terminates without crashing.
-		Parse(bytes.NewReader(in))
+		Parse(bytes.NewReader(in), nil)
 	})
 }
 
@@ -88,7 +88,7 @@ func BenchmarkParse(b *testing.B) {
 	for _, data := range datas {
 		b.Run(data.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, err = Parse(bytes.NewReader(data.b))
+				_, err = Parse(bytes.NewReader(data.b), nil)
 				if err != nil {
 					b.Errorf("failed to parse good trace %s: %v", data.name, err)
 				}

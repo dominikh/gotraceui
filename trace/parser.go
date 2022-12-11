@@ -123,10 +123,9 @@ type pState struct {
 
 // The number of parsing stages. as reported to Parser.Progress. Each stage has its own total, and the current progress
 // resets to 0 at the start of each stage.
-const Stages = 2
 
 type Parser struct {
-	Progress func(stage, cur, total int)
+	progress func(p float64)
 
 	ver  int
 	data []byte
@@ -213,11 +212,12 @@ func NewParser(r io.Reader) (*Parser, error) {
 	return &Parser{data: buf}, nil
 }
 
-func Parse(r io.Reader) (ParseResult, error) {
+func Parse(r io.Reader, progress func(float64)) (ParseResult, error) {
 	p, err := NewParser(r)
 	if err != nil {
 		return ParseResult{}, err
 	}
+	p.progress = progress
 	return p.Parse()
 }
 
@@ -369,8 +369,8 @@ func (p *Parser) parseRest() ([]Event, error) {
 		availableProcs[i] = &allProcs[i]
 	}
 	for {
-		if p.Progress != nil && len(events)%100_000 == 0 {
-			p.Progress(1, len(events), cap(events))
+		if p.progress != nil && len(events)%100_000 == 0 {
+			p.progress(0.5 + 0.5*(float64(len(events))/float64(cap(events))))
 		}
 	pidLoop:
 		for i := 0; i < len(availableProcs); i++ {
@@ -493,8 +493,8 @@ func (p *Parser) indexAndPartiallyParse() error {
 	// Read events.
 	var raw rawEvent
 	for n := uint64(0); ; n++ {
-		if p.Progress != nil && n%1_000_000 == 0 {
-			p.Progress(0, p.off, len(p.data))
+		if p.progress != nil && n%1_000_000 == 0 {
+			p.progress(0.5 * (float64(p.off) / float64(len(p.data))))
 		}
 		err := p.readRawEvent(skipArgs|skipStrings|trackBatches, &raw)
 		if err == io.EOF {
@@ -544,8 +544,8 @@ func (p *Parser) indexAndPartiallyParse() error {
 		}
 	}
 
-	if p.Progress != nil {
-		p.Progress(0, len(p.data), len(p.data))
+	if p.progress != nil {
+		p.progress(0.5)
 	}
 
 	return nil

@@ -12,6 +12,7 @@ import (
 	mylayout "honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
+	"honnef.co/go/gotraceui/trace/ptrace"
 
 	"gioui.org/app"
 	"gioui.org/gesture"
@@ -30,7 +31,7 @@ import (
 )
 
 type GoroutineStats struct {
-	stats [stateLast]GoroutineStat
+	stats [ptrace.StateLast]GoroutineStat
 	// mapping maps from indices of displayed statistics to indices in the stats field
 	mapping []int
 
@@ -48,7 +49,7 @@ type GoroutineWindow struct {
 	theme *theme.Theme
 	mwin  *MainWindow
 	trace *Trace
-	g     *Goroutine
+	g     *ptrace.Goroutine
 
 	stats *GoroutineStats
 }
@@ -59,9 +60,9 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	events.filter.showGoUnblock.Value = true
 	events.filter.showGoSysCall.Value = true
 	events.filter.showUserLog.Value = true
-	for _, span := range gwin.g.spans {
+	for _, span := range gwin.g.Spans {
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.allEvents = append(events.allEvents, span.Events(gwin.g.events, gwin.trace)...)
+		events.allEvents = append(events.allEvents, span.Events(gwin.g.Events, gwin.trace.Trace)...)
 	}
 	events.updateFilter()
 
@@ -82,10 +83,10 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 	}
 	{
 		txt.Bold("Goroutine: ")
-		txt.Span(local.Sprintf("%d\n", gwin.g.id))
+		txt.Span(local.Sprintf("%d\n", gwin.g.ID))
 
 		txt.Bold("Function: ")
-		txt.Span(fmt.Sprintf("%s\n", gwin.g.function))
+		txt.Span(fmt.Sprintf("%s\n", gwin.g.Function))
 
 		txt.Bold("Created at: ")
 		txt.Link(
@@ -159,7 +160,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 							return stacktraceFoldable.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 								// OPT(dh): compute the string form of the backtrace once, not each frame
 								// XXX don't let Gio wrap our text, add horizontal scrollbars instead
-								ev := gwin.trace.Events[gwin.g.spans[0].event()]
+								ev := gwin.trace.Events[gwin.g.Spans[0].Event]
 								stk := gwin.trace.Stacks[ev.StkID]
 								sb := strings.Builder{}
 								for _, f := range stk {
@@ -217,28 +218,28 @@ var statLabels = [...][numStatLabels * 3]string{
 	},
 }
 
-var stateNamesCapitalized = [stateLast]string{
-	stateInactive:                "Inactive",
-	stateActive:                  "Active",
-	stateGCIdle:                  "GC (idle)",
-	stateGCDedicated:             "GC (dedicated)",
-	stateBlocked:                 "Blocked (other)",
-	stateBlockedSend:             "Blocked (channel send)",
-	stateBlockedRecv:             "Blocked (channel receive)",
-	stateBlockedSelect:           "Blocked (select)",
-	stateBlockedSync:             "Blocked (sync)",
-	stateBlockedSyncOnce:         "Blocked (sync.Once)",
-	stateBlockedSyncTriggeringGC: "Blocked (triggering GC)",
-	stateBlockedCond:             "Blocked (sync.Cond)",
-	stateBlockedNet:              "Blocked (pollable I/O)",
-	stateBlockedGC:               "Blocked (GC)",
-	stateBlockedSyscall:          "Blocked (syscall)",
-	stateStuck:                   "Stuck",
-	stateReady:                   "Ready",
-	stateCreated:                 "Created",
-	stateDone:                    "Done",
-	stateGCMarkAssist:            "GC (mark assist)",
-	stateGCSweep:                 "GC (sweep assist)",
+var stateNamesCapitalized = [ptrace.StateLast]string{
+	ptrace.StateInactive:                "Inactive",
+	ptrace.StateActive:                  "Active",
+	ptrace.StateGCIdle:                  "GC (idle)",
+	ptrace.StateGCDedicated:             "GC (dedicated)",
+	ptrace.StateBlocked:                 "Blocked (other)",
+	ptrace.StateBlockedSend:             "Blocked (channel send)",
+	ptrace.StateBlockedRecv:             "Blocked (channel receive)",
+	ptrace.StateBlockedSelect:           "Blocked (select)",
+	ptrace.StateBlockedSync:             "Blocked (sync)",
+	ptrace.StateBlockedSyncOnce:         "Blocked (sync.Once)",
+	ptrace.StateBlockedSyncTriggeringGC: "Blocked (triggering GC)",
+	ptrace.StateBlockedCond:             "Blocked (sync.Cond)",
+	ptrace.StateBlockedNet:              "Blocked (pollable I/O)",
+	ptrace.StateBlockedGC:               "Blocked (GC)",
+	ptrace.StateBlockedSyscall:          "Blocked (syscall)",
+	ptrace.StateStuck:                   "Stuck",
+	ptrace.StateReady:                   "Ready",
+	ptrace.StateCreated:                 "Created",
+	ptrace.StateDone:                    "Done",
+	ptrace.StateGCMarkAssist:            "GC (mark assist)",
+	ptrace.StateGCSweep:                 "GC (sweep assist)",
 }
 
 type GoroutineStat struct {
@@ -248,12 +249,12 @@ type GoroutineStat struct {
 	values          []time.Duration
 }
 
-func NewGoroutineStats(g *Goroutine) *GoroutineStats {
+func NewGoroutineStats(g *ptrace.Goroutine) *GoroutineStats {
 	gst := &GoroutineStats{}
 
-	for i := range g.spans {
-		s := &g.spans[i]
-		stat := &gst.stats[s.state]
+	for i := range g.Spans {
+		s := &g.Spans[i]
+		stat := &gst.stats[s.State]
 		stat.count++
 		d := s.Duration()
 		if d > stat.max {
@@ -301,8 +302,8 @@ func NewGoroutineStats(g *Goroutine) *GoroutineStats {
 
 	gst.sort()
 
-	gst.start = g.spans.Start()
-	gst.end = g.spans.End()
+	gst.start = g.Spans.Start()
+	gst.end = g.Spans.End()
 
 	return gst
 }
@@ -405,7 +406,7 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	return columnSizes
 }
 
-func sortStats[T constraints.Ordered](stats *[stateLast]GoroutineStat, mapping []int, descending bool, get func(*GoroutineStat) T) {
+func sortStats[T constraints.Ordered](stats *[ptrace.StateLast]GoroutineStat, mapping []int, descending bool, get func(*GoroutineStat) T) {
 	if descending {
 		slices.SortFunc(mapping, func(i, j int) bool {
 			return get(&stats[i]) >= get(&stats[j])
