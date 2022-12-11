@@ -1,9 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"honnef.co/go/gotraceui/trace"
@@ -45,39 +42,11 @@ func (t *Trace) processorSpanLabels(p *ptrace.Processor) []string {
 }
 
 func (t *Trace) goroutineFilterLabels(g *ptrace.Goroutine) []string {
-	// XXX why are we allocating these lazily? won't we need all of them the moment we use the filter window?
-
-	labels := t.allGoroutineFilterLabels[g.SeqID]
-	if labels == nil {
-		labels = []string{
-			strconv.FormatUint(g.ID, 10),
-			local.Sprintf("%d", g.ID),
-			fmt.Sprintf("g%d", g.ID),
-			local.Sprintf("g%d", g.ID),
-			g.Function,
-			strings.ToLower(g.Function),
-			"goroutine", // allow queries like "goroutine 1234" to work
-		}
-		t.allGoroutineFilterLabels[g.SeqID] = labels
-	}
-	return labels
+	return t.allGoroutineFilterLabels[g.SeqID]
 }
 
 func (t *Trace) processorFilterLabels(p *ptrace.Processor) []string {
-	// XXX why are we allocating these lazily? won't we need all of them the moment we use the filter window?
-
-	labels := t.allProcessorFilterLabels[p.SeqID]
-	if labels == nil {
-		labels = []string{
-			strconv.FormatInt(int64(p.ID), 10),
-			local.Sprintf("%d", p.ID),
-			fmt.Sprintf("p%d", p.ID),
-			local.Sprintf("p%d", p.ID),
-			"processor", // allow queries like "processor 1234" to work
-		}
-		t.allProcessorFilterLabels[p.SeqID] = labels
-	}
-	return labels
+	return t.allProcessorFilterLabels[p.SeqID]
 }
 
 //gcassert:inline

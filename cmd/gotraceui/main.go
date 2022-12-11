@@ -722,6 +722,7 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		t.allGoroutineFilterLabels = make([][]string, len(t.Goroutines))
 
 		for seqID, g := range t.Goroutines {
+			// Populate goroutine span labels
 			var spanLabels []string
 			if g.Function != "" {
 				short := shortenFunctionName(g.Function)
@@ -737,9 +738,19 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 				spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
 			}
 			t.allGoroutineSpanLabels[seqID] = spanLabels
-		}
 
-		// XXX do filter labels, too
+			// Populate goroutine filter filterLabels
+			filterLabels := []string{
+				strconv.FormatUint(g.ID, 10),
+				local.Sprintf("%d", g.ID),
+				fmt.Sprintf("g%d", g.ID),
+				local.Sprintf("g%d", g.ID),
+				g.Function,
+				strings.ToLower(g.Function),
+				"goroutine", // allow queries like "goroutine 1234" to work
+			}
+			t.allGoroutineFilterLabels[g.SeqID] = filterLabels
+		}
 	}
 	if len(t.Processors) > 0 {
 		t.allProcessorSpanLabels = make([][]string, len(t.Processors))
@@ -747,6 +758,15 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 
 		for seqID, p := range t.Processors {
 			t.allProcessorSpanLabels[seqID] = append(t.allProcessorSpanLabels[seqID], local.Sprintf("p%d", p.ID))
+
+			filterLabels := []string{
+				strconv.FormatInt(int64(p.ID), 10),
+				local.Sprintf("%d", p.ID),
+				fmt.Sprintf("p%d", p.ID),
+				local.Sprintf("p%d", p.ID),
+				"processor", // allow queries like "processor 1234" to work
+			}
+			t.allProcessorFilterLabels[p.SeqID] = filterLabels
 		}
 
 		// XXX do filter labels, too
