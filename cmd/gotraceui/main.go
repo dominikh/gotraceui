@@ -1164,15 +1164,3 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 		}
 	})
 }
-
-func fromUint40(n *[5]byte) int {
-	if *n == ([5]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}) {
-		return -1
-	}
-
-	return int(uint64(n[0]) |
-		uint64(n[1])<<8 |
-		uint64(n[2])<<16 |
-		uint64(n[3])<<24 |
-		uint64(n[4])<<32)
-}

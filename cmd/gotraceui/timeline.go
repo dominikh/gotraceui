@@ -1368,7 +1368,7 @@ func unblockedByGoroutine(tr *Trace, s *ptrace.Span) (uint64, bool) {
 	switch s.State {
 	case ptrace.StateBlocked, ptrace.StateBlockedSend, ptrace.StateBlockedRecv, ptrace.StateBlockedSelect, ptrace.StateBlockedSync,
 		ptrace.StateBlockedSyncOnce, ptrace.StateBlockedSyncTriggeringGC, ptrace.StateBlockedCond, ptrace.StateBlockedNet, ptrace.StateBlockedGC:
-		if link := ptrace.EventID(fromUint40(&ev.Link)); link != ^ptrace.EventID(0) {
+		if link := ptrace.EventID(ev.Link); link != -1 {
 			// g0 unblocks goroutines that are blocked on pollable I/O, for example.
 			if g := tr.Event(link).G; g != 0 {
 				return g, true
@@ -1433,8 +1433,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += "GC mark assist"
 		case ptrace.StateGCSweep:
 			label += "GC sweep"
-			if link := fromUint40(&ev.Link); link != -1 {
-				l := tr.Events[link]
+			if ev.Link != -1 {
+				l := tr.Events[ev.Link]
 				label += local.Sprintf("\nSwept %d bytes, reclaimed %d bytes",
 					l.Args[trace.ArgGCSweepDoneSwept], l.Args[trace.ArgGCSweepDoneReclaimed])
 			}

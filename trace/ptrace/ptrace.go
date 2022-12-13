@@ -130,10 +130,9 @@ type Task struct {
 
 type Span struct {
 	// The Span type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
-	// collector won't have to scan any memory of our millions of events. It is currently 32 bytes large, with no padding.
+	// collector won't have to scan any memory of our millions of events.
 	//
-	// Instead of pointers, fields like pc and event_ are indices into slices. event_ is a uint40, allowing for a total
-	// of 1 trillion events, or 64 TiB worth of events. This size was chosen to eliminate padding.
+	// Instead of pointers, fields like PC and Event are indices into slices.
 
 	Start trace.Timestamp
 	End   trace.Timestamp
@@ -148,7 +147,8 @@ type Span struct {
 	State SchedulingState
 	Tags  SpanTags
 }
-type EventID uint64
+
+type EventID int
 
 func (g *Goroutine) computeStatistics() {
 	start := g.Spans.Start()
@@ -635,10 +635,9 @@ func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 			const regionStart = 0
 			gid := ev.G
 			if mode := ev.Args[trace.ArgUserRegionMode]; mode == regionStart {
-				endID := int(ev.Link[0]) | int(ev.Link[1])<<8 | int(ev.Link[2])<<16 | int(ev.Link[3])<<24 | int(ev.Link[4])<<32
 				var end trace.Timestamp
-				if endID != 0xFFFFFFFFFF {
-					end = res.Events[endID].Ts
+				if ev.Link != -1 {
+					end = res.Events[ev.Link].Ts
 				} else {
 					end = -1
 				}
