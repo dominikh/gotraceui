@@ -1741,6 +1741,13 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 }
 
 func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
+	if !tr.HasCPUSamples {
+		// Don't create sample tracks for traces that don't contain any CPU samples. We need to bail out explicitly
+		// because we also create sampling track spans for some other events, but those are only useful when CPU
+		// sampling was enabled.
+		return
+	}
+
 	cv := tw.cv
 
 	var sampleTracks []Track
