@@ -148,7 +148,7 @@ type Span struct {
 	Tags  SpanTags
 }
 
-type EventID int
+type EventID int32
 
 func (g *Goroutine) computeStatistics() {
 	start := g.Spans.Start()

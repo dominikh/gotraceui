@@ -10,6 +10,8 @@ import (
 	"sort"
 )
 
+var ErrTooManyEvents = fmt.Errorf("trace contains more than %d events", math.MaxInt32)
+
 type Timestamp int64
 
 // Event describes one event in the trace.
@@ -38,7 +40,7 @@ type Event struct {
 	// for GCMarkAssistStart: the associated GCMarkAssistDone
 	// for UserTaskCreate: the UserTaskEnd
 	// for UserRegion: if the start region, the corresponding UserRegion end event
-	Link int
+	Link int32
 	Type byte // one of Ev*
 }
 
@@ -301,7 +303,6 @@ type proc struct {
 // This approach ensures that we form a consistent stream even if timestamps are
 // incorrect (condition observed on some machines).
 func (p *Parser) parseRest() ([]Event, error) {
-
 	// The ordering of CPU profile sample events in the data stream is based on
 	// when each run of the signal handler was able to acquire the spinlock,
 	// with original timestamps corresponding to when ReadTrace pulled the data
@@ -309,17 +310,21 @@ func (p *Parser) parseRest() ([]Event, error) {
 	// inside the signal handler.
 	sort.Sort((*eventList)(&p.cpuSamples))
 
-	totalEvents := 0
+	var totalEvents uint64
 	allProcs := make([]proc, 0, len(p.pStates))
 	for m, pState := range p.pStates {
 		allProcs = append(allProcs, proc{pid: m})
 
 		for _, b := range pState.batches {
-			totalEvents += b.numEvents
+			totalEvents += uint64(b.numEvents)
 		}
 	}
 	allProcs = append(allProcs, proc{pid: ProfileP, events: p.cpuSamples})
-	totalEvents += len(p.cpuSamples)
+	totalEvents += uint64(len(p.cpuSamples))
+
+	if totalEvents > math.MaxInt32 {
+		return nil, ErrTooManyEvents
+	}
 
 	events := make([]Event, 0, totalEvents)
 
@@ -1042,7 +1047,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			if evGC == nil {
 				return fmt.Errorf("bogus GC end (time %d)", ev.Ts)
 			}
-			evGC.Link = evIdx
+			evGC.Link = int32(evIdx)
 			evGC = nil
 		case EvGCSTWStart:
 			evp := &evSTW
@@ -1055,7 +1060,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			if *evp == nil {
 				return fmt.Errorf("bogus STW end (time %d)", ev.Ts)
 			}
-			(*evp).Link = evIdx
+			(*evp).Link = int32(evIdx)
 			*evp = nil
 		case EvGCSweepStart:
 			p := ps[ev.P]
@@ -1078,7 +1083,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			// goroutine starts tracing, so we can't report an error here.
 			g := gs[ev.G]
 			if g.evMarkAssist != nil {
-				g.evMarkAssist.Link = evIdx
+				g.evMarkAssist.Link = int32(evIdx)
 				g.evMarkAssist = nil
 			}
 
@@ -1088,7 +1093,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			if p.evSweep == nil {
 				return fmt.Errorf("bogus sweeping end (time %d)", ev.Ts)
 			}
-			p.evSweep.Link = evIdx
+			p.evSweep.Link = int32(evIdx)
 			p.evSweep = nil
 
 			ps[ev.P] = p
@@ -1139,7 +1144,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			}
 
 			if g.ev != nil {
-				g.ev.Link = evIdx
+				g.ev.Link = int32(evIdx)
 				g.ev = nil
 			}
 
@@ -1151,7 +1156,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			if err := checkRunning(p, g, ev, false); err != nil {
 				return err
 			}
-			g.evStart.Link = evIdx
+			g.evStart.Link = int32(evIdx)
 			g.evStart = nil
 			g.state = gDead
 			p.g = 0
@@ -1159,7 +1164,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			if ev.Type == EvGoEnd { // flush all active regions
 				regions := activeRegions[ev.G]
 				for _, s := range regions {
-					s.Link = evIdx
+					s.Link = int32(evIdx)
 				}
 				delete(activeRegions, ev.G)
 			}
@@ -1173,7 +1178,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 				return err
 			}
 			g.state = gRunnable
-			g.evStart.Link = evIdx
+			g.evStart.Link = int32(evIdx)
 			g.evStart = nil
 			p.g = 0
 			g.ev = ev
@@ -1197,7 +1202,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 				ev.P = NetpollP
 			}
 			if g1.ev != nil {
-				g1.ev.Link = evIdx
+				g1.ev.Link = int32(evIdx)
 			}
 			g1.state = gRunnable
 			g1.ev = ev
@@ -1219,7 +1224,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 				return err
 			}
 			g.state = gWaiting
-			g.evStart.Link = evIdx
+			g.evStart.Link = int32(evIdx)
 			g.evStart = nil
 			p.g = 0
 
@@ -1231,7 +1236,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 				return fmt.Errorf("g %d is not waiting during syscall exit (time %d)", ev.G, ev.Ts)
 			}
 			if g.ev != nil && g.ev.Type == EvGoSysCall {
-				g.ev.Link = evIdx
+				g.ev.Link = int32(evIdx)
 			}
 			g.state = gRunnable
 			g.ev = ev
@@ -1246,7 +1251,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			}
 			g.state = gWaiting
 			g.ev = ev
-			g.evStart.Link = evIdx
+			g.evStart.Link = int32(evIdx)
 			g.evStart = nil
 			p.g = 0
 
@@ -1262,7 +1267,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 		case EvUserTaskEnd:
 			taskid := ev.Args[0]
 			if taskCreateEv, ok := tasks[taskid]; ok {
-				taskCreateEv.Link = evIdx
+				taskCreateEv.Link = int32(evIdx)
 				delete(tasks, taskid)
 			}
 
@@ -1279,7 +1284,7 @@ func (p *Parser) postProcessTrace(events []Event) error {
 						return fmt.Errorf("misuse of region in goroutine %d: span end %q when the inner-most active span start event is %q", ev.G, ev, s)
 					}
 					// Link region start event with span end event
-					s.Link = evIdx
+					s.Link = int32(evIdx)
 
 					if n > 1 {
 						activeRegions[ev.G] = regions[:n-1]
