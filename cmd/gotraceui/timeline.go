@@ -1684,7 +1684,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 							if len(spans) != 1 {
 								return out
 							}
-							f := tr.PCs[spans[0].PC]
+							f := tr.PCs[tr.getSpanPC(spans[0].SeqID)]
 
 							short := shortenFunctionName(f.Fn)
 
@@ -1704,7 +1704,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
 							if len(state.spans) == 1 {
-								f := tr.PCs[state.spans[0].PC]
+								f := tr.PCs[tr.getSpanPC(state.spans[0].SeqID)]
 								label = local.Sprintf("Sampled function: %s\n", f.Fn)
 								// TODO(dh): for truncated stacks we should display a relative depth instead
 								label += local.Sprintf("Call depth: %d\n", i-sampledTrackBase)
@@ -1868,10 +1868,11 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					span := ptrace.Span{
 						Start: ev.Ts,
 						End:   end,
-						PC:    stk[len(stk)-i-1],
 						Event: evID,
 						State: ptrace.StateCPUSample,
+						SeqID: tr.NextSpanID(),
 					}
+					tr.setSpanPC(span.SeqID, stk[len(stk)-i-1])
 					spans = append(spans, span)
 					sampleTracks[i].spans = spans
 					prevFns[i] = fn
@@ -1881,10 +1882,11 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 				span := ptrace.Span{
 					Start: ev.Ts,
 					End:   end,
-					PC:    stk[len(stk)-i-1],
 					Event: evID,
 					State: ptrace.StateCPUSample,
+					SeqID: tr.NextSpanID(),
 				}
+				tr.setSpanPC(span.SeqID, stk[len(stk)-i-1])
 				spans = append(spans, span)
 				sampleTracks[i].spans = spans
 				prevFns[i] = cv.trace.PCs[stk[len(stk)-i-1]].Fn
