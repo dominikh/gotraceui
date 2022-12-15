@@ -50,7 +50,7 @@ const (
 //
 // If the UtilPerProc flag is not given, this always returns a single
 // utilization function. Otherwise, it returns one function per P.
-func MutatorUtilization(events []Event, res ParseResult, flags UtilFlags) [][]MutatorUtil {
+func MutatorUtilization(events []Event, res Trace, flags UtilFlags) [][]MutatorUtil {
 	if len(events) == 0 {
 		return nil
 	}

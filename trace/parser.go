@@ -64,8 +64,8 @@ const (
 
 const headerLength = 16
 
-// ParseResult is the result of Parse.
-type ParseResult struct {
+// Trace is the result of Parse.
+type Trace struct {
 	// Events is the sorted list of Events in the trace.
 	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
@@ -182,16 +182,16 @@ func NewParser(r io.Reader) (*Parser, error) {
 	return &Parser{data: buf}, nil
 }
 
-func Parse(r io.Reader, progress func(float64)) (ParseResult, error) {
+func Parse(r io.Reader, progress func(float64)) (Trace, error) {
 	p, err := NewParser(r)
 	if err != nil {
-		return ParseResult{}, err
+		return Trace{}, err
 	}
 	p.progress = progress
 	return p.Parse()
 }
 
-func (p *Parser) Parse() (ParseResult, error) {
+func (p *Parser) Parse() (Trace, error) {
 	_, res, err := p.parse()
 	p.data = nil
 	return res, err
@@ -199,7 +199,7 @@ func (p *Parser) Parse() (ParseResult, error) {
 
 // parse parses, post-processes and verifies the trace. It returns the
 // trace version and the list of events.
-func (p *Parser) parse() (int, ParseResult, error) {
+func (p *Parser) parse() (int, Trace, error) {
 	p.strings = make(map[uint64]string)
 	p.pStates = make(map[int32]*pState)
 	p.stacks = make(map[uint32][]uint64)
@@ -208,22 +208,22 @@ func (p *Parser) parse() (int, ParseResult, error) {
 
 	ver, err := p.readHeader()
 	if err != nil {
-		return 0, ParseResult{}, err
+		return 0, Trace{}, err
 	}
 
 	p.ver = ver
 
 	if err := p.indexAndPartiallyParse(); err != nil {
-		return 0, ParseResult{}, err
+		return 0, Trace{}, err
 	}
 
 	events, err := p.parseRest()
 	if err != nil {
-		return 0, ParseResult{}, err
+		return 0, Trace{}, err
 	}
 
 	if p.ticksPerSec == 0 {
-		return 0, ParseResult{}, errors.New("no EvFrequency event")
+		return 0, Trace{}, errors.New("no EvFrequency event")
 	}
 
 	if len(events) > 0 {
@@ -245,10 +245,10 @@ func (p *Parser) parse() (int, ParseResult, error) {
 	}
 
 	if err := p.postProcessTrace(events); err != nil {
-		return 0, ParseResult{}, err
+		return 0, Trace{}, err
 	}
 
-	res := ParseResult{
+	res := Trace{
 		Events:  events,
 		Stacks:  p.stacks,
 		Strings: p.strings,

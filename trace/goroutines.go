@@ -151,7 +151,7 @@ type gdesc struct {
 }
 
 // GoroutineStats generates statistics for all goroutines in the trace.
-func GoroutineStats(events []*Event, res ParseResult) map[uint64]*GDesc {
+func GoroutineStats(events []*Event, res Trace) map[uint64]*GDesc {
 	gs := make(map[uint64]*GDesc)
 	var lastTs Timestamp
 	var gcStartTime Timestamp // gcStartTime == 0 indicates gc is inactive.

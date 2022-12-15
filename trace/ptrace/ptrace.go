@@ -78,7 +78,7 @@ type Trace struct {
 
 	lastSpanID atomic.Int32
 
-	trace.ParseResult
+	trace.Trace
 }
 
 type Statistics [StateLast]Statistic
@@ -242,12 +242,12 @@ func (g *Goroutine) computeStatistics() {
 	}
 }
 
-func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
+func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 	tr := &Trace{
-		ParseResult: res,
-		Functions:   map[string]*Function{},
-		gsByID:      map[uint64]*Goroutine{},
-		CPUSamples:  map[uint64][]EventID{},
+		Trace:      res,
+		Functions:  map[string]*Function{},
+		gsByID:     map[uint64]*Goroutine{},
+		CPUSamples: map[uint64][]EventID{},
 	}
 
 	var evTypeToState = [...]SchedulingState{
