@@ -66,6 +66,7 @@ type Trace struct {
 	Goroutines []*Goroutine
 	Processors []*Processor
 	Machines   []*Machine
+	Functions  map[string]*Function
 	GC         Spans
 	STW        Spans
 	Tasks      []*Task
@@ -80,11 +81,22 @@ type Trace struct {
 	trace.ParseResult
 }
 
+type Function struct {
+	Name string
+	// Sequential ID of function in the trace
+	SeqID      int
+	Goroutines []*Goroutine
+}
+
+func (fn Function) String() string {
+	return fn.Name
+}
+
 type Goroutine struct {
 	ID uint64
 	// Sequential ID of goroutine in the trace
 	SeqID       int
-	Function    string
+	Function    *Function
 	Spans       Spans
 	UserRegions []Spans
 	Events      []EventID
@@ -231,6 +243,7 @@ func (g *Goroutine) computeStatistics() {
 func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 	tr := &Trace{
 		ParseResult: res,
+		Functions:   map[string]*Function{},
 		gsByID:      map[uint64]*Goroutine{},
 		CPUSamples:  map[uint64][]EventID{},
 	}
@@ -367,7 +380,10 @@ func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 			if stkID := ev.Args[trace.ArgGoCreateStack]; stkID != 0 {
 				stack := res.Stacks[uint32(stkID)]
 				if len(stack) != 0 {
-					getG(gid).Function = res.PCs[stack[0]].Fn
+					f := tr.function(res.PCs[stack[0]].Fn)
+					g := getG(gid)
+					f.Goroutines = append(f.Goroutines, g)
+					g.Function = f
 				}
 			}
 			// FIXME(dh): when tracing starts after goroutines have already been created then we receive an EvGoCreate
@@ -443,7 +459,7 @@ func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 			state = evTypeToState[ev.Type]
 
 			if ev.Type == trace.EvGoBlock {
-				if blockedIsInactive(tr.gsByID[gid].Function) {
+				if blockedIsInactive(tr.gsByID[gid].Function.Name) {
 					state = StateInactive
 				}
 			}
@@ -451,7 +467,7 @@ func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 			// ev.G is blocked when tracing starts
 			gid = ev.G
 			state = StateBlocked
-			if blockedIsInactive(tr.gsByID[gid].Function) {
+			if blockedIsInactive(tr.gsByID[gid].Function.Name) {
 				state = StateInactive
 			}
 		case trace.EvGoUnblock:
@@ -731,6 +747,12 @@ func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 		}
 	}
 
+	for _, f := range tr.Functions {
+		slices.SortFunc(f.Goroutines, func(a, b *Goroutine) bool {
+			return a.SeqID < b.SeqID
+		})
+	}
+
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
 	var wg sync.WaitGroup
 	for _, g := range tr.gsByID {
@@ -856,6 +878,19 @@ func Parse(res trace.ParseResult, progress func(float64)) (*Trace, error) {
 	}
 
 	return tr, nil
+}
+
+func (t *Trace) function(name string) *Function {
+	f, ok := t.Functions[name]
+	if ok {
+		return f
+	}
+	f = &Function{
+		Name:  name,
+		SeqID: len(t.Functions),
+	}
+	t.Functions[name] = f
+	return f
 }
 
 func (t *Trace) MaxSpanID() int32 {

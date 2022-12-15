@@ -1074,7 +1074,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 							do := func(s ptrace.Span, tr *Trace) colorIndex {
 								gid := tr.Events[s.Event].G
 								g := tr.G(gid)
-								switch fn := g.Function; fn {
+								switch fn := g.Function.Name; fn {
 								case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
 									return colorStateGC
 								default:
@@ -1230,7 +1230,7 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 						do := func(s ptrace.Span, tr *Trace) colorIndex {
 							gid := tr.Events[s.Event].G
 							g := tr.G(gid)
-							switch fn := g.Function; fn {
+							switch fn := g.Function.Name; fn {
 							case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
 								return colorStateGC
 							default:
@@ -1329,8 +1329,8 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 
 	var fnName string
 	line1 := "Goroutine %[1]d\n\n"
-	if tt.g.Function != "" {
-		fnName = tt.g.Function
+	if tt.g.Function.Name != "" {
+		fnName = tt.g.Function.Name
 		line1 = "Goroutine %[1]d: %[2]s\n\n"
 	}
 	l := local.Sprintf(line1+
@@ -1588,8 +1588,8 @@ var spanStateLabels = [...][]string{
 
 func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 	var l string
-	if g.Function != "" {
-		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
+	if g.Function.Name != "" {
+		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function.Name)
 	} else {
 		l = local.Sprintf("goroutine %d", g.ID)
 	}
