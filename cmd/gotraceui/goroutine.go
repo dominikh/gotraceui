@@ -86,7 +86,7 @@ func (gwin *GoroutineWindow) Run(win *app.Window) error {
 		txt.Span(local.Sprintf("%d\n", gwin.g.ID))
 
 		txt.Bold("Function: ")
-		txt.Span(fmt.Sprintf("%s\n", gwin.g.Function.Name))
+		txt.Span(fmt.Sprintf("%s\n", gwin.g.Function.Fn))
 
 		txt.Bold("Created at: ")
 		txt.Link(

@@ -123,14 +123,14 @@ type Statistic struct {
 }
 
 type Function struct {
-	Name string
+	trace.Frame
 	// Sequential ID of function in the trace
 	SeqID      int
 	Goroutines []*Goroutine
 }
 
 func (fn Function) String() string {
-	return fn.Name
+	return fn.Fn
 }
 
 type Goroutine struct {
@@ -382,7 +382,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			if stkID := ev.Args[trace.ArgGoCreateStack]; stkID != 0 {
 				stack := res.Stacks[uint32(stkID)]
 				if len(stack) != 0 {
-					f := tr.function(res.PCs[stack[0]].Fn)
+					f := tr.function(res.PCs[stack[0]])
 					g := getG(gid)
 					f.Goroutines = append(f.Goroutines, g)
 					g.Function = f
@@ -461,7 +461,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			state = evTypeToState[ev.Type]
 
 			if ev.Type == trace.EvGoBlock {
-				if blockedIsInactive(tr.gsByID[gid].Function.Name) {
+				if blockedIsInactive(tr.gsByID[gid].Function.Fn) {
 					state = StateInactive
 				}
 			}
@@ -469,7 +469,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			// ev.G is blocked when tracing starts
 			gid = ev.G
 			state = StateBlocked
-			if blockedIsInactive(tr.gsByID[gid].Function.Name) {
+			if blockedIsInactive(tr.gsByID[gid].Function.Fn) {
 				state = StateInactive
 			}
 		case trace.EvGoUnblock:
@@ -882,16 +882,16 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 	return tr, nil
 }
 
-func (t *Trace) function(name string) *Function {
-	f, ok := t.Functions[name]
+func (t *Trace) function(frame trace.Frame) *Function {
+	f, ok := t.Functions[frame.Fn]
 	if ok {
 		return f
 	}
 	f = &Function{
-		Name:  name,
+		Frame: frame,
 		SeqID: len(t.Functions),
 	}
-	t.Functions[name] = f
+	t.Functions[frame.Fn] = f
 	return f
 }
 

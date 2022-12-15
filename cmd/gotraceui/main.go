@@ -123,7 +123,7 @@ func (w *MainWindow) openGoroutineWindow(g *ptrace.Goroutine) {
 		w.goroutineWindows[g.ID] = win
 		// XXX computing the label is duplicated with rendering the timeline widget
 		var l string
-		if g.Function.Name != "" {
+		if g.Function.Fn != "" {
 			l = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
 		} else {
 			l = local.Sprintf("goroutine %d", g.ID)
@@ -580,7 +580,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 										}
 										for _, g := range w.trace.Goroutines {
 											var label string
-											if g.Function.Name == "" {
+											if g.Function.Fn == "" {
 												// At least GCSweepStart can happen on g0
 												label = local.Sprintf("goroutine %d", g.ID)
 											} else {
@@ -724,10 +724,10 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		for seqID, g := range t.Goroutines {
 			// Populate goroutine span labels
 			var spanLabels []string
-			if g.Function.Name != "" {
-				short := shortenFunctionName(g.Function.Name)
+			if g.Function.Fn != "" {
+				short := shortenFunctionName(g.Function.Fn)
 				spanLabels = append(spanLabels, local.Sprintf("g%d: %s", g.ID, g.Function))
-				if short != g.Function.Name {
+				if short != g.Function.Fn {
 					spanLabels = append(spanLabels, local.Sprintf("g%d: .%s", g.ID, short))
 					spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
 				} else {
@@ -745,8 +745,8 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 				local.Sprintf("%d", g.ID),
 				fmt.Sprintf("g%d", g.ID),
 				local.Sprintf("g%d", g.ID),
-				g.Function.Name,
-				strings.ToLower(g.Function.Name),
+				g.Function.Fn,
+				strings.ToLower(g.Function.Fn),
 				"goroutine", // allow queries like "goroutine 1234" to work
 			}
 			t.allGoroutineFilterLabels[g.SeqID] = filterLabels
