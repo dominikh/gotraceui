@@ -7,7 +7,7 @@ the P that's blocked in the syscall, we'll not see any other events. This is a f
 scheduling, allowing the goroutine to resume immediately after the syscall returns, having retained its P and M.
 
 If sysmon does find the P, it retakes the P from the M and the runtime emits GoSysBlock, followed by ProcStop. When a
-blocking syscall returns, we get a EvGoSysExit event. The EvGoSysExit event gets emitted right before the G resumes
+blocking syscall returns, we get an EvGoSysExit event. The EvGoSysExit event gets emitted right before the G resumes
 running. However, to maintain accurate timing, the event carries the original timestamp of when the syscall returned,
 and the trace parser uses this to reorder the event. However, the fact that a G emits EvGoSysExit means that we'll
 also see an EvProcStart before the EvGoSysExit, in preparation for the GoStart that will follow after EvGoSysExit.
@@ -16,7 +16,7 @@ case, we'll have to adjust some start and end times, so that the EvProcStart and
 Concretely, the syscall span has to finish before the P span starts.
 
 One implication of sysmon detecting blocked syscalls is that the duration between EvGoSysCall and EvGoSysBlock should
-be attributes to the syscall, too. This is the time between starting the syscall and Go figuring out that it's
+be attributed to the syscall, too. This is the time between starting the syscall and Go figuring out that it's
 blocking. However, for Ps, it very much matters if the syscall hasn't been detected as blocking yet. If it hasn't,
 the P isn't available for scheduling other Gs; this constitutes a form of latency. Because of that, we shouldn't
 simply extend the "blocked syscall" span to include the EvGoSysCall, but it might make sense to display the interval
@@ -25,7 +25,7 @@ between the two as its own state.
 Sysmon runs at most every 20 μs, but it will run considerably less often if it thinks there's nothing to do, up to 10
 ms. In testing, even in busy programs (with GOMAXPROCS restricted to low values), sysmon sometimes decides to sleep
 for 5 ms. A loop calling syscall.Nanosleep, sleeping 10 ms each time, will have EvGoSysBlock spans that last from ~10
-ms to 5 ms, with the other 5 ms being the time between EvGoSysCall and EvGoSysExit.
+ms to 5 ms, with the other 5 ms being the time between EvGoSysCall and EvGoSysBlock.
 
 Another issue is that when a syscall returns fast enough we'll not be provided with information on how long the
 syscall took. In the worst case, a fast syscall could've run for 10 ms, and to us it'll look like 10 ms of user code.
