@@ -81,6 +81,47 @@ type Trace struct {
 	trace.ParseResult
 }
 
+type Statistics [StateLast]Statistic
+
+func (stat *Statistics) Blocked() time.Duration {
+	return stat[StateBlocked].Total +
+		stat[StateBlockedSend].Total +
+		stat[StateBlockedRecv].Total +
+		stat[StateBlockedSelect].Total +
+		stat[StateBlockedSync].Total +
+		stat[StateBlockedSyncOnce].Total +
+		stat[StateBlockedSyncTriggeringGC].Total +
+		stat[StateBlockedCond].Total +
+		stat[StateBlockedNet].Total +
+		stat[StateBlockedGC].Total +
+		stat[StateBlockedSyscall].Total +
+		stat[StateStuck].Total
+}
+
+func (stat *Statistics) Running() time.Duration {
+	return stat[StateActive].Total +
+		stat[StateGCDedicated].Total +
+		stat[StateGCIdle].Total
+}
+
+func (stat *Statistics) Inactive() time.Duration {
+	return stat[StateInactive].Total +
+		stat[StateReady].Total +
+		stat[StateCreated].Total
+
+}
+
+func (stat *Statistics) GCAssist() time.Duration {
+	return stat[StateGCMarkAssist].Total +
+		stat[StateGCSweep].Total
+}
+
+type Statistic struct {
+	Count           int
+	Min, Max, Total time.Duration
+	Average, Median float64
+}
+
 type Function struct {
 	Name string
 	// Sequential ID of function in the trace
@@ -101,10 +142,7 @@ type Goroutine struct {
 	UserRegions []Spans
 	Events      []EventID
 
-	Statistics struct {
-		Blocked, Inactive, Running, GCAssist             time.Duration
-		BlockedPct, InactivePct, RunningPct, GCAssistPct float32
-	}
+	Statistics Statistics
 }
 
 type Machine struct {
@@ -165,78 +203,42 @@ type Span struct {
 type EventID int32
 
 func (g *Goroutine) computeStatistics() {
-	start := g.Spans.Start()
-	end := g.Spans.End()
-	d := time.Duration(end - start)
+	var values [StateLast][]time.Duration
 
-	var blocked, inactive, running, gcAssist time.Duration
 	for i := range g.Spans {
 		s := &g.Spans[i]
+		stat := &g.Statistics[s.State]
+		stat.Count++
 		d := s.Duration()
-		switch s.State {
-		case StateInactive:
-			inactive += d
-		case StateActive, StateGCDedicated, StateGCIdle:
-			running += d
-		case StateBlocked:
-			blocked += d
-		case StateBlockedSend:
-			blocked += d
-		case StateBlockedRecv:
-			blocked += d
-		case StateBlockedSelect:
-			blocked += d
-		case StateBlockedSync:
-			blocked += d
-		case StateBlockedSyncOnce:
-			blocked += d
-		case StateBlockedSyncTriggeringGC:
-			blocked += d
-		case StateBlockedCond:
-			blocked += d
-		case StateBlockedNet:
-			blocked += d
-		case StateBlockedGC:
-			blocked += d
-		case StateBlockedSyscall:
-			blocked += d
-		case StateStuck:
-			blocked += d
-		case StateReady:
-			inactive += d
-		case StateCreated:
-			inactive += d
-		case StateGCMarkAssist:
-			gcAssist += d
-		case StateGCSweep:
-			gcAssist += d
-		case StateDone:
-		default:
-			if debug {
-				panic(fmt.Sprintf("unknown state %d", s.State))
-			}
+		if d > stat.Max {
+			stat.Max = d
 		}
+		if d < stat.Min || stat.Min == 0 {
+			stat.Min = d
+		}
+		stat.Total += d
+		values[s.State] = append(values[s.State], d)
 	}
 
-	g.Statistics = struct {
-		Blocked     time.Duration
-		Inactive    time.Duration
-		Running     time.Duration
-		GCAssist    time.Duration
-		BlockedPct  float32
-		InactivePct float32
-		RunningPct  float32
-		GCAssistPct float32
-	}{
-		Blocked:  blocked,
-		Inactive: inactive,
-		Running:  running,
-		GCAssist: gcAssist,
+	for state := range g.Statistics {
+		stat := &g.Statistics[state]
 
-		BlockedPct:  float32(blocked) / float32(d) * 100,
-		InactivePct: float32(inactive) / float32(d) * 100,
-		RunningPct:  float32(running) / float32(d) * 100,
-		GCAssistPct: float32(gcAssist) / float32(d) * 100,
+		if len(values[state]) == 0 {
+			continue
+		}
+
+		stat.Average = float64(stat.Total) / float64(len(values[state]))
+
+		sort.Slice(values[state], func(i, j int) bool {
+			return values[state][i] < values[state][j]
+		})
+
+		if len(values[state])%2 == 0 {
+			mid := len(values[state]) / 2
+			stat.Median = float64(values[state][mid]+values[state][mid-1]) / 2
+		} else {
+			stat.Median = float64(values[state][len(values[state])/2])
+		}
 	}
 }
 

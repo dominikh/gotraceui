@@ -31,7 +31,7 @@ import (
 )
 
 type GoroutineStats struct {
-	stats [ptrace.StateLast]GoroutineStat
+	stats *ptrace.Statistics
 	// mapping maps from indices of displayed statistics to indices in the stats field
 	mapping []int
 
@@ -242,58 +242,15 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateGCSweep:                 "GC (sweep assist)",
 }
 
-type GoroutineStat struct {
-	count           int
-	min, max, total time.Duration
-	avg, p50        float32
-	values          []time.Duration
-}
-
 func NewGoroutineStats(g *ptrace.Goroutine) *GoroutineStats {
-	gst := &GoroutineStats{}
-
-	for i := range g.Spans {
-		s := &g.Spans[i]
-		stat := &gst.stats[s.State]
-		stat.count++
-		d := s.Duration()
-		if d > stat.max {
-			stat.max = d
-		}
-		if d < stat.min || stat.min == 0 {
-			stat.min = d
-		}
-		stat.total += d
-		stat.values = append(stat.values, d)
-	}
-
-	for state := range gst.stats {
-		stat := &gst.stats[state]
-
-		if len(stat.values) == 0 {
-			continue
-		}
-
-		stat.avg = float32(stat.total) / float32(len(stat.values))
-
-		sort.Slice(stat.values, func(i, j int) bool {
-			return stat.values[i] < stat.values[j]
-		})
-
-		if len(stat.values)%2 == 0 {
-			mid := len(stat.values) / 2
-			stat.p50 = float32(stat.values[mid]+stat.values[mid-1]) / 2
-		} else {
-			stat.p50 = float32(stat.values[len(stat.values)/2])
-		}
-	}
+	gst := &GoroutineStats{stats: &g.Statistics}
 
 	gst.mapping = make([]int, 0, len(gst.stats))
 
 	for i := range gst.stats {
 		s := &gst.stats[i]
 
-		if len(s.values) == 0 {
+		if s.Count == 0 {
 			continue
 		}
 
@@ -345,8 +302,8 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	size = shape(statLabels[gs.numberFormat][1+numStatLabels], fLabel)
 	max := 0
 	for _, stat := range gs.stats {
-		if stat.count > max {
-			max = stat.count
+		if stat.Count > max {
+			max = stat.Count
 		}
 	}
 	size2 := shape(local.Sprintf("%d", max), fContent)
@@ -383,15 +340,15 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 				var v time.Duration
 				switch i {
 				case 2:
-					v = stat.total
+					v = stat.Total
 				case 3:
-					v = stat.min
+					v = stat.Min
 				case 4:
-					v = stat.max
+					v = stat.Max
 				case 5:
-					v = time.Duration(stat.avg)
+					v = time.Duration(stat.Average)
 				case 6:
-					v = time.Duration(stat.p50)
+					v = time.Duration(stat.Median)
 				default:
 					panic("unreachable")
 				}
@@ -406,7 +363,7 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	return columnSizes
 }
 
-func sortStats[T constraints.Ordered](stats *[ptrace.StateLast]GoroutineStat, mapping []int, descending bool, get func(*GoroutineStat) T) {
+func sortStats[T constraints.Ordered](stats *ptrace.Statistics, mapping []int, descending bool, get func(*ptrace.Statistic) T) {
 	if descending {
 		slices.SortFunc(mapping, func(i, j int) bool {
 			return get(&stats[i]) >= get(&stats[j])
@@ -433,22 +390,22 @@ func (gs *GoroutineStats) sort() {
 		}
 	case 1:
 		// Count
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) int { return gs.count })
+		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) int { return gs.Count })
 	case 2:
 		// Total
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.total })
+		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Total })
 	case 3:
 		// Min
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.min })
+		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Min })
 	case 4:
 		// Max
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) time.Duration { return gs.max })
+		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Max })
 	case 5:
 		// Avg
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.avg })
+		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Average })
 	case 6:
 		// p50
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *GoroutineStat) float32 { return gs.p50 })
+		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Median })
 	default:
 		panic("unreachable")
 	}
@@ -544,25 +501,25 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 				// type
 				l = stateNamesCapitalized[n]
 			case 1:
-				l = local.Sprintf("%d", gs.stats[n].count)
-				if gs.stats[n].count == 0 {
+				l = local.Sprintf("%d", gs.stats[n].Count)
+				if gs.stats[n].Count == 0 {
 					panic(row)
 				}
 			case 2:
 				// total
-				l = gs.numberFormat.format(gs.stats[n].total)
+				l = gs.numberFormat.format(gs.stats[n].Total)
 			case 3:
 				// min
-				l = gs.numberFormat.format(gs.stats[n].min)
+				l = gs.numberFormat.format(gs.stats[n].Min)
 			case 4:
 				// max
-				l = gs.numberFormat.format(gs.stats[n].max)
+				l = gs.numberFormat.format(gs.stats[n].Max)
 			case 5:
 				// avg
-				l = gs.numberFormat.format(time.Duration(gs.stats[n].avg))
+				l = gs.numberFormat.format(time.Duration(gs.stats[n].Average))
 			case 6:
 				// p50
-				l = gs.numberFormat.format(time.Duration(gs.stats[n].p50))
+				l = gs.numberFormat.format(time.Duration(gs.stats[n].Median))
 			default:
 				panic("unreachable")
 			}

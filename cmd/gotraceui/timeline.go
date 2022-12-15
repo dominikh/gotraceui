@@ -1333,6 +1333,14 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		fnName = tt.g.Function.Name
 		line1 = "Goroutine %[1]d: %[2]s\n\n"
 	}
+	blocked := tt.g.Statistics.Blocked()
+	inactive := tt.g.Statistics.Inactive()
+	gcAssist := tt.g.Statistics.GCAssist()
+	running := tt.g.Statistics.Running()
+	blockedPct := float32(blocked) / float32(d) * 100
+	inactivePct := float32(inactive) / float32(d) * 100
+	gcAssistPct := float32(gcAssist) / float32(d) * 100
+	runningPct := float32(running) / float32(d) * 100
 	l := local.Sprintf(line1+
 		"Created at: %[3]s\n"+
 		"Returned at: %[4]s\n"+
@@ -1346,10 +1354,10 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		formatTimestamp(start),
 		formatTimestamp(end),
 		roundDuration(d),
-		roundDuration(tt.g.Statistics.Blocked), tt.g.Statistics.BlockedPct,
-		roundDuration(tt.g.Statistics.Inactive), tt.g.Statistics.InactivePct,
-		roundDuration(tt.g.Statistics.GCAssist), tt.g.Statistics.GCAssistPct,
-		roundDuration(tt.g.Statistics.Running), tt.g.Statistics.RunningPct,
+		roundDuration(blocked), blockedPct,
+		roundDuration(inactive), inactivePct,
+		roundDuration(gcAssist), gcAssistPct,
+		roundDuration(running), runningPct,
 		len(tt.g.Spans),
 	)
 
