@@ -1749,13 +1749,6 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 }
 
 func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
-	if !tr.HasCPUSamples {
-		// Don't create sample tracks for traces that don't contain any CPU samples. We need to bail out explicitly
-		// because we also create sampling track spans for some other events, but those are only useful when CPU
-		// sampling was enabled.
-		return
-	}
-
 	cv := tw.cv
 
 	var sampleTracks []Track
@@ -1813,23 +1806,45 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 		// We benefit from primarily two kinds of events (aside from CPU samples): Blocking events (sleeps, selects,
 		// I/O...) as these give us the most accurate stack trace right before a long period of inactivity, covering for
 		// a lack of samples during blockedness, and preemption, as an additional periodic event, similar to sampling.
-		switch ev.Type {
-		case trace.EvGoCreate:
-			// The stack is in the goroutine that created this one
-		case trace.EvGoUnblock:
-			// The stack is in the goroutine that unblocked this one
-		case trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvGCMarkAssistStart, trace.EvGCMarkAssistDone:
-			// These are very short-lived spans that would unfairly represent the time taken by allocations.
-		case trace.EvGoSysBlock:
-			// These are very short-lived spans that would unfairly represent the time taken by syscalls.
-		default:
-			stk = cv.trace.Stacks[ev.StkID]
+		if tr.HasCPUSamples {
+			// When we have CPU samples, we display stacks from samples as well as a subset of events, primarily
+			// blocking ones and preemption points. There are no gaps between stacks. A stack always continues until we
+			// get a new one. This gives us stack timelines that are ~never based on actual events, and instead are
+			// sampled (with increased detail at blocking points).
+			switch ev.Type {
+			case trace.EvGoCreate:
+				// The stack is in the goroutine that created this one
+			case trace.EvGoUnblock:
+				// The stack is in the goroutine that unblocked this one
+			case trace.EvGCSweepStart, trace.EvGCSweepDone, trace.EvGCMarkAssistStart, trace.EvGCMarkAssistDone:
+				// These are very short-lived spans that would unfairly represent the time taken by allocations.
+			case trace.EvGoSysBlock:
+				// These are very short-lived spans that would unfairly represent the time taken by syscalls.
+			default:
+				stk = cv.trace.Stacks[ev.StkID]
+			}
+		} else {
+			// When we don't have samples, we display stacks from all events, but events without stacks cause gaps to be
+			// created. This is essentially just a graphical representation of event stacks, without further
+			// interpretation by us and represents actual raw data.
+			switch ev.Type {
+			case trace.EvGoUnblock:
+				// The stack is in the goroutine that unblocked this one
+			case trace.EvGoStart:
+				// This event doesn't have a stack; display an artificial stack representing time spent on-CPU
+			default:
+				stk = cv.trace.Stacks[ev.StkID]
+			}
 		}
 		if stk == nil {
-			// Continue the previous stack trace if this event didn't contain a useful one. This happens both when we
-			// choose to ignore an event, and when an event intrinsically has no stack trace, such as most EvGoStart
-			// events.
-			stk = prevStk
+			if tr.HasCPUSamples {
+				// Continue the previous stack trace if this event didn't contain a useful one. This happens both when we
+				// choose to ignore an event, and when an event intrinsically has no stack trace, such as most EvGoStart
+				// events.
+				stk = prevStk
+			} else {
+				continue
+			}
 		}
 
 		if isSample {

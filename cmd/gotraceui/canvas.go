@@ -505,7 +505,6 @@ func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 
 func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Canvas.Layout").End()
-	tr := cv.trace
 
 	if cv.animateTo.animating {
 		// XXX animation really makes it obvious that our span merging algorithm is unstable
@@ -582,9 +581,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					}
 
 				case "S":
-					if tr.HasCPUSamples {
-						cv.ToggleSampleTracks()
-					}
+					cv.ToggleSampleTracks()
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModShortcut) {
