@@ -102,7 +102,7 @@ func Duration(spanSel SpanSelector) time.Duration {
 }
 
 type SpanSelector interface {
-	AllSpans() ptrace.Spans
+	Spans() ptrace.Spans
 	Size() int
 	Slice(start, end int) SpanSelector
 	At(index int) ptrace.Span
@@ -111,14 +111,15 @@ type SpanSelector interface {
 type spanSlice ptrace.Spans
 
 func SliceToSpanSelector(spans ptrace.Spans) SpanSelector { return spanSlice(spans) }
-func (spans spanSlice) AllSpans() ptrace.Spans            { return ptrace.Spans(spans) }
+
+func (spans spanSlice) Spans() ptrace.Spans               { return ptrace.Spans(spans) }
 func (spans spanSlice) Size() int                         { return len(spans) }
 func (spans spanSlice) Slice(start, end int) SpanSelector { return spans[start:end] }
 func (spans spanSlice) At(index int) ptrace.Span          { return spans[index] }
 
 type NoSpan struct{}
 
-func (NoSpan) AllSpans() ptrace.Spans            { return nil }
+func (NoSpan) Spans() ptrace.Spans               { return nil }
 func (NoSpan) Size() int                         { return 0 }
 func (NoSpan) Slice(start, end int) SpanSelector { return NoSpan{} }
 func (NoSpan) At(_ int) ptrace.Span              { panic("index out of bounds") }
@@ -375,7 +376,7 @@ func defaultSpanColor(spanSel SpanSelector) [2]colorIndex {
 	} else {
 		// OPT(dh): this would benefit from iterators, for span selectors backed by data that isn't already made of
 		// ptrace.Span
-		spans := spanSel.AllSpans()
+		spans := spanSel.Spans()
 		c := stateColors[spans[0].State]
 		for _, s := range spans[1:] {
 			cc := stateColors[s.State]
@@ -399,7 +400,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 	if offset >= it.spanSel.Size() {
 		return nil, 0, 0, false
 	}
-	spans := it.spanSel.AllSpans()
+	spans := it.spanSel.Spans()
 
 	nsPerPx := float32(it.cv.nsPerPx)
 	minSpanWidthD := time.Duration(math.Ceil(float64(gtx.Dp(minSpanWidthDp)) * float64(nsPerPx)))
@@ -651,7 +652,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 		var spanTooltipState SpanTooltipState
 		if cv.timeline.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
-			events := dspSpanSel.AllSpans().Events(track.events, tr.Trace)
+			events := dspSpanSel.Spans().Events(track.events, tr.Trace)
 
 			spanTooltipState = SpanTooltipState{
 				spanSel: dspSpanSel,
@@ -664,7 +665,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		if maxP.X-minP.X > dotRadiusX*2 && dspSpanSel.Size() == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpanSel.Slice(0, 1).AllSpans().Events(track.events, tr.Trace)
+			events := dspSpanSel.Slice(0, 1).Spans().Events(track.events, tr.Trace)
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(trackHeight) / 2
@@ -986,7 +987,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 								default:
 									return false
 								}
-								for _, span := range spanSel.AllSpans() {
+								for _, span := range spanSel.Spans() {
 									// OPT(dh): don't be O(n)
 									if span.State == ptrace.StateRunningP && tr.Event(span.Event).P == target {
 										return true
@@ -1084,7 +1085,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 								default:
 									return false
 								}
-								for _, span := range spanSel.AllSpans() {
+								for _, span := range spanSel.Spans() {
 									// OPT(dh): don't be O(n)
 									if tr.Event(span.Event).G == target {
 										return true
@@ -1116,7 +1117,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 							if spanSel.Size() == 1 {
 								return [2]colorIndex{do(spanSel.At(0), tr), 0}
 							} else {
-								spans := spanSel.AllSpans()
+								spans := spanSel.Spans()
 								c := do(spans[0], tr)
 								for _, s := range spans[1:] {
 									// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
@@ -1241,7 +1242,7 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 							default:
 								return false
 							}
-							for _, span := range spanSel.AllSpans() {
+							for _, span := range spanSel.Spans() {
 								// OPT(dh): don't be O(n)
 								if tr.Event(span.Event).G == target.g && (target.start == -1 || ((target.start < span.End) && (target.end >= span.Start))) {
 									return true
@@ -1274,7 +1275,7 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 						if spanSel.Size() == 1 {
 							return [2]colorIndex{do(spanSel.At(0), tr), 0}
 						} else {
-							spans := spanSel.AllSpans()
+							spans := spanSel.Spans()
 							c := do(spans[0], tr)
 							for _, s := range spans[1:] {
 								// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
@@ -1910,7 +1911,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 		for i := 0; i < len(stk); i++ {
 			var spans ptrace.Spans
 			if s := sampleTracks[i].spans; s != nil {
-				spans = s.AllSpans()
+				spans = s.Spans()
 			}
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]

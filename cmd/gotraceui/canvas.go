@@ -366,7 +366,7 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 
 func (cv *Canvas) visibleSpans(spanSel SpanSelector) SpanSelector {
 	// Visible spans have to end after cv.Start and begin before cv.End
-	spans := spanSel.AllSpans()
+	spans := spanSel.Spans()
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
 		return s.End > cv.start
@@ -744,7 +744,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		key.FocusOp{Tag: cv}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spanSel SpanSelector, c color.NRGBA, height int) {
-			for _, s := range cv.visibleSpans(spanSel).AllSpans() {
+			for _, s := range cv.visibleSpans(spanSel).Spans() {
 				start := s.Start
 				end := s.End
 
