@@ -137,7 +137,7 @@ type Canvas struct {
 		showGCOverlays showGCOverlays
 
 		hoveredTimeline *TimelineWidget
-		hoveredSpans    MergedSpans
+		hoveredSpans    SpanSelector
 		cursorPos       f32.Point
 	}
 
@@ -154,7 +154,7 @@ type Canvas struct {
 		displaySampleTracks bool
 		displayedTws        []*TimelineWidget
 		hoveredTimeline     *TimelineWidget
-		hoveredSpans        MergedSpans
+		hoveredSpans        SpanSelector
 	}
 }
 
@@ -364,21 +364,22 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (cv *Canvas) visibleSpans(spans ptrace.Spans) ptrace.Spans {
+func (cv *Canvas) visibleSpans(spanSel SpanSelector) SpanSelector {
 	// Visible spans have to end after cv.Start and begin before cv.End
+	spans := spanSel.AllSpans()
 	start := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
 		return s.End > cv.start
 	})
 	if start == len(spans) {
-		return nil
+		return NoSpan{}
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
 		return s.Start >= cv.end
 	})
 
-	return spans[start:end]
+	return spanSel.Slice(start, end)
 }
 
 //gcassert:inline
@@ -395,14 +396,14 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	var first, last trace.Timestamp = -1, -1
 	for _, tw := range cv.visibleTimelines(gtx) {
 		for _, track := range tw.tracks {
-			if len(track.spans) == 0 || (track.kind == TimelineWidgetTrackSampled && !cv.timeline.displaySampleTracks) {
+			if track.spans.Size() == 0 || (track.kind == TimelineWidgetTrackSampled && !cv.timeline.displaySampleTracks) {
 				continue
 			}
 
-			if t := track.spans.Start(); t < first || first == -1 {
+			if t := track.spans.At(0).Start; t < first || first == -1 {
 				first = t
 			}
-			if t := track.spans.End(); t > last {
+			if t := track.spans.At(track.spans.Size() - 1).End; t > last {
 				last = t
 			}
 		}
@@ -693,12 +694,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			}
 		}
 
-		cv.timeline.hoveredSpans = nil
+		cv.timeline.hoveredSpans = NoSpan{}
 		cv.timeline.hoveredTimeline = nil
 		for _, tw := range cv.prevFrame.displayedTws {
-			if spans := tw.NavigatedSpans(); len(spans) > 0 {
-				start := spans.Start()
-				end := spans.End()
+			if spanSel := tw.NavigatedSpans(); spanSel.Size() > 0 {
+				start := spanSel.At(0).Start
+				end := spanSel.At(spanSel.Size() - 1).End
 				cv.navigateTo(gtx, start, end, cv.y)
 				break
 			}
@@ -706,8 +707,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		for _, tw := range cv.prevFrame.displayedTws {
 			if tw.hovered {
 				cv.timeline.hoveredTimeline = tw
-				if spans := tw.HoveredSpans(); len(spans) > 0 {
-					cv.timeline.hoveredSpans = spans
+				if spanSel := tw.HoveredSpans(); spanSel.Size() > 0 {
+					cv.timeline.hoveredSpans = spanSel
 				}
 				break
 			}
@@ -742,8 +743,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		key.InputOp{Tag: cv, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
 		key.FocusOp{Tag: cv}.Add(gtx.Ops)
 
-		drawRegionOverlays := func(spans ptrace.Spans, c color.NRGBA, height int) {
-			for _, s := range cv.visibleSpans(spans) {
+		drawRegionOverlays := func(spanSel SpanSelector, c color.NRGBA, height int) {
+			for _, s := range cv.visibleSpans(spanSel).AllSpans() {
 				start := s.Start
 				end := s.End
 
@@ -774,8 +775,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				// Draw STW and GC regions
 				// TODO(dh): make this be optional
 				tickHeight := gtx.Dp(tickHeightDp)
-				drawRegionOverlays(cv.trace.GC, colors[colorStateGC], tickHeight)
-				drawRegionOverlays(cv.trace.STW, colors[colorStateBlocked], tickHeight)
+				drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), colors[colorStateGC], tickHeight)
+				drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), colors[colorStateBlocked], tickHeight)
 
 				dims := cv.axis.Layout(win, gtx)
 				axisHeight = dims.Size.Y
@@ -801,10 +802,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw STW and GC overlays
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
-			drawRegionOverlays(cv.trace.GC, rgba(0x9C6FD633), gtx.Constraints.Max.Y)
+			drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), rgba(0x9C6FD633), gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
-			drawRegionOverlays(cv.trace.STW, rgba(0xBA414133), gtx.Constraints.Max.Y)
+			drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), rgba(0xBA414133), gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor

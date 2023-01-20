@@ -67,8 +67,8 @@ type TimelineWidget struct {
 	// OPT(dh): Only one timeline can have hovered or activated spans, so we could track this directly in Canvas, and
 	// save 48 bytes per timeline (which means per goroutine). However, the current API is cleaner, because
 	// TimelineWidget doesn't have to mutate Timeline's state.
-	navigatedSpans MergedSpans
-	hoveredSpans   MergedSpans
+	navigatedSpans SpanSelector
+	hoveredSpans   SpanSelector
 
 	prevFrame struct {
 		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
@@ -83,24 +83,56 @@ type TimelineWidget struct {
 }
 
 type SpanTooltipState struct {
-	spans             MergedSpans
+	spanSel           SpanSelector
 	events            []ptrace.EventID
 	eventsUnderCursor []ptrace.EventID
 }
 
 type Track struct {
 	kind   TimelineWidgetTrackKind
-	spans  ptrace.Spans
+	spans  SpanSelector
 	events []ptrace.EventID
 }
 
-func newZoomMenuItem(cv *Canvas, spans MergedSpans) *theme.MenuItem {
+func Duration(spanSel SpanSelector) time.Duration {
+	if spanSel.Size() == 0 {
+		return 0
+	}
+	return time.Duration(spanSel.At(spanSel.Size()-1).End - spanSel.At(0).Start)
+}
+
+type SpanSelector interface {
+	AllSpans() ptrace.Spans
+	Spans(start, end int) ptrace.Spans
+	Size() int
+	Slice(start, end int) SpanSelector
+	At(index int) ptrace.Span
+}
+
+type spanSlice ptrace.Spans
+
+func SliceToSpanSelector(spans ptrace.Spans) SpanSelector { return spanSlice(spans) }
+func (spans spanSlice) AllSpans() ptrace.Spans            { return ptrace.Spans(spans) }
+func (spans spanSlice) Spans(start, end int) ptrace.Spans { return ptrace.Spans(spans[start:end]) }
+func (spans spanSlice) Size() int                         { return len(spans) }
+func (spans spanSlice) Slice(start, end int) SpanSelector { return spans[start:end] }
+func (spans spanSlice) At(index int) ptrace.Span          { return spans[index] }
+
+type NoSpan struct{}
+
+func (NoSpan) AllSpans() ptrace.Spans            { return nil }
+func (NoSpan) Spans(start, end int) ptrace.Spans { return nil }
+func (NoSpan) Size() int                         { return 0 }
+func (NoSpan) Slice(start, end int) SpanSelector { return NoSpan{} }
+func (NoSpan) At(_ int) ptrace.Span              { panic("index out of bounds") }
+
+func newZoomMenuItem(cv *Canvas, spanSel SpanSelector) *theme.MenuItem {
 	return &theme.MenuItem{
 		Label:    PlainLabel("Zoom"),
 		Shortcut: key.ModShortcut.String() + "+LMB",
 		Do: func(gtx layout.Context) {
-			start := spans.Start()
-			end := spans.End()
+			start := spanSel.At(0).Start
+			end := spanSel.At(spanSel.Size() - 1).End
 			cv.navigateTo(gtx, start, end, cv.y)
 		},
 	}
@@ -109,18 +141,18 @@ func newZoomMenuItem(cv *Canvas, spans MergedSpans) *theme.MenuItem {
 type TimelineWidgetTrack struct {
 	*Track
 
-	highlightSpan func(spans MergedSpans) bool
+	highlightSpan func(spanSel SpanSelector) bool
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
-	spanLabel       func(spans MergedSpans, tr *Trace, out []string) []string
-	spanColor       func(spans MergedSpans, tr *Trace) [2]colorIndex
+	spanLabel       func(spanSel SpanSelector, tr *Trace, out []string) []string
+	spanColor       func(spanSel SpanSelector, tr *Trace) [2]colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
-	spanContextMenu func(spans MergedSpans, tr *Trace) []*theme.MenuItem
+	spanContextMenu func(spanSel SpanSelector, tr *Trace) []*theme.MenuItem
 
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in TimelineWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because TimelineWidgetTrack doesn't have to
 	// mutate TimelineWidget's state.
-	navigatedSpans MergedSpans
-	hoveredSpans   MergedSpans
+	navigatedSpans SpanSelector
+	hoveredSpans   SpanSelector
 
 	// op lists get reused between frames to avoid generating garbage
 	ops                             [colorStateLast * 2]op.Ops
@@ -137,25 +169,25 @@ type TimelineWidgetTrack struct {
 	// cached state
 	prevFrame struct {
 		dspSpans []struct {
-			dspSpans       MergedSpans
+			dspSpanSel     SpanSelector
 			startPx, endPx float32
 		}
 	}
 }
 
-func (track *TimelineWidgetTrack) NavigatedSpans() MergedSpans {
+func (track *TimelineWidgetTrack) NavigatedSpans() SpanSelector {
 	return track.navigatedSpans
 }
 
-func (track *TimelineWidgetTrack) HoveredSpans() MergedSpans {
+func (track *TimelineWidgetTrack) HoveredSpans() SpanSelector {
 	return track.hoveredSpans
 }
 
-func (tw *TimelineWidget) NavigatedSpans() MergedSpans {
+func (tw *TimelineWidget) NavigatedSpans() SpanSelector {
 	return tw.navigatedSpans
 }
 
-func (tw *TimelineWidget) HoveredSpans() MergedSpans {
+func (tw *TimelineWidget) HoveredSpans() SpanSelector {
 	return tw.hoveredSpans
 }
 
@@ -204,8 +236,8 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 
 	tw.displayed = true
 
-	tw.navigatedSpans = nil
-	tw.hoveredSpans = nil
+	tw.navigatedSpans = NoSpan{}
+	tw.hoveredSpans = NoSpan{}
 
 	var widgetClicked bool
 
@@ -239,7 +271,7 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 			} else if ev.Modifiers == key.ModShortcut {
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
-				tw.navigatedSpans = MergedSpans(tw.tracks[0].spans)
+				tw.navigatedSpans = tw.tracks[0].spans
 			}
 		}
 	}
@@ -328,10 +360,10 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 		}
 		dims := track.Layout(win, gtx, tw.cv, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
-		if spans := track.HoveredSpans(); len(spans) != 0 {
+		if spans := track.HoveredSpans(); spans.Size() != 0 {
 			tw.hoveredSpans = spans
 		}
-		if spans := track.NavigatedSpans(); len(spans) != 0 {
+		if spans := track.NavigatedSpans(); spans.Size() != 0 {
 			tw.navigatedSpans = spans
 		}
 	}
@@ -340,10 +372,13 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }
 
-func defaultSpanColor(spans MergedSpans) [2]colorIndex {
-	if len(spans) == 1 {
-		return [2]colorIndex{stateColors[spans[0].State], 0}
+func defaultSpanColor(spanSel SpanSelector) [2]colorIndex {
+	if spanSel.Size() == 1 {
+		return [2]colorIndex{stateColors[spanSel.At(0).State], 0}
 	} else {
+		// OPT(dh): this would benefit from iterators, for span selectors backed by data that isn't already made of
+		// ptrace.Span
+		spans := spanSel.AllSpans()
 		c := stateColors[spans[0].State]
 		for _, s := range spans[1:] {
 			cc := stateColors[s.State]
@@ -358,17 +393,16 @@ func defaultSpanColor(spans MergedSpans) [2]colorIndex {
 type renderedSpansIterator struct {
 	offset  int
 	cv      *Canvas
-	spans   ptrace.Spans
+	spanSel SpanSelector
 	prevEnd trace.Timestamp
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans, startPx, endPx float32, ok bool) {
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector, startPx, endPx float32, ok bool) {
 	offset := it.offset
-	spans := it.spans
-
-	if offset >= len(spans) {
+	if offset >= it.spanSel.Size() {
 		return nil, 0, 0, false
 	}
+	spans := it.spanSel.AllSpans()
 
 	nsPerPx := float32(it.cv.nsPerPx)
 	minSpanWidthD := time.Duration(math.Ceil(float64(gtx.Dp(minSpanWidthDp)) * float64(nsPerPx)))
@@ -438,7 +472,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut MergedSpans,
 	it.prevEnd = end
 	startPx = float32(start-cvStart) / nsPerPx
 	endPx = float32(end-cvStart) / nsPerPx
-	return MergedSpans(spans[startOffset:offset]), startPx, endPx, true
+	return it.spanSel.Slice(startOffset, offset), startPx, endPx, true
 }
 
 func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, labelsOut *[]string) layout.Dimensions {
@@ -450,8 +484,8 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	spanHighlightedBorderWidth := gtx.Dp(spanHighlightedBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
-	track.navigatedSpans = nil
-	track.hoveredSpans = nil
+	track.navigatedSpans = NoSpan{}
+	track.hoveredSpans = NoSpan{}
 
 	trackNavigatedSpans := false
 	trackContextMenuSpans := false
@@ -517,25 +551,25 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 	first := true
 	var prevEndPx float32
-	doSpans := func(dspSpans MergedSpans, startPx, endPx float32) {
+	doSpans := func(dspSpanSel SpanSelector, startPx, endPx float32) {
 		hovered := false
 		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
 			// Highlight the span under the cursor
 			hovered = true
-			track.hoveredSpans = dspSpans
+			track.hoveredSpans = dspSpanSel
 
 			if trackNavigatedSpans {
-				track.navigatedSpans = dspSpans
+				track.navigatedSpans = dspSpanSel
 			}
 			if trackContextMenuSpans {
 				var items []theme.Widget
 				if track.spanContextMenu != nil {
-					cv.contextMenu = track.spanContextMenu(dspSpans, tr)
+					cv.contextMenu = track.spanContextMenu(dspSpanSel, tr)
 					for _, item := range cv.contextMenu {
 						items = append(items, item.Layout)
 					}
 				} else {
-					cv.contextMenu = []*theme.MenuItem{newZoomMenuItem(cv, dspSpans)}
+					cv.contextMenu = []*theme.MenuItem{newZoomMenuItem(cv, dspSpanSel)}
 					items = append(items, (cv.contextMenu[0]).Layout)
 				}
 				win.SetContextMenu(((&theme.MenuGroup{
@@ -546,9 +580,9 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 		var cs [2]colorIndex
 		if track.spanColor != nil {
-			cs = track.spanColor(dspSpans, tr)
+			cs = track.spanColor(dspSpanSel, tr)
 		} else {
-			cs = defaultSpanColor(dspSpans)
+			cs = defaultSpanColor(dspSpanSel)
 		}
 
 		if cs[1] != 0 && cs[1] != colorStateMerged {
@@ -562,7 +596,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 		var highlighted bool
 		if track.highlightSpan != nil {
-			highlighted = track.highlightSpan(dspSpans)
+			highlighted = track.highlightSpan(dspSpanSel)
 		}
 		if hovered {
 			highlightedPrimaryOutlinesPath.MoveTo(minP)
@@ -620,20 +654,20 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 		var spanTooltipState SpanTooltipState
 		if cv.timeline.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
-			events := dspSpans.Events(track.events, tr)
+			events := dspSpanSel.AllSpans().Events(track.events, tr.Trace)
 
 			spanTooltipState = SpanTooltipState{
-				spans:  dspSpans,
-				events: events,
+				spanSel: dspSpanSel,
+				events:  events,
 			}
 		}
 
 		dotRadiusX := float32(gtx.Dp(4))
 		dotRadiusY := float32(gtx.Dp(3))
-		if maxP.X-minP.X > dotRadiusX*2 && len(dspSpans) == 1 {
+		if maxP.X-minP.X > dotRadiusX*2 && dspSpanSel.Size() == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpans[0].Events(track.events, tr.Trace)
+			events := dspSpanSel.Slice(0, 1).AllSpans().Events(track.events, tr.Trace)
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(trackHeight) / 2
@@ -687,7 +721,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			}
 		}
 
-		if spanTooltipState.spans != nil && track.spanTooltip != nil {
+		if spanTooltipState.spanSel != nil && track.spanTooltip != nil {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
@@ -695,14 +729,14 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			})
 		}
 
-		if len(dspSpans) == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
+		if dspSpanSel.Size() == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
 			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
 			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
 			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
 			// empty string to effectively display no label.
 			//
 			// We don't try to render a label for very small spans.
-			if *labelsOut = track.spanLabel(dspSpans, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
+			if *labelsOut = track.spanLabel(dspSpanSel, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
 				for _, label := range *labelsOut {
 					if label == "" {
 						continue
@@ -743,24 +777,24 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 	if cv.unchanged() && track.prevFrame.dspSpans != nil {
 		for _, prevSpans := range track.prevFrame.dspSpans {
-			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
+			doSpans(prevSpans.dspSpanSel, prevSpans.startPx, prevSpans.endPx)
 		}
 	} else {
 		allDspSpans := track.prevFrame.dspSpans[:0]
 		it := renderedSpansIterator{
-			cv:    cv,
-			spans: cv.visibleSpans(track.spans),
+			cv:      cv,
+			spanSel: cv.visibleSpans(track.spans),
 		}
 		for {
-			dspSpans, startPx, endPx, ok := it.next(gtx)
+			dspSpanSel, startPx, endPx, ok := it.next(gtx)
 			if !ok {
 				break
 			}
 			allDspSpans = append(allDspSpans, struct {
-				dspSpans       MergedSpans
+				dspSpanSel     SpanSelector
 				startPx, endPx float32
-			}{dspSpans, startPx, endPx})
-			doSpans(dspSpans, startPx, endPx)
+			}{dspSpanSel, startPx, endPx})
+			doSpans(dspSpanSel, startPx, endPx)
 		}
 		track.prevFrame.dspSpans = allDspSpans
 	}
@@ -850,8 +884,8 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 
 func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
-	if len(state.spans) == 1 {
-		s := &state.spans[0]
+	if state.spanSel.Size() == 1 {
+		s := state.spanSel.At(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateRunningG {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -859,9 +893,10 @@ func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		g := tr.G(ev.G)
 		label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.Function)
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration()))
+	// OPT(dh): don't materialize all spans just to compute the duration
+	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
@@ -922,8 +957,8 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 	tr := cv.trace
 	return &TimelineWidget{
 		tracks: []Track{
-			{spans: m.Spans},
-			{spans: m.Goroutines},
+			{spans: SliceToSpanSelector(m.Spans)},
+			{spans: SliceToSpanSelector(m.Goroutines)},
 		},
 		cv:    cv,
 		item:  m,
@@ -936,17 +971,17 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 				case 0:
 					out[i] = TimelineWidgetTrack{
 						Track: track,
-						highlightSpan: func(spans MergedSpans) bool {
+						highlightSpan: func(spanSel SpanSelector) bool {
 							if htw := cv.timeline.hoveredTimeline; htw != nil {
 								var target int32
 								switch hitem := htw.item.(type) {
 								case *ptrace.Processor:
 									target = hitem.ID
 								case *ptrace.Machine:
-									if len(cv.timeline.hoveredSpans) != 1 {
+									if cv.timeline.hoveredSpans.Size() != 1 {
 										return false
 									}
-									o := &cv.timeline.hoveredSpans[0]
+									o := cv.timeline.hoveredSpans.At(0)
 									if o.State != ptrace.StateRunningP {
 										return false
 									}
@@ -954,9 +989,8 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 								default:
 									return false
 								}
-								for i := range spans {
+								for _, span := range spanSel.AllSpans() {
 									// OPT(dh): don't be O(n)
-									span := &spans[i]
 									if span.State == ptrace.StateRunningP && tr.Event(span.Event).P == target {
 										return true
 									}
@@ -964,14 +998,14 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 							}
 							return false
 						},
-						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
-							if len(spans) != 1 {
+						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
+							if spanSel.Size() != 1 {
 								return out
 							}
-							s := &spans[0]
+							s := spanSel.At(0)
 							switch s.State {
 							case ptrace.StateRunningP:
-								p := tr.P(tr.Event(spans[0].Event).P)
+								p := tr.P(tr.Event(s.Event).P)
 								labels := tr.processorSpanLabels(p)
 								return append(out, labels...)
 							case ptrace.StateBlockedSyscall:
@@ -982,8 +1016,8 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 						},
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
-							if len(state.spans) == 1 {
-								s := &state.spans[0]
+							if state.spanSel.Size() == 1 {
+								s := state.spanSel.At(0)
 								ev := tr.Event(s.Event)
 								switch s.State {
 								case ptrace.StateRunningP:
@@ -994,17 +1028,17 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 									panic(fmt.Sprintf("unexpected state %d", s.State))
 								}
 							} else {
-								label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+								label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 							}
-							label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration()))
+							label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
 							return theme.Tooltip{}.Layout(win, gtx, label)
 						},
-						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+						spanContextMenu: func(spanSel SpanSelector, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, newZoomMenuItem(cv, spans))
+							items = append(items, newZoomMenuItem(cv, spanSel))
 
-							if len(spans) == 1 {
-								s := &spans[0]
+							if spanSel.Size() == 1 {
+								s := spanSel.At(0)
 								switch s.State {
 								case ptrace.StateRunningP:
 									pid := tr.Event(s.Event).P
@@ -1026,26 +1060,26 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 				case 1:
 					out[i] = TimelineWidgetTrack{
 						Track: track,
-						highlightSpan: func(spans MergedSpans) bool {
+						highlightSpan: func(spanSel SpanSelector) bool {
 							if htw := cv.timeline.hoveredTimeline; htw != nil {
 								var target uint64
 								switch hitem := htw.item.(type) {
 								case *ptrace.Goroutine:
 									target = hitem.ID
 								case *ptrace.Processor:
-									if len(cv.timeline.hoveredSpans) != 1 {
+									if cv.timeline.hoveredSpans.Size() != 1 {
 										return false
 									}
-									o := &cv.timeline.hoveredSpans[0]
+									o := cv.timeline.hoveredSpans.At(0)
 									if o.State != ptrace.StateRunningG {
 										return false
 									}
 									target = tr.Event(o.Event).G
 								case *ptrace.Machine:
-									if len(cv.timeline.hoveredSpans) != 1 {
+									if cv.timeline.hoveredSpans.Size() != 1 {
 										return false
 									}
-									o := &cv.timeline.hoveredSpans[0]
+									o := cv.timeline.hoveredSpans.At(0)
 									if o.State != ptrace.StateRunningG {
 										return false
 									}
@@ -1053,24 +1087,24 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 								default:
 									return false
 								}
-								for i := range spans {
+								for _, span := range spanSel.AllSpans() {
 									// OPT(dh): don't be O(n)
-									if tr.Event(spans[i].Event).G == target {
+									if tr.Event(span.Event).G == target {
 										return true
 									}
 								}
 							}
 							return false
 						},
-						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
-							if len(spans) != 1 {
+						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
+							if spanSel.Size() != 1 {
 								return out
 							}
-							g := tr.G(tr.Event(spans[0].Event).G)
+							g := tr.G(tr.Event(spanSel.At(0).Event).G)
 							labels := tr.goroutineSpanLabels(g)
 							return append(out, labels...)
 						},
-						spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
+						spanColor: func(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 							do := func(s ptrace.Span, tr *Trace) colorIndex {
 								gid := tr.Events[s.Event].G
 								g := tr.G(gid)
@@ -1082,9 +1116,10 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 								}
 							}
 
-							if len(spans) == 1 {
-								return [2]colorIndex{do(spans[0], tr), 0}
+							if spanSel.Size() == 1 {
+								return [2]colorIndex{do(spanSel.At(0), tr), 0}
 							} else {
+								spans := spanSel.AllSpans()
 								c := do(spans[0], tr)
 								for _, s := range spans[1:] {
 									// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
@@ -1098,12 +1133,12 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 							}
 						},
 						spanTooltip: processorSpanTooltip,
-						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+						spanContextMenu: func(spanSel SpanSelector, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, newZoomMenuItem(cv, spans))
+							items = append(items, newZoomMenuItem(cv, spanSel))
 
-							if len(spans) == 1 {
-								s := &spans[0]
+							if spanSel.Size() == 1 {
+								s := spanSel.At(0)
 								switch s.State {
 								case ptrace.StateRunningG:
 									gid := tr.Event(s.Event).G
@@ -1133,18 +1168,18 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 				return true
 			}
 
-			if len(cv.prevFrame.hoveredSpans) == 0 && len(cv.timeline.hoveredSpans) == 0 {
+			if cv.prevFrame.hoveredSpans.Size() == 0 && cv.timeline.hoveredSpans.Size() == 0 {
 				// Nothing hovered in either frame.
 				return false
 			}
 
-			if len(cv.prevFrame.hoveredSpans) > 1 && len(cv.timeline.hoveredSpans) > 1 {
+			if cv.prevFrame.hoveredSpans.Size() > 1 && cv.timeline.hoveredSpans.Size() > 1 {
 				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 				// frames, then nothing changes for rendering.
 				return false
 			}
 
-			if len(cv.prevFrame.hoveredSpans) != len(cv.timeline.hoveredSpans) {
+			if cv.prevFrame.hoveredSpans.Size() != cv.timeline.hoveredSpans.Size() {
 				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 				// previously highlighted.
 				//
@@ -1153,7 +1188,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tr.Event(cv.prevFrame.hoveredSpans[0].Event).P != tr.Event(cv.timeline.hoveredSpans[0].Event).P {
+			if tr.Event(cv.prevFrame.hoveredSpans.At(0).Event).P != tr.Event(cv.timeline.hoveredSpans.At(0).Event).P {
 				return true
 			}
 
@@ -1165,14 +1200,14 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 	tr := cv.trace
 	return &TimelineWidget{
-		tracks: []Track{{spans: p.Spans}},
+		tracks: []Track{{spans: SliceToSpanSelector(p.Spans)}},
 
 		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
 			for i := range tracks {
 				track := &tracks[i]
 				out[i] = TimelineWidgetTrack{
 					Track: track,
-					highlightSpan: func(spans MergedSpans) bool {
+					highlightSpan: func(spanSel SpanSelector) bool {
 						if htw := cv.timeline.hoveredTimeline; htw != nil {
 							target := struct {
 								g          uint64
@@ -1180,27 +1215,27 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 							}{^uint64(0), -1, -1}
 							switch hitem := htw.item.(type) {
 							case *ptrace.Goroutine:
-								if len(cv.timeline.hoveredSpans) == 0 {
+								if cv.timeline.hoveredSpans.Size() == 0 {
 									// A goroutine timeline is hovered, but no spans within are.
 									target.g = hitem.ID
 								} else {
 									// A (merged) span in a goroutine timeline is hovered. Highlight processor spans for
 									// the same goroutine if they overlap with the highlighted span.
 									target.g = hitem.ID
-									target.start = cv.timeline.hoveredSpans.Start()
-									target.end = cv.timeline.hoveredSpans.End()
+									target.start = cv.timeline.hoveredSpans.At(0).Start
+									target.end = cv.timeline.hoveredSpans.At(cv.timeline.hoveredSpans.Size() - 1).End
 								}
 							case *ptrace.Processor:
-								if len(cv.timeline.hoveredSpans) != 1 {
+								if cv.timeline.hoveredSpans.Size() != 1 {
 									return false
 								}
-								o := &cv.timeline.hoveredSpans[0]
+								o := cv.timeline.hoveredSpans.At(0)
 								target.g = tr.Event(o.Event).G
 							case *ptrace.Machine:
-								if len(cv.timeline.hoveredSpans) != 1 {
+								if cv.timeline.hoveredSpans.Size() != 1 {
 									return false
 								}
-								o := &cv.timeline.hoveredSpans[0]
+								o := cv.timeline.hoveredSpans.At(0)
 								if o.State != ptrace.StateRunningG {
 									return false
 								}
@@ -1209,24 +1244,24 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 							default:
 								return false
 							}
-							for i := range spans {
+							for _, span := range spanSel.AllSpans() {
 								// OPT(dh): don't be O(n)
-								if tr.Event(spans[i].Event).G == target.g && (target.start == -1 || ((target.start < spans[i].End) && (target.end >= spans[i].Start))) {
+								if tr.Event(span.Event).G == target.g && (target.start == -1 || ((target.start < span.End) && (target.end >= span.Start))) {
 									return true
 								}
 							}
 						}
 						return false
 					},
-					spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
-						if len(spans) != 1 {
+					spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
+						if spanSel.Size() != 1 {
 							return out
 						}
-						g := tr.G(tr.Event(spans[0].Event).G)
+						g := tr.G(tr.Event(spanSel.At(0).Event).G)
 						labels := tr.goroutineSpanLabels(g)
 						return append(out, labels...)
 					},
-					spanColor: func(spans MergedSpans, tr *Trace) [2]colorIndex {
+					spanColor: func(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 						do := func(s ptrace.Span, tr *Trace) colorIndex {
 							gid := tr.Events[s.Event].G
 							g := tr.G(gid)
@@ -1239,9 +1274,10 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 							}
 						}
 
-						if len(spans) == 1 {
-							return [2]colorIndex{do(spans[0], tr), 0}
+						if spanSel.Size() == 1 {
+							return [2]colorIndex{do(spanSel.At(0), tr), 0}
 						} else {
+							spans := spanSel.AllSpans()
 							c := do(spans[0], tr)
 							for _, s := range spans[1:] {
 								// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
@@ -1255,12 +1291,12 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 						}
 					},
 					spanTooltip: processorSpanTooltip,
-					spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+					spanContextMenu: func(spanSel SpanSelector, tr *Trace) []*theme.MenuItem {
 						var items []*theme.MenuItem
-						items = append(items, newZoomMenuItem(cv, spans))
+						items = append(items, newZoomMenuItem(cv, spanSel))
 
-						if len(spans) == 1 {
-							gid := tr.Event((spans[0].Event)).G
+						if spanSel.Size() == 1 {
+							gid := tr.Event((spanSel.At(0).Event)).G
 							items = append(items, &theme.MenuItem{
 								Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 								Do: func(gtx layout.Context) {
@@ -1283,18 +1319,18 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 				return true
 			}
 
-			if len(cv.prevFrame.hoveredSpans) == 0 && len(cv.timeline.hoveredSpans) == 0 {
+			if cv.prevFrame.hoveredSpans.Size() == 0 && cv.timeline.hoveredSpans.Size() == 0 {
 				// Nothing hovered in either frame.
 				return false
 			}
 
-			if len(cv.prevFrame.hoveredSpans) > 1 && len(cv.timeline.hoveredSpans) > 1 {
+			if cv.prevFrame.hoveredSpans.Size() > 1 && cv.timeline.hoveredSpans.Size() > 1 {
 				// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 				// frames, then nothing changes for rendering.
 				return false
 			}
 
-			if len(cv.prevFrame.hoveredSpans) != len(cv.timeline.hoveredSpans) {
+			if cv.prevFrame.hoveredSpans.Size() != cv.timeline.hoveredSpans.Size() {
 				// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 				// previously highlighted.
 				//
@@ -1303,7 +1339,7 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 			}
 
 			// If we got to this point, then both slices have exactly one element.
-			if tr.Event(cv.prevFrame.hoveredSpans[0].Event).G != tr.Event(cv.timeline.hoveredSpans[0].Event).G {
+			if tr.Event(cv.prevFrame.hoveredSpans.At(0).Event).G != tr.Event(cv.timeline.hoveredSpans.At(0).Event).G {
 				return true
 			}
 
@@ -1371,7 +1407,7 @@ var reasonLabels = [256]string{
 	reasonPreempted:    "got preempted",
 }
 
-func unblockedByGoroutine(tr *Trace, s *ptrace.Span) (uint64, bool) {
+func unblockedByGoroutine(tr *Trace, s ptrace.Span) (uint64, bool) {
 	ev := tr.Event(s.Event)
 	switch s.State {
 	case ptrace.StateBlocked, ptrace.StateBlockedSend, ptrace.StateBlockedRecv, ptrace.StateBlockedSelect, ptrace.StateBlockedSync,
@@ -1389,13 +1425,13 @@ func unblockedByGoroutine(tr *Trace, s *ptrace.Span) (uint64, bool) {
 func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if debug {
-		label += local.Sprintf("Event ID: %d\n", state.spans[0].Event)
-		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spans[0].Event).Type)
+		label += local.Sprintf("Event ID: %d\n", state.spanSel.At(0).Event)
+		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spanSel.At(0).Event).Type)
 	}
 	label += "State: "
 	var at string
-	if len(state.spans) == 1 {
-		s := &state.spans[0]
+	if state.spanSel.Size() == 1 {
+		s := state.spanSel.At(0)
 		ev := tr.Event(s.Event)
 		if at == "" && ev.StkID > 0 {
 			at = tr.PCs[tr.Stacks[ev.StkID][s.At]].Fn
@@ -1482,12 +1518,12 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += local.Sprintf("\nUnblocked by goroutine %d (%s)", g, tr.G(g).Function)
 		}
 	} else {
-		label += local.Sprintf("mixed (%d spans)", len(state.spans))
+		label += local.Sprintf("mixed (%d spans)", state.spanSel.Size())
 	}
 	label += "\n"
 
-	if len(state.spans) == 1 {
-		if reason := reasonLabels[tr.Reason(&state.spans[0])]; reason != "" {
+	if state.spanSel.Size() == 1 {
+		if reason := reasonLabels[tr.Reason(state.spanSel.At(0))]; reason != "" {
 			label += "Reason: " + reason + "\n"
 		}
 	}
@@ -1497,15 +1533,15 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		// state. We try to pattern match away the runtime when it makes sense.
 		label += fmt.Sprintf("In: %s\n", at)
 	}
-	if len(state.spans) == 1 {
-		switch state.spans[0].State {
+	if state.spanSel.Size() == 1 {
+		switch state.spanSel.At(0).State {
 		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
-			pid := tr.Event(state.spans[0].Event).P
+			pid := tr.Event(state.spanSel.At(0).Event).P
 			label += local.Sprintf("On: processor %d\n", pid)
 		}
 	}
 
-	label += fmt.Sprintf("Duration: %s\n", roundDuration(state.spans.Duration()))
+	label += fmt.Sprintf("Duration: %s\n", roundDuration(Duration(state.spanSel)))
 
 	if len(state.events) > 0 {
 		label += local.Sprintf("Events in span: %d\n", len(state.events))
@@ -1555,8 +1591,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 
 func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
-	if len(state.spans) == 1 {
-		s := &state.spans[0]
+	if state.spanSel.Size() == 1 {
+		s := state.spanSel.At(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateUserRegion {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -1569,9 +1605,9 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]])
 		}
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(state.spans.Duration()))
+	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
 	return theme.Tooltip{}.Layout(win, gtx, label)
 }
 
@@ -1604,7 +1640,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 
 	tw := &TimelineWidget{
 		tracks: []Track{{
-			spans:  g.Spans,
+			spans:  SliceToSpanSelector(g.Spans),
 			events: g.Events,
 		}},
 		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
@@ -1617,37 +1653,37 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 				case TimelineWidgetTrackUnspecified:
 					out[i] = TimelineWidgetTrack{
 						Track: track,
-						spanLabel: func(spans MergedSpans, _ *Trace, out []string) []string {
-							if len(spans) != 1 {
+						spanLabel: func(spanSel SpanSelector, _ *Trace, out []string) []string {
+							if spanSel.Size() != 1 {
 								return out
 							}
-							return append(out, spanStateLabels[spans[0].State]...)
+							return append(out, spanStateLabels[spanSel.At(0).State]...)
 						},
 						spanTooltip: goroutineSpanTooltip,
-						spanContextMenu: func(spans MergedSpans, tr *Trace) []*theme.MenuItem {
+						spanContextMenu: func(spanSel SpanSelector, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
-							items = append(items, newZoomMenuItem(cv, spans))
+							items = append(items, newZoomMenuItem(cv, spanSel))
 
-							if len(spans) == 1 {
-								switch spans[0].State {
+							if spanSel.Size() == 1 {
+								switch spanSel.At(0).State {
 								case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
 									// These are the states that are actually on-CPU
-									pid := tr.Event((spans[0].Event)).P
+									pid := tr.Event((spanSel.At(0).Event)).P
 									items = append(items, &theme.MenuItem{
 										Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
 										Do: func(gtx layout.Context) {
-											cv.scrollToTimeline(gtx, tr.P(tr.Event((spans[0].Event)).P))
+											cv.scrollToTimeline(gtx, tr.P(tr.Event((spanSel.At(0).Event)).P))
 										},
 									})
 
 								case ptrace.StateBlocked, ptrace.StateBlockedSend, ptrace.StateBlockedRecv, ptrace.StateBlockedSelect, ptrace.StateBlockedSync,
 									ptrace.StateBlockedSyncOnce, ptrace.StateBlockedSyncTriggeringGC, ptrace.StateBlockedCond, ptrace.StateBlockedNet, ptrace.StateBlockedGC:
-									gid, ok := unblockedByGoroutine(tr, &spans[0])
+									gid, ok := unblockedByGoroutine(tr, spanSel.At(0))
 									if ok {
 										items = append(items, &theme.MenuItem{
 											Label: PlainLabel(local.Sprintf("Scroll to unblocking goroutine %d", gid)),
 											Do: func(gtx layout.Context) {
-												gid, _ := unblockedByGoroutine(tr, &spans[0])
+												gid, _ := unblockedByGoroutine(tr, spanSel.At(0))
 												cv.scrollToTimeline(gtx, tr.G(gid))
 											},
 										})
@@ -1662,17 +1698,17 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 				case TimelineWidgetTrackUserRegions:
 					out[i] = TimelineWidgetTrack{
 						Track: track,
-						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
-							if len(spans) != 1 {
+						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
+							if spanSel.Size() != 1 {
 								return out
 							}
 							// OPT(dh): avoid this allocation
-							s := tr.Strings[tr.Events[spans[0].Event].Args[trace.ArgUserRegionTypeID]]
+							s := tr.Strings[tr.Events[spanSel.At(0).Event].Args[trace.ArgUserRegionTypeID]]
 							return append(out, s)
 						},
 						spanTooltip: userRegionSpanTooltip,
-						spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
-							if len(spans) == 1 {
+						spanColor: func(spanSel SpanSelector, _ *Trace) [2]colorIndex {
+							if spanSel.Size() == 1 {
 								return [2]colorIndex{colorStateUserRegion, 0}
 							} else {
 								return [2]colorIndex{colorStateUserRegion, colorStateMerged}
@@ -1688,11 +1724,11 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						Track: track,
 
 						// TODO(dh): should we highlight hovered spans that share the same function?
-						spanLabel: func(spans MergedSpans, tr *Trace, out []string) []string {
-							if len(spans) != 1 {
+						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
+							if spanSel.Size() != 1 {
 								return out
 							}
-							f := tr.PCs[tr.getSpanPC(spans[0].SeqID)]
+							f := tr.PCs[tr.getSpanPC(spanSel.At(0).SeqID)]
 
 							short := shortenFunctionName(f.Fn)
 
@@ -1703,25 +1739,25 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 								return append(out, f.Fn)
 							}
 						},
-						spanColor: func(spans MergedSpans, _ *Trace) [2]colorIndex {
-							if len(spans) != 1 {
+						spanColor: func(spanSel SpanSelector, _ *Trace) [2]colorIndex {
+							if spanSel.Size() != 1 {
 								return [2]colorIndex{colorStateSample, colorStateMerged}
 							}
 							return [2]colorIndex{colorStateSample, 0}
 						},
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
-							if len(state.spans) == 1 {
-								f := tr.PCs[tr.getSpanPC(state.spans[0].SeqID)]
+							if state.spanSel.Size() == 1 {
+								f := tr.PCs[tr.getSpanPC(state.spanSel.At(0).SeqID)]
 								label = local.Sprintf("Sampled function: %s\n", f.Fn)
 								// TODO(dh): for truncated stacks we should display a relative depth instead
 								label += local.Sprintf("Call depth: %d\n", i-sampledTrackBase)
 							} else {
-								label = local.Sprintf("mixed (%d spans)\n", len(state.spans))
+								label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 							}
 							// We round the duration, in addition to saying "up to", to make it more obvious that the
 							// duration is a guess
-							label += fmt.Sprintf("Duration: up to %s", roundDuration(state.spans.Duration()))
+							label += fmt.Sprintf("Duration: up to %s", roundDuration(Duration(state.spanSel)))
 							return theme.Tooltip{}.Layout(win, gtx, label)
 						},
 					}
@@ -1740,7 +1776,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 	}
 
 	for _, ug := range g.UserRegions {
-		tw.tracks = append(tw.tracks, Track{spans: ug, kind: TimelineWidgetTrackUserRegions})
+		tw.tracks = append(tw.tracks, Track{spans: SliceToSpanSelector(ug), kind: TimelineWidgetTrackUserRegions})
 	}
 
 	addSampleTracks(tw, g, cv.trace)
@@ -1875,7 +1911,10 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 			end = g.Spans.End()
 		}
 		for i := 0; i < len(stk); i++ {
-			spans := sampleTracks[i].spans
+			var spans ptrace.Spans
+			if s := sampleTracks[i].spans; s != nil {
+				spans = s.AllSpans()
+			}
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]
 				prevFn := prevFns[i]
@@ -1897,7 +1936,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					}
 					tr.setSpanPC(span.SeqID, stk[len(stk)-i-1])
 					spans = append(spans, span)
-					sampleTracks[i].spans = spans
+					sampleTracks[i].spans = SliceToSpanSelector(spans)
 					prevFns[i] = fn
 				}
 			} else {
@@ -1911,7 +1950,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 				}
 				tr.setSpanPC(span.SeqID, stk[len(stk)-i-1])
 				spans = append(spans, span)
-				sampleTracks[i].spans = spans
+				sampleTracks[i].spans = SliceToSpanSelector(spans)
 				prevFns[i] = cv.trace.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
@@ -1928,7 +1967,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 
 func NewGCWidget(cv *Canvas, trace *Trace, spans ptrace.Spans) *TimelineWidget {
 	return &TimelineWidget{
-		tracks: []Track{{spans: spans}},
+		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
 		cv:     cv,
 		item:   spans,
 		label:  "GC",
@@ -1937,7 +1976,7 @@ func NewGCWidget(cv *Canvas, trace *Trace, spans ptrace.Spans) *TimelineWidget {
 
 func NewSTWWidget(cv *Canvas, trace *Trace, spans ptrace.Spans) *TimelineWidget {
 	return &TimelineWidget{
-		tracks: []Track{{spans: spans}},
+		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
 		cv:     cv,
 		item:   spans,
 		label:  "STW",
