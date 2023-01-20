@@ -202,42 +202,47 @@ type Span struct {
 
 type EventID int32
 
-func (g *Goroutine) computeStatistics() {
+func computeGoroutineStatistics(gs []*Goroutine) {
 	var values [StateLast][]time.Duration
-
-	for i := range g.Spans {
-		s := &g.Spans[i]
-		stat := &g.Statistics[s.State]
-		stat.Count++
-		d := s.Duration()
-		if d > stat.Max {
-			stat.Max = d
-		}
-		if d < stat.Min || stat.Min == 0 {
-			stat.Min = d
-		}
-		stat.Total += d
-		values[s.State] = append(values[s.State], d)
-	}
-
-	for state := range g.Statistics {
-		stat := &g.Statistics[state]
-
-		if len(values[state]) == 0 {
-			continue
+	for _, g := range gs {
+		for i := range values {
+			values[i] = values[i][:0]
 		}
 
-		stat.Average = float64(stat.Total) / float64(len(values[state]))
+		for i := range g.Spans {
+			s := &g.Spans[i]
+			stat := &g.Statistics[s.State]
+			stat.Count++
+			d := s.Duration()
+			if d > stat.Max {
+				stat.Max = d
+			}
+			if d < stat.Min || stat.Min == 0 {
+				stat.Min = d
+			}
+			stat.Total += d
+			values[s.State] = append(values[s.State], d)
+		}
 
-		sort.Slice(values[state], func(i, j int) bool {
-			return values[state][i] < values[state][j]
-		})
+		for state := range g.Statistics {
+			stat := &g.Statistics[state]
 
-		if len(values[state])%2 == 0 {
-			mid := len(values[state]) / 2
-			stat.Median = float64(values[state][mid]+values[state][mid-1]) / 2
-		} else {
-			stat.Median = float64(values[state][len(values[state])/2])
+			if len(values[state]) == 0 {
+				continue
+			}
+
+			stat.Average = float64(stat.Total) / float64(len(values[state]))
+
+			sort.Slice(values[state], func(i, j int) bool {
+				return values[state][i] < values[state][j]
+			})
+
+			if len(values[state])%2 == 0 {
+				mid := len(values[state]) / 2
+				stat.Median = float64(values[state][mid]+values[state][mid-1]) / 2
+			} else {
+				stat.Median = float64(values[state][len(values[state])/2])
+			}
 		}
 	}
 }
@@ -875,9 +880,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		t.SeqID = i
 	}
 
-	for _, g := range tr.Goroutines {
-		g.computeStatistics()
-	}
+	computeGoroutineStatistics(tr.Goroutines)
 
 	return tr, nil
 }
