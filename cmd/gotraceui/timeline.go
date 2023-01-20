@@ -108,6 +108,28 @@ type SpanSelector interface {
 	At(index int) ptrace.Span
 }
 
+type MetadataSelector[T any] interface {
+	Metadata() []T
+	MetadataAt(index int) T
+}
+
+type spanAndMetadataSlices[T any] struct {
+	spans ptrace.Spans
+	meta  []T
+}
+
+func (spans spanAndMetadataSlices[T]) Spans() ptrace.Spans { return ptrace.Spans(spans.spans) }
+func (spans spanAndMetadataSlices[T]) Metadata() []T       { return spans.meta }
+func (spans spanAndMetadataSlices[T]) Size() int           { return len(spans.spans) }
+func (spans spanAndMetadataSlices[T]) Slice(start, end int) SpanSelector {
+	return spanAndMetadataSlices[T]{
+		spans: spans.spans[start:end],
+		meta:  spans.meta[start:end],
+	}
+}
+func (spans spanAndMetadataSlices[T]) At(index int) ptrace.Span { return spans.spans[index] }
+func (spans spanAndMetadataSlices[T]) MetadataAt(index int) T   { return spans.meta[index] }
+
 type spanSlice ptrace.Spans
 
 func SliceToSpanSelector(spans ptrace.Spans) SpanSelector { return spanSlice(spans) }
@@ -120,6 +142,7 @@ func (spans spanSlice) At(index int) ptrace.Span          { return spans[index] 
 type NoSpan struct{}
 
 func (NoSpan) Spans() ptrace.Spans               { return nil }
+func (NoSpan) Metadata() any                     { return nil }
 func (NoSpan) Size() int                         { return 0 }
 func (NoSpan) Slice(start, end int) SpanSelector { return NoSpan{} }
 func (NoSpan) At(_ int) ptrace.Span              { panic("index out of bounds") }
@@ -1726,7 +1749,8 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 							if spanSel.Size() != 1 {
 								return out
 							}
-							f := tr.PCs[tr.getSpanPC(spanSel.At(0).SeqID)]
+							pc := spanSel.(MetadataSelector[uint64]).MetadataAt(0)
+							f := tr.PCs[pc]
 
 							short := shortenFunctionName(f.Fn)
 
@@ -1746,7 +1770,8 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
 							if state.spanSel.Size() == 1 {
-								f := tr.PCs[tr.getSpanPC(state.spanSel.At(0).SeqID)]
+								pc := state.spanSel.(MetadataSelector[uint64]).MetadataAt(0)
+								f := tr.PCs[pc]
 								label = local.Sprintf("Sampled function: %s\n", f.Fn)
 								// TODO(dh): for truncated stacks we should display a relative depth instead
 								label += local.Sprintf("Call depth: %d\n", i-sampledTrackBase)
@@ -1786,6 +1811,8 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 	cv := tw.cv
 
 	var sampleTracks []Track
+	var trackSpans []ptrace.Spans
+	var spanMeta [][]uint64
 	offSpans := 0
 	offSamples := 0
 	cpuSamples := tr.CPUSamples[g.ID]
@@ -1902,23 +1929,24 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 
 		sampleTracks = grow(sampleTracks, len(stk))
 		prevFns = grow(prevFns, len(stk))
+		trackSpans = grow(trackSpans, len(stk))
+		spanMeta = grow(spanMeta, len(stk))
 		var end trace.Timestamp
 		if endEvID, _, ok := nextEvent(false); ok {
 			end = cv.trace.Events[endEvID].Ts
 		} else {
 			end = g.Spans.End()
 		}
+
 		for i := 0; i < len(stk); i++ {
-			var spans ptrace.Spans
-			if s := sampleTracks[i].spans; s != nil {
-				spans = s.Spans()
-			}
+			spans := trackSpans[i]
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]
 				prevFn := prevFns[i]
 				fn := cv.trace.PCs[stk[len(stk)-i-1]].Fn
 				if prevSpan.End == cv.trace.Events[evID].Ts && prevFn == fn {
-					// This is a continuation of the previous span
+					// This is a continuation of the previous span. Merging these can have massive memory usage savings,
+					// which is why we do it here and not during display.
 					//
 					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
 					// data more apparent.
@@ -1932,9 +1960,8 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 						State: ptrace.StateCPUSample,
 						SeqID: tr.NextSpanID(),
 					}
-					tr.setSpanPC(span.SeqID, stk[len(stk)-i-1])
-					spans = append(spans, span)
-					sampleTracks[i].spans = SliceToSpanSelector(spans)
+					trackSpans[i] = append(trackSpans[i], span)
+					spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
 					prevFns[i] = fn
 				}
 			} else {
@@ -1946,9 +1973,8 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					State: ptrace.StateCPUSample,
 					SeqID: tr.NextSpanID(),
 				}
-				tr.setSpanPC(span.SeqID, stk[len(stk)-i-1])
-				spans = append(spans, span)
-				sampleTracks[i].spans = SliceToSpanSelector(spans)
+				trackSpans[i] = append(trackSpans[i], span)
+				spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
 				prevFns[i] = cv.trace.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
@@ -1958,6 +1984,10 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 
 	for i := range sampleTracks {
 		sampleTracks[i].kind = TimelineWidgetTrackSampled
+		sampleTracks[i].spans = spanAndMetadataSlices[uint64]{
+			spans: trackSpans[i],
+			meta:  spanMeta[i],
+		}
 	}
 
 	tw.tracks = append(tw.tracks, sampleTracks...)

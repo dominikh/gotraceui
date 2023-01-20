@@ -29,16 +29,6 @@ type Trace struct {
 	allProcessorSpanLabels   [][]string
 	allGoroutineFilterLabels [][]string
 	allProcessorFilterLabels [][]string
-
-	spanPCs map[int32]uint64
-}
-
-func (t *Trace) setSpanPC(spanID int32, pc uint64) {
-	t.spanPCs[spanID] = pc
-}
-
-func (t *Trace) getSpanPC(spanID int32) uint64 {
-	return t.spanPCs[spanID]
 }
 
 func (t *Trace) goroutineSpanLabels(g *ptrace.Goroutine) []string {

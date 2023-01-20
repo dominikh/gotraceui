@@ -1008,7 +1008,7 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Trace{Trace: pt, spanPCs: map[int32]uint64{}}, nil
+	return &Trace{Trace: pt}, nil
 }
 
 const allocatorBucketSize = 64
