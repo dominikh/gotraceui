@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/slices"
@@ -75,8 +74,6 @@ type Trace struct {
 
 	gsByID        map[uint64]*Goroutine
 	HasCPUSamples bool
-
-	lastSpanID atomic.Int32
 
 	trace.Trace
 }
@@ -189,7 +186,6 @@ type Span struct {
 
 	Start trace.Timestamp
 	End   trace.Timestamp
-	SeqID int32
 	Event EventID
 	// At is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	At uint8
@@ -543,7 +539,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			if supportMachineTimelines {
 				mid := ev.Args[0]
 				m := getM(int32(mid))
-				m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateRunningP, Event: EventID(evID), SeqID: tr.NextSpanID()})
+				m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateRunningP, Event: EventID(evID)})
 				lastMPerP[ev.P] = m.ID
 			}
 			continue
@@ -555,7 +551,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 
 				if sevID, ok := blockingSyscallPerP[ev.P]; ok {
 					delete(blockingSyscallPerP, ev.P)
-					m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateBlockedSyscall, Event: sevID, SeqID: tr.NextSpanID()})
+					m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateBlockedSyscall, Event: sevID})
 				}
 			}
 
@@ -609,11 +605,11 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			state = StateActive
 
 		case trace.EvGCStart:
-			tr.GC = append(tr.GC, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID), SeqID: tr.NextSpanID()})
+			tr.GC = append(tr.GC, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
 			continue
 
 		case trace.EvGCSTWStart:
-			tr.STW = append(tr.STW, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID), SeqID: tr.NextSpanID()})
+			tr.STW = append(tr.STW, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
 			continue
 
 		case trace.EvGCDone:
@@ -666,7 +662,6 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 					Event: EventID(evID),
 					State: StateUserRegion,
 					End:   end,
-					SeqID: tr.NextSpanID(),
 				}
 				g := getG(ev.G)
 				depth := userRegionDepths[gid]
@@ -720,7 +715,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			}
 		}
 
-		s := Span{Start: ev.Ts, State: state, Event: EventID(evID), SeqID: tr.NextSpanID()}
+		s := Span{Start: ev.Ts, State: state, Event: EventID(evID)}
 		if ev.Type == trace.EvGoSysBlock {
 			if debug && res.Events[s.Event].StkID != 0 {
 				panic("expected zero stack ID")
@@ -733,11 +728,11 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			p.Spans = append(p.Spans, Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID), SeqID: tr.NextSpanID()})
+			p.Spans = append(p.Spans, Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID)})
 			if supportMachineTimelines {
 				mid := lastMPerP[p.ID]
 				m := getM(mid)
-				m.Goroutines = append(m.Goroutines, Span{Start: ev.Ts, Event: EventID(evID), State: StateRunningG, SeqID: tr.NextSpanID()})
+				m.Goroutines = append(m.Goroutines, Span{Start: ev.Ts, Event: EventID(evID), State: StateRunningG})
 			}
 		case pStopG:
 			// XXX guard against malformed traces
@@ -896,14 +891,6 @@ func (t *Trace) function(frame trace.Frame) *Function {
 	}
 	t.Functions[frame.Fn] = f
 	return f
-}
-
-func (t *Trace) MaxSpanID() int32 {
-	return t.lastSpanID.Load()
-}
-
-func (t *Trace) NextSpanID() int32 {
-	return t.lastSpanID.Add(1)
 }
 
 //gcassert:inline

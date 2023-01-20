@@ -1958,7 +1958,6 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 						End:   end,
 						Event: evID,
 						State: ptrace.StateCPUSample,
-						SeqID: tr.NextSpanID(),
 					}
 					trackSpans[i] = append(trackSpans[i], span)
 					spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
@@ -1971,7 +1970,6 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					End:   end,
 					Event: evID,
 					State: ptrace.StateCPUSample,
-					SeqID: tr.NextSpanID(),
 				}
 				trackSpans[i] = append(trackSpans[i], span)
 				spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
