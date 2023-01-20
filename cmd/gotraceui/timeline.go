@@ -103,7 +103,6 @@ func Duration(spanSel SpanSelector) time.Duration {
 
 type SpanSelector interface {
 	AllSpans() ptrace.Spans
-	Spans(start, end int) ptrace.Spans
 	Size() int
 	Slice(start, end int) SpanSelector
 	At(index int) ptrace.Span
@@ -113,7 +112,6 @@ type spanSlice ptrace.Spans
 
 func SliceToSpanSelector(spans ptrace.Spans) SpanSelector { return spanSlice(spans) }
 func (spans spanSlice) AllSpans() ptrace.Spans            { return ptrace.Spans(spans) }
-func (spans spanSlice) Spans(start, end int) ptrace.Spans { return ptrace.Spans(spans[start:end]) }
 func (spans spanSlice) Size() int                         { return len(spans) }
 func (spans spanSlice) Slice(start, end int) SpanSelector { return spans[start:end] }
 func (spans spanSlice) At(index int) ptrace.Span          { return spans[index] }
@@ -121,7 +119,6 @@ func (spans spanSlice) At(index int) ptrace.Span          { return spans[index] 
 type NoSpan struct{}
 
 func (NoSpan) AllSpans() ptrace.Spans            { return nil }
-func (NoSpan) Spans(start, end int) ptrace.Spans { return nil }
 func (NoSpan) Size() int                         { return 0 }
 func (NoSpan) Slice(start, end int) SpanSelector { return NoSpan{} }
 func (NoSpan) At(_ int) ptrace.Span              { panic("index out of bounds") }
