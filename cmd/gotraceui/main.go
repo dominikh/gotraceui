@@ -367,7 +367,7 @@ type MainMenu struct {
 		JumpToBeginning      theme.MenuItem
 		ToggleCompactDisplay theme.MenuItem
 		ToggleTimelineLabels theme.MenuItem
-		ToggleSampleTracks   theme.MenuItem
+		ToggleStackTracks    theme.MenuItem
 	}
 
 	Analyze struct {
@@ -393,7 +393,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
 	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.canvas.timeline.compact), Disabled: notMainDisabled}
 	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &w.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
-	m.Display.ToggleSampleTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide CPU (pprof) samples", "Display CPU (pprof) samples", &w.canvas.timeline.displaySampleTracks), Disabled: notMainDisabled}
+	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &w.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
@@ -424,7 +424,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 
 					m.Display.ToggleCompactDisplay.Layout,
 					m.Display.ToggleTimelineLabels.Layout,
-					m.Display.ToggleSampleTracks.Layout,
+					m.Display.ToggleStackTracks.Layout,
 					// TODO(dh): add items for STW and GC overlays
 					// TODO(dh): add item for tooltip display
 				},
@@ -621,9 +621,9 @@ func (w *MainWindow) Run(win *app.Window) error {
 							win.Menu.Close()
 							w.canvas.ToggleTimelineLabels()
 						}
-						if mainMenu.Display.ToggleSampleTracks.Clicked() {
+						if mainMenu.Display.ToggleStackTracks.Clicked() {
 							win.Menu.Close()
-							w.canvas.ToggleSampleTracks()
+							w.canvas.ToggleStackTracks()
 						}
 						if mainMenu.Analyze.OpenHeatmap.Clicked() {
 							win.Menu.Close()
@@ -798,7 +798,7 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		w.canvas.timelines = append(w.canvas.timelines, NewProcessorWidget(&w.canvas, p))
 	}
 	for _, g := range t.Goroutines {
-		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute sample tracks. This causes the UI to
+		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute stack tracks. This causes the UI to
 		// freeze, because loadTraceImpl runs in the UI goroutine.
 		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineWidget(&w.canvas, g))
 	}

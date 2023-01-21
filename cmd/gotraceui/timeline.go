@@ -39,7 +39,7 @@ type TimelineWidgetTrackKind uint8
 
 const (
 	TimelineWidgetTrackUnspecified TimelineWidgetTrackKind = iota
-	TimelineWidgetTrackSampled
+	TimelineWidgetTrackStack
 	TimelineWidgetTrackUserRegions
 )
 
@@ -226,7 +226,7 @@ func (tw *TimelineWidget) Height(gtx layout.Context) int {
 	enabledTracks := 0
 	for i := range tw.tracks {
 		track := &tw.tracks[i]
-		if track.kind != TimelineWidgetTrackSampled || tw.cv.timeline.displaySampleTracks {
+		if track.kind != TimelineWidgetTrackStack || tw.cv.timeline.displayStackTracks {
 			enabledTracks++
 		}
 	}
@@ -376,7 +376,7 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 
 	for i := range tw.trackWidgets {
 		track := &tw.trackWidgets[i]
-		if track.kind == TimelineWidgetTrackSampled && !tw.cv.timeline.displaySampleTracks {
+		if track.kind == TimelineWidgetTrackStack && !tw.cv.timeline.displayStackTracks {
 			continue
 		}
 		dims := track.Layout(win, gtx, tw.cv, trackSpanLabels)
@@ -1665,7 +1665,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 			events: g.Events,
 		}},
 		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
-			sampledTrackBase := -1
+			stackTrackBase := -1
 			for i := range tracks {
 				i := i
 
@@ -1737,9 +1737,9 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						},
 					}
 
-				case TimelineWidgetTrackSampled:
-					if sampledTrackBase == -1 {
-						sampledTrackBase = i
+				case TimelineWidgetTrackStack:
+					if stackTrackBase == -1 {
+						stackTrackBase = i
 					}
 					out[i] = TimelineWidgetTrack{
 						Track: track,
@@ -1763,18 +1763,18 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						},
 						spanColor: func(spanSel SpanSelector, _ *Trace) [2]colorIndex {
 							if spanSel.Size() != 1 {
-								return [2]colorIndex{colorStateSample, colorStateMerged}
+								return [2]colorIndex{colorStateStack, colorStateMerged}
 							}
-							return [2]colorIndex{colorStateSample, 0}
+							return [2]colorIndex{colorStateStack, 0}
 						},
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
 							if state.spanSel.Size() == 1 {
 								pc := state.spanSel.(MetadataSelector[uint64]).MetadataAt(0)
 								f := tr.PCs[pc]
-								label = local.Sprintf("Sampled function: %s\n", f.Fn)
+								label = local.Sprintf("Function: %s\n", f.Fn)
 								// TODO(dh): for truncated stacks we should display a relative depth instead
-								label += local.Sprintf("Call depth: %d\n", i-sampledTrackBase)
+								label += local.Sprintf("Call depth: %d\n", i-stackTrackBase)
 							} else {
 								label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 							}
@@ -1802,12 +1802,12 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 		tw.tracks = append(tw.tracks, Track{spans: SliceToSpanSelector(ug), kind: TimelineWidgetTrackUserRegions})
 	}
 
-	addSampleTracks(tw, g, cv.trace)
+	addStackTracks(tw, g, cv.trace)
 
 	return tw
 }
 
-func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
+func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 	if g.Function.Fn == "runtime.bgsweep" {
 		// Go <=1.19 has a lot of spans in runtime.bgsweep, but the stacks are utterly uninteresting, containing only a
 		// single frame. Save some memory by not creating stack tracks for this goroutine.
@@ -1815,7 +1815,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 	}
 	cv := tw.cv
 
-	var sampleTracks []Track
+	var stackTracks []Track
 	var trackSpans []ptrace.Spans
 	var spanMeta [][]uint64
 	offSpans := 0
@@ -1869,14 +1869,15 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 		ev := &cv.trace.Events[evID]
 
 		var stk []uint64
-		// We benefit from primarily two kinds of events (aside from CPU samples): Blocking events (sleeps, selects,
-		// I/O...) as these give us the most accurate stack trace right before a long period of inactivity, covering for
-		// a lack of samples during blockedness, and preemption, as an additional periodic event, similar to sampling.
 		if tr.HasCPUSamples {
 			// When we have CPU samples, we display stacks from samples as well as a subset of events, primarily
 			// blocking ones and preemption points. There are no gaps between stacks. A stack always continues until we
 			// get a new one. This gives us stack timelines that are ~never based on actual events, and instead are
 			// sampled (with increased detail at blocking points).
+			//
+			// We benefit from primarily two kinds of events (aside from CPU samples): Blocking events (sleeps, selects,
+			// I/O...) as these give us the most accurate stack trace right before a long period of inactivity, covering for
+			// a lack of samples during blockedness, and preemption, as an additional periodic event, similar to sampling.
 			switch ev.Type {
 			case trace.EvGoCreate:
 				// The stack is in the goroutine that created this one
@@ -1932,7 +1933,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 			stk = stk[:64]
 		}
 
-		sampleTracks = grow(sampleTracks, len(stk))
+		stackTracks = grow(stackTracks, len(stk))
 		prevFns = grow(prevFns, len(stk))
 		trackSpans = grow(trackSpans, len(stk))
 		spanMeta = grow(spanMeta, len(stk))
@@ -1962,7 +1963,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 						Start: ev.Ts,
 						End:   end,
 						Event: evID,
-						State: ptrace.StateCPUSample,
+						State: ptrace.StateStack,
 					}
 					trackSpans[i] = append(trackSpans[i], span)
 					spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
@@ -1974,7 +1975,7 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					Start: ev.Ts,
 					End:   end,
 					Event: evID,
-					State: ptrace.StateCPUSample,
+					State: ptrace.StateStack,
 				}
 				trackSpans[i] = append(trackSpans[i], span)
 				spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
@@ -1985,15 +1986,15 @@ func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 		prevStk = stk
 	}
 
-	for i := range sampleTracks {
-		sampleTracks[i].kind = TimelineWidgetTrackSampled
-		sampleTracks[i].spans = spanAndMetadataSlices[uint64]{
+	for i := range stackTracks {
+		stackTracks[i].kind = TimelineWidgetTrackStack
+		stackTracks[i].spans = spanAndMetadataSlices[uint64]{
 			spans: trackSpans[i],
 			meta:  spanMeta[i],
 		}
 	}
 
-	tw.tracks = append(tw.tracks, sampleTracks...)
+	tw.tracks = append(tw.tracks, stackTracks...)
 }
 
 func NewGCWidget(cv *Canvas, trace *Trace, spans ptrace.Spans) *TimelineWidget {

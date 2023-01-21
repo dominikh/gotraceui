@@ -128,9 +128,9 @@ type Canvas struct {
 	nsPerPx float32
 
 	timeline struct {
-		displayAllLabels    bool
-		compact             bool
-		displaySampleTracks bool
+		displayAllLabels   bool
+		compact            bool
+		displayStackTracks bool
 		// Should tooltips be shown?
 		showTooltips showTooltips
 		// Should GC overlays be shown?
@@ -146,15 +146,15 @@ type Canvas struct {
 	// prevFrame records the canvas's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the canvas hasn't changed.
 	prevFrame struct {
-		start               trace.Timestamp
-		end                 trace.Timestamp
-		y                   int
-		nsPerPx             float32
-		compact             bool
-		displaySampleTracks bool
-		displayedTws        []*TimelineWidget
-		hoveredTimeline     *TimelineWidget
-		hoveredSpans        SpanSelector
+		start              trace.Timestamp
+		end                trace.Timestamp
+		y                  int
+		nsPerPx            float32
+		compact            bool
+		displayStackTracks bool
+		displayedTws       []*TimelineWidget
+		hoveredTimeline    *TimelineWidget
+		hoveredSpans       SpanSelector
 	}
 }
 
@@ -257,7 +257,7 @@ func (cv *Canvas) unchanged() bool {
 		cv.prevFrame.nsPerPx == cv.nsPerPx &&
 		cv.prevFrame.y == cv.y &&
 		cv.prevFrame.compact == cv.timeline.compact &&
-		cv.prevFrame.displaySampleTracks == cv.timeline.displaySampleTracks
+		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks
 }
 
 func (cv *Canvas) startZoomSelection(pos f32.Point) {
@@ -396,7 +396,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	var first, last trace.Timestamp = -1, -1
 	for _, tw := range cv.visibleTimelines(gtx) {
 		for _, track := range tw.tracks {
-			if track.spans.Size() == 0 || (track.kind == TimelineWidgetTrackSampled && !cv.timeline.displaySampleTracks) {
+			if track.spans.Size() == 0 || (track.kind == TimelineWidgetTrackStack && !cv.timeline.displayStackTracks) {
 				continue
 			}
 
@@ -450,7 +450,7 @@ func easeInQuart(progress float64) float64 {
 // height returns the sum of the heights of all visible timelines.
 func (cv *Canvas) height(gtx layout.Context) int {
 	if cv.prevFrame.compact == cv.timeline.compact &&
-		cv.prevFrame.displaySampleTracks == cv.timeline.displaySampleTracks &&
+		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
 		cv.cachedHeight != 0 {
 		return cv.cachedHeight
 	}
@@ -463,8 +463,8 @@ func (cv *Canvas) height(gtx layout.Context) int {
 	return total
 }
 
-func (cv *Canvas) ToggleSampleTracks() {
-	cv.timeline.displaySampleTracks = !cv.timeline.displaySampleTracks
+func (cv *Canvas) ToggleStackTracks() {
+	cv.timeline.displayStackTracks = !cv.timeline.displayStackTracks
 }
 
 func (cv *Canvas) UndoNavigation(gtx layout.Context) {
@@ -582,7 +582,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					}
 
 				case "S":
-					cv.ToggleSampleTracks()
+					cv.ToggleStackTracks()
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModShortcut) {
@@ -820,7 +820,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		cv.prevFrame.nsPerPx = cv.nsPerPx
 		cv.prevFrame.y = cv.y
 		cv.prevFrame.compact = cv.timeline.compact
-		cv.prevFrame.displaySampleTracks = cv.timeline.displaySampleTracks
+		cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
 		cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
 		cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 	}(gtx)

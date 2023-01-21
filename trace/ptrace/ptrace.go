@@ -47,9 +47,9 @@ const (
 	StateGCMarkAssist
 	StateGCSweep
 
-	// Special states used by user regions and CPU sampling
+	// Special states used by user regions and stack frames
 	StateUserRegion
-	StateCPUSample
+	StateStack
 
 	// Processor states
 	StateRunningG
