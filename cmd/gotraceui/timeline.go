@@ -1808,6 +1808,11 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 }
 
 func addSampleTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
+	if g.Function.Fn == "runtime.bgsweep" {
+		// Go <=1.19 has a lot of spans in runtime.bgsweep, but the stacks are utterly uninteresting, containing only a
+		// single frame. Save some memory by not creating stack tracks for this goroutine.
+		return
+	}
 	cv := tw.cv
 
 	var sampleTracks []Track
