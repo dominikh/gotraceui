@@ -1761,12 +1761,6 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 								return append(out, f.Fn)
 							}
 						},
-						spanColor: func(spanSel SpanSelector, _ *Trace) [2]colorIndex {
-							if spanSel.Size() != 1 {
-								return [2]colorIndex{colorStateStack, colorStateMerged}
-							}
-							return [2]colorIndex{colorStateStack, 0}
-						},
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
 							if state.spanSel.Size() == 1 {
@@ -1914,7 +1908,9 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 			}
 		}
 
+		state := ptrace.StateStack
 		if isSample {
+			state = ptrace.StateCPUSample
 			// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
 			// collected by the runtime tracer.
 			if len(stk) > 0 && cv.trace.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
@@ -1950,7 +1946,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 				prevSpan := &spans[len(spans)-1]
 				prevFn := prevFns[i]
 				fn := cv.trace.PCs[stk[len(stk)-i-1]].Fn
-				if prevSpan.End == cv.trace.Events[evID].Ts && prevFn == fn {
+				if prevSpan.End == cv.trace.Events[evID].Ts && prevFn == fn && state == prevSpan.State {
 					// This is a continuation of the previous span. Merging these can have massive memory usage savings,
 					// which is why we do it here and not during display.
 					//
@@ -1963,7 +1959,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 						Start: ev.Ts,
 						End:   end,
 						Event: evID,
-						State: ptrace.StateStack,
+						State: state,
 					}
 					trackSpans[i] = append(trackSpans[i], span)
 					spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
@@ -1975,7 +1971,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					Start: ev.Ts,
 					End:   end,
 					Event: evID,
-					State: ptrace.StateStack,
+					State: state,
 				}
 				trackSpans[i] = append(trackSpans[i], span)
 				spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])

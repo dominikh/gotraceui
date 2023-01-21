@@ -22,6 +22,7 @@ var colors = [...]color.NRGBA{
 	colorStateMerged:     rgba(0xB9BB63FF),
 	colorStateUnknown:    rgba(0xFFFF00FF),
 	colorStateUserRegion: rgba(0xF2A2E8FF),
+	colorStateCPUSample:  rgba(0x98D597FF),
 	colorStateStack:      rgba(0x79B579FF),
 
 	colorBackground:    rgba(0xffffeaFF),
@@ -60,6 +61,7 @@ const (
 	colorStateMerged
 	colorStateUserRegion
 	colorStateStack
+	colorStateCPUSample
 
 	colorStateLast
 
@@ -101,6 +103,8 @@ var stateColors = [256]colorIndex{
 	ptrace.StateBlockedSyncOnce:         colorStateBlockedHappensBefore,
 	ptrace.StateBlockedSyncTriggeringGC: colorStateGC,
 	ptrace.StateUserRegion:              colorStateUserRegion,
+	ptrace.StateStack:                   colorStateStack,
+	ptrace.StateCPUSample:               colorStateCPUSample,
 	ptrace.StateDone:                    colorStateUnknown, // no span with this state should be rendered
 
 	// per-P states

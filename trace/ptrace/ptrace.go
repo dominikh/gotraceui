@@ -50,6 +50,7 @@ const (
 	// Special states used by user regions and stack frames
 	StateUserRegion
 	StateStack
+	StateCPUSample
 
 	// Processor states
 	StateRunningG
