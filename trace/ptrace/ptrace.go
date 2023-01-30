@@ -308,10 +308,10 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 	blockingSyscallPerP := map[int32]EventID{}
 	blockingSyscallMPerG := map[uint64]int32{}
 
-	// FIXME(dh): rename function. or remove it alright
+	// FIXME(dh): rename function. or remove it outright
 	addEventToCurrentSpan := func(gid uint64, ev EventID) {
 		if gid == 0 {
-			// FIXME(dh): figure out why we have events for g0 when there are no spans on g0.
+			// Events such as the netpoller unblocking a goroutine will happen on g0.
 			return
 		}
 		g := getG(gid)
@@ -756,76 +756,88 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		})
 	}
 
-	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
 	var wg sync.WaitGroup
-	for _, g := range tr.gsByID {
-		sem <- struct{}{}
-		g := g
-		wg.Add(1)
-		go func() {
-			for i, s := range g.Spans {
-				if i != len(g.Spans)-1 {
-					s.End = g.Spans[i+1].Start
-				}
-
-				stack := res.Stacks[res.Events[s.Event].StkID]
-				s = applyPatterns(s, res.PCs, stack)
-
-				// move s.At out of the runtime
-				for int(s.At+1) < len(stack) && s.At < 255 && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
-					s.At++
-				}
-
-				g.Spans[i] = s
+	doG := func(g *Goroutine) {
+		for i, s := range g.Spans {
+			if i != len(g.Spans)-1 {
+				s.End = g.Spans[i+1].Start
 			}
 
-			if len(g.Spans) != 0 {
-				last := g.Spans[len(g.Spans)-1]
-				if last.State == StateDone {
-					// The goroutine has ended
-					// XXX the event probably has a stack associated with it, which we shouldn't discard.
-					g.Spans = g.Spans[:len(g.Spans)-1]
-				} else {
-					// XXX somehow encode open-ended traces
-					g.Spans[len(g.Spans)-1].End = res.Events[len(res.Events)-1].Ts
-				}
+			stack := res.Stacks[res.Events[s.Event].StkID]
+			s = applyPatterns(s, res.PCs, stack)
+
+			// move s.At out of the runtime
+			for int(s.At+1) < len(stack) && s.At < 255 && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
+				s.At++
 			}
 
-			for depth, spans := range g.UserRegions {
-				if len(spans) != 0 {
-					if last := &spans[len(spans)-1]; last.End == -1 {
-						// The user region wasn't closed before the trace ended; give it the maximum length possible,
-						// that of the parent user region, or the goroutine if this is the top-most user region.
+			g.Spans[i] = s
+		}
 
-						if depth == 0 {
-							last.End = g.Spans.End()
-						} else {
-							// OPT(dh): use binary search
-							for _, parent := range g.UserRegions[depth-1] {
-								// The first parent user region that ends after our region starts has to be our parent.
-								if parent.End >= last.Start {
-									last.End = parent.End
-									break
-								}
+		if len(g.Spans) != 0 {
+			last := g.Spans[len(g.Spans)-1]
+			if last.State == StateDone {
+				// The goroutine has ended
+				// XXX the event probably has a stack associated with it, which we shouldn't discard.
+				g.Spans = g.Spans[:len(g.Spans)-1]
+			} else {
+				// XXX somehow encode open-ended traces
+				g.Spans[len(g.Spans)-1].End = res.Events[len(res.Events)-1].Ts
+			}
+		}
+
+		for depth, spans := range g.UserRegions {
+			if len(spans) != 0 {
+				if last := &spans[len(spans)-1]; last.End == -1 {
+					// The user region wasn't closed before the trace ended; give it the maximum length possible,
+					// that of the parent user region, or the goroutine if this is the top-most user region.
+
+					if depth == 0 {
+						last.End = g.Spans.End()
+					} else {
+						// OPT(dh): use binary search
+						for _, parent := range g.UserRegions[depth-1] {
+							// The first parent user region that ends after our region starts has to be our parent.
+							if parent.End >= last.Start {
+								last.End = parent.End
+								break
 							}
 						}
 					}
 				}
 			}
-
-			<-sem
-			wg.Done()
-		}()
+		}
 	}
-	wg.Wait()
 
 	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
+	tr.Goroutines = make([]*Goroutine, 0, len(tr.gsByID))
 	for _, g := range tr.gsByID {
 		if len(g.Spans) != 0 {
 			// OPT(dh): preallocate gs
 			tr.Goroutines = append(tr.Goroutines, g)
 		}
 	}
+
+	step := len(tr.Goroutines) / runtime.GOMAXPROCS(0)
+	if step == 0 {
+		step = 1
+	}
+	for off := 0; off < len(tr.Goroutines); off += step {
+		wg.Add(1)
+		end := off + step
+		if end > len(tr.Goroutines) {
+			end = len(tr.Goroutines)
+		}
+		slice := tr.Goroutines[off:end]
+		go func() {
+			defer wg.Done()
+			for _, g := range slice {
+				doG(g)
+			}
+		}()
+	}
+
+	wg.Wait()
 
 	sort.Slice(tr.Goroutines, func(i, j int) bool {
 		return tr.Goroutines[i].ID < tr.Goroutines[j].ID
