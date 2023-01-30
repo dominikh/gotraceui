@@ -827,35 +827,40 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			unbornUntilPx float32
 			deadFromPx    float32 = visWidthPx
 		)
-		if len(track.prevFrame.dspSpans) > 0 {
-			// If the first displayed span is also the first overall span, display an indicator that the
-			// goroutine/processor hasn't been created yet.
-			dspFirst := track.prevFrame.dspSpans[0]
-			if dspFirst.dspSpanSel.At(0) == track.spans.At(0) {
-				end := dspFirst.startPx
-				unbornUntilPx = end
-			}
-
-			// If the last displayed span is also the last overall span, display an indicator that the
-			// goroutine/processor is dead.
-			dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
-			if dspLast.dspSpanSel.At(dspLast.dspSpanSel.Size()-1) == track.spans.At(track.spans.Size()-1) {
-				start := dspLast.endPx
-				deadFromPx = start
-			}
-
+		if track.spans.Size() == 0 {
+			// A track with no spans is similar to a track that's always dead
+			deadFromPx = 0
 		} else {
-			// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
-			// between spans (for processor tracks).
-			born := track.spans.At(0).Start
-			died := track.spans.At(track.spans.Size() - 1).End
+			if len(track.prevFrame.dspSpans) > 0 {
+				// If the first displayed span is also the first overall span, display an indicator that the
+				// goroutine/processor hasn't been created yet.
+				dspFirst := track.prevFrame.dspSpans[0]
+				if dspFirst.dspSpanSel.At(0) == track.spans.At(0) {
+					end := dspFirst.startPx
+					unbornUntilPx = end
+				}
 
-			if cv.start >= died {
-				// The goroutine is dead
-				deadFromPx = 0
-			} else if cv.end < born {
-				// The goroutine hasn't been created yet
-				unbornUntilPx = visWidthPx
+				// If the last displayed span is also the last overall span, display an indicator that the
+				// goroutine/processor is dead.
+				dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
+				if dspLast.dspSpanSel.At(dspLast.dspSpanSel.Size()-1) == track.spans.At(track.spans.Size()-1) {
+					start := dspLast.endPx
+					deadFromPx = start
+				}
+
+			} else {
+				// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
+				// between spans (for processor tracks).
+				born := track.spans.At(0).Start
+				died := track.spans.At(track.spans.Size() - 1).End
+
+				if cv.start >= died {
+					// The goroutine is dead
+					deadFromPx = 0
+				} else if cv.end < born {
+					// The goroutine hasn't been created yet
+					unbornUntilPx = visWidthPx
+				}
 			}
 		}
 		mid := float32(trackHeight) / 2
