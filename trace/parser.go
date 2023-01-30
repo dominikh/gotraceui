@@ -55,7 +55,6 @@ type Frame struct {
 const (
 	// Special P identifiers:
 	FakeP    = 1000000 + iota
-	TimerP   // depicts timer unblocks
 	NetpollP // depicts network unblocks
 	SyscallP // depicts returns from syscalls
 	GCP      // depicts GC state
@@ -109,7 +108,6 @@ type Parser struct {
 	pStates     map[int32]*pState
 	stacks      map[uint32][]uint64
 	stacksData  []uint64
-	timerGoids  map[uint64]bool
 	ticksPerSec int64
 	pcs         map[uint64]Frame
 	cpuSamples  []Event
@@ -203,7 +201,6 @@ func (p *Parser) parse() (int, Trace, error) {
 	p.strings = make(map[uint64]string)
 	p.pStates = make(map[int32]*pState)
 	p.stacks = make(map[uint32][]uint64)
-	p.timerGoids = make(map[uint64]bool)
 	p.pcs = make(map[uint64]Frame)
 
 	ver, err := p.readHeader()
@@ -234,10 +231,7 @@ func (p *Parser) parse() (int, Trace, error) {
 		for i := range events {
 			ev := &events[i]
 			ev.Ts = Timestamp(float64(ev.Ts-minTs) * freq)
-			// Move timers and syscalls to separate fake Ps.
-			if p.timerGoids[ev.G] && ev.Type == EvGoUnblock {
-				ev.P = TimerP
-			}
+			// Move syscalls to separate fake Ps.
 			if ev.Type == EvGoSysExit {
 				ev.P = SyscallP
 			}
@@ -884,7 +878,8 @@ func (p *Parser) parseEvent(raw *rawEvent, ev *Event) error {
 			return ErrTimeOrder
 		}
 	case EvTimerGoroutine:
-		p.timerGoids[raw.args[0]] = true
+		// Timer goroutines haven't been used since 2019, see https://go.dev/cl/171884
+		return errors.New("unsupported event EvTimerGoroutine")
 	case EvStack:
 		if len(raw.args) < 2 {
 			return fmt.Errorf("EvStack has wrong number of arguments: want at least 2, got %d", len(raw.args))
@@ -1191,14 +1186,14 @@ func (p *Parser) postProcessTrace(events []Event) error {
 			if g.state != gRunning {
 				return fmt.Errorf("g %d is not running while unpark (time %d)", ev.G, ev.Ts)
 			}
-			if ev.P != TimerP && p.g != ev.G {
+			if p.g != ev.G {
 				return fmt.Errorf("p %d is not running g %d while unpark (time %d)", ev.P, ev.G, ev.Ts)
 			}
 			g1 := gs[ev.Args[0]]
 			if g1.state != gWaiting {
 				return fmt.Errorf("g %d is not waiting before unpark (time %d)", ev.Args[0], ev.Ts)
 			}
-			if g1.ev != nil && g1.ev.Type == EvGoBlockNet && ev.P != TimerP {
+			if g1.ev != nil && g1.ev.Type == EvGoBlockNet {
 				ev.P = NetpollP
 			}
 			if g1.ev != nil {
