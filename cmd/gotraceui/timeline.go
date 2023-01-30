@@ -1749,7 +1749,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 							if spanSel.Size() != 1 {
 								return out
 							}
-							pc := spanSel.(MetadataSelector[uint64]).MetadataAt(0)
+							pc := spanSel.(MetadataSelector[stackSpanMeta]).MetadataAt(0).pc
 							f := tr.PCs[pc]
 
 							short := shortenFunctionName(f.Fn)
@@ -1764,11 +1764,15 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						spanTooltip: func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 							var label string
 							if state.spanSel.Size() == 1 {
-								pc := state.spanSel.(MetadataSelector[uint64]).MetadataAt(0)
+								meta := state.spanSel.(MetadataSelector[stackSpanMeta]).MetadataAt(0)
+								pc := meta.pc
 								f := tr.PCs[pc]
 								label = local.Sprintf("Function: %s\n", f.Fn)
 								// TODO(dh): for truncated stacks we should display a relative depth instead
 								label += local.Sprintf("Call depth: %d\n", i-stackTrackBase)
+								if state.spanSel.At(0).State == ptrace.StateCPUSample {
+									label += local.Sprintf("Samples: %d\n", meta.num)
+								}
 							} else {
 								label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 							}
@@ -1801,6 +1805,12 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 	return tw
 }
 
+type stackSpanMeta struct {
+	// OPT(dh): should we use 48 bits for the PC and 16 bits for the num?
+	pc  uint64
+	num int
+}
+
 func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 	if g.Function.Fn == "runtime.bgsweep" {
 		// Go <=1.19 has a lot of spans in runtime.bgsweep, but the stacks are utterly uninteresting, containing only a
@@ -1811,7 +1821,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 
 	var stackTracks []Track
 	var trackSpans []ptrace.Spans
-	var spanMeta [][]uint64
+	var spanMeta [][]stackSpanMeta
 	offSpans := 0
 	offSamples := 0
 	cpuSamples := tr.CPUSamples[g.ID]
@@ -1915,6 +1925,9 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
 					// data more apparent.
 					prevSpan.End = end
+					if state == ptrace.StateCPUSample {
+						spanMeta[i][len(spans)-1].num++
+					}
 				} else {
 					// This is a new span
 					span := ptrace.Span{
@@ -1924,7 +1937,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 						State: state,
 					}
 					trackSpans[i] = append(trackSpans[i], span)
-					spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
+					spanMeta[i] = append(spanMeta[i], stackSpanMeta{pc: stk[len(stk)-i-1], num: 1})
 					prevFns[i] = fn
 				}
 			} else {
@@ -1936,7 +1949,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 					State: state,
 				}
 				trackSpans[i] = append(trackSpans[i], span)
-				spanMeta[i] = append(spanMeta[i], stk[len(stk)-i-1])
+				spanMeta[i] = append(spanMeta[i], stackSpanMeta{pc: stk[len(stk)-i-1], num: 1})
 				prevFns[i] = cv.trace.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
@@ -1944,7 +1957,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 
 	for i := range stackTracks {
 		stackTracks[i].kind = TimelineWidgetTrackStack
-		stackTracks[i].spans = spanAndMetadataSlices[uint64]{
+		stackTracks[i].spans = spanAndMetadataSlices[stackSpanMeta]{
 			spans: trackSpans[i],
 			meta:  spanMeta[i],
 		}
