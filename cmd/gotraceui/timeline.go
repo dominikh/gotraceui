@@ -820,7 +820,58 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		track.prevFrame.dspSpans = allDspSpans
 	}
 
-	// First draw the outlines. We draw these as solid rectangles and let the spans overlay them.
+	if track.kind == TimelineWidgetTrackUnspecified {
+		// Indicate parts of time where a goroutine or processor wasn't yet alive and where it no longer exists.
+		var (
+			visWidthPx    float32 = float32(gtx.Constraints.Max.X)
+			unbornUntilPx float32
+			deadFromPx    float32 = visWidthPx
+		)
+		if len(track.prevFrame.dspSpans) > 0 {
+			// If the first displayed span is also the first overall span, display an indicator that the
+			// goroutine/processor hasn't been created yet.
+			dspFirst := track.prevFrame.dspSpans[0]
+			if dspFirst.dspSpanSel.At(0) == track.spans.At(0) {
+				end := dspFirst.startPx
+				unbornUntilPx = end
+			}
+
+			// If the last displayed span is also the last overall span, display an indicator that the
+			// goroutine/processor is dead.
+			dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
+			if dspLast.dspSpanSel.At(dspLast.dspSpanSel.Size()-1) == track.spans.At(track.spans.Size()-1) {
+				start := dspLast.endPx
+				deadFromPx = start
+			}
+
+		} else {
+			// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
+			// between spans (for processor tracks).
+			born := track.spans.At(0).Start
+			died := track.spans.At(track.spans.Size() - 1).End
+
+			if cv.start >= died {
+				// The goroutine is dead
+				deadFromPx = 0
+			} else if cv.end < born {
+				// The goroutine hasn't been created yet
+				unbornUntilPx = visWidthPx
+			}
+		}
+		mid := float32(trackHeight) / 2
+		top := mid - 2
+		bottom := mid + 2
+		if unbornUntilPx > 0 {
+			// Draw the unborn indicator
+			paint.FillShape(gtx.Ops, rgba(0x10a56fFF), FRect{Min: f32.Pt(0, top), Max: f32.Pt(unbornUntilPx, bottom)}.Op(gtx.Ops))
+		}
+		if deadFromPx < visWidthPx {
+			// Draw the dead indicator
+			paint.FillShape(gtx.Ops, rgba(0x6F6F6FFF), FRect{Min: f32.Pt(deadFromPx, top), Max: f32.Pt(visWidthPx, bottom)}.Op(gtx.Ops))
+		}
+	}
+
+	// Draw the span outlines. We draw these as solid rectangles and let the spans overlay them.
 	//
 	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
 	// specific instance.
