@@ -1321,8 +1321,20 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 							default:
 								return false
 							}
-							for _, span := range spanSel.Spans() {
+
+							spans := spanSel.Spans()
+							off := 0
+							if target.start != -1 {
+								off = sort.Search(len(spans), func(i int) bool {
+									return spans[i].Start >= target.start
+								})
+							}
+							for _, span := range spans[off:] {
 								// OPT(dh): don't be O(n)
+
+								if target.end != -1 && span.Start > target.end {
+									break
+								}
 								if tr.Event(span.Event).G == target.g && (target.start == -1 || ((target.start < span.End) && (target.end >= span.Start))) {
 									return true
 								}
