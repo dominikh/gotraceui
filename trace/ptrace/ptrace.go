@@ -61,6 +61,11 @@ const (
 	StateLast
 )
 
+type Point struct {
+	When  trace.Timestamp
+	Value uint64
+}
+
 type Trace struct {
 	// OPT(dh): can we get rid of all these pointers?
 	Goroutines []*Goroutine
@@ -70,6 +75,8 @@ type Trace struct {
 	GC         Spans
 	STW        Spans
 	Tasks      []*Task
+	HeapSize   []Point
+	HeapGoal   []Point
 	// Mapping from Goroutine ID to list of CPU sample events
 	CPUSamples map[uint64][]EventID
 
@@ -336,8 +343,18 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 				eventsPerM[int32(ev.Args[0])]++
 			}
 			continue
+		case trace.EvHeapAlloc:
+			tr.HeapSize = append(tr.HeapSize, Point{
+				ev.Ts,
+				ev.Args[trace.ArgHeapAllocMem],
+			})
+		case trace.EvHeapGoal:
+			tr.HeapGoal = append(tr.HeapGoal, Point{
+				ev.Ts,
+				ev.Args[trace.ArgHeapGoalMem],
+			})
 		case trace.EvGCStart, trace.EvGCSTWStart, trace.EvGCDone, trace.EvGCSTWDone,
-			trace.EvHeapAlloc, trace.EvHeapGoal, trace.EvGomaxprocs, trace.EvUserTaskCreate,
+			trace.EvGomaxprocs, trace.EvUserTaskCreate,
 			trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog, trace.EvCPUSample,
 			trace.EvProcStop, trace.EvGoSysCall:
 			continue

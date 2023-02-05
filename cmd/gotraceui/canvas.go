@@ -106,6 +106,8 @@ type Canvas struct {
 	scrollbar widget.Scrollbar
 	axis      Axis
 
+	memoryGraph Plot
+
 	// State for dragging the canvas
 	drag struct {
 		drag    gesture.Drag
@@ -783,7 +785,22 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 				return dims
 			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// XXX this will need to add to axisHeight, and rename the variable
+				gtx.Constraints.Max.Y = gtx.Dp(50)
+				dims := cv.memoryGraph.Layout(win, gtx, cv)
+				axisHeight += dims.Size.Y
+				return dims
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				const height = 3
+				defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}.Push(gtx.Ops).Pop()
+				paint.Fill(gtx.Ops, rgba(0x000000FF))
+				axisHeight += gtx.Dp(height)
+				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}
+			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				// TODO replace axisHeight with the inverse, setting it to the height of this widget
 				dims, tws := cv.layoutTimelines(win, gtx)
 				cv.prevFrame.displayedTws = tws
 				return dims

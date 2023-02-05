@@ -776,11 +776,30 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 	start := trace.Timestamp(-slack)
 	end = trace.Timestamp(float64(end) + slack)
 
+	mg := Plot{
+		Name: "Memory usage",
+		Unit: "bytes",
+	}
+	mg.AddSeries(
+		PlotSeries{
+			Name:   "Heap size",
+			Points: t.HeapSize,
+			Filled: true,
+			Color:  rgba(0x7EB072FF),
+		},
+		PlotSeries{
+			Name:   "Heap goal",
+			Points: t.HeapGoal,
+			Filled: false,
+			Color:  colors[colorStateBlockedGC],
+		},
+	)
 	w.canvas = Canvas{
 		start:       start,
 		end:         end,
 		trace:       t,
 		debugWindow: w.debugWindow,
+		memoryGraph: mg,
 	}
 
 	w.canvas.timeline.displayAllLabels = true

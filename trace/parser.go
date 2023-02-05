@@ -1532,4 +1532,6 @@ const (
 	ArgUserRegionTypeID     = 2
 	ArgUserTaskCreateTaskID = 0
 	ArgUserTaskCreateTypeID = 2
+	ArgHeapAllocMem         = 0
+	ArgHeapGoalMem          = 0
 )
