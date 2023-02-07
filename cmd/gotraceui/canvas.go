@@ -386,12 +386,12 @@ func (cv *Canvas) visibleSpans(spanSel SpanSelector) SpanSelector {
 
 //gcassert:inline
 func (cv *Canvas) tsToPx(t trace.Timestamp) float32 {
-	return float32(t-cv.start) / cv.nsPerPx
+	return float32(float64(t-cv.start) / float64(cv.nsPerPx))
 }
 
 //gcassert:inline
 func (cv *Canvas) pxToTs(px float32) trace.Timestamp {
-	return trace.Timestamp(round32(px*cv.nsPerPx + float32(cv.start)))
+	return trace.Timestamp(math.Round(float64(px)*float64(cv.nsPerPx) + float64(cv.start)))
 }
 
 func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
