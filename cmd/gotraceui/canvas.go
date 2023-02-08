@@ -746,6 +746,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		key.FocusOp{Tag: cv}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spanSel SpanSelector, c color.NRGBA, height int) {
+			var p clip.Path
+			p.Begin(gtx.Ops)
 			for _, s := range cv.visibleSpans(spanSel).Spans() {
 				start := s.Start
 				end := s.End
@@ -762,13 +764,13 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				if xMax-xMin < 1 {
 					continue
 				}
-				rect := FRect{
+				FRect{
 					// TODO(dh): should the overlay start at the top of the screen, or after the axis?
 					Min: f32.Pt(xMin, 0),
 					Max: f32.Pt(xMax, float32(height)),
-				}
-				paint.FillShape(gtx.Ops, c, rect.Op(gtx.Ops))
+				}.IntoPath(&p)
 			}
+			paint.FillShape(gtx.Ops, c, clip.Outline{Path: p.End()}.Op())
 		}
 
 		// Draw axis and timelines
