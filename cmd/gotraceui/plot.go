@@ -8,6 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace"
+	"honnef.co/go/gotraceui/trace/ptrace"
+
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -18,9 +22,6 @@ import (
 	"gioui.org/widget"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
-	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
-	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
 type PlotSeries struct {
@@ -46,6 +47,13 @@ type Plot struct {
 	hovered        bool
 	contextMenu    []*theme.MenuItem
 	hideLegends    bool
+	autoScale      bool
+
+	prevFrame struct {
+		start, end trace.Timestamp
+		// bitmap of disabled series
+		disabledSeries uint64
+	}
 }
 
 func (pl *Plot) AddSeries(series ...PlotSeries) {
@@ -119,6 +127,21 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		}
 	}
 
+	if pl.autoScale {
+		var bitmap uint64
+		for i, s := range pl.series {
+			if s.disabled {
+				bitmap |= 1 << i
+			}
+		}
+		if pl.prevFrame.start != cv.start || pl.prevFrame.end != cv.end || pl.prevFrame.disabledSeries != bitmap {
+			pl.min, pl.max = pl.computeExtents(cv.start, cv.end)
+		}
+		pl.prevFrame.start = cv.start
+		pl.prevFrame.end = cv.end
+		pl.prevFrame.disabledSeries = bitmap
+	}
+
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	pointer.InputOp{Tag: pl, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Press | pointer.Cancel}.Add(gtx.Ops)
 
@@ -184,6 +207,12 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				Label: PlainLabel("Set extents to local extrema"),
 				Do: func(gtx layout.Context) {
 					pl.min, pl.max = pl.computeExtents(cv.start, cv.end)
+				},
+			},
+			{
+				Label: ToggleLabel("Don't auto-set extents", "Auto-set extents to local extrema", &pl.autoScale),
+				Do: func(gtx layout.Context) {
+					pl.autoScale = !pl.autoScale
 				},
 			},
 			{
