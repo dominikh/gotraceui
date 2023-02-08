@@ -129,6 +129,8 @@ type Canvas struct {
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float32
 
+	pointerAt f32.Point
+
 	timeline struct {
 		displayAllLabels   bool
 		compact            bool
@@ -140,7 +142,7 @@ type Canvas struct {
 
 		hoveredTimeline *TimelineWidget
 		hoveredSpans    SpanSelector
-		cursorPos       f32.Point
+		pointerAt       f32.Point
 	}
 
 	contextMenu []*theme.MenuItem
@@ -585,6 +587,17 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 				case "S":
 					cv.ToggleStackTracks()
+					if h := cv.timeline.hoveredTimeline; h != nil {
+						if _, ok := h.item.(ptrace.Spans); ok {
+							// FIXME(dh): these are the GC and STW timelines at the top. We don't have to do anything
+							// for them because there can't be stack tracks above them. We _mustn't_ do anything because
+							// timelineY will crash upon seeing ptrace.Spans.
+						} else {
+							cv.cancelNavigation()
+							y := cv.timelineY(gtx, h.item)
+							cv.y = y - (int(cv.timeline.pointerAt.Y) - int(h.pointerAt.Y))
+						}
+					}
 
 				case "Z":
 					if ev.Modifiers.Contain(key.ModShortcut) {
@@ -626,7 +639,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				}
 			}
 		case pointer.Event:
-			cv.timeline.cursorPos = ev.Position
+			cv.pointerAt = ev.Position
 
 			switch ev.Type {
 			case pointer.Scroll:
@@ -641,6 +654,11 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
+	for _, e := range gtx.Events(&cv.timeline.pointerAt) {
+		ev := e.(pointer.Event)
+		cv.timeline.pointerAt = ev.Position
+	}
+
 	for _, ev := range cv.drag.drag.Events(gtx.Metric, gtx, gesture.Both) {
 		switch ev.Type {
 		case pointer.Press:
@@ -650,7 +668,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.zoomSelection.ready = true
 			}
 		case pointer.Drag:
-			cv.timeline.cursorPos = ev.Position
+			cv.pointerAt = ev.Position
 			if cv.drag.ready && !cv.drag.active {
 				cv.startDrag(ev.Position)
 			} else if cv.zoomSelection.ready && !cv.zoomSelection.active {
@@ -802,6 +820,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
 				// TODO replace axisHeight with the inverse, setting it to the height of this widget
 				dims, tws := cv.layoutTimelines(win, gtx)
 				cv.prevFrame.displayedTws = tws
@@ -811,7 +831,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		// Draw zoom selection
 		if cv.zoomSelection.active {
 			one := cv.zoomSelection.clickAt.X
-			two := cv.timeline.cursorPos.X
+			two := cv.pointerAt.X
 			rect := FRect{
 				Min: f32.Pt(min(one, two), 0),
 				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
@@ -829,8 +849,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw cursor
 		rect := clip.Rect{
-			Min: image.Pt(int(round32(cv.timeline.cursorPos.X)), 0),
-			Max: image.Pt(int(round32(cv.timeline.cursorPos.X+1)), gtx.Constraints.Max.Y),
+			Min: image.Pt(int(round32(cv.pointerAt.X)), 0),
+			Max: image.Pt(int(round32(cv.pointerAt.X+1)), gtx.Constraints.Max.Y),
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
