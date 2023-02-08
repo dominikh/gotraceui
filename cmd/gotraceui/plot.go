@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 	"sort"
 	"strings"
 
@@ -104,6 +106,7 @@ func (pl *Plot) computeExtents(start, end trace.Timestamp) (min, max uint64) {
 }
 
 func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Plot.Layout").End()
 	var clicked bool
 	for _, e := range gtx.Events(pl) {
 		ev := e.(pointer.Event)
@@ -128,6 +131,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 	}
 
 	if pl.autoScale {
+		r := rtrace.StartRegion(context.Background(), "auto-scaling")
 		var bitmap uint64
 		for i, s := range pl.series {
 			if s.disabled {
@@ -140,6 +144,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		pl.prevFrame.start = cv.start
 		pl.prevFrame.end = cv.end
 		pl.prevFrame.disabledSeries = bitmap
+		r.End()
 	}
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -147,14 +152,19 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 	paint.Fill(gtx.Ops, rgba(0xDFFFEAFF))
 
-	for _, s := range pl.series {
-		if s.disabled {
-			continue
+	{
+		r := rtrace.StartRegion(context.Background(), "draw all points")
+		for _, s := range pl.series {
+			if s.disabled {
+				continue
+			}
+			pl.drawPoints(gtx, cv, s)
 		}
-		pl.drawPoints(gtx, cv, s)
+		r.End()
 	}
 
 	if pl.hovered {
+		r := rtrace.StartRegion(context.Background(), "hovered")
 		// When drawing the plot, multiple points can fall on the same pixel, in which case we pick the last value for a
 		// given pixel.
 		//
@@ -186,9 +196,11 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				return theme.Tooltip{}.Layout(win, gtx, strings.Join(lines, "\n"))
 			})
 		}
+		r.End()
 	}
 
 	if clicked {
+		r := rtrace.StartRegion(context.Background(), "context menu")
 		pl.contextMenu = []*theme.MenuItem{
 			{
 				Label: PlainLabel("Reset extents"),
@@ -243,9 +255,11 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			items = append(items, item.Layout)
 		}
 		win.SetContextMenu((&theme.MenuGroup{Items: items}).Layout)
+		r.End()
 	}
 
 	if !pl.hideLegends {
+		r := rtrace.StartRegion(context.Background(), "legends")
 		// Print legends
 		m := op.Record(gtx.Ops)
 		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit))
@@ -261,6 +275,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: dims.Size}.Op())
 		paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
 		c.Add(gtx.Ops)
+		r.End()
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Max}
@@ -293,6 +308,7 @@ func (pl *Plot) end(gtx layout.Context, cv *Canvas) int {
 }
 
 func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
+	defer rtrace.StartRegion(context.Background(), "draw points").End()
 	scaleValue := func(v uint64) float32 {
 		y := float32(scale(float64(pl.min), float64(pl.max), float64(gtx.Constraints.Max.Y), 0, float64(v)))
 		if y < 0 {
