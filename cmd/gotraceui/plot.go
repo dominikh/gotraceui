@@ -126,7 +126,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 	for _, item := range pl.contextMenu {
 		if item.Clicked() {
 			item.Do(gtx)
-			win.CloseContextMenu()
+			win.CloseModal()
 		}
 	}
 
@@ -254,7 +254,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		for _, item := range pl.contextMenu {
 			items = append(items, item.Layout)
 		}
-		win.SetContextMenu((&theme.MenuGroup{Items: items}).Layout)
+		win.SetModal((&theme.MenuGroup{Items: items}).Layout)
 		r.End()
 	}
 

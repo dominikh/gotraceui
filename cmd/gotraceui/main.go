@@ -7,6 +7,7 @@ import (
 	"image"
 	"io"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -798,6 +799,7 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		start:       start,
 		end:         end,
 		trace:       t,
+		mainWindow:  w,
 		debugWindow: w.debugWindow,
 		memoryGraph: mg,
 	}
@@ -1171,6 +1173,9 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 
 	ptxt := styledtext.Text(txt.theme.Shaper, txt.styles...)
 	ptxt.Alignment = txt.Alignment
+	if txt.Alignment == text.Start {
+		gtx.Constraints.Max.X = math.MaxInt
+	}
 	return ptxt.Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
 		s := &txt.Spans[i]
 		if s.Link != nil {

@@ -55,16 +55,18 @@ type GoroutineWindow struct {
 }
 
 func (gwin *GoroutineWindow) Run(win *app.Window) error {
-	events := Events{trace: gwin.trace}
-	events.filter.showGoCreate.Value = true
-	events.filter.showGoUnblock.Value = true
-	events.filter.showGoSysCall.Value = true
-	events.filter.showUserLog.Value = true
+	events := Events{Trace: gwin.trace}
+	events.Filter.ShowGoCreate.Value = true
+	events.Filter.ShowGoUnblock.Value = true
+	events.Filter.ShowGoSysCall.Value = true
+	events.Filter.ShowUserLog.Value = true
 	for _, span := range gwin.g.Spans {
+		// OPT(dh): isn't this equivalent to gwin.g.Events?
+
 		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.allEvents = append(events.allEvents, span.Events(gwin.g.Events, gwin.trace.Trace)...)
+		events.Events = append(events.Events, span.Events(gwin.g.Events, gwin.trace.Trace)...)
 	}
-	events.updateFilter()
+	events.UpdateFilter()
 
 	var ops op.Ops
 	stacktraceFoldable := theme.Foldable{

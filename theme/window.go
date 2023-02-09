@@ -20,11 +20,11 @@ type Window struct {
 	Menu  *Menu
 
 	pointerAt f32.Point
-	modal     Modal
 
-	contextMenu struct {
-		at f32.Point
-		w  Widget
+	modal struct {
+		modal Modal
+		at    f32.Point
+		w     Widget
 	}
 	notification notification
 	windowFrameState
@@ -99,17 +99,17 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		stack.Pop()
 	}
 
-	if win.modal.Cancelled() {
-		win.contextMenu.w = nil
+	if win.modal.modal.Cancelled() {
+		win.modal.w = nil
 	}
 
-	if win.contextMenu.w != nil {
+	if win.modal.w != nil {
 		gtx := gtx
 		gtx.Constraints.Min = image.Point{}
 		// FIXME(dh): don't render context menu out of bounds
-		win.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
-			defer op.Offset(win.contextMenu.at.Round()).Push(gtx.Ops).Pop()
-			return win.contextMenu.w(win, gtx)
+		win.modal.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+			defer op.Offset(win.modal.at.Round()).Push(gtx.Ops).Pop()
+			return win.modal.w(win, gtx)
 		})
 	}
 }
@@ -118,13 +118,14 @@ func (win *Window) SetTooltip(w Widget) {
 	win.tooltip = w
 }
 
-func (win *Window) SetContextMenu(w Widget) {
-	win.contextMenu.at = win.pointerAt
-	win.contextMenu.w = w
+// TODO(dh): support specifying the minimum/maximum size of the modal, but make it optional
+func (win *Window) SetModal(w Widget) {
+	win.modal.at = win.pointerAt
+	win.modal.w = w
 }
 
-func (win *Window) CloseContextMenu() {
-	win.contextMenu.w = nil
+func (win *Window) CloseModal() {
+	win.modal.w = nil
 }
 
 func (win *Window) ShowNotification(gtx layout.Context, msg string) {

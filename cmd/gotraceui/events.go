@@ -3,16 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"image"
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/layout"
-	"gioui.org/op"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/widget"
 	"gioui.org/x/outlay"
@@ -20,41 +18,39 @@ import (
 )
 
 type Events struct {
-	trace     *Trace
-	allEvents []ptrace.EventID
-	filter    struct {
-		showGoCreate  widget.Bool
-		showGoUnblock widget.Bool
-		showGoSysCall widget.Bool
-		showUserLog   widget.Bool
+	Trace  *Trace
+	Events []ptrace.EventID
+	Filter struct {
+		ShowGoCreate  widget.Bool
+		ShowGoUnblock widget.Bool
+		ShowGoSysCall widget.Bool
+		ShowUserLog   widget.Bool
 	}
 	filteredEvents []ptrace.EventID
 	grid           outlay.Grid
-
-	// slice used by ClickedLinks
 
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
 	texts          allocator[Text]
 }
 
-func (evs *Events) updateFilter() {
+func (evs *Events) UpdateFilter() {
 	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
 	//   requires us to check each event.
 	evs.filteredEvents = evs.filteredEvents[:0]
-	for _, ev := range evs.allEvents {
+	for _, ev := range evs.Events {
 		var b bool
-		switch evs.trace.Event(ev).Type {
+		switch evs.Trace.Event(ev).Type {
 		case trace.EvGoCreate:
-			b = evs.filter.showGoCreate.Value
+			b = evs.Filter.ShowGoCreate.Value
 		case trace.EvGoUnblock:
-			b = evs.filter.showGoUnblock.Value
+			b = evs.Filter.ShowGoUnblock.Value
 		case trace.EvGoSysCall:
-			b = evs.filter.showGoSysCall.Value
+			b = evs.Filter.ShowGoSysCall.Value
 		case trace.EvUserLog:
-			b = evs.filter.showUserLog.Value
+			b = evs.Filter.ShowUserLog.Value
 		default:
-			panic(fmt.Sprintf("unexpected type %v", evs.trace.Event(ev).Type))
+			panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(ev).Type))
 		}
 
 		if b {
@@ -88,11 +84,11 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	evs.timestampLinks.Reset()
 	evs.goroutineLinks.Reset()
 
-	if evs.filter.showGoCreate.Changed() ||
-		evs.filter.showGoUnblock.Changed() ||
-		evs.filter.showGoSysCall.Changed() ||
-		evs.filter.showUserLog.Changed() {
-		evs.updateFilter()
+	if evs.Filter.ShowGoCreate.Changed() ||
+		evs.Filter.ShowGoUnblock.Changed() ||
+		evs.Filter.ShowGoSysCall.Changed() ||
+		evs.Filter.ShowUserLog.Changed() {
+		evs.UpdateFilter()
 	}
 
 	evs.grid.LockedRows = 1
@@ -147,16 +143,15 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		if row == 0 {
-			paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
+			return mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
 		} else {
 			// XXX subtract padding from width
 
-			ev := evs.trace.Event(evs.filteredEvents[row-1])
+			ev := evs.Trace.Event(evs.filteredEvents[row-1])
 			// XXX styledtext wraps our spans if the window is too small
 
 			addSpanG := func(gid uint64) {
-				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.trace.G(gid), GoroutineLinkKindOpenWindow}))
+				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.Trace.G(gid), GoroutineLinkKindOpenWindow}))
 			}
 
 			addSpanTs := func(ts trace.Timestamp) {
@@ -168,7 +163,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 				addSpanTs(ev.Ts)
 			case 1:
 				if ev.Type == trace.EvUserLog {
-					txt.Span(evs.trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
+					txt.Span(evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
 				}
 			case 2:
 				switch ev.Type {
@@ -180,14 +175,14 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 					addSpanG(ev.Args[trace.ArgGoUnblockG])
 				case trace.EvGoSysCall:
 					if ev.StkID != 0 {
-						frames := evs.trace.Stacks[ev.StkID]
-						fn := evs.trace.PCs[frames[0]].Fn
+						frames := evs.Trace.Stacks[ev.StkID]
+						fn := evs.Trace.PCs[frames[0]].Fn
 						txt.Span(fmt.Sprintf("Syscall (%s)", fn))
 					} else {
 						txt.Span("Syscall")
 					}
 				case trace.EvUserLog:
-					txt.Span(evs.trace.Strings[ev.Args[trace.ArgUserLogMessage]])
+					txt.Span(evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]])
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}
@@ -202,21 +197,26 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		}
 	}
 
-	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showGoCreate, "Goroutine creations").Layout)),
-		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+	ret := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowGoCreate, "Goroutine creations").Layout)),
+				layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showGoUnblock, "Goroutine unblocks").Layout)),
-		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout)),
+				layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showGoSysCall, "Syscalls").Layout)),
-		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowGoSysCall, "Syscalls").Layout)),
+				layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-		layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.filter.showUserLog, "User logs").Layout)),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowUserLog, "User logs").Layout)),
+			)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
+		}),
 	)
 
-	defer op.Offset(image.Pt(0, dims.Size.Y)).Push(gtx.Ops).Pop()
-	ret := evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
 	evs.texts.Truncate(txtCnt)
 
 	return ret

@@ -71,6 +71,7 @@ type LocationHistoryEntry struct {
 type Canvas struct {
 	trace *Trace
 
+	mainWindow  *MainWindow
 	debugWindow *DebugWindow
 
 	clickedGoroutineTimelines []*ptrace.Goroutine
@@ -146,6 +147,7 @@ type Canvas struct {
 	}
 
 	contextMenu []*theme.MenuItem
+	spanModal   *SpanModal
 
 	// prevFrame records the canvas's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the canvas hasn't changed.
@@ -689,6 +691,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
+	if cv.spanModal != nil {
+		for _, l := range cv.spanModal.Events.ClickedLinks() {
+			cv.mainWindow.OpenLink(l)
+		}
+	}
+
 	var axisHeight int
 
 	// Draw axis and timelines
@@ -723,6 +731,25 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.navigateTo(gtx, start, end, cv.y)
 				break
 			}
+			if spanSel := tw.ClickedSpans(); spanSel.Size() == 1 {
+				// XXX defer
+				var allEvents []ptrace.EventID
+				switch item := tw.item.(type) {
+				case *ptrace.Goroutine:
+					allEvents = item.Events
+				default:
+					// TODO(dh): give all relevant types a method that we can check for, instead of having to hard-code
+					// a list of types here.
+				}
+				sm := &SpanModal{
+					Span:      spanSel.At(0),
+					AllEvents: allEvents,
+					Trace:     cv.trace,
+				}
+				cv.spanModal = sm
+				win.SetModal(sm.Layout)
+				break
+			}
 		}
 		for _, tw := range cv.prevFrame.displayedTws {
 			if tw.hovered {
@@ -737,7 +764,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		for _, item := range cv.contextMenu {
 			if item.Clicked() {
 				item.Do(gtx)
-				win.CloseContextMenu()
+				win.CloseModal()
 			}
 		}
 
@@ -1111,4 +1138,35 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{Path: ticksPath.End()}.Op())
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
+}
+
+type SpanModal struct {
+	Trace     *Trace
+	AllEvents []ptrace.EventID
+	Span      ptrace.Span
+	Events    *Events
+}
+
+func (sm *SpanModal) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(1000, 0)).X
+	// TODO draw border
+
+	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(gtx.Constraints.Max.X, 300))
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, rgba(0xDDDDDDFF))
+
+	if sm.Events == nil {
+		sm.Events = &Events{
+			Trace:  sm.Trace,
+			Events: sm.Span.Events(sm.AllEvents, sm.Trace.Trace),
+		}
+
+		sm.Events.Filter.ShowGoCreate.Value = true
+		sm.Events.Filter.ShowGoUnblock.Value = true
+		sm.Events.Filter.ShowGoSysCall.Value = true
+		sm.Events.Filter.ShowUserLog.Value = true
+		sm.Events.UpdateFilter()
+	}
+
+	return sm.Events.Layout(win, gtx)
 }

@@ -67,6 +67,9 @@ type TimelineWidget struct {
 	// OPT(dh): Only one timeline can have hovered or activated spans, so we could track this directly in Canvas, and
 	// save 48 bytes per timeline (which means per goroutine). However, the current API is cleaner, because
 	// TimelineWidget doesn't have to mutate Timeline's state.
+	//
+	// OPT(dh): clicked spans and navigated spans are mutually exclusive, combine the fields
+	clickedSpans   SpanSelector
 	navigatedSpans SpanSelector
 	hoveredSpans   SpanSelector
 
@@ -172,6 +175,9 @@ type TimelineWidgetTrack struct {
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in TimelineWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because TimelineWidgetTrack doesn't have to
 	// mutate TimelineWidget's state.
+	//
+	// OPT(dh): clickedSpans and navigatedSpans are mutually exclusive, combine the fields
+	clickedSpans   SpanSelector
 	navigatedSpans SpanSelector
 	hoveredSpans   SpanSelector
 
@@ -196,12 +202,20 @@ type TimelineWidgetTrack struct {
 	}
 }
 
+func (track *TimelineWidgetTrack) ClickedSpans() SpanSelector {
+	return track.clickedSpans
+}
+
 func (track *TimelineWidgetTrack) NavigatedSpans() SpanSelector {
 	return track.navigatedSpans
 }
 
 func (track *TimelineWidgetTrack) HoveredSpans() SpanSelector {
 	return track.hoveredSpans
+}
+
+func (tw *TimelineWidget) ClickedSpans() SpanSelector {
+	return tw.clickedSpans
 }
 
 func (tw *TimelineWidget) NavigatedSpans() SpanSelector {
@@ -257,6 +271,7 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 
 	tw.displayed = true
 
+	tw.clickedSpans = NoSpan{}
 	tw.navigatedSpans = NoSpan{}
 	tw.hoveredSpans = NoSpan{}
 
@@ -387,6 +402,9 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 		if spans := track.NavigatedSpans(); spans.Size() != 0 {
 			tw.navigatedSpans = spans
 		}
+		if spans := track.ClickedSpans(); spans.Size() != 0 {
+			tw.clickedSpans = spans
+		}
 	}
 	stack.Pop()
 
@@ -505,9 +523,11 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 	spanHighlightedBorderWidth := gtx.Dp(spanHighlightedBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
+	track.clickedSpans = NoSpan{}
 	track.navigatedSpans = NoSpan{}
 	track.hoveredSpans = NoSpan{}
 
+	trackClickedSpans := false
 	trackNavigatedSpans := false
 	trackContextMenuSpans := false
 	for _, e := range gtx.Events(track) {
@@ -533,8 +553,11 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		if ev.Type != gesture.TypeClick {
 			continue
 		}
-		if ev.Modifiers == key.ModShortcut {
+		switch ev.Modifiers {
+		case key.ModShortcut:
 			trackNavigatedSpans = true
+		case 0:
+			trackClickedSpans = true
 		}
 	}
 
@@ -582,6 +605,9 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 			if trackNavigatedSpans {
 				track.navigatedSpans = dspSpanSel
 			}
+			if trackClickedSpans {
+				track.clickedSpans = dspSpanSel
+			}
 			if trackContextMenuSpans {
 				var items []theme.Widget
 				if track.spanContextMenu != nil {
@@ -593,7 +619,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 					cv.contextMenu = []*theme.MenuItem{newZoomMenuItem(cv, dspSpanSel)}
 					items = append(items, (cv.contextMenu[0]).Layout)
 				}
-				win.SetContextMenu(((&theme.MenuGroup{
+				win.SetModal(((&theme.MenuGroup{
 					Items: items,
 				}).Layout))
 			}
