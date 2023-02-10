@@ -14,14 +14,11 @@ import (
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 
-	"gioui.org/app"
 	"gioui.org/gesture"
 	"gioui.org/io/pointer"
-	"gioui.org/io/system"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/widget"
 	"gioui.org/x/styledtext"
@@ -45,159 +42,253 @@ type GoroutineStats struct {
 	columnClicks [7]gesture.Click
 }
 
-type GoroutineWindow struct {
-	theme *theme.Theme
-	mwin  *MainWindow
-	trace *Trace
-	g     *ptrace.Goroutine
+type GoroutineInfo struct {
+	MainWindow *MainWindow
+	Goroutine  *ptrace.Goroutine
+	Trace      *Trace
 
-	stats *GoroutineStats
+	initialized bool
+	windowed    bool
+
+	events Events
+	stats  *GoroutineStats
+
+	buttons struct {
+		scrollToGoroutine widget.Clickable
+		zoomToGoroutine   widget.Clickable
+		close             widget.Clickable
+		back              widget.Clickable
+		detach            widget.Clickable
+		attach            widget.Clickable
+	}
+
+	foldables struct {
+		stacktrace theme.Foldable
+		stats      theme.Foldable
+		events     theme.Foldable
+	}
+
+	description Text
+
+	closed   bool
+	detached bool
+	attached bool
 }
 
-func (gwin *GoroutineWindow) Run(win *app.Window) error {
-	events := Events{Trace: gwin.trace}
-	events.Filter.ShowGoCreate.Value = true
-	events.Filter.ShowGoUnblock.Value = true
-	events.Filter.ShowGoSysCall.Value = true
-	events.Filter.ShowUserLog.Value = true
-	for _, span := range gwin.g.Spans {
-		// OPT(dh): isn't this equivalent to gwin.g.Events?
+func (gi *GoroutineInfo) SetWindowed(b bool) { gi.windowed = b }
+func (gi *GoroutineInfo) Closed() bool       { return gi.closed }
+func (gi *GoroutineInfo) Detached() bool     { b := gi.detached; gi.detached = false; return b }
+func (gi *GoroutineInfo) Attached() bool     { b := gi.attached; gi.attached = false; return b }
 
-		// XXX we don't need the slice, iterate over events in spans in the Events layouter
-		events.Events = append(events.Events, span.Events(gwin.g.Events, gwin.trace.Trace)...)
+func (gi *GoroutineInfo) Title() string {
+	g := gi.Goroutine
+	if g.Function.Fn != "" {
+		return local.Sprintf("goroutine %d: %s", g.ID, g.Function)
+	} else {
+		return local.Sprintf("goroutine %d", g.ID)
 	}
-	events.UpdateFilter()
+}
 
-	var ops op.Ops
-	stacktraceFoldable := theme.Foldable{
-		Title:  "Creation stack trace",
-		Closed: widget.Bool{Value: true},
-	}
-	statsFoldable := theme.Foldable{
-		Title: "Statistics",
-	}
-	eventsFoldable := theme.Foldable{
-		Title: "Events",
-	}
+func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	if !gi.initialized {
+		gi.initialized = true
 
-	txt := Text{
-		theme: gwin.theme,
-	}
-	{
-		txt.Bold("Goroutine: ")
-		txt.Span(local.Sprintf("%d\n", gwin.g.ID))
+		gi.stats = NewGoroutineStats(gi.Goroutine)
 
-		txt.Bold("Function: ")
-		txt.Span(fmt.Sprintf("%s\n", gwin.g.Function.Fn))
+		gi.events = Events{Trace: gi.Trace}
+		gi.events.Filter.ShowGoCreate.Value = true
+		gi.events.Filter.ShowGoUnblock.Value = true
+		gi.events.Filter.ShowGoSysCall.Value = true
+		gi.events.Filter.ShowUserLog.Value = true
+		for _, span := range gi.Goroutine.Spans {
+			// OPT(dh): isn't this equivalent to gi.GoroutineEvents?
 
-		txt.Bold("Created at: ")
-		txt.Link(
-			fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.start)),
-			&TimestampLink{gwin.stats.start},
+			// XXX we don't need the slice, iterate over events in spans in the Events layouter
+			gi.events.Events = append(gi.events.Events, span.Events(gi.Goroutine.Events, gi.Trace.Trace)...)
+		}
+		gi.events.UpdateFilter()
+
+		gi.foldables.stacktrace = theme.Foldable{
+			Title:  "Creation stack trace",
+			Closed: widget.Bool{Value: true},
+		}
+		gi.foldables.stats = theme.Foldable{
+			Title: "Statistics",
+		}
+		gi.foldables.events = theme.Foldable{
+			Title: "Events",
+		}
+
+		gi.description = Text{
+			theme: win.Theme,
+		}
+		gi.description.Bold("Goroutine: ")
+		gi.description.Span(local.Sprintf("%d\n", gi.Goroutine.ID))
+
+		gi.description.Bold("Function: ")
+		gi.description.Span(fmt.Sprintf("%s\n", gi.Goroutine.Function.Fn))
+
+		gi.description.Bold("Created at: ")
+		gi.description.Link(
+			fmt.Sprintf("%s\n", formatTimestamp(gi.stats.start)),
+			&TimestampLink{gi.stats.start},
 		)
 
-		txt.Bold("Returned at: ")
-		txt.Link(
-			fmt.Sprintf("%s\n", formatTimestamp(gwin.stats.end)),
-			&TimestampLink{gwin.stats.end},
+		gi.description.Bold("Returned at: ")
+		gi.description.Link(
+			fmt.Sprintf("%s\n", formatTimestamp(gi.stats.end)),
+			&TimestampLink{gi.stats.end},
 		)
 
-		txt.Bold("Lifetime: ")
-		txt.Span(time.Duration(gwin.stats.end - gwin.stats.start).String())
+		gi.description.Bold("Lifetime: ")
+		gi.description.Span(time.Duration(gi.stats.end - gi.stats.start).String())
 	}
 
-	var scrollToGoroutine, zoomToGoroutine widget.Clickable
-	tWin := &theme.Window{Theme: gwin.theme}
+	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
+	// which we do care about here.
+	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
+	gtx.Constraints.Max = gtx.Constraints.Max.Sub(image.Pt(2*5, 2*5))
+	gtx.Constraints = normalize(gtx.Constraints)
 
-	for e := range win.Events() {
-		switch ev := e.(type) {
-		case system.DestroyEvent:
-			return ev.Err
-		case system.FrameEvent:
-			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				for i := range txt.Spans {
-					if s := &txt.Spans[i]; s.Clickable != nil {
-						for s.Clickable.Clicked() {
-							gwin.mwin.OpenLink(txt.Spans[i].Link)
-						}
-					}
+	if gtx.Constraints.Min.X <= 5 || gtx.Constraints.Min.Y <= 5 {
+		return layout.Dimensions{Size: gtx.Constraints.Min}
+	}
+
+	defer op.Offset(image.Pt(5, 5)).Push(gtx.Ops).Pop()
+	nothing := func(gtx layout.Context) layout.Dimensions {
+		return layout.Dimensions{Size: gtx.Constraints.Min}
+	}
+
+	dims := layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			type button struct {
+				w     *widget.Clickable
+				label string
+			}
+			buttonsLeft := []button{
+				{&gi.buttons.scrollToGoroutine, "Scroll to goroutine"},
+				{&gi.buttons.zoomToGoroutine, "Zoom to goroutine"},
+			}
+			var buttonsRight []button
+			if gi.windowed {
+				buttonsRight = []button{
+					{&gi.buttons.attach, "Attach"},
+					{&gi.buttons.close, "Close"},
 				}
-
-				for _, link := range events.ClickedLinks() {
-					gwin.mwin.OpenLink(link)
+			} else {
+				buttonsRight = []button{
+					{&gi.buttons.back, "Back"},
+					{&gi.buttons.detach, "Detach"},
+					{&gi.buttons.close, "Close"},
 				}
+			}
 
-				for scrollToGoroutine.Clicked() {
-					gwin.mwin.OpenLink(&GoroutineLink{Goroutine: gwin.g, Kind: GoroutineLinkKindScroll})
+			var children []layout.FlexChild
+			for _, btn := range buttonsLeft {
+				btn := btn
+				children = append(children,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return theme.Button(btn.w, btn.label).Layout(win, gtx)
+					}),
+					layout.Rigid(layout.Spacer{Width: 5}.Layout),
+				)
+			}
+			children = append(children, layout.Flexed(1, nothing))
+			for _, btn := range buttonsRight {
+				btn := btn
+				children = append(children,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return theme.Button(btn.w, btn.label).Layout(win, gtx)
+					}),
+					layout.Rigid(layout.Spacer{Width: 5}.Layout),
+				)
+			}
+
+			// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
+			// panel contents, nor the infinite width of a possible surrounding list.
+			gtx.Constraints.Max.X = gtx.Constraints.Min.X
+			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+		}),
+
+		layout.Rigid(layout.Spacer{Height: 10}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			return gi.description.Layout(win, gtx)
+
+		}),
+
+		layout.Rigid(layout.Spacer{Height: 10}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			// TODO(dh): stack traces can get quite long, making it even more important that this window
+			// gets scrollbars
+			return gi.foldables.stacktrace.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				// OPT(dh): compute the string form of the backtrace once, not each frame
+				ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
+				stk := gi.Trace.Stacks[ev.StkID]
+				sb := strings.Builder{}
+				for _, f := range stk {
+					frame := gi.Trace.PCs[f]
+					fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
 				}
-				for zoomToGoroutine.Clicked() {
-					gwin.mwin.OpenLink(&GoroutineLink{Goroutine: gwin.g, Kind: GoroutineLinkKindZoom})
+				s := sb.String()
+				if len(s) > 0 && s[len(s)-1] == '\n' {
+					s = s[:len(s)-1]
 				}
-
-				paint.Fill(gtx.Ops, colors[colorBackground])
-
-				return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-								// TODO(dh): these buttons should reflow into multiple rows if the window is too small
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return theme.Button(&scrollToGoroutine, "Scroll to goroutine").Layout(win, gtx)
-								}),
-								layout.Rigid(layout.Spacer{Width: 5}.Layout),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return theme.Button(&zoomToGoroutine, "Zoom to goroutine").Layout(win, gtx)
-								}),
-							)
-						}),
-
-						layout.Rigid(layout.Spacer{Height: 5}.Layout),
-
-						layout.Rigid(theme.Dumb(win, txt.Layout)),
-						// XXX ideally the spacing would be one line high
-						layout.Rigid(layout.Spacer{Height: 10}.Layout),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							// TODO(dh): stack traces can get quite long, making it even more important that this window
-							// gets scrollbars
-							return stacktraceFoldable.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								// OPT(dh): compute the string form of the backtrace once, not each frame
-								// XXX don't let Gio wrap our text, add horizontal scrollbars instead
-								ev := gwin.trace.Events[gwin.g.Spans[0].Event]
-								stk := gwin.trace.Stacks[ev.StkID]
-								sb := strings.Builder{}
-								for _, f := range stk {
-									frame := gwin.trace.PCs[f]
-									fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
-								}
-								s := sb.String()
-								if len(s) > 0 && s[len(s)-1] == '\n' {
-									s = s[:len(s)-1]
-								}
-								return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
-							})
-						}),
-						// XXX ideally the spacing would be one line high
-						layout.Rigid(layout.Spacer{Height: 10}.Layout),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							// TODO(dh): this needs a horizontal scrollbar for small windows
-							return statsFoldable.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								return gwin.stats.Layout(win, gtx)
-							})
-						}),
-						// XXX ideally the spacing would be one line high
-						layout.Rigid(layout.Spacer{Height: 10}.Layout),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return eventsFoldable.Layout(win, gtx, events.Layout)
-						}),
-					)
-				})
+				return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
 			})
 
-			ev.Frame(&ops)
+		}),
+
+		layout.Rigid(layout.Spacer{Height: 10}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			// TODO(dh): this needs a horizontal scrollbar for small windows
+			return gi.foldables.stats.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				return gi.stats.Layout(win, gtx)
+			})
+
+		}),
+
+		layout.Rigid(layout.Spacer{Height: 10}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			return gi.foldables.events.Layout(win, gtx, gi.events.Layout)
+		}),
+	)
+
+	for i := range gi.description.Spans {
+		if s := &gi.description.Spans[i]; s.Clickable != nil {
+			for s.Clickable.Clicked() {
+				gi.MainWindow.OpenLink(gi.description.Spans[i].Link)
+			}
 		}
 	}
 
-	return nil
+	for _, link := range gi.events.ClickedLinks() {
+		gi.MainWindow.OpenLink(link)
+	}
+
+	for gi.buttons.scrollToGoroutine.Clicked() {
+		gi.MainWindow.OpenLink(&GoroutineLink{Goroutine: gi.Goroutine, Kind: GoroutineLinkKindScroll})
+	}
+	for gi.buttons.zoomToGoroutine.Clicked() {
+		gi.MainWindow.OpenLink(&GoroutineLink{Goroutine: gi.Goroutine, Kind: GoroutineLinkKindZoom})
+	}
+	for gi.buttons.back.Clicked() {
+		gi.MainWindow.prevPanel()
+	}
+	for gi.buttons.close.Clicked() {
+		gi.closed = true
+	}
+	for gi.buttons.detach.Clicked() {
+		gi.detached = true
+	}
+	for gi.buttons.attach.Clicked() {
+		gi.attached = true
+	}
+
+	return dims
 }
 
 const numStatLabels = 7
@@ -436,7 +527,7 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 
 	grid := mylayout.SmallGrid{
 		RowPadding:    0,
-		ColumnPadding: gtx.Dp(15),
+		ColumnPadding: gtx.Dp(10),
 	}
 
 	// Compute the widest column label so that all columns have the same size (unless they need to be wider due to their

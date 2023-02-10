@@ -34,6 +34,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/widget"
+	"gioui.org/x/component"
 	"gioui.org/x/styledtext"
 	"golang.org/x/text/message"
 )
@@ -108,33 +109,82 @@ func (rops *reusableOps) get() *op.Ops {
 	return &rops.ops
 }
 
-func (w *MainWindow) openGoroutineWindow(g *ptrace.Goroutine) {
-	_, ok := w.goroutineWindows[g.ID]
-	if ok {
-		// XXX try to activate (bring to the front) the existing window
-	} else {
-		win := &GoroutineWindow{
-			// Note that we cannot use a.theme, because text.Shaper isn't safe for concurrent use.
-			theme: theme.NewTheme(gofont.Collection()),
-			mwin:  w,
-			trace: w.trace,
-			g:     g,
-		}
-		win.stats = NewGoroutineStats(g)
-		w.goroutineWindows[g.ID] = win
-		// XXX computing the label is duplicated with rendering the timeline widget
-		var l string
-		if g.Function.Fn != "" {
-			l = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
-		} else {
-			l = local.Sprintf("goroutine %d", g.ID)
-		}
-		go func() {
-			// XXX handle error?
-			win.Run(app.NewWindow(app.Title(fmt.Sprintf("gotraceui - %s", l))))
-			w.notifyGoroutineWindowClosed <- g.ID
-		}()
+func (w *MainWindow) openGoroutine(g *ptrace.Goroutine) {
+	gi := &GoroutineInfo{
+		MainWindow: w,
+		Goroutine:  g,
+		Trace:      w.trace,
 	}
+	w.openPanel(gi)
+}
+
+func (w *MainWindow) openPanel(p Panel) {
+	if w.panel != nil {
+		w.panelHistory = append(w.panelHistory, w.panel)
+		if len(w.panelHistory) == 101 {
+			copy(w.panelHistory, w.panelHistory[1:])
+			w.panelHistory = w.panelHistory[:100]
+		}
+	}
+	p.SetWindowed(false)
+	w.panel = p
+}
+
+func (w *MainWindow) prevPanel() bool {
+	if len(w.panelHistory) == 0 {
+		return false
+	}
+	p := w.panelHistory[len(w.panelHistory)-1]
+	w.panelHistory = w.panelHistory[:len(w.panelHistory)-1]
+	w.panel = p
+	return true
+}
+
+func (w *MainWindow) closePanel() {
+	w.panel = nil
+}
+
+type PanelWindow struct {
+	MainWindow *MainWindow
+	Panel      Panel
+}
+
+func (pwin *PanelWindow) Run(win *app.Window) error {
+	var ops op.Ops
+	tWin := &theme.Window{Theme: theme.NewTheme(gofont.Collection())}
+
+	for e := range win.Events() {
+		switch ev := e.(type) {
+		case system.DestroyEvent:
+			return ev.Err
+		case system.FrameEvent:
+			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				paint.Fill(gtx.Ops, colors[colorBackground])
+				return pwin.Panel.Layout(win, gtx)
+			})
+
+			if pwin.Panel.Closed() {
+				win.Perform(system.ActionClose)
+			} else if pwin.Panel.Attached() {
+				pwin.MainWindow.openPanel(pwin.Panel)
+				win.Perform(system.ActionClose)
+			}
+
+			ev.Frame(&ops)
+		}
+	}
+
+	return nil
+}
+
+func (w *MainWindow) openPanelWindow(p Panel) {
+	win := &PanelWindow{MainWindow: w, Panel: p}
+	p.SetWindowed(true)
+	go func() {
+		// XXX handle error?
+		win.Run(app.NewWindow(app.Title("gotraceui - " + p.Title())))
+	}()
+
 }
 
 func (w *MainWindow) openHeatmap() {
@@ -155,11 +205,23 @@ func shortenFunctionName(s string) string {
 
 type Command func(*MainWindow, layout.Context)
 
+type Panel interface {
+	Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
+	Title() string
+	Closed() bool
+	Detached() bool
+	Attached() bool
+	SetWindowed(bool)
+}
+
 type MainWindow struct {
 	canvas   Canvas
 	theme    *theme.Theme
 	trace    *Trace
 	commands chan Command
+
+	panel        Panel
+	panelHistory []Panel
 
 	pointerAt f32.Point
 
@@ -170,19 +232,14 @@ type MainWindow struct {
 	ww       *theme.ListWindow
 	err      error
 
-	notifyGoroutineWindowClosed chan uint64
-	goroutineWindows            map[uint64]*GoroutineWindow
-
 	debugWindow *DebugWindow
 }
 
 func NewMainWindow() *MainWindow {
 	win := &MainWindow{
-		theme:                       theme.NewTheme(gofont.Collection()),
-		commands:                    make(chan Command, 128),
-		notifyGoroutineWindowClosed: make(chan uint64, 16),
-		goroutineWindows:            make(map[uint64]*GoroutineWindow),
-		debugWindow:                 NewDebugWindow(),
+		theme:       theme.NewTheme(gofont.Collection()),
+		commands:    make(chan Command, 128),
+		debugWindow: NewDebugWindow(),
 	}
 
 	win.canvas.axis.cv = &win.canvas
@@ -320,8 +377,8 @@ func (mwin *MainWindow) OpenLink(l Link) {
 		switch l := l.(type) {
 		case *GoroutineLink:
 			switch l.Kind {
-			case GoroutineLinkKindOpenWindow:
-				mwin.openGoroutineWindow(l.Goroutine)
+			case GoroutineLinkKindOpen:
+				mwin.openGoroutine(l.Goroutine)
 			case GoroutineLinkKindScroll:
 				mwin.canvas.scrollToTimeline(gtx, l.Goroutine)
 			case GoroutineLinkKindZoom:
@@ -464,14 +521,18 @@ func (w *MainWindow) Run(win *app.Window) error {
 		Theme: w.theme,
 		Menu:  mainMenu.menu,
 	}
+
+	resize := component.Resize{
+		Axis:  layout.Horizontal,
+		Ratio: 0.70,
+	}
+	panelList := widget.List{}
+
 	for {
 		select {
 		case cmd := <-w.commands:
 			commands = append(commands, cmd)
 			w.win.Invalidate()
-
-		case gid := <-w.notifyGoroutineWindowClosed:
-			delete(w.goroutineWindows, gid)
 
 		case e := <-win.Events():
 			switch ev := e.(type) {
@@ -652,7 +713,16 @@ func (w *MainWindow) Run(win *app.Window) error {
 						}
 
 						for _, g := range w.canvas.clickedGoroutineTimelines {
-							w.openGoroutineWindow(g)
+							w.openGoroutine(g)
+						}
+
+						if w.panel != nil {
+							if w.panel.Closed() {
+								w.closePanel()
+							} else if w.panel.Detached() {
+								w.openPanelWindow(w.panel)
+								w.closePanel()
+							}
 						}
 
 						key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
@@ -690,7 +760,54 @@ func (w *MainWindow) Run(win *app.Window) error {
 						w.debugWindow.cvEnd.addValue(gtx.Now, float64(w.canvas.end))
 						w.debugWindow.cvY.addValue(gtx.Now, float64(w.canvas.y))
 
-						return w.canvas.Layout(win, gtx)
+						if w.panel == nil {
+							return w.canvas.Layout(win, gtx)
+						} else {
+							return resize.Layout(gtx,
+								theme.Dumb(win, w.canvas.Layout),
+								func(gtx layout.Context) layout.Dimensions {
+									sb := theme.Scrollbar(win.Theme, &panelList.Scrollbar)
+
+									gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
+
+									oldGtx := gtx
+									listDims := panelList.List.Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+										gtx.Constraints.Min.X = oldGtx.Constraints.Min.X
+										gtx.Constraints.Min.Y -= gtx.Dp(sb.Width())
+										gtx.Constraints.Max.Y -= gtx.Dp(sb.Width())
+										gtx.Constraints = normalize(gtx.Constraints)
+										if index != 0 {
+											panic("impossible")
+										}
+										return w.panel.Layout(win, gtx)
+									})
+
+									start, end := fromListPosition(panelList.List.Position, 1, listDims.Size.X)
+
+									layout.S.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										return sb.Layout(gtx, layout.Horizontal, start, end)
+									})
+
+									if delta := panelList.ScrollDistance(); delta != 0 {
+										// Handle any changes to the list position as a result of user interaction
+										// with the scrollbar.
+										panelList.Position.Offset += int(math.Round(float64(float32(panelList.Position.Length) * delta)))
+
+										// Ensure that the list pays attention to the Offset field when the scrollbar drag
+										// is started while the bar is at the end of the list. Without this, the scrollbar
+										// cannot be dragged away from the end.
+										panelList.Position.BeforeEnd = true
+									}
+
+									return listDims
+								},
+								func(gtx layout.Context) layout.Dimensions {
+									gtx.Constraints.Max.X = 5
+									defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+									paint.Fill(gtx.Ops, rgba(0xFF0000FF))
+									return layout.Dimensions{Size: gtx.Constraints.Max}
+								})
+						}
 
 					default:
 						return layout.Dimensions{}
@@ -888,7 +1005,7 @@ type Link interface{ isLink() }
 type GoroutineLinkKind uint8
 
 const (
-	GoroutineLinkKindOpenWindow GoroutineLinkKind = iota
+	GoroutineLinkKindOpen GoroutineLinkKind = iota
 	GoroutineLinkKindScroll
 	GoroutineLinkKindZoom
 )

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"image"
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/theme"
@@ -109,9 +110,10 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			case 0:
 				return 200
 			case 1:
-				return 200
+				return 20
 			case 2:
-				w := constraint - 400
+				// No minimum width for the final column; use whatever space is available
+				w := constraint - 200
 				if w < 0 {
 					w = 0
 				}
@@ -125,11 +127,15 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	}
 
 	columns := [...]string{
-		"Time", "Category", "Message",
+		"Time", "", "Message",
 	}
 
 	var txtCnt int
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		if col == 2 {
+			gtx.Constraints.Min = image.Point{}
+		}
+
 		var txt *Text
 		if txtCnt < evs.texts.Len() {
 			txt = evs.texts.Ptr(txtCnt)
@@ -151,7 +157,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			// XXX styledtext wraps our spans if the window is too small
 
 			addSpanG := func(gid uint64) {
-				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.Trace.G(gid), GoroutineLinkKindOpenWindow}))
+				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.Trace.G(gid), GoroutineLinkKindOpen}))
 			}
 
 			addSpanTs := func(ts trace.Timestamp) {
@@ -162,9 +168,6 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			case 0:
 				addSpanTs(ev.Ts)
 			case 1:
-				if ev.Type == trace.EvUserLog {
-					txt.Span(evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]])
-				}
 			case 2:
 				switch ev.Type {
 				case trace.EvGoCreate:
@@ -182,7 +185,13 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 						txt.Span("Syscall")
 					}
 				case trace.EvUserLog:
-					txt.Span(evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]])
+					cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
+					msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
+					if cat != "" {
+						txt.Span(fmt.Sprintf("<%s> %s", cat, msg))
+					} else {
+						txt.Span(msg)
+					}
 				default:
 					panic(fmt.Sprintf("unhandled type %v", ev.Type))
 				}

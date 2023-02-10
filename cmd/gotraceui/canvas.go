@@ -512,6 +512,12 @@ func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 
 func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Canvas.Layout").End()
+	gtx.Constraints.Min = image.Point{}
+
+	if gtx.Constraints.Max.X < 50 || gtx.Constraints.Max.Y < 50 {
+		// Crude guard against having too litle space to render anything useful.
+		return layout.Dimensions{Size: gtx.Constraints.Max}
+	}
 
 	if cv.animateTo.animating {
 		// XXX animation really makes it obvious that our span merging algorithm is unstable

@@ -259,6 +259,9 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 	}
 
 	if !pl.hideLegends {
+		gtx := gtx
+		gtx.Constraints.Min = image.Point{}
+
 		r := rtrace.StartRegion(context.Background(), "legends")
 		// Print legends
 		m := op.Record(gtx.Ops)
