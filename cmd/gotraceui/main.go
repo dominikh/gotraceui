@@ -118,7 +118,7 @@ func (w *MainWindow) openGoroutine(g *ptrace.Goroutine) {
 	w.openPanel(gi)
 }
 
-func (w *MainWindow) openPanel(p Panel) {
+func (w *MainWindow) openPanel(p theme.Panel) {
 	if w.panel != nil {
 		w.panelHistory = append(w.panelHistory, w.panel)
 		if len(w.panelHistory) == 101 {
@@ -146,7 +146,7 @@ func (w *MainWindow) closePanel() {
 
 type PanelWindow struct {
 	MainWindow *MainWindow
-	Panel      Panel
+	Panel      theme.Panel
 }
 
 func (pwin *PanelWindow) Run(win *app.Window) error {
@@ -177,7 +177,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 	return nil
 }
 
-func (w *MainWindow) openPanelWindow(p Panel) {
+func (w *MainWindow) openPanelWindow(p theme.Panel) {
 	win := &PanelWindow{MainWindow: w, Panel: p}
 	p.SetWindowed(true)
 	go func() {
@@ -205,23 +205,14 @@ func shortenFunctionName(s string) string {
 
 type Command func(*MainWindow, layout.Context)
 
-type Panel interface {
-	Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
-	Title() string
-	Closed() bool
-	Detached() bool
-	Attached() bool
-	SetWindowed(bool)
-}
-
 type MainWindow struct {
 	canvas   Canvas
 	theme    *theme.Theme
 	trace    *Trace
 	commands chan Command
 
-	panel        Panel
-	panelHistory []Panel
+	panel        theme.Panel
+	panelHistory []theme.Panel
 
 	pointerAt f32.Point
 
@@ -766,40 +757,15 @@ func (w *MainWindow) Run(win *app.Window) error {
 							return resize.Layout(gtx,
 								theme.Dumb(win, w.canvas.Layout),
 								func(gtx layout.Context) layout.Dimensions {
-									sb := theme.Scrollbar(win.Theme, &panelList.Scrollbar)
-
 									gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-
 									oldGtx := gtx
-									listDims := panelList.List.Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+									return theme.List(win.Theme, &panelList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 										gtx.Constraints.Min.X = oldGtx.Constraints.Min.X
-										gtx.Constraints.Min.Y -= gtx.Dp(sb.Width())
-										gtx.Constraints.Max.Y -= gtx.Dp(sb.Width())
-										gtx.Constraints = normalize(gtx.Constraints)
 										if index != 0 {
 											panic("impossible")
 										}
 										return w.panel.Layout(win, gtx)
 									})
-
-									start, end := fromListPosition(panelList.List.Position, 1, listDims.Size.X)
-
-									layout.S.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return sb.Layout(gtx, layout.Horizontal, start, end)
-									})
-
-									if delta := panelList.ScrollDistance(); delta != 0 {
-										// Handle any changes to the list position as a result of user interaction
-										// with the scrollbar.
-										panelList.Position.Offset += int(math.Round(float64(float32(panelList.Position.Length) * delta)))
-
-										// Ensure that the list pays attention to the Offset field when the scrollbar drag
-										// is started while the bar is at the end of the list. Without this, the scrollbar
-										// cannot be dragged away from the end.
-										panelList.Position.BeforeEnd = true
-									}
-
-									return listDims
 								},
 								func(gtx layout.Context) layout.Dimensions {
 									gtx.Constraints.Max.X = 5

@@ -48,7 +48,6 @@ type GoroutineInfo struct {
 	Trace      *Trace
 
 	initialized bool
-	windowed    bool
 
 	events Events
 	stats  *GoroutineStats
@@ -56,10 +55,6 @@ type GoroutineInfo struct {
 	buttons struct {
 		scrollToGoroutine widget.Clickable
 		zoomToGoroutine   widget.Clickable
-		close             widget.Clickable
-		back              widget.Clickable
-		detach            widget.Clickable
-		attach            widget.Clickable
 	}
 
 	foldables struct {
@@ -70,15 +65,8 @@ type GoroutineInfo struct {
 
 	description Text
 
-	closed   bool
-	detached bool
-	attached bool
+	theme.PanelButtons
 }
-
-func (gi *GoroutineInfo) SetWindowed(b bool) { gi.windowed = b }
-func (gi *GoroutineInfo) Closed() bool       { return gi.closed }
-func (gi *GoroutineInfo) Detached() bool     { b := gi.detached; gi.detached = false; return b }
-func (gi *GoroutineInfo) Attached() bool     { b := gi.attached; gi.attached = false; return b }
 
 func (gi *GoroutineInfo) Title() string {
 	g := gi.Goroutine
@@ -169,19 +157,6 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				{&gi.buttons.scrollToGoroutine, "Scroll to goroutine"},
 				{&gi.buttons.zoomToGoroutine, "Zoom to goroutine"},
 			}
-			var buttonsRight []button
-			if gi.windowed {
-				buttonsRight = []button{
-					{&gi.buttons.attach, "Attach"},
-					{&gi.buttons.close, "Close"},
-				}
-			} else {
-				buttonsRight = []button{
-					{&gi.buttons.back, "Back"},
-					{&gi.buttons.detach, "Detach"},
-					{&gi.buttons.close, "Close"},
-				}
-			}
 
 			var children []layout.FlexChild
 			for _, btn := range buttonsLeft {
@@ -194,15 +169,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				)
 			}
 			children = append(children, layout.Flexed(1, nothing))
-			for _, btn := range buttonsRight {
-				btn := btn
-				children = append(children,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return theme.Button(btn.w, btn.label).Layout(win, gtx)
-					}),
-					layout.Rigid(layout.Spacer{Width: 5}.Layout),
-				)
-			}
+			children = append(children, layout.Rigid(theme.Dumb(win, gi.PanelButtons.Layout)))
 
 			// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
 			// panel contents, nor the infinite width of a possible surrounding list.
@@ -275,17 +242,8 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	for gi.buttons.zoomToGoroutine.Clicked() {
 		gi.MainWindow.OpenLink(&GoroutineLink{Goroutine: gi.Goroutine, Kind: GoroutineLinkKindZoom})
 	}
-	for gi.buttons.back.Clicked() {
+	for gi.PanelButtons.Backed() {
 		gi.MainWindow.prevPanel()
-	}
-	for gi.buttons.close.Clicked() {
-		gi.closed = true
-	}
-	for gi.buttons.detach.Clicked() {
-		gi.detached = true
-	}
-	for gi.buttons.attach.Clicked() {
-		gi.attached = true
 	}
 
 	return dims

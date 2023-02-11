@@ -112,7 +112,6 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			case 1:
 				return 20
 			case 2:
-				// No minimum width for the final column; use whatever space is available
 				w := constraint - 200
 				if w < 0 {
 					w = 0
