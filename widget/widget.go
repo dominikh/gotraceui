@@ -4,7 +4,6 @@ import (
 	"context"
 	"image"
 	"image/color"
-	"math"
 	rtrace "runtime/trace"
 
 	"gioui.org/layout"
@@ -62,15 +61,15 @@ type TextLine struct {
 	Color color.NRGBA
 }
 
-func (tl TextLine) Layout(gtx layout.Context, shaper text.Shaper, font text.Font, size unit.Sp, label string) layout.Dimensions {
+func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font text.Font, size unit.Sp, label string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.TextLine.Layout").End()
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	// Effectively disable widget.Label's word wrapping and sentence truncation.
-	gtx.Constraints.Max.X = math.MaxInt
+	gtx.Constraints.Max.X = 1e6
 	paint.ColorOp{Color: tl.Color}.Add(gtx.Ops)
-	return widget.Label{}.Layout(gtx, shaper, font, size, label)
+	return widget.Label{MaxLines: 1}.Layout(gtx, shaper, font, size, label)
 }
 
 type Background struct {

@@ -31,7 +31,7 @@ type EditorStyle struct {
 	SelectionColor color.NRGBA
 	Editor         *widget.Editor
 
-	shaper text.Shaper
+	shaper *text.Shaper
 }
 
 func Editor(th *Theme, editor *widget.Editor, hint string) EditorStyle {

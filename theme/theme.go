@@ -20,7 +20,7 @@ import (
 )
 
 type Theme struct {
-	Shaper        text.Shaper
+	Shaper        *text.Shaper
 	Palette       Palette
 	TextSize      unit.Sp
 	TextSizeLarge unit.Sp
@@ -50,7 +50,7 @@ var DefaultPalette = Palette{
 func NewTheme(fontCollection []text.FontFace) *Theme {
 	return &Theme{
 		Palette:       DefaultPalette,
-		Shaper:        text.NewCache(fontCollection),
+		Shaper:        text.NewShaper(fontCollection),
 		TextSize:      12,
 		TextSizeLarge: 14,
 

@@ -24,7 +24,6 @@ import (
 	"gioui.org/x/styledtext"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
-	"golang.org/x/image/math/fixed"
 )
 
 type GoroutineStats struct {
@@ -330,10 +329,12 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	var columnSizes [numStatLabels]image.Point
 
 	shape := func(s string, f text.Font) image.Point {
-		lines := th.Shaper.LayoutString(fLabel, fixed.I(gtx.Sp(th.TextSize)), gtx.Constraints.Max.X, gtx.Locale, s)
-		firstLine := lines[0]
-		spanWidth := firstLine.Width.Ceil()
-		spanHeight := (firstLine.Ascent + firstLine.Descent).Ceil()
+		m := op.Record(gtx.Ops)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, f, th.TextSize, s)
+		m.Stop()
+
+		spanWidth := dims.Size.X
+		spanHeight := dims.Size.Y
 
 		return image.Point{spanWidth, spanHeight}
 	}
@@ -496,10 +497,11 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 		f.Weight = text.Bold
 
 		l := statLabels[gs.numberFormat][i]
-		lines := win.Theme.Shaper.LayoutString(f, fixed.I(gtx.Sp(win.Theme.TextSize)), gtx.Constraints.Max.X, gtx.Locale, l)
-		firstLine := lines[0]
-		spanWidth := firstLine.Width.Ceil()
-		spanHeight := (firstLine.Ascent + firstLine.Descent).Ceil()
+		m := op.Record(gtx.Ops)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, l)
+		m.Stop()
+		spanWidth := dims.Size.X
+		spanHeight := dims.Size.Y
 
 		j := i - numStatLabels
 		if j > 2 {

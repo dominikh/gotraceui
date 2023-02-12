@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"math"
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/theme"
@@ -97,8 +98,12 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	dimmer := func(axis layout.Axis, index, constraint int) int {
 		switch axis {
 		case layout.Vertical:
-			line := win.Theme.Shaper.LayoutString(text.Font{}, fixed.I(gtx.Sp(win.Theme.TextSize)), 0, gtx.Locale, "")[0]
-			return line.Ascent.Ceil() + line.Descent.Ceil()
+			win.Theme.Shaper.LayoutString(text.Parameters{PxPerEm: fixed.I(gtx.Sp(win.Theme.TextSize))}, 0, math.MaxInt, gtx.Locale, " ")
+			glyph, ok := win.Theme.Shaper.NextGlyph()
+			if !ok {
+				panic("impossible")
+			}
+			return glyph.Ascent.Ceil() + glyph.Descent.Ceil()
 		case layout.Horizontal:
 			// XXX don't guess the dimensions
 			// XXX don't insist on a minimum if the window is too narrow or columns will overlap
