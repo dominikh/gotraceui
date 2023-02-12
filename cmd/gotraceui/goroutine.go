@@ -64,6 +64,9 @@ type GoroutineInfo struct {
 
 	description Text
 
+	stacktraceList widget.List
+	statsList      widget.List
+
 	theme.PanelButtons
 }
 
@@ -135,9 +138,9 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
 	gtx.Constraints.Max = gtx.Constraints.Max.Sub(image.Pt(2*5, 2*5))
-	gtx.Constraints = normalize(gtx.Constraints)
+	gtx.Constraints = mylayout.Normalize(gtx.Constraints)
 
-	if gtx.Constraints.Min.X <= 5 || gtx.Constraints.Min.Y <= 5 {
+	if gtx.Constraints.Max.X <= 5 || gtx.Constraints.Max.Y <= 5 {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
 
@@ -180,38 +183,44 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
 			return gi.description.Layout(win, gtx)
-
 		}),
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
 			// TODO(dh): stack traces can get quite long, making it even more important that this window
 			// gets scrollbars
-			return gi.foldables.stacktrace.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				// OPT(dh): compute the string form of the backtrace once, not each frame
-				ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
-				stk := gi.Trace.Stacks[ev.StkID]
-				sb := strings.Builder{}
-				for _, f := range stk {
-					frame := gi.Trace.PCs[f]
-					fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+			return theme.List(win.Theme, &gi.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+				if index != 0 {
+					panic("impossible")
 				}
-				s := sb.String()
-				if len(s) > 0 && s[len(s)-1] == '\n' {
-					s = s[:len(s)-1]
-				}
-				return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
+				return gi.foldables.stacktrace.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+					// OPT(dh): compute the string form of the backtrace once, not each frame
+					ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
+					stk := gi.Trace.Stacks[ev.StkID]
+					sb := strings.Builder{}
+					for _, f := range stk {
+						frame := gi.Trace.PCs[f]
+						fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+					}
+					s := sb.String()
+					if len(s) > 0 && s[len(s)-1] == '\n' {
+						s = s[:len(s)-1]
+					}
+					return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
+				})
 			})
 
 		}),
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			// TODO(dh): this needs a horizontal scrollbar for small windows
-			return gi.foldables.stats.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return gi.stats.Layout(win, gtx)
+			return theme.List(win.Theme, &gi.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+				if index != 0 {
+					panic("impossible")
+				}
+				return gi.foldables.stats.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+					return gi.stats.Layout(win, gtx)
+				})
 			})
 
 		}),

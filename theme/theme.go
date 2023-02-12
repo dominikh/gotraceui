@@ -4,8 +4,10 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"math"
 	rtrace "runtime/trace"
 
+	mylayout "honnef.co/go/gotraceui/layout"
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
@@ -17,6 +19,8 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
+	"gioui.org/x/component"
+	"gioui.org/x/outlay"
 )
 
 type Theme struct {
@@ -329,4 +333,88 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 			)
 		})
 	})
+}
+
+type GridStyle struct {
+	State           *component.GridState
+	VScrollbarStyle ScrollbarStyle
+	HScrollbarStyle ScrollbarStyle
+	// material.AnchorStrategy
+}
+
+// Grid makes a grid with its persistent state.
+func Grid(th *Theme, state *component.GridState) GridStyle {
+	return GridStyle{
+		State:           state,
+		VScrollbarStyle: Scrollbar(th, &state.VScrollbar),
+		HScrollbarStyle: Scrollbar(th, &state.HScrollbar),
+	}
+}
+
+// Layout will draw a grid, using fixed column widths and row height.
+func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay.Dimensioner, cellFunc outlay.Cell) layout.Dimensions {
+	// Determine how much space the scrollbars occupy when present.
+	hBarWidth := gtx.Dp(g.HScrollbarStyle.Width())
+	vBarWidth := gtx.Dp(g.VScrollbarStyle.Width())
+
+	// Reserve space for the scrollbars using the gtx constraints.
+	gtx.Constraints.Max.X -= vBarWidth
+	gtx.Constraints.Max.Y -= hBarWidth
+	gtx.Constraints = mylayout.Normalize(gtx.Constraints)
+
+	defer pointer.PassOp{}.Push(gtx.Ops).Pop()
+	// Draw grid.
+	dim := g.State.Grid.Layout(gtx, rows, cols, dimensioner, cellFunc)
+
+	// Calculate column widths in pixels. Width is sum of widths.
+	totalWidth := g.State.Horizontal.Length
+	totalHeight := g.State.Vertical.Length
+
+	// Make the scroll bar stick to the grid.
+	if gtx.Constraints.Max.X > dim.Size.X {
+		gtx.Constraints.Max.X = dim.Size.X
+		gtx.Constraints.Max.X += vBarWidth
+	}
+
+	// Get horizontal scroll info.
+	delta := g.HScrollbarStyle.Scrollbar.ScrollDistance()
+	if delta != 0 {
+		g.State.Horizontal.Offset += int(float32(totalWidth-vBarWidth) * delta)
+	}
+
+	// Get vertical scroll info.
+	delta = g.VScrollbarStyle.Scrollbar.ScrollDistance()
+	if delta != 0 {
+		g.State.Vertical.Offset += int(math.Round(float64(float32(totalHeight-hBarWidth) * delta)))
+	}
+
+	var start float32
+	var end float32
+
+	// Draw vertical scroll-bar.
+	if vBarWidth > 0 {
+		c := gtx
+		start = float32(g.State.Vertical.OffsetAbs) / float32(totalHeight)
+		end = start + float32(c.Constraints.Max.Y)/float32(totalHeight)
+		c.Constraints.Min = c.Constraints.Max
+		c.Constraints.Min.X += vBarWidth
+		layout.E.Layout(c, func(gtx layout.Context) layout.Dimensions {
+			return g.VScrollbarStyle.Layout(gtx, layout.Vertical, start, end)
+		})
+	}
+
+	// Draw horizontal scroll-bar if it is visible.
+	if hBarWidth > 0 {
+		c := gtx
+		start = float32(g.State.Horizontal.OffsetAbs) / float32(totalWidth)
+		end = start + float32(c.Constraints.Max.X)/float32(totalWidth)
+		c.Constraints.Min = c.Constraints.Max
+		c.Constraints.Min.Y += hBarWidth
+		layout.S.Layout(c, func(gtx layout.Context) layout.Dimensions {
+			return g.HScrollbarStyle.Layout(gtx, layout.Horizontal, start, end)
+		})
+	}
+	dim.Size.Y += hBarWidth
+
+	return dim
 }

@@ -14,7 +14,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/text"
 	"gioui.org/widget"
-	"gioui.org/x/outlay"
+	"gioui.org/x/component"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -28,7 +28,9 @@ type Events struct {
 		ShowUserLog   widget.Bool
 	}
 	filteredEvents []ptrace.EventID
-	grid           outlay.Grid
+	grid           component.GridState
+
+	estimatedLongestMessage int
 
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
@@ -58,6 +60,20 @@ func (evs *Events) UpdateFilter() {
 			evs.filteredEvents = append(evs.filteredEvents, ev)
 		}
 	}
+
+	var max int
+	for _, evID := range evs.filteredEvents {
+		msgs := evs.eventMessage(evs.Trace.Event(evID))
+		n := 0
+		for _, msg := range msgs {
+			n += len(msg)
+		}
+		if n > max {
+			max = n
+		}
+	}
+
+	evs.estimatedLongestMessage = max
 }
 
 // ClickedLinks returns all links that have been clicked since the last call to the method.
@@ -77,10 +93,35 @@ func (evs *Events) ClickedLinks() []Link {
 	return out
 }
 
+func (evs *Events) eventMessage(ev *trace.Event) []string {
+	switch ev.Type {
+	case trace.EvGoCreate:
+		return []string{"Created goroutine ", local.Sprintf("%d", ev.Args[trace.ArgGoCreateG])}
+	case trace.EvGoUnblock:
+		return []string{"Unblocked goroutine ", local.Sprintf("%d", ev.Args[trace.ArgGoUnblockG])}
+	case trace.EvGoSysCall:
+		if ev.StkID != 0 {
+			frames := evs.Trace.Stacks[ev.StkID]
+			fn := evs.Trace.PCs[frames[0]].Fn
+			return []string{"Syscall ()", fn}
+		} else {
+			return []string{"Syscall"}
+		}
+	case trace.EvUserLog:
+		cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
+		msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
+		if cat != "" {
+			return []string{"<> ", cat, msg}
+		} else {
+			return []string{msg}
+		}
+	default:
+		panic(fmt.Sprintf("unhandled type %v", ev.Type))
+	}
+}
+
 func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Events.Layout").End()
-
-	// XXX draw grid scrollbars
 
 	evs.timestampLinks.Reset()
 	evs.goroutineLinks.Reset()
@@ -116,11 +157,9 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			case 1:
 				return 20
 			case 2:
-				w := constraint - 200
-				if w < 0 {
-					w = 0
-				}
-				return w
+				// This is an over-estimation of the longest message. Unfortunately that will lead to longer than
+				// necessary scroll bars. But it is preferable to having to shape thousands of strings.
+				return evs.estimatedLongestMessage * int(win.Theme.TextSize)
 			default:
 				panic("unreachable")
 			}
@@ -154,8 +193,6 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		if row == 0 {
 			return mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
 		} else {
-			// XXX subtract padding from width
-
 			ev := evs.Trace.Event(evs.filteredEvents[row-1])
 			// XXX styledtext wraps our spans if the window is too small
 
@@ -183,7 +220,9 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 					if ev.StkID != 0 {
 						frames := evs.Trace.Stacks[ev.StkID]
 						fn := evs.Trace.PCs[frames[0]].Fn
-						txt.Span(fmt.Sprintf("Syscall (%s)", fn))
+						txt.Span("Syscall (")
+						txt.Span(fn)
+						txt.Span(")")
 					} else {
 						txt.Span("Syscall")
 					}
@@ -191,7 +230,10 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 					cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
 					msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
 					if cat != "" {
-						txt.Span(fmt.Sprintf("<%s> %s", cat, msg))
+						txt.Span("<")
+						txt.Span(cat)
+						txt.Span("> ")
+						txt.Span(msg)
 					} else {
 						txt.Span(msg)
 					}
@@ -205,7 +247,13 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			if col == 0 && row != 0 {
 				txt.Alignment = text.End
 			}
-			return txt.Layout(win, gtx)
+
+			if col == 2 {
+				gtx.Constraints.Max.X = 1e6
+			}
+			dims := txt.Layout(win, gtx)
+
+			return layout.Dimensions{Size: dims.Size, Baseline: dims.Baseline}
 		}
 	}
 
@@ -225,7 +273,8 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return evs.grid.Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
+			gtx.Constraints.Min = gtx.Constraints.Max
+			return theme.Grid(win.Theme, &evs.grid).Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
 		}),
 	)
 

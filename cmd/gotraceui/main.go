@@ -516,7 +516,6 @@ func (w *MainWindow) Run(win *app.Window) error {
 		Axis:  layout.Horizontal,
 		Ratio: 0.70,
 	}
-	panelList := widget.List{}
 
 	for {
 		select {
@@ -756,15 +755,8 @@ func (w *MainWindow) Run(win *app.Window) error {
 							return resize.Layout(gtx,
 								theme.Dumb(win, w.canvas.Layout),
 								func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-									oldGtx := gtx
-									return theme.List(win.Theme, &panelList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-										gtx.Constraints.Min.X = oldGtx.Constraints.Min.X
-										if index != 0 {
-											panic("impossible")
-										}
-										return w.panel.Layout(win, gtx)
-									})
+									// gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
+									return w.panel.Layout(win, gtx)
 								},
 								func(gtx layout.Context) layout.Dimensions {
 									gtx.Constraints.Max.X = 5

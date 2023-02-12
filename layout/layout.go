@@ -99,3 +99,27 @@ func (in PixelInset) Layout(gtx layout.Context, w layout.Widget) layout.Dimensio
 		Baseline: dims.Baseline + bottom,
 	}
 }
+
+func Normalize(c layout.Constraints) layout.Constraints {
+	if c.Min.X < 0 {
+		c.Min.X = 0
+	}
+	if c.Min.Y < 0 {
+		c.Min.Y = 0
+	}
+	if c.Max.X < 0 {
+		c.Max.X = 0
+	}
+	if c.Max.Y < 0 {
+		c.Max.Y = 0
+	}
+
+	if c.Min.X > c.Max.X {
+		c.Min.X = c.Max.X
+	}
+	if c.Min.Y > c.Max.Y {
+		c.Min.Y = c.Max.Y
+	}
+
+	return c
+}
