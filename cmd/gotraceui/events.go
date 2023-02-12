@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"math"
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/theme"
@@ -98,7 +97,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	dimmer := func(axis layout.Axis, index, constraint int) int {
 		switch axis {
 		case layout.Vertical:
-			win.Theme.Shaper.LayoutString(text.Parameters{PxPerEm: fixed.I(gtx.Sp(win.Theme.TextSize))}, 0, math.MaxInt, gtx.Locale, " ")
+			win.Theme.Shaper.LayoutString(text.Parameters{PxPerEm: fixed.I(gtx.Sp(win.Theme.TextSize))}, 0, 1e6, gtx.Locale, " ")
 			glyph, ok := win.Theme.Shaper.NextGlyph()
 			if !ok {
 				panic("impossible")
