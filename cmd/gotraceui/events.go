@@ -12,10 +12,9 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/layout"
+	"gioui.org/op/clip"
 	"gioui.org/text"
 	"gioui.org/widget"
-	"gioui.org/x/component"
-	"golang.org/x/image/math/fixed"
 )
 
 type Events struct {
@@ -28,9 +27,7 @@ type Events struct {
 		ShowUserLog   widget.Bool
 	}
 	filteredEvents []ptrace.EventID
-	grid           component.GridState
-
-	estimatedLongestMessage int
+	list           mywidget.List
 
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
@@ -72,8 +69,6 @@ func (evs *Events) UpdateFilter() {
 			max = n
 		}
 	}
-
-	evs.estimatedLongestMessage = max
 }
 
 // ClickedLinks returns all links that have been clicked since the last call to the method.
@@ -123,6 +118,8 @@ func (evs *Events) eventMessage(ev *trace.Event) []string {
 func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Events.Layout").End()
 
+	evs.list.Axis = layout.Vertical
+
 	evs.timestampLinks.Reset()
 	evs.goroutineLinks.Reset()
 
@@ -133,47 +130,13 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		evs.UpdateFilter()
 	}
 
-	evs.grid.LockedRows = 1
-
-	dimmer := func(axis layout.Axis, index, constraint int) int {
-		switch axis {
-		case layout.Vertical:
-			win.Theme.Shaper.LayoutString(text.Parameters{PxPerEm: fixed.I(gtx.Sp(win.Theme.TextSize))}, 0, 1e6, gtx.Locale, " ")
-			glyph, ok := win.Theme.Shaper.NextGlyph()
-			if !ok {
-				panic("impossible")
-			}
-			return glyph.Ascent.Ceil() + glyph.Descent.Ceil()
-		case layout.Horizontal:
-			// XXX don't guess the dimensions
-			// XXX don't insist on a minimum if the window is too narrow or columns will overlap
-
-			// XXX we do have to guess the dimensions. computing them accurately is too expensive if we have tens of
-			// thousands of events because we can't shape them all. we can probably do some approximate math, pretending
-			// the font is fixed width.
-			switch index {
-			case 0:
-				return 200
-			case 1:
-				return 20
-			case 2:
-				// This is an over-estimation of the longest message. Unfortunately that will lead to longer than
-				// necessary scroll bars. But it is preferable to having to shape thousands of strings.
-				return evs.estimatedLongestMessage * int(win.Theme.TextSize)
-			default:
-				panic("unreachable")
-			}
-		default:
-			panic("unreachable")
-		}
-	}
-
 	columns := [...]string{
 		"Time", "", "Message",
 	}
 
 	var txtCnt int
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		if col == 2 {
 			gtx.Constraints.Min = image.Point{}
 		}
@@ -248,12 +211,9 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 				txt.Alignment = text.End
 			}
 
-			if col == 2 {
-				gtx.Constraints.Max.X = 1e6
-			}
 			dims := txt.Layout(win, gtx)
-
-			return layout.Dimensions{Size: dims.Size, Baseline: dims.Baseline}
+			dims.Size = gtx.Constraints.Constrain(dims.Size)
+			return dims
 		}
 	}
 
@@ -274,7 +234,25 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
-			return theme.Grid(win.Theme, &evs.grid).Layout(gtx, len(evs.filteredEvents)+1, len(columns), dimmer, cellFn)
+
+			st := theme.List(win.Theme, &evs.list)
+			st.EnableCrossScrolling = true
+			return st.Layout(gtx, len(evs.filteredEvents)+1, func(gtx layout.Context, index int) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = 200
+						gtx.Constraints.Max.X = 200
+						dims := cellFn(gtx, index, 0)
+						return dims
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Dimensions{Size: image.Pt(20, 0)}
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return cellFn(gtx, index, 2)
+					}),
+				)
+			})
 		}),
 	)
 
