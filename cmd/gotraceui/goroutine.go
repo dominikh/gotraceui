@@ -13,6 +13,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/gesture"
 	"gioui.org/io/pointer"
@@ -64,8 +65,8 @@ type GoroutineInfo struct {
 
 	description Text
 
-	stacktraceList widget.List
-	statsList      widget.List
+	stacktraceList mywidget.List
+	statsList      mywidget.List
 
 	theme.PanelButtons
 }

@@ -123,3 +123,17 @@ func Normalize(c layout.Constraints) layout.Constraints {
 
 	return c
 }
+
+func Main(a layout.Axis, pt *image.Point) *int {
+	if a == layout.Horizontal {
+		return &pt.X
+	}
+	return &pt.Y
+}
+
+func Cross(a layout.Axis, pt *image.Point) *int {
+	if a == layout.Horizontal {
+		return &pt.Y
+	}
+	return &pt.X
+}

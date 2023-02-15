@@ -81,9 +81,10 @@ func (s ScrollbarStyle) Width() unit.Dp {
 // Layout the scrollbar.
 func (s ScrollbarStyle) Layout(gtx layout.Context, axis layout.Axis, viewportStart, viewportEnd float32) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ScrollbarStyle.Layout").End()
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 	if !rangeIsScrollable(viewportStart, viewportEnd) {
-		return layout.Dimensions{}
+		return layout.Dimensions{Size: gtx.Constraints.Max}
 	}
 
 	// Set minimum constraints in an axis-independent way, then convert to

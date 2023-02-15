@@ -40,7 +40,7 @@ type ListWindow struct {
 
 	theme *Theme
 	input widget.Editor
-	list  widget.List
+	list  mywidget.List
 }
 
 func NewListWindow(th *Theme) *ListWindow {
@@ -50,7 +50,7 @@ func NewListWindow(th *Theme) *ListWindow {
 			SingleLine: true,
 			Submit:     true,
 		},
-		list: widget.List{
+		list: mywidget.List{
 			List: layout.List{
 				Axis: layout.Vertical,
 			},

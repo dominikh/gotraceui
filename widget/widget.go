@@ -87,3 +87,11 @@ func (b Background) Layout(gtx layout.Context, w layout.Widget) layout.Dimension
 	call.Add(gtx.Ops)
 	return dims
 }
+
+type List struct {
+	Main        widget.Scrollbar
+	Cross       widget.Scrollbar
+	CrossOffset float32
+	Widest      int
+	layout.List
+}
