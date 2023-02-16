@@ -379,7 +379,7 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			}
 		case *TimestampLink:
 			d := mwin.canvas.end - mwin.canvas.start
-			mwin.canvas.navigateTo(gtx, l.Ts, l.Ts+d, mwin.canvas.y)
+			mwin.canvas.navigateTo(gtx, l.Ts-d/2, l.Ts+d/2, mwin.canvas.y)
 		default:
 			panic(l)
 		}
