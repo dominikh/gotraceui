@@ -110,9 +110,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			Title: "Events",
 		}
 
-		gi.description = Text{
-			theme: win.Theme,
-		}
+		gi.description.Reset(win.Theme)
 		gi.description.Bold("Goroutine: ")
 		gi.description.Span(local.Sprintf("%d\n", gi.Goroutine.ID))
 

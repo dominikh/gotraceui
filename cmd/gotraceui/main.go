@@ -1167,6 +1167,10 @@ func (l *allocator[T]) Truncate(n int) {
 }
 
 type Text struct {
+	// The theme must only be used for building the Text, with methods like Span. The Layout function has to use the
+	// theme provided to it, to avoid race conditions when texts transition from widgets to independent windows.
+	//
+	// The theme must be reset in Reset.
 	theme     *theme.Theme
 	styles    []styledtext.SpanStyle
 	Spans     []TextSpan
@@ -1219,10 +1223,11 @@ func (txt *Text) Link(label string, link Link) *TextSpan {
 	return s
 }
 
-func (txt *Text) Reset() {
+func (txt *Text) Reset(th *theme.Theme) {
 	txt.styles = txt.styles[:0]
 	txt.Spans = txt.Spans[:0]
 	txt.Alignment = 0
+	txt.theme = th
 }
 
 func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -1245,7 +1250,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 		}
 	}
 
-	ptxt := styledtext.Text(txt.theme.Shaper, txt.styles...)
+	ptxt := styledtext.Text(win.Theme.Shaper, txt.styles...)
 	ptxt.Alignment = txt.Alignment
 	if txt.Alignment == text.Start {
 		gtx.Constraints.Max.X = 1e6

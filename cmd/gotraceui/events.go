@@ -144,12 +144,11 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		var txt *Text
 		if txtCnt < evs.texts.Len() {
 			txt = evs.texts.Ptr(txtCnt)
-			txt.Reset()
-			txtCnt++
 		} else {
-			txt = evs.texts.Allocate(Text{theme: win.Theme})
-			txtCnt++
+			txt = evs.texts.Allocate(Text{})
 		}
+		txtCnt++
+		txt.Reset(win.Theme)
 
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
