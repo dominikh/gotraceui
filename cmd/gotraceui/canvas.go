@@ -887,14 +887,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-		cv.prevFrame.start = cv.start
-		cv.prevFrame.end = cv.end
-		cv.prevFrame.nsPerPx = cv.nsPerPx
-		cv.prevFrame.y = cv.y
-		cv.prevFrame.compact = cv.timeline.compact
-		cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
-		cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
-		cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 	}(gtx)
 
 	// Draw scrollbar
@@ -913,6 +905,15 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		sb := theme.Scrollbar(win.Theme, &cv.scrollbar)
 		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 	}(gtx)
+
+	cv.prevFrame.start = cv.start
+	cv.prevFrame.end = cv.end
+	cv.prevFrame.nsPerPx = cv.nsPerPx
+	cv.prevFrame.y = cv.y
+	cv.prevFrame.compact = cv.timeline.compact
+	cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
+	cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
+	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
