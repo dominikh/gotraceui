@@ -685,7 +685,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			if cv.drag.active {
 				cv.dragTo(gtx, ev.Position)
 			}
-		case pointer.Release:
+		case pointer.Release, pointer.Cancel:
 			cv.drag.ready = false
 			cv.zoomSelection.ready = false
 			if cv.drag.active {
@@ -1011,16 +1011,26 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 	return layout.Dimensions{Size: gtx.Constraints.Max}, out
 }
 
+// setPointerPosition updates the canvas's pointer position. This is used by Axis to keep the canvas updated while the
+// axis is being dragged.
+func (cv *Canvas) setPointerPosition(pos f32.Point) {
+	cv.pointerAt = pos
+}
+
 type Axis struct {
 	theme *theme.Theme
 	cv    *Canvas
 
 	ticksOps reusableOps
 
+	// the location of the origin, expressed as a ratio of the axis width in [0, 1]
+	origin float32
+
 	prevFrame struct {
-		ops  reusableOps
-		call op.CallOp
-		dims layout.Dimensions
+		ops    reusableOps
+		call   op.CallOp
+		dims   layout.Dimensions
+		origin float32
 	}
 }
 
@@ -1043,6 +1053,21 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	defer rtrace.StartRegion(context.Background(), "main.Axis.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
+	for _, e := range gtx.Events(axis) {
+		ev := e.(pointer.Event)
+		switch ev.Type {
+		case pointer.Press, pointer.Drag:
+			// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
+			axis.cv.setPointerPosition(ev.Position)
+			axis.origin = ev.Position.X / float32(gtx.Constraints.Max.X)
+			if axis.origin < 0 {
+				axis.origin = 0
+			} else if axis.origin > 1 {
+				axis.origin = 1
+			}
+		}
+	}
+
 	tickWidth := float32(gtx.Dp(tickWidthDp))
 	tickHeight := float32(gtx.Dp(tickHeightDp))
 	minTickLabelDistance := float32(gtx.Dp(minTickLabelDistanceDp))
@@ -1053,11 +1078,10 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	min := axis.cv.start
-	mid := axis.cv.start + (axis.cv.end-axis.cv.start)/2
 	max := axis.cv.end
-	origin := mid
+	origin := min + trace.Timestamp(round32(float32(max-min)*axis.origin))
 
-	if axis.cv.unchanged() {
+	if axis.cv.unchanged() && axis.prevFrame.origin == axis.origin {
 		axis.prevFrame.call.Add(gtx.Ops)
 		return axis.prevFrame.dims
 	}
@@ -1070,6 +1094,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		call.Add(origOps)
 		axis.prevFrame.call = call
 		axis.prevFrame.dims = dims
+		axis.prevFrame.origin = axis.origin
 	}()
 
 	var ticksPath clip.Path
@@ -1212,6 +1237,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{Path: ticksPath.End()}.Op())
+
+	pointer.InputOp{Tag: axis, Grab: true, Types: pointer.Press | pointer.Drag}.Add(gtx.Ops)
 
 	labelHeight := originLabelExtents.Max.Y
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
