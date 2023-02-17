@@ -26,6 +26,7 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
+	"gioui.org/x/component"
 )
 
 type showTooltips uint8
@@ -146,6 +147,8 @@ type Canvas struct {
 		pointerAt       f32.Point
 	}
 
+	resizeMemoryTimelines component.Resize
+
 	contextMenu []*theme.MenuItem
 	spanModal   *SpanModal
 
@@ -162,6 +165,20 @@ type Canvas struct {
 		hoveredTimeline    *TimelineWidget
 		hoveredSpans       SpanSelector
 	}
+}
+
+func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
+	cv.resizeMemoryTimelines.Axis = layout.Vertical
+	cv.resizeMemoryTimelines.Ratio = 0.1
+	cv.timeline.displayAllLabels = true
+	cv.axis = Axis{cv: cv, theme: w.theme}
+	cv.mainWindow = w
+	cv.trace = t
+	cv.debugWindow = w.debugWindow
+
+	cv.timelines = make([]*TimelineWidget, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
+	cv.timelines[0] = NewGCWidget(cv, t, t.GC)
+	cv.timelines[1] = NewSTWWidget(cv, t, t.STW)
 }
 
 func (cv *Canvas) rememberLocation() {
@@ -840,36 +857,26 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			}),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-				cv.drag.drag.Add(gtx.Ops)
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					// The memory graph
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						// XXX this will need to add to axisHeight, and rename the variable
-						gtx.Constraints.Max.Y = gtx.Dp(50)
+
+				return theme.Resize(&cv.resizeMemoryTimelines).Layout(win, gtx,
+					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+						cv.drag.drag.Add(gtx.Ops)
+
 						dims := cv.memoryGraph.Layout(win, gtx, cv)
 						axisHeight += dims.Size.Y
 						return dims
-					}),
-
-					// The divider between memory graph and timelines
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						const height = 3
-						defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}.Push(gtx.Ops).Pop()
-						paint.Fill(gtx.Ops, rgba(0x000000FF))
-						axisHeight += gtx.Dp(height)
-						return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}
-					}),
-
-					// The timelines
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					},
+					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+						cv.drag.drag.Add(gtx.Ops)
+
 						pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
 						// TODO replace axisHeight with the inverse, setting it to the height of this widget
 						dims, tws := cv.layoutTimelines(win, gtx)
 						cv.prevFrame.displayedTws = tws
 						return dims
-					}),
+					},
 				)
 			}),
 		)

@@ -858,20 +858,11 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 			Color:  colors[colorStateBlockedGC],
 		},
 	)
-	w.canvas = Canvas{
-		start:       start,
-		end:         end,
-		trace:       t,
-		mainWindow:  w,
-		debugWindow: w.debugWindow,
-		memoryGraph: mg,
-	}
 
-	w.canvas.timeline.displayAllLabels = true
-	w.canvas.axis = Axis{cv: &w.canvas, theme: w.theme}
-	w.canvas.timelines = make([]*TimelineWidget, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
-	w.canvas.timelines[0] = NewGCWidget(&w.canvas, t, t.GC)
-	w.canvas.timelines[1] = NewSTWWidget(&w.canvas, t, t.STW)
+	NewCanvasInto(&w.canvas, w, t)
+	w.canvas.start = start
+	w.canvas.end = end
+	w.canvas.memoryGraph = mg
 
 	if supportMachineTimelines {
 		for _, m := range t.Machines {
