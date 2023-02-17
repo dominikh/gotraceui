@@ -1018,10 +1018,9 @@ type Axis struct {
 	ticksOps reusableOps
 
 	prevFrame struct {
-		ops    reusableOps
-		call   op.CallOp
-		labels []string
-		dims   layout.Dimensions
+		ops  reusableOps
+		call op.CallOp
+		dims layout.Dimensions
 	}
 }
 
@@ -1044,11 +1043,6 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	defer rtrace.StartRegion(context.Background(), "main.Axis.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
-	prevLabelEnd := float32(-1)
-	// TODO(dh): calculating the label height on each frame risks that it changes between frames, which will cause the
-	// goroutines to shift around as the axis section grows and shrinks.
-	labelHeight := 0
 	tickWidth := float32(gtx.Dp(tickWidthDp))
 	tickHeight := float32(gtx.Dp(tickHeightDp))
 	minTickLabelDistance := float32(gtx.Dp(minTickLabelDistanceDp))
@@ -1058,24 +1052,14 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight))}
 	}
 
-	var labels []string
+	min := axis.cv.start
+	mid := axis.cv.start + (axis.cv.end-axis.cv.start)/2
+	max := axis.cv.end
+	origin := mid
+
 	if axis.cv.unchanged() {
 		axis.prevFrame.call.Add(gtx.Ops)
 		return axis.prevFrame.dims
-	} else if axis.cv.prevFrame.nsPerPx == axis.cv.nsPerPx {
-		// Panning only changes the first label
-		labels = axis.prevFrame.labels
-		labels[0] = formatTimestamp(axis.cv.start)
-	} else {
-		for t := axis.cv.start; t < axis.cv.end; t += trace.Timestamp(tickInterval) {
-			if t == axis.cv.start {
-				labels = append(labels, formatTimestamp(t))
-			} else {
-				// TODO separate value and unit symbol with a space
-				labels = append(labels, fmt.Sprintf("+%s", time.Duration(t-axis.cv.start)))
-			}
-		}
-		axis.prevFrame.labels = labels
 	}
 
 	origOps := gtx.Ops
@@ -1090,8 +1074,43 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 	var ticksPath clip.Path
 	ticksPath.Begin(axis.ticksOps.get())
-	i := 0
-	for t := axis.cv.start; t < axis.cv.end; t += trace.Timestamp(tickInterval) {
+
+	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
+	var originLabelExtents image.Rectangle
+	var prevLabelEnd float32
+
+	drawTick := func(t trace.Timestamp, label string, forward bool) {
+		add := func(a, b trace.Timestamp) trace.Timestamp {
+			if forward {
+				return a + b
+			} else {
+				return a - b
+			}
+		}
+		addf := func(a, b float32) float32 {
+			if forward {
+				return a + b
+			} else {
+				return a - b
+			}
+		}
+		// a - b
+		subf := func(a, b float32) float32 {
+			if forward {
+				return a - b
+			} else {
+				return a + b
+			}
+		}
+		// a > b
+		gtrf := func(a, b float32) bool {
+			if forward {
+				return a > b
+			} else {
+				return a < b
+			}
+		}
+
 		start := axis.cv.tsToPx(t) - tickWidth/2
 		end := axis.cv.tsToPx(t) + tickWidth/2
 		rect := FRect{
@@ -1101,8 +1120,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) - tickWidth/2
-			smallEnd := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) + tickWidth/2
+			smallStart := axis.cv.tsToPx(add(t, trace.Timestamp(tickInterval/10)*trace.Timestamp(j))) - tickWidth/2
+			smallEnd := axis.cv.tsToPx(add(t, trace.Timestamp(tickInterval/10)*trace.Timestamp(j))) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -1114,36 +1133,87 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			rect.IntoPath(&ticksPath)
 		}
 
-		if t == axis.cv.start {
-			label := labels[i]
-			stack := op.Offset(image.Pt(0, int(tickHeight))).Push(gtx.Ops)
-			dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, text.Font{}, axis.theme.TextSize, label)
-			if dims.Size.Y > labelHeight {
-				labelHeight = dims.Size.Y
-			}
-			prevLabelEnd = float32(dims.Size.X)
-			stack.Pop()
-		} else {
-			macro := op.Record(gtx.Ops)
-			// TODO separate value and unit symbol with a space
-			label := labels[i]
-			dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, text.Font{}, axis.theme.TextSize, label)
-			call := macro.Stop()
+		macro := op.Record(gtx.Ops)
+		// TODO separate value and unit symbol with a space
+		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, text.Font{}, axis.theme.TextSize, label)
+		call := macro.Stop()
 
-			if start-float32(dims.Size.X/2) > prevLabelEnd+minTickLabelDistance {
-				prevLabelEnd = start + float32(dims.Size.X/2)
-				if start+float32(dims.Size.X/2) <= float32(gtx.Constraints.Max.X) {
-					stack := op.Offset(image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
-					call.Add(gtx.Ops)
-					stack.Pop()
-				}
+		if gtrf(subf(start, float32(dims.Size.X/2)), addf(prevLabelEnd, minTickLabelDistance)) || prevLabelEnd == 0 {
+			// XXX don't draw label if it's partially off screen. this seems to happen for the left labels, which is
+			// bad, because it might cut off the sign.
+			prevLabelEnd = addf(start, float32(dims.Size.X/2))
+			if start+float32(dims.Size.X/2) <= float32(gtx.Constraints.Max.X) {
+				stack := op.Offset(image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
+				call.Add(gtx.Ops)
+				stack.Pop()
 			}
 		}
-		i++
+	}
+
+	// drawOrigin draws the origin tick and label, as well as minor ticks on both sides.
+	drawOrigin := func(t trace.Timestamp) {
+		start := axis.cv.tsToPx(t) - tickWidth/2
+		end := axis.cv.tsToPx(t) + tickWidth/2
+		rect := FRect{
+			Min: f32.Pt(start, 0),
+			Max: f32.Pt(end, tickHeight),
+		}
+		rect.IntoPath(&ticksPath)
+
+		for j := -9; j <= 9; j++ {
+			smallStart := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) - tickWidth/2
+			smallEnd := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) + tickWidth/2
+			smallTickHeight := tickHeight / 3
+			if j == 5 || j == -5 {
+				smallTickHeight = tickHeight / 2
+			}
+			rect := FRect{
+				Min: f32.Pt(smallStart, 0),
+				Max: f32.Pt(smallEnd, smallTickHeight),
+			}
+			rect.IntoPath(&ticksPath)
+		}
+
+		macro := op.Record(gtx.Ops)
+		// TODO separate value and unit symbol with a space
+		f := text.Font{Weight: text.Bold}
+		label := formatTimestamp(t)
+		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, f, axis.theme.TextSize, label)
+		call := macro.Stop()
+
+		labelStart := image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))
+		if labelStart.X < 0 {
+			labelStart.X = 0
+		} else if labelStart.X+dims.Size.X > gtx.Constraints.Max.X {
+			labelStart.X = gtx.Constraints.Max.X - dims.Size.X
+		}
+		stack := op.Offset(labelStart).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		stack.Pop()
+
+		originLabelExtents = image.Rectangle{
+			Min: labelStart,
+			Max: labelStart.Add(image.Pt(dims.Size.X, 0)),
+		}
+	}
+
+	drawOrigin(origin)
+
+	prevLabelEnd = float32(originLabelExtents.Max.X)
+	for t := origin + trace.Timestamp(tickInterval); t < max; t += trace.Timestamp(tickInterval) {
+		label := fmt.Sprintf("+%s", time.Duration(t-origin))
+		drawTick(t, label, true)
+	}
+
+	prevLabelEnd = float32(originLabelExtents.Min.X)
+	for t := origin - trace.Timestamp(tickInterval); t >= min; t -= trace.Timestamp(tickInterval) {
+		label := fmt.Sprintf("-%s", time.Duration(origin-t))
+		drawTick(t, label, false)
 	}
 
 	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{Path: ticksPath.End()}.Op())
 
+	labelHeight := originLabelExtents.Max.Y
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
 }
 
