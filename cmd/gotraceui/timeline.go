@@ -791,7 +791,13 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 
 					macro := op.Record(labelsOps)
 					// OPT(dh): cache mapping from label to size. probably put a size limit on the cache, in case users generate millions of unique labels
-					dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(withOps(gtx, labelsOps), win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
+					var dims layout.Dimensions
+					{
+						gtx := gtx
+						gtx.Ops = labelsOps
+						gtx.Constraints.Min = image.Point{}
+						dims = mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
+					}
 					if float32(dims.Size.X) > endPx-startPx {
 						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise
 						// give up. Truncating labels is almost never a good idea and usually leads to ambiguous text.

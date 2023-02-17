@@ -720,11 +720,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
-	var axisHeight int
-
-	// Draw axis and timelines
 	func(gtx layout.Context) {
-		gtx.Constraints.Max.X = cv.VisibleWidth(win, gtx)
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 		cv.clickedGoroutineTimelines = cv.clickedGoroutineTimelines[:0]
@@ -791,14 +787,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			}
 		}
 
-		cv.nsPerPx = float32(cv.end-cv.start) / float32(gtx.Constraints.Max.X)
+		// Compute nsPerPx. This has to make assumptions about the width of the timelines, because we need nsPerPx set
+		// long before we get to laying out the timelines. Practically, the max width of timelines is only restricted by
+		// the scrollbar, which has a fixed width.
+		estimatedTimelinesWidth := cv.VisibleWidth(win, gtx)
+		cv.nsPerPx = float32(cv.end-cv.start) / float32(estimatedTimelinesWidth)
 		cv.debugWindow.cvPxPerNs.addValue(gtx.Now, 1.0/float64(cv.nsPerPx))
-
-		if debug {
-			if cv.end < cv.start {
-				panic("XXX")
-			}
-		}
 
 		// Set up event handlers
 		pointer.InputOp{
@@ -840,10 +834,14 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			paint.FillShape(gtx.Ops, c, clip.Outline{Path: p.End()}.Op())
 		}
 
-		// Draw axis and timelines
+		// Draw axis, memory graph, timelines, and scrollbar
 		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
-			// The axis
+			// Axis
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				// Note that even though the axis is wider than the timelines (because timelines have a scrollbar), the
+				// mapping of timestamp to pixel position is still correct, because it gets computed earlier, by using
+				// Canvas.VisibleWidth.
+
 				// Draw STW and GC regions
 				// TODO(dh): make this be optional
 				tickHeight := gtx.Dp(tickHeightDp)
@@ -851,31 +849,54 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), colors[colorStateBlocked], tickHeight)
 
 				dims := cv.axis.Layout(win, gtx)
-				axisHeight = dims.Size.Y
 
 				return dims
 			}),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-
 				return theme.Resize(&cv.resizeMemoryTimelines).Layout(win, gtx,
+					// Memory graph
 					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 						cv.drag.drag.Add(gtx.Ops)
 
 						dims := cv.memoryGraph.Layout(win, gtx, cv)
-						axisHeight += dims.Size.Y
 						return dims
 					},
-					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-						cv.drag.drag.Add(gtx.Ops)
 
-						pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
-						// TODO replace axisHeight with the inverse, setting it to the height of this widget
-						dims, tws := cv.layoutTimelines(win, gtx)
-						cv.prevFrame.displayedTws = tws
-						return dims
+					// Timelines and scrollbar
+					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+							// Timelines
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+								if width := gtx.Constraints.Max.X; width != estimatedTimelinesWidth {
+									panic(fmt.Sprintf("estimated timelines width differs from actual width: %d != %d", estimatedTimelinesWidth, width))
+								}
+
+								cv.drag.drag.Add(gtx.Ops)
+
+								pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
+								dims, tws := cv.layoutTimelines(win, gtx)
+								cv.prevFrame.displayedTws = tws
+								return dims
+							}),
+
+							// Scrollbar
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								totalHeight := cv.height(gtx)
+								if len(cv.timelines) > 0 {
+									// Allow scrolling past the last goroutine
+									totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx)
+								}
+
+								fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
+								offset := float32(cv.y) / float32(totalHeight)
+								sb := theme.Scrollbar(win.Theme, &cv.scrollbar)
+								return sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
+							}),
+						)
 					},
 				)
 			}),
@@ -907,23 +928,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
 
-	}(gtx)
-
-	// Draw scrollbar
-	func(gtx layout.Context) {
-		defer op.Offset(image.Pt(cv.VisibleWidth(win, gtx), axisHeight)).Push(gtx.Ops).Pop()
-		gtx.Constraints.Max.Y -= axisHeight
-
-		totalHeight := cv.height(gtx)
-		if len(cv.timelines) > 0 {
-			// Allow scrolling past the last goroutine
-			totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx)
-		}
-
-		fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
-		offset := float32(cv.y) / float32(totalHeight)
-		sb := theme.Scrollbar(win.Theme, &cv.scrollbar)
-		sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
 	}(gtx)
 
 	cv.prevFrame.start = cv.start
