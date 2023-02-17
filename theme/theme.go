@@ -2,6 +2,7 @@ package theme
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -417,4 +418,35 @@ func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay
 	dim.Size.Y += hBarWidth
 
 	return dim
+}
+
+type ResizeStyle struct {
+	res *component.Resize
+}
+
+func Resize(state *component.Resize) ResizeStyle {
+	return ResizeStyle{state}
+}
+
+func (rs ResizeStyle) Layout(win *Window, gtx layout.Context, w1, w2 Widget) layout.Dimensions {
+	var hnd layout.Widget
+	switch rs.res.Axis {
+	case layout.Horizontal:
+		hnd = func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Max.X = 5
+			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+			paint.Fill(gtx.Ops, rgba(0x000000FF))
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		}
+	case layout.Vertical:
+		hnd = func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Max.Y = 5
+			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+			paint.Fill(gtx.Ops, rgba(0x000000FF))
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		}
+	default:
+		panic(fmt.Sprintf("unhandled case %v", rs.res.Axis))
+	}
+	return rs.res.Layout(gtx, Dumb(win, w1), Dumb(win, w2), hnd)
 }

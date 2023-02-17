@@ -752,18 +752,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 						if w.panel == nil {
 							return w.canvas.Layout(win, gtx)
 						} else {
-							return resize.Layout(gtx,
-								theme.Dumb(win, w.canvas.Layout),
-								func(gtx layout.Context) layout.Dimensions {
-									// gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-									return w.panel.Layout(win, gtx)
-								},
-								func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Max.X = 5
-									defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-									paint.Fill(gtx.Ops, rgba(0xFF0000FF))
-									return layout.Dimensions{Size: gtx.Constraints.Max}
-								})
+							return theme.Resize(&resize).Layout(win, gtx, w.canvas.Layout, w.panel.Layout)
 						}
 
 					default:
