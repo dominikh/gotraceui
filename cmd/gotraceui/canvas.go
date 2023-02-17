@@ -784,7 +784,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 
 		// Set up event handlers
-		cv.drag.drag.Add(gtx.Ops)
 		pointer.InputOp{
 			Tag:          cv,
 			ScrollBounds: image.Rectangle{Min: image.Pt(-100, -100), Max: image.Pt(100, 100)},
@@ -826,6 +825,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw axis and timelines
 		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+			// The axis
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				// Draw STW and GC regions
 				// TODO(dh): make this be optional
@@ -838,28 +838,41 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 				return dims
 			}),
+
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				// XXX this will need to add to axisHeight, and rename the variable
-				gtx.Constraints.Max.Y = gtx.Dp(50)
-				dims := cv.memoryGraph.Layout(win, gtx, cv)
-				axisHeight += dims.Size.Y
-				return dims
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				const height = 3
-				defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}.Push(gtx.Ops).Pop()
-				paint.Fill(gtx.Ops, rgba(0x000000FF))
-				axisHeight += gtx.Dp(height)
-				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}
-			}),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-				pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
-				// TODO replace axisHeight with the inverse, setting it to the height of this widget
-				dims, tws := cv.layoutTimelines(win, gtx)
-				cv.prevFrame.displayedTws = tws
-				return dims
-			}))
+				cv.drag.drag.Add(gtx.Ops)
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					// The memory graph
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						// XXX this will need to add to axisHeight, and rename the variable
+						gtx.Constraints.Max.Y = gtx.Dp(50)
+						dims := cv.memoryGraph.Layout(win, gtx, cv)
+						axisHeight += dims.Size.Y
+						return dims
+					}),
+
+					// The divider between memory graph and timelines
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						const height = 3
+						defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}.Push(gtx.Ops).Pop()
+						paint.Fill(gtx.Ops, rgba(0x000000FF))
+						axisHeight += gtx.Dp(height)
+						return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(height))}
+					}),
+
+					// The timelines
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+						pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
+						// TODO replace axisHeight with the inverse, setting it to the height of this widget
+						dims, tws := cv.layoutTimelines(win, gtx)
+						cv.prevFrame.displayedTws = tws
+						return dims
+					}),
+				)
+			}),
+		)
 
 		// Draw zoom selection
 		if cv.zoomSelection.active {
