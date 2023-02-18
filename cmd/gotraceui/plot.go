@@ -1,5 +1,7 @@
 package main
 
+// OPT(dh): cache the plot the same way we cache timelines, to avoid redrawing them when nothing has changed.
+
 import (
 	"context"
 	"fmt"
@@ -312,6 +314,18 @@ func (pl *Plot) end(gtx layout.Context, cv *Canvas) int {
 
 func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
 	defer rtrace.StartRegion(context.Background(), "draw points").End()
+	const lineWidth = 2
+
+	var drawLine func(p *clip.Path, pt f32.Point, width float32)
+	if s.Filled {
+		drawLine = func(p *clip.Path, pt f32.Point, width float32) {
+			// the width doesn't matter for filled series, we will later fill the entire area
+			p.LineTo(pt)
+		}
+	} else {
+		drawLine = drawOrthogonalLine
+	}
+
 	scaleValue := func(v uint64) float32 {
 		y := float32(scale(float64(pl.min), float64(pl.max), float64(gtx.Constraints.Max.Y), 0, float64(v)))
 		if y < 0 {
@@ -353,38 +367,38 @@ func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
 
 	var path clip.Path
 	path.Begin(gtx.Ops)
-	var prev f32.Point
 	var first f32.Point
 	var start int
 	for i, pt := range points {
 		if pt != (f32.Point{}) {
 			path.MoveTo(pt)
-			prev = pt
 			first = pt
 			start = i + 1
 			break
 		}
 	}
+
+	path.MoveTo(first)
 	for _, pt := range points[start:] {
 		if pt == (f32.Point{}) {
 			continue
 		}
-		path.LineTo(f32.Pt(pt.X, prev.Y))
-		path.LineTo(pt)
-		prev = pt
+		drawLine(&path, f32.Pt(pt.X, path.Pos().Y), lineWidth)
+		drawLine(&path, pt, lineWidth)
 	}
 
 	// Continue the last point
 	if start != 0 {
-		path.LineTo(f32.Pt(float32(canvasEnd), prev.Y))
+		drawLine(&path, f32.Pt(float32(canvasEnd), path.Pos().Y), lineWidth)
 	}
 
 	if s.Filled {
-		path.LineTo(f32.Pt(float32(canvasEnd), float32(gtx.Constraints.Max.Y)))
-		path.LineTo(f32.Pt(first.X, float32(gtx.Constraints.Max.Y)))
+		drawLine(&path, f32.Pt(float32(canvasEnd), float32(gtx.Constraints.Max.Y)), lineWidth)
+		drawLine(&path, f32.Pt(first.X, float32(gtx.Constraints.Max.Y)), lineWidth)
+		drawLine(&path, first, lineWidth)
 		paint.FillShape(gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
 	} else {
-		paint.FillShape(gtx.Ops, s.Color, clip.Stroke{Width: 2, Path: path.End()}.Op())
+		paint.FillShape(gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
 	}
 }
 
@@ -395,5 +409,38 @@ func compare[T constraints.Ordered](a, b T) int {
 		return 0
 	} else {
 		return 1
+	}
+}
+
+func drawOrthogonalLine(p *clip.Path, pt f32.Point, width float32) {
+	orig := p.Pos()
+	if pt == orig {
+		return
+	}
+
+	if orig.X == pt.X {
+		// Vertical line
+		left := pt.X - width/2
+		right := pt.X + width/2
+
+		p.Move(f32.Pt(-width/2, 0))
+		p.LineTo(f32.Pt(left, pt.Y))
+		p.LineTo(f32.Pt(right, pt.Y))
+		p.LineTo(f32.Pt(right, orig.Y))
+		p.LineTo(f32.Pt(orig.X-width, orig.Y))
+		p.MoveTo(pt)
+	} else if orig.Y == pt.Y {
+		// Horizontal line
+		top := pt.Y - width/2
+		bottom := pt.Y + width/2
+
+		p.Move(f32.Pt(0, -width/2))
+		p.LineTo(f32.Pt(pt.X, top))
+		p.LineTo(f32.Pt(pt.X, bottom))
+		p.LineTo(f32.Pt(orig.X, bottom))
+		p.LineTo(f32.Pt(orig.X, orig.Y-width))
+		p.MoveTo(pt)
+	} else {
+		panic(fmt.Sprintf("non-orthogonal line %s–%s", orig, pt))
 	}
 }
