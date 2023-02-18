@@ -171,7 +171,7 @@ func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
 	cv.resizeMemoryTimelines.Axis = layout.Vertical
 	cv.resizeMemoryTimelines.Ratio = 0.1
 	cv.timeline.displayAllLabels = true
-	cv.axis = Axis{cv: cv, theme: w.theme}
+	cv.axis = Axis{cv: cv}
 	cv.mainWindow = w
 	cv.trace = t
 	cv.debugWindow = w.debugWindow
@@ -1042,8 +1042,7 @@ func (cv *Canvas) setPointerPosition(pos f32.Point) {
 }
 
 type Axis struct {
-	theme *theme.Theme
-	cv    *Canvas
+	cv *Canvas
 
 	ticksOps reusableOps
 
@@ -1184,7 +1183,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 		macro := op.Record(gtx.Ops)
 		// TODO separate value and unit symbol with a space
-		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, text.Font{}, axis.theme.TextSize, label)
+		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
 		call := macro.Stop()
 
 		if gtrf(subf(start, float32(dims.Size.X/2)), addf(prevLabelEnd, minTickLabelDistance)) || prevLabelEnd == 0 {
@@ -1227,7 +1226,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		// TODO separate value and unit symbol with a space
 		f := text.Font{Weight: text.Bold}
 		label := formatTimestamp(t)
-		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, axis.theme.Shaper, f, axis.theme.TextSize, label)
+		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
 		call := macro.Stop()
 
 		labelStart := image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))

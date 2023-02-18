@@ -23,7 +23,6 @@ import (
 // TODO(dh): enable keyboard navigation of menus
 
 type Menu struct {
-	Theme  *Theme
 	Groups []MenuGroup
 
 	open     bool
@@ -105,7 +104,7 @@ func (m *Menu) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 				dims := mywidget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return g.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return mywidget.TextLine{Color: menuTextColor}.Layout(gtx, m.Theme.Shaper, text.Font{}, 12, g.Label)
+							return mywidget.TextLine{Color: menuTextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, g.Label)
 						})
 					})
 				})

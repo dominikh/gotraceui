@@ -64,9 +64,7 @@ import (
    - Maybe something about MMU?
 */
 
-// TODO(dh): standardize whether we pass Theme as an argument to Layout or store it in the type
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
-// OPT(dh): optimize highlighting hovered goroutine in per-processor view when there are merged spans with lots of children
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
@@ -447,7 +445,6 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap"), Disabled: notMainDisabled}
 
 	m.menu = &theme.Menu{
-		Theme: w.theme,
 		Groups: []theme.MenuGroup{
 			{
 				Label: "File",
