@@ -16,6 +16,7 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
+	"gioui.org/font/gofont"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
@@ -301,7 +302,6 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 }
 
 type HeatmapWindow struct {
-	theme *theme.Theme
 	trace *Trace
 }
 
@@ -316,7 +316,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 
 	var useLinear widget.Bool
 	var ops op.Ops
-	tWin := &theme.Window{Theme: hwin.theme}
+	tWin := &theme.Window{Theme: theme.NewTheme(gofont.Collection())}
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
@@ -362,7 +362,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 						if b, ok := hm.HoveredBucket(); ok {
 							label = local.Sprintf("time %s, range %d–%d, count: %d", b.XStart, b.YStart, b.YEnd, b.Count)
 						}
-						return mywidget.TextLine{Color: hwin.theme.Palette.Foreground}.Layout(gtx, hwin.theme.Shaper, text.Font{}, hwin.theme.TextSize, label)
+						return mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and

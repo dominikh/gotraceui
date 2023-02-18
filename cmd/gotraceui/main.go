@@ -188,7 +188,6 @@ func (w *MainWindow) openPanelWindow(p theme.Panel) {
 
 func (w *MainWindow) openHeatmap() {
 	win := &HeatmapWindow{
-		theme: w.theme,
 		trace: w.trace,
 	}
 	go func() {
