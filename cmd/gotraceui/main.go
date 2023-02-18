@@ -752,7 +752,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 						if w.panel == nil {
 							return w.canvas.Layout(win, gtx)
 						} else {
-							return theme.Resize(&resize).Layout(win, gtx, w.canvas.Layout, w.panel.Layout)
+							return theme.Resize(win.Theme, &resize).Layout(win, gtx, w.canvas.Layout, w.panel.Layout)
 						}
 
 					default:

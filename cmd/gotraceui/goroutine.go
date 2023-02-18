@@ -155,7 +155,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				btn := btn
 				children = append(children,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return theme.Button(btn.w, btn.label).Layout(win, gtx)
+						return theme.Button(win.Theme, btn.w, btn.label).Layout(win, gtx)
 					}),
 					layout.Rigid(layout.Spacer{Width: 5}.Layout),
 				)
@@ -183,7 +183,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				if index != 0 {
 					panic("impossible")
 				}
-				return theme.Foldable(&gi.foldables.stacktrace, "Creation stack trace").
+				return theme.Foldable(win.Theme, &gi.foldables.stacktrace, "Creation stack trace").
 					Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 						// OPT(dh): compute the string form of the backtrace once, not each frame
 						ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
@@ -209,7 +209,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				if index != 0 {
 					panic("impossible")
 				}
-				return theme.Foldable(&gi.foldables.stats, "Statistics").Layout(win, gtx, gi.stats.Layout)
+				return theme.Foldable(win.Theme, &gi.foldables.stats, "Statistics").Layout(win, gtx, gi.stats.Layout)
 			})
 
 		}),
@@ -217,7 +217,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			return theme.Foldable(&gi.foldables.events, "Events").Layout(win, gtx, gi.events.Layout)
+			return theme.Foldable(win.Theme, &gi.foldables.events, "Events").Layout(win, gtx, gi.events.Layout)
 		}),
 	)
 

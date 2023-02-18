@@ -193,7 +193,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 		if len(lines) > 0 {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return theme.Tooltip(strings.Join(lines, "\n")).Layout(win, gtx)
+				return theme.Tooltip(win.Theme, strings.Join(lines, "\n")).Layout(win, gtx)
 			})
 		}
 		r.End()

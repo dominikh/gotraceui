@@ -219,16 +219,16 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	ret := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowGoCreate, "Goroutine creations").Layout)),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowGoCreate, "Goroutine creations").Layout)),
 				layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout)),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout)),
 				layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowGoSysCall, "Syscalls").Layout)),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowGoSysCall, "Syscalls").Layout)),
 				layout.Rigid(layout.Spacer{Width: 10}.Layout),
 
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(&evs.Filter.ShowUserLog, "User logs").Layout)),
+				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout)),
 			)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {

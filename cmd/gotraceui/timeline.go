@@ -988,7 +988,7 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		roundDuration(inactiveD), inactivePct,
 	)
 
-	return theme.Tooltip(l).Layout(win, gtx)
+	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
 
 func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
@@ -1006,7 +1006,7 @@ func processorSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 	}
 	// OPT(dh): don't materialize all spans just to compute the duration
 	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
-	return theme.Tooltip(label).Layout(win, gtx)
+	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
 type MachineTooltip struct {
@@ -1056,7 +1056,7 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		roundDuration(inactiveD), inactivePct,
 	)
 
-	return theme.Tooltip(l).Layout(win, gtx)
+	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
 
 func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
@@ -1140,7 +1140,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 								label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 							}
 							label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
-							return theme.Tooltip(label).Layout(win, gtx)
+							return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 						},
 						spanContextMenu: func(spanSel SpanSelector, tr *Trace) []*theme.MenuItem {
 							var items []*theme.MenuItem
@@ -1518,7 +1518,7 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		len(tt.g.Spans),
 	)
 
-	return theme.Tooltip(l).Layout(win, gtx)
+	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
 
 var reasonLabels = [256]string{
@@ -1707,7 +1707,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		label = label[:n]
 	}
 
-	return theme.Tooltip(label).Layout(win, gtx)
+	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
 func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
@@ -1729,7 +1729,7 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 	}
 	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
-	return theme.Tooltip(label).Layout(win, gtx)
+	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
 var spanStateLabels = [...][]string{
@@ -1879,7 +1879,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 							// We round the duration, in addition to saying "up to", to make it more obvious that the
 							// duration is a guess
 							label += fmt.Sprintf("Duration: up to %s", roundDuration(Duration(state.spanSel)))
-							return theme.Tooltip(label).Layout(win, gtx)
+							return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 						},
 					}
 

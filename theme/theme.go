@@ -39,7 +39,7 @@ type Palette struct {
 	Foreground color.NRGBA
 	Link       color.NRGBA
 
-	WindowBorder     color.NRGBA
+	Border           color.NRGBA
 	WindowBackground color.NRGBA
 }
 
@@ -47,8 +47,8 @@ var DefaultPalette = Palette{
 	Background: rgba(0xFFFFEAFF),
 	Foreground: rgba(0x000000FF),
 	Link:       rgba(0x0000FFFF),
+	Border:     rgba(0x000000FF),
 
-	WindowBorder:     rgba(0x000000FF),
 	WindowBackground: rgba(0xEEFFEEFF),
 }
 
@@ -110,14 +110,14 @@ type CheckBoxStyle struct {
 	TextColor       color.NRGBA
 }
 
-func CheckBox(checkbox *widget.Bool, label string) CheckBoxStyle {
+func CheckBox(th *Theme, checkbox *widget.Bool, label string) CheckBoxStyle {
 	return CheckBoxStyle{
 		Checkbox:        checkbox,
 		Label:           label,
-		TextColor:       rgba(0x000000FF),
-		ForegroundColor: rgba(0x000000FF),
+		TextColor:       th.Palette.Foreground,
+		ForegroundColor: th.Palette.Foreground,
 		BackgroundColor: rgba(0),
-		TextSize:        12,
+		TextSize:        th.TextSize,
 	}
 }
 
@@ -218,12 +218,18 @@ func clamp1(v float32) float32 {
 type FoldableStyle struct {
 	Title  string
 	Closed *widget.Bool
+
+	TextSize  unit.Sp
+	TextColor color.NRGBA
 }
 
-func Foldable(b *widget.Bool, title string) FoldableStyle {
+func Foldable(th *Theme, b *widget.Bool, title string) FoldableStyle {
 	return FoldableStyle{
 		Closed: b,
 		Title:  title,
+
+		TextSize:  th.TextSize,
+		TextColor: th.Palette.Foreground,
 	}
 }
 
@@ -240,9 +246,9 @@ func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) 
 			l = "[O] " + f.Title
 		}
 		gtx.Constraints.Min.Y = 0
-		paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
+		paint.ColorOp{Color: f.TextColor}.Add(gtx.Ops)
 		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, l)
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, f.TextSize, l)
 
 	})
 	size = dims.Size
@@ -269,41 +275,75 @@ func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) 
 
 type TooltipStyle struct {
 	Message string
+
+	Padding         unit.Dp
+	BorderSize      unit.Dp
+	BorderColor     color.NRGBA
+	TextSize        unit.Sp
+	TextColor       color.NRGBA
+	BackgroundColor color.NRGBA
 }
 
-func Tooltip(msg string) TooltipStyle {
+func Tooltip(th *Theme, msg string) TooltipStyle {
 	return TooltipStyle{
-		Message: msg,
+		Message:         msg,
+		BorderSize:      th.WindowBorder,
+		BorderColor:     th.Palette.Border,
+		Padding:         th.WindowPadding,
+		TextSize:        th.TextSize,
+		TextColor:       th.Palette.Foreground,
+		BackgroundColor: th.Palette.WindowBackground,
 	}
 }
 
 func (tt TooltipStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.Tooltip.Layout").End()
 
-	return BorderedText(tt.Message).Layout(win, gtx)
+	return BorderedTextStyle{
+		Text:            tt.Message,
+		Padding:         tt.Padding,
+		BorderSize:      tt.BorderSize,
+		BorderColor:     tt.BorderColor,
+		TextSize:        tt.TextSize,
+		TextColor:       tt.TextColor,
+		BackgroundColor: tt.BackgroundColor,
+	}.Layout(win, gtx)
 }
 
 type BorderedTextStyle struct {
 	Text string
+
+	Padding         unit.Dp
+	BorderSize      unit.Dp
+	BorderColor     color.NRGBA
+	TextSize        unit.Sp
+	TextColor       color.NRGBA
+	BackgroundColor color.NRGBA
 }
 
-func BorderedText(s string) BorderedTextStyle {
+func BorderedText(th *Theme, s string) BorderedTextStyle {
 	return BorderedTextStyle{
-		Text: s,
+		Text:            s,
+		BorderSize:      th.WindowBorder,
+		BorderColor:     th.Palette.Border,
+		Padding:         th.WindowPadding,
+		TextSize:        th.TextSize,
+		TextColor:       th.Palette.Foreground,
+		BackgroundColor: th.Palette.WindowBackground,
 	}
 }
 
 func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	return mywidget.Bordered{Color: win.Theme.Palette.WindowBorder, Width: win.Theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return mywidget.Bordered{Color: bt.BorderColor, Width: bt.BorderSize}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
 		// rendered as part of a flex child.
 		gtx.Constraints.Min = image.Pt(0, 0)
-		var padding = gtx.Dp(win.Theme.WindowPadding)
+		var padding = gtx.Dp(bt.Padding)
 
 		macro := op.Record(gtx.Ops)
-		paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, bt.Text)
+		paint.ColorOp{Color: bt.TextColor}.Add(gtx.Ops)
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, bt.TextSize, bt.Text)
 		call := macro.Stop()
 
 		total := clip.Rect{
@@ -311,7 +351,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 			Max: image.Pt(dims.Size.X+2*padding, dims.Size.Y+2*padding),
 		}
 
-		paint.FillShape(gtx.Ops, win.Theme.Palette.WindowBackground, total.Op())
+		paint.FillShape(gtx.Ops, bt.BackgroundColor, total.Op())
 
 		stack := op.Offset(image.Pt(padding, padding)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -327,12 +367,21 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 type ButtonStyle struct {
 	Text   string
 	Button *widget.Clickable
+
+	ActiveBackgroundColor color.NRGBA
+	BackgroundColor       color.NRGBA
+	BorderColor           color.NRGBA
+	TextColor             color.NRGBA
 }
 
-func Button(button *widget.Clickable, txt string) ButtonStyle {
+func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 	return ButtonStyle{
-		Text:   txt,
-		Button: button,
+		Text:                  txt,
+		Button:                button,
+		ActiveBackgroundColor: rgba(0xFFFF00FF),
+		BackgroundColor:       rgba(0xFFFFFFFF),
+		BorderColor:           th.Palette.Border,
+		TextColor:             th.Palette.Foreground,
 	}
 }
 
@@ -340,18 +389,18 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ButtonStyle.Layout").End()
 
 	return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return mywidget.Bordered{Color: rgba(0x000000FF), Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return mywidget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{Alignment: layout.Center}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					if b.Button.Pressed() {
-						paint.FillShape(gtx.Ops, rgba(0xFFFF00FF), clip.Rect{Max: gtx.Constraints.Min}.Op())
+						paint.FillShape(gtx.Ops, b.ActiveBackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
 					} else {
-						paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: gtx.Constraints.Min}.Op())
+						paint.FillShape(gtx.Ops, b.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
 					}
 					return layout.Dimensions{Size: gtx.Constraints.Min}
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-					paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
+					paint.ColorOp{Color: b.TextColor}.Add(gtx.Ops)
 					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text)
 				}),
 			)
@@ -444,11 +493,15 @@ func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay
 }
 
 type ResizeStyle struct {
-	res *component.Resize
+	res         *component.Resize
+	BorderColor color.NRGBA
 }
 
-func Resize(state *component.Resize) ResizeStyle {
-	return ResizeStyle{state}
+func Resize(th *Theme, state *component.Resize) ResizeStyle {
+	return ResizeStyle{
+		res:         state,
+		BorderColor: th.Palette.Border,
+	}
 }
 
 func (rs ResizeStyle) Layout(win *Window, gtx layout.Context, w1, w2 Widget) layout.Dimensions {
@@ -458,14 +511,14 @@ func (rs ResizeStyle) Layout(win *Window, gtx layout.Context, w1, w2 Widget) lay
 		hnd = func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = 5
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			paint.Fill(gtx.Ops, rgba(0x000000FF))
+			paint.Fill(gtx.Ops, rs.BorderColor)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}
 	case layout.Vertical:
 		hnd = func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.Y = 5
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			paint.Fill(gtx.Ops, rgba(0x000000FF))
+			paint.Fill(gtx.Ops, rs.BorderColor)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}
 	default:

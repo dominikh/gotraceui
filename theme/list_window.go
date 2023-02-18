@@ -89,7 +89,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 
 	var spy *eventx.Spy
 
-	dims := mywidget.Bordered{Color: w.theme.Palette.WindowBorder, Width: w.theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := mywidget.Bordered{Color: w.theme.Palette.Border, Width: w.theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		spy, gtx = eventx.Enspy(gtx)
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X

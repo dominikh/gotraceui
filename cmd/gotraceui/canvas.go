@@ -854,7 +854,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			}),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return theme.Resize(&cv.resizeMemoryTimelines).Layout(win, gtx,
+				return theme.Resize(win.Theme, &cv.resizeMemoryTimelines).Layout(win, gtx,
 					// Memory graph
 					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()

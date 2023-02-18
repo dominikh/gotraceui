@@ -368,7 +368,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 						// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and
 						// ranked). With the checkbox, the user doesn't know what's being used when the checkbox isn't
 						// ticked.
-						return theme.CheckBox(&useLinear, "Use linear saturation").Layout(win, gtx)
+						return theme.CheckBox(win.Theme, &useLinear, "Use linear saturation").Layout(win, gtx)
 					}),
 				)
 			})

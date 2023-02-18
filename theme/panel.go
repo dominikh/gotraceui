@@ -68,7 +68,7 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 		btn := btn
 		children = append(children,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return Button(btn.w, btn.label).Layout(win, gtx)
+				return Button(win.Theme, btn.w, btn.label).Layout(win, gtx)
 			}),
 			layout.Rigid(layout.Spacer{Width: 5}.Layout),
 		)
