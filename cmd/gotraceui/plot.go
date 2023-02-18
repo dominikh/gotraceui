@@ -96,6 +96,11 @@ func (pl *Plot) computeExtents(start, end trace.Timestamp) (min, max uint64) {
 		}
 	}
 
+	if min == max {
+		min--
+		max++
+	}
+
 	d := max - min
 	if n := min - d/10; n <= min {
 		min = n
