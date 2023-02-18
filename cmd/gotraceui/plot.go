@@ -53,12 +53,21 @@ type Plot struct {
 	hideLegends    bool
 	autoScale      bool
 
+	// Used by drawOrthogonalLine to correctly overlap lines at changes in direction
+	prevDirection uint8
+
 	prevFrame struct {
 		start, end trace.Timestamp
 		// bitmap of disabled series
 		disabledSeries uint64
 	}
 }
+
+const (
+	plotDirectionNone = iota
+	plotDirectionHorizontal
+	plotDirectionVertical
+)
 
 func (pl *Plot) AddSeries(series ...PlotSeries) {
 	pl.series = append(pl.series, series...)
@@ -328,7 +337,7 @@ func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
 			p.LineTo(pt)
 		}
 	} else {
-		drawLine = drawOrthogonalLine
+		drawLine = pl.drawOrthogonalLine
 	}
 
 	scaleValue := func(v uint64) float32 {
@@ -417,35 +426,50 @@ func compare[T constraints.Ordered](a, b T) int {
 	}
 }
 
-func drawOrthogonalLine(p *clip.Path, pt f32.Point, width float32) {
-	orig := p.Pos()
-	if pt == orig {
+func (pl *Plot) drawOrthogonalLine(p *clip.Path, pt f32.Point, width float32) {
+	// TODO(dh): this code can't be used with transparent colors because we draw over some regions multiple times.
+
+	if pt == p.Pos() {
 		return
 	}
 
-	if orig.X == pt.X {
+	if p.Pos().X == pt.X {
 		// Vertical line
 		left := pt.X - width/2
 		right := pt.X + width/2
 
+		if pl.prevDirection == plotDirectionHorizontal {
+			p.Move(f32.Pt(0, width/2))
+		}
+
+		orig := p.Pos()
 		p.Move(f32.Pt(-width/2, 0))
 		p.LineTo(f32.Pt(left, pt.Y))
 		p.LineTo(f32.Pt(right, pt.Y))
 		p.LineTo(f32.Pt(right, orig.Y))
 		p.LineTo(f32.Pt(orig.X-width, orig.Y))
 		p.MoveTo(pt)
-	} else if orig.Y == pt.Y {
+
+		pl.prevDirection = plotDirectionVertical
+	} else if p.Pos().Y == pt.Y {
 		// Horizontal line
 		top := pt.Y - width/2
 		bottom := pt.Y + width/2
 
+		if pl.prevDirection == plotDirectionVertical {
+			p.Move(f32.Pt(-width/2, 0))
+		}
+
+		orig := p.Pos()
 		p.Move(f32.Pt(0, -width/2))
 		p.LineTo(f32.Pt(pt.X, top))
 		p.LineTo(f32.Pt(pt.X, bottom))
 		p.LineTo(f32.Pt(orig.X, bottom))
 		p.LineTo(f32.Pt(orig.X, orig.Y-width))
 		p.MoveTo(pt)
+
+		pl.prevDirection = plotDirectionHorizontal
 	} else {
-		panic(fmt.Sprintf("non-orthogonal line %s–%s", orig, pt))
+		panic(fmt.Sprintf("non-orthogonal line %s–%s", p.Pos(), pt))
 	}
 }
