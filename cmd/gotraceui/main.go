@@ -880,12 +880,6 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 	w.trace = t
 }
 
-//gcassert:inline
-func withOps(gtx layout.Context, ops *op.Ops) layout.Context {
-	gtx.Ops = ops
-	return gtx
-}
-
 type durationNumberFormat uint8
 
 const (
