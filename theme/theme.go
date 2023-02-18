@@ -215,14 +215,19 @@ func clamp1(v float32) float32 {
 	}
 }
 
-type Foldable struct {
-	// TODO(dh): move state into widget package
-
+type FoldableStyle struct {
 	Title  string
-	Closed widget.Bool
+	Closed *widget.Bool
 }
 
-func (f *Foldable) Layout(win *Window, gtx layout.Context, contents Widget) layout.Dimensions {
+func Foldable(b *widget.Bool, title string) FoldableStyle {
+	return FoldableStyle{
+		Closed: b,
+		Title:  title,
+	}
+}
+
+func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.Foldable.Layout").End()
 
 	var size image.Point
@@ -262,15 +267,33 @@ func (f *Foldable) Layout(win *Window, gtx layout.Context, contents Widget) layo
 	return layout.Dimensions{Size: size}
 }
 
-type Tooltip struct{}
-
-func (tt Tooltip) Layout(win *Window, gtx layout.Context, l string) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.Tooltip.Layout").End()
-
-	return BorderedText(win, gtx, l)
+type TooltipStyle struct {
+	Message string
 }
 
-func BorderedText(win *Window, gtx layout.Context, s string) layout.Dimensions {
+func Tooltip(msg string) TooltipStyle {
+	return TooltipStyle{
+		Message: msg,
+	}
+}
+
+func (tt TooltipStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Tooltip.Layout").End()
+
+	return BorderedText(tt.Message).Layout(win, gtx)
+}
+
+type BorderedTextStyle struct {
+	Text string
+}
+
+func BorderedText(s string) BorderedTextStyle {
+	return BorderedTextStyle{
+		Text: s,
+	}
+}
+
+func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	return mywidget.Bordered{Color: win.Theme.Palette.WindowBorder, Width: win.Theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
@@ -280,7 +303,7 @@ func BorderedText(win *Window, gtx layout.Context, s string) layout.Dimensions {
 
 		macro := op.Record(gtx.Ops)
 		paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, bt.Text)
 		call := macro.Stop()
 
 		total := clip.Rect{

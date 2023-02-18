@@ -58,9 +58,9 @@ type GoroutineInfo struct {
 	}
 
 	foldables struct {
-		stacktrace theme.Foldable
-		stats      theme.Foldable
-		events     theme.Foldable
+		stacktrace widget.Bool
+		stats      widget.Bool
+		events     widget.Bool
 	}
 
 	description Text
@@ -99,16 +99,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		}
 		gi.events.UpdateFilter()
 
-		gi.foldables.stacktrace = theme.Foldable{
-			Title:  "Creation stack trace",
-			Closed: widget.Bool{Value: true},
-		}
-		gi.foldables.stats = theme.Foldable{
-			Title: "Statistics",
-		}
-		gi.foldables.events = theme.Foldable{
-			Title: "Events",
-		}
+		gi.foldables.stacktrace.Value = true
 
 		gi.description.Reset(win.Theme)
 		gi.description.Bold("Goroutine: ")
@@ -192,21 +183,22 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				if index != 0 {
 					panic("impossible")
 				}
-				return gi.foldables.stacktrace.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-					// OPT(dh): compute the string form of the backtrace once, not each frame
-					ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
-					stk := gi.Trace.Stacks[ev.StkID]
-					sb := strings.Builder{}
-					for _, f := range stk {
-						frame := gi.Trace.PCs[f]
-						fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
-					}
-					s := sb.String()
-					if len(s) > 0 && s[len(s)-1] == '\n' {
-						s = s[:len(s)-1]
-					}
-					return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
-				})
+				return theme.Foldable(&gi.foldables.stacktrace, "Creation stack trace").
+					Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						// OPT(dh): compute the string form of the backtrace once, not each frame
+						ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
+						stk := gi.Trace.Stacks[ev.StkID]
+						sb := strings.Builder{}
+						for _, f := range stk {
+							frame := gi.Trace.PCs[f]
+							fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+						}
+						s := sb.String()
+						if len(s) > 0 && s[len(s)-1] == '\n' {
+							s = s[:len(s)-1]
+						}
+						return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
+					})
 			})
 
 		}),
@@ -217,9 +209,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				if index != 0 {
 					panic("impossible")
 				}
-				return gi.foldables.stats.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-					return gi.stats.Layout(win, gtx)
-				})
+				return theme.Foldable(&gi.foldables.stats, "Statistics").Layout(win, gtx, gi.stats.Layout)
 			})
 
 		}),
@@ -227,7 +217,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			return gi.foldables.events.Layout(win, gtx, gi.events.Layout)
+			return theme.Foldable(&gi.foldables.events, "Events").Layout(win, gtx, gi.events.Layout)
 		}),
 	)
 

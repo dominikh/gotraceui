@@ -150,7 +150,7 @@ func (notif *notification) Layout(win *Window, gtx layout.Context) layout.Dimens
 	ngtx := gtx
 	ngtx.Constraints.Max.X = 500
 	macro := op.Record(gtx.Ops)
-	dims := BorderedText(win, ngtx, notif.message)
+	dims := BorderedText(notif.message).Layout(win, ngtx)
 	call := macro.Stop()
 
 	defer op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y-dims.Size.Y-gtx.Dp(30))).Push(gtx.Ops).Pop()
