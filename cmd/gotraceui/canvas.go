@@ -171,7 +171,7 @@ func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
 	cv.resizeMemoryTimelines.Axis = layout.Vertical
 	cv.resizeMemoryTimelines.Ratio = 0.1
 	cv.timeline.displayAllLabels = true
-	cv.axis = Axis{cv: cv}
+	cv.axis = Axis{cv: cv, origin: 0.5}
 	cv.mainWindow = w
 	cv.trace = t
 	cv.debugWindow = w.debugWindow
