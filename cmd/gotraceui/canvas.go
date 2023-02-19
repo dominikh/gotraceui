@@ -149,8 +149,7 @@ type Canvas struct {
 
 	resizeMemoryTimelines component.Resize
 
-	contextMenu []*theme.MenuItem
-	spanModal   *SpanModal
+	spanModal *SpanModal
 
 	// prevFrame records the canvas's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the canvas hasn't changed.
@@ -777,13 +776,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					cv.timeline.hoveredSpans = spanSel
 				}
 				break
-			}
-		}
-
-		for _, item := range cv.contextMenu {
-			if item.Clicked() {
-				item.Do(gtx)
-				win.CloseModal()
 			}
 		}
 

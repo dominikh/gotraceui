@@ -609,19 +609,13 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 				track.clickedSpans = dspSpanSel
 			}
 			if trackContextMenuSpans {
-				var items []theme.Widget
+				var items []*theme.MenuItem
 				if track.spanContextMenu != nil {
-					cv.contextMenu = track.spanContextMenu(dspSpanSel, tr)
-					for _, item := range cv.contextMenu {
-						items = append(items, item.Layout)
-					}
+					items = track.spanContextMenu(dspSpanSel, tr)
 				} else {
-					cv.contextMenu = []*theme.MenuItem{newZoomMenuItem(cv, dspSpanSel)}
-					items = append(items, (cv.contextMenu[0]).Layout)
+					items = []*theme.MenuItem{newZoomMenuItem(cv, dspSpanSel)}
 				}
-				win.SetModal(((&theme.MenuGroup{
-					Items: items,
-				}).Layout))
+				win.SetContextMenu(items)
 			}
 		}
 

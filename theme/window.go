@@ -16,8 +16,9 @@ import (
 )
 
 type Window struct {
-	Theme *Theme
-	Menu  *Menu
+	Theme       *Theme
+	Menu        *Menu
+	contextMenu []*MenuItem
 
 	pointerAt f32.Point
 
@@ -57,6 +58,14 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 
 	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 	pointer.InputOp{Tag: win, Types: 0xFF}.Add(gtx.Ops)
+
+	for _, item := range win.contextMenu {
+		if item.Clicked() {
+			item.Do(gtx)
+			win.CloseModal()
+			win.contextMenu = nil
+		}
+	}
 
 	if win.Menu != nil {
 		dims := win.Menu.Layout(win, gtx)
@@ -112,6 +121,15 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 			return win.modal.w(win, gtx)
 		})
 	}
+}
+
+func (win *Window) SetContextMenu(items []*MenuItem) {
+	win.contextMenu = items
+	widgets := make([]Widget, len(items))
+	for i, item := range items {
+		widgets[i] = item.Layout
+	}
+	win.SetModal((&MenuGroup{Items: widgets}).Layout)
 }
 
 func (win *Window) SetTooltip(w Widget) {
