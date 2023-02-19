@@ -49,7 +49,6 @@ type Plot struct {
 	scratchStrings []string
 	pointerAt      f32.Point
 	hovered        bool
-	contextMenu    []*theme.MenuItem
 	hideLegends    bool
 	autoScale      bool
 
@@ -139,13 +138,6 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		}
 	}
 
-	for _, item := range pl.contextMenu {
-		if item.Clicked() {
-			item.Do(gtx)
-			win.CloseModal()
-		}
-	}
-
 	if pl.autoScale {
 		r := rtrace.StartRegion(context.Background(), "auto-scaling")
 		var bitmap uint64
@@ -217,7 +209,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 	if clicked {
 		r := rtrace.StartRegion(context.Background(), "context menu")
-		pl.contextMenu = []*theme.MenuItem{
+		items := []*theme.MenuItem{
 			{
 				Label: PlainLabel("Reset extents"),
 				Do: func(gtx layout.Context) {
@@ -264,13 +256,9 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 					s.disabled = !s.disabled
 				},
 			}
-			pl.contextMenu = append(pl.contextMenu, item)
+			items = append(items, item)
 		}
-		var items []theme.Widget
-		for _, item := range pl.contextMenu {
-			items = append(items, item.Layout)
-		}
-		win.SetModal((&theme.MenuGroup{Items: items}).Layout)
+		win.SetContextMenu(items)
 		r.End()
 	}
 
