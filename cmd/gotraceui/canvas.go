@@ -1080,13 +1080,15 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Press, pointer.Drag:
-			// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
-			axis.cv.setPointerPosition(ev.Position)
-			axis.origin = ev.Position.X / float32(gtx.Constraints.Max.X)
-			if axis.origin < 0 {
-				axis.origin = 0
-			} else if axis.origin > 1 {
-				axis.origin = 1
+			if ev.Buttons == pointer.ButtonPrimary {
+				// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
+				axis.cv.setPointerPosition(ev.Position)
+				axis.origin = ev.Position.X / float32(gtx.Constraints.Max.X)
+				if axis.origin < 0 {
+					axis.origin = 0
+				} else if axis.origin > 1 {
+					axis.origin = 1
+				}
 			}
 		}
 	}
