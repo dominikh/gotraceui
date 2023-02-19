@@ -1072,7 +1072,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Press, pointer.Drag:
-			if ev.Buttons == pointer.ButtonPrimary {
+			switch ev.Buttons {
+			case pointer.ButtonPrimary:
 				// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
 				axis.cv.setPointerPosition(ev.Position)
 				axis.origin = ev.Position.X / float32(gtx.Constraints.Max.X)
@@ -1081,6 +1082,26 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 				} else if axis.origin > 1 {
 					axis.origin = 1
 				}
+			case pointer.ButtonSecondary:
+				win.SetContextMenu(
+					[]*theme.MenuItem{
+						{
+							Label:    PlainLabel("Move origin to the left"),
+							Disabled: func() bool { return axis.origin == 0 },
+							Do:       func(gtx layout.Context) { axis.origin = 0 },
+						},
+						{
+							Label:    PlainLabel("Move origin to the center"),
+							Disabled: func() bool { return axis.origin == 0.5 },
+							Do:       func(gtx layout.Context) { axis.origin = 0.5 },
+						},
+						{
+							Label:    PlainLabel("Move origin to the right"),
+							Disabled: func() bool { return axis.origin == 1 },
+							Do:       func(gtx layout.Context) { axis.origin = 1 },
+						},
+					},
+				)
 			}
 		}
 	}

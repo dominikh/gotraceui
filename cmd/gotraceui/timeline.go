@@ -609,13 +609,11 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 				track.clickedSpans = dspSpanSel
 			}
 			if trackContextMenuSpans {
-				var items []*theme.MenuItem
 				if track.spanContextMenu != nil {
-					items = track.spanContextMenu(dspSpanSel, tr)
+					win.SetContextMenu(track.spanContextMenu(dspSpanSel, tr))
 				} else {
-					items = []*theme.MenuItem{newZoomMenuItem(cv, dspSpanSel)}
+					win.SetContextMenu([]*theme.MenuItem{newZoomMenuItem(cv, dspSpanSel)})
 				}
-				win.SetContextMenu(items)
 			}
 		}
 
