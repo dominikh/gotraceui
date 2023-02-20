@@ -26,7 +26,8 @@
 \definecolor[stateStuck][x=000000]
 \definecolor[stateMerged][x=B9BB63]
 \definecolor[stateUserRegion][x=F2A2E8]
-\definecolor[stateSample][x=79B579]
+\definecolor{stateStack][x=79B579]
+\definecolor[stateSample][x=98D597]
 
 \define[2]\traceState{\inframed[background=color,backgroundcolor=#2]{#1}}
 
@@ -51,19 +52,24 @@
 
 \starttext
 
-% TODO(dh): add a title page.
+\startmakeup[middle]
+  \midaligned{{\externalfigure[images/logo.png][width=0.50\textwidth]}}
+  Gotraceui
+\stopmakeup
+
+
+\completecontent
 
 \intodo{Most of these titles are placeholders, as is the overall structure}
-\completecontent
 
 \todo{This manual needs a proper structure. Something along the lines of quick start, an introduction to Gotraceui (i.e.
   a feature overview and why it exists), how to set up tracing in all its details, how to analyze the data.}
 
 \startchapter[title=Introduction]
   Gotraceui is a tool for visualizing and analyzing Go execution traces.
-  It is meant to be a faster, more accessible, and more powerful alternative to \code{go tool trace}.
-  Unlike \code{go tool trace}, Gotraceui doesn't use deprecated browser APIs (or a browser at all),
-  and its UI is tuned specifically to the unique characteristics of Go traces.
+  It can display runtime events, CPU profiling information, memory usage, and more.
+  Traces can be viewed at nanosecond resolution or at macro scale.
+  Millions of events in a single trace are no problem.
 \stopchapter
 
 \startchapter[title=Quickstart]
@@ -77,7 +83,8 @@
   To be able to process and display a trace, Gotraceui has to parse and materialize it in memory.
   Memory usage is roughly 30x the size of the input trace.
   That is, a \unit{300 MB} trace file will need about \unit{9 GB} of memory to be loaded by Gotraceui.
-  For reference, an example \unit{300 MB} trace file was produced by tracing a busy Prometheus instance for one minute, resulting in \unit{66,044,021} events.
+  For reference, an example \unit{300 MB} trace file was produced by tracing a busy Prometheus instance for one minute,
+  resulting in \unit{66,044,021} events.
   This represents an extreme example.
   Many of your traces will be much smaller than that.
   For example, tracing \code{net/http}'s tests produces a \unit{7.3 MB} trace instead, 
@@ -90,24 +97,31 @@
   \startsection[title=Main window]
     The main window displays a main menu and an interactive \noun{canvas} representing the trace data.
 
-    \midaligned{{\externalfigure[images/screenshots/main_window.png][width=0.95\textwidth]}}
+    % TODO: \midaligned{{\externalfigure[images/screenshots/main_window.png][width=0.95\textwidth]}}
 
     The canvas can be moved around by dragging with \key{LMB} or by scrolling.
     Holding \key{Ctrl/Cmd} while scrolling zooms in and out, centered around the cursor's position.
     Dragging with \key{Ctrl/Cmd}+\key{LMB} selects a region of time to zoom to.
-    The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed on the canvas, as well as commands for quick navigation.
+    The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed on the canvas,
+    as well as commands for quick navigation.
 
     \startsubsection[title=Axis]
       The top of the window shows the \noun{axis}.
 
-      \midaligned{{\externalfigure[images/screenshots/axis.png][width=0.95\textwidth]}}
+      % TODO: \midaligned{{\externalfigure[images/screenshots/axis.png][width=0.95\textwidth]}}
 
-      The leftmost tick displays the absolute time at that point in the trace.
-      Subsequent ticks show increments relative to this absolute time.
-      For example, the screenshot shows an axis that starts at \unit{2,626,835,792 ns} and where each major tick represents an increase of \unit{1 ms}.
+      The bold tick displays the absolute time at that point in the trace.
+      Ticks to the left and right of it show relative decrements and increments to this absolute time.
+
+      By default, the absolute tick is placed at the middle of the axis,
+      as analyzing traces often involves looking at what happend before and after an event.
+      The tick can be moved by clicking and dragging anywhere on the axis.
+      Alternatively, its context menu allows quickly placing it at the beginning, middle, or end of the axis.
+
       \intodo{talk about negative absolute ticks}
 
-      Additionally, the axis contains red and purple sections, which correspond to the garbage collector's stop-the-world phase and general activity.
+      Additionally, the axis contains red and purple sections,
+      which correspond to the garbage collector's stop-the-world phase and general activity.
       Pressing \key{O} cycles through displaying the red section, both sections, or none of the sections across the entire canvas.
     \stopsubsection
 
@@ -116,25 +130,32 @@
       A timeline might show a processor, a goroutine, or phases of the garbage collector.
       Every timeline has a label, hovering over which may display a tooltip.
 
-      \midaligned{{\externalfigure[images/screenshots/processor-tooltip.png][width=0.5\textwidth]}}
+      % TODO: \midaligned{{\externalfigure[images/screenshots/processor-tooltip.png][width=0.5\textwidth]}}
 
-      For example, for processors, the tooltip will show how much time was spent executing user code, doing garbage collection work, and being idle.
+      For example, for processors, the tooltip will show how much time was spent executing user code,
+      doing garbage collection work,
+      and being idle.
       Pressing \key{Ctrl/Cmd}+\key{LMB} on a label will zoom the canvas such that all spans in that timeline are visible.
-      Pressing \key{LMB} on a goroutine label will open the corresponding goroutine window. You can read more about goroutine windows in \about[goroutine-windows].
+      Pressing \key{LMB} on a goroutine label will open a panel with additional information about the goroutine.
 
       A timeline consists of one or more horizontally stacked \noun{tracks}.
 
-      \midaligned{{\externalfigure[images/screenshots/activity.png][width=0.95\textwidth]}}
+      % TODO: \midaligned{{\externalfigure[images/screenshots/activity.png][width=0.95\textwidth]}}
 
       For example, the screenshot shows a goroutine timeline with six tracks.
-      The first track contains the runtime tracing information, while the other five tracks represent the five levels of call stacks acquired via CPU sampling.
+      The first track contains the runtime tracing information,
+      while the other NUM tracks represent the NUM levels of call stacks acquired from events and CPU samples.
       See \about[cpu-sampling] for more information on the specifics of CPU sampling in Gotraceui.
       Another source of tracks is code that is annotated with user regions.
+      % TODO: actually show user regions in the screenshot
 
       Each track consists of a series of \noun{spans}.
       A span represents a state for some duration of time.
       For example, a goroutine may be blocked on a channel send operation for \unit{100 ms}, and this would be displayed as a single span.
-      Hovering over a span will show context-specific information about it, including its state and duration, but also additional information such as tags \intodo{(link to the section on tags}) or the reason for being in a certain state.
+      Hovering over a span will show context-specific information about it,
+      including its state and duration,
+      but also additional information such as tags \intodo{(link to the section on tags}) or the reason for being in a certain state.
+      Pressing \key{LMB} on a span will open a list of events that happened during that span.
       Pressing \key{Ctrl/Cmd}+\key{LMB} on a span will zoom the canvas such that the span is fully visible.
 
       Spans have different colors depending on the states they represent.
@@ -143,22 +164,29 @@
 
       Depending on the zoom level, individual spans may be too small to display.
       Gotraceui uses two strategies to ensure that spans are always visible.
-      First, it merges consecutive tiny spans, displaying them as one big span instead. Such merged spans get their own color \intodo{(which? also explain gradients)}.
+      First, it merges consecutive tiny spans, displaying them as one big span instead.
+      Such merged spans get their own color \intodo{(which?)}.
       Zooming into merged spans unmerges them.
-      Second, if there aren't enough spans to merge, the span is given a minimum size. \intodo{mention how that means following spans might be rendered smaller than they are, and that zooming into an enlarged span may not change its size for quite a while.}
+      Second, if there aren't enough spans to merge, the span is given a minimum size.
+      \intodo{mention how that means following spans might be rendered smaller than they are,
+        and that zooming into an enlarged span may not change its size for quite a while.}
 
       \startsubsubsection[title={Span colors}]
         Spans in processor timelines will have one of two colors:
         \traceState{Green}{stateActive} for spans that represent running user goroutines,
         and \traceState{purple}{stateGC} for spans that represent garbage collection work.
 
-        Spans in the first track of goroutine timelines can have many different colors, representing the many different states a goroutine can be in.
+        Spans in the first track of goroutine timelines can have many different colors,
+        representing the many different states a goroutine can be in.
         You can find an exhaustive list of all goroutine states – and the corresponding span colors – in \about[goroutine-states].
 
-        User regions are displayed in \traceState{light pink}{stateUserRegion}. CPU samples are displayed in \traceState{light green}{stateSample}.
+        User regions are displayed in \traceState{light pink}{stateUserRegion}.
+        Stack traces are displayed either in a \traceState{light shade of green}{stateStack} if they're from events,
+        or in a \traceState{lighter shade of green}{stateSampled} if they're been acquired via CPU sampling.
 
         When small spans get merged, they will be displayed in one of two ways:
-        if all merged spans have the same state, then we will display a gradient from \traceState{light yellow}{stateMerged} to the color of the merged spans.
+        if all merged spans have the same state,
+        then we will display a gradient from \traceState{light yellow}{stateMerged} to the color of the merged spans.
         For merged spans with mixed states, a solid light yellow is shown instead.
       \stopsubsubsection
     \stopsubsection
@@ -198,9 +226,11 @@
   \item \traceState{active}{stateActive} Active goroutines are those that are currently running.
 
   \item \traceState{send}{stateBlockedHappensBefore}, \traceState{recv}{stateBlockedHappensBefore},
-    \traceState{select}{stateBlockedHappensBefore} These states describe the three ways in which goroutines can be blocked on channel communication.
+    \traceState{select}{stateBlockedHappensBefore} These states describe the three ways in which goroutines can be
+    blocked on channel communication.
 
-  \item \traceState{sync}{stateBlockedHappensBefore} This state is used by goroutines that are blocked on sync primitives, such as \code{sync.Mutex}.
+  \item \traceState{sync}{stateBlockedHappensBefore} This state is used by goroutines that are blocked on sync
+    primitives, such as \code{sync.Mutex}.
 
   \item \traceState{sync.Once}{stateBlockedHappensBefore} Blocked on a \code{sync.Once}.
     This is a special case of the sync state and detected by Gotraceui based on stack traces.
@@ -219,14 +249,17 @@
 
   \item \traceState{inactive}{stateInactive} This state is one of Gotraceui's custom states and is used for
     goroutines that are blocked or ready to run, but aren't actually eager to run.
-    For blocked goroutines, this is exclusively used by goroutines of the runtime that block on some lock to pace the amount of work they do.
+    For blocked goroutines,
+    this is exclusively used by goroutines of the runtime that block on some lock to pace the amount of work they do.
     Goroutines that are technically in the ready state but are marked inactive are those that called runtime.Gosched or time.Sleep,
-    as this indicates that they willingly gave up part of their share in CPU time, and their time spent waiting shouldn't be considered scheduler latency.
+    as this indicates that they willingly gave up part of their share in CPU time,
+    and their time spent waiting shouldn't be considered scheduler latency.
 
     \intodo{We still need to describe this state}
   \item \traceState{BlockedGC}{stateGC}
 
-  \item \traceState{ready}{stateReady} A goroutine in this state isn't blocked on anything anymore and can start running as soon as it gets scheduled.
+  \item \traceState{ready}{stateReady} A goroutine in this state isn't blocked on anything anymore and can start running
+    as soon as it gets scheduled.
     A goroutine can be in this state because there aren't any free Ps to run it,
     or simply because the scheduler hasn't gotten around to starting it yet.
     Goroutines can transition into this state from the active state if they get preempted,
@@ -255,7 +288,8 @@
 \startchapter[title=Tags]
   Gotraceui will annotate spans with tags, which further describe the states goroutines are in.
   These tags are produced by automatically parsing stack traces,
-  and for example deducing that a goroutine that's blocked on pollable I/O got to that state by making a TLS-encrypted HTTP request over TCP,
+  and for example deducing that a goroutine that's blocked on pollable I/O got to that state by making a TLS-encrypted
+  HTTP request over TCP,
   which provides a lot more information than just \quotation{I/O}.
 
   Being based on stack trace parsing, tags are provided on a best-effort basis.
@@ -341,7 +375,8 @@
     Its activity will interact with the scheduling of your goroutines in various ways,
     which we'll explore in this section.
     We will focus on the details that matter for understanding runtime traces.
-    There are many more details to how the GC works and you're encouraged to read the \goto{official documentation}[url(https://go.dev/doc/gc-guide)] to learn more about it.
+    There are many more details to how the GC works
+    and you're encouraged to read the \goto{official documentation}[url(https://go.dev/doc/gc-guide)] to learn more about it.
 
     \startsubsection[title=\todo{Something about mark, sweep, mark assist, STW, how GC gets triggered, etc}]
     \stopsubsection
@@ -370,34 +405,40 @@
 \startchapter[reference=cpu-sampling, title=CPU sampling]
   \intodo{We probably want to move this chapter into a subchapter of the UI chapter}
   In addition to sequences of runtime events and user regions, Gotraceui can also display tracks of stack traces.
-  Such tracks can help spot macroscopic patterns in code execution. They are reconstructed from CPU profiling
-  samples as well as the stacks associated with certain runtime events and thus have a sampled, imprecise nature.
+  Such tracks can help spot macroscopic patterns in code execution.
+  They are reconstructed from CPU profiling samples as well as the stacks associated with certain runtime events and thus have a sampled,
+  imprecise nature.
 
-  \midaligned{\clip[width=0.95\textwidth]{\externalfigure[images/screenshots/stack_samples.png]}}
+  % TODO: \midaligned{\clip[width=0.95\textwidth]{\externalfigure[images/screenshots/stack_samples.png]}}
 
-  It is important to understand the nature and limitations of the data displayed in these tracks. Strictly
-  speaking, each CPU profiling sample and each runtime event describes an instant in time, not a duration. However, in
-  our reconstruction, we connect consecutive stack traces, making it look like a function has been running for the
-  entire duration between two events or samples. This is a lie.
+  It is important to understand the nature and limitations of the data displayed in these tracks.
+  Strictly speaking, each CPU profiling sample and each runtime event describes an instant in time, not a duration.
+  However, in our reconstruction, we connect consecutive stack traces,
+  making it look like a function has been running for the entire duration between two events or samples.
+  This is a lie.
 
-  A CPU profiling sample states that at a specific point in time, a certain function was executing. It doesn't say
-  anything about what happened right after the sample. By default, samples occur at a frequency of \unit{100 Hz}, i.e.
-  once every \unit{10 ms}. This means that there is \unit{10 ms} of uncertainty after a sample. The function might've
-  returned anywhere from \unit{0} to \unit{10 ms} after the sample. It may even have been called repeatedly. All we really
-  know is that at one point in time, the function was running.
+  A CPU profiling sample states that at a specific point in time, a certain function was executing.
+  It doesn't say anything about what happened right after the sample.
+  By default, samples occur at a frequency of \unit{100 Hz}, i.e. once every \unit{10 ms}.
+  This means that there is \unit{10 ms} of uncertainty after a sample.
+  The function might've returned anywhere from \unit{0} to \unit{10 ms} after the sample.
+  It may even have been called repeatedly.
+  All we really know is that at one point in time, the function was running.
 
-  Nevertheless, when looking at larger scales (hundreds of milliseconds, if not seconds), especially when looking at
-  repetitive executions, this visualization can expose patterns. The more often the same stack gets sampled, the more
-  likely it is that it is indeed a major contributor to the code's execution. However, the data is woefully inadequate
-  at small scales — the kind of scales at which runtime trace data exists. You shouldn't rely on the sampled stack
-  traces to fill in the gaps between two runtime events that happened \unit{100 us} apart.
+  Nevertheless, when looking at larger scales (hundreds of milliseconds, if not seconds),
+  especially when looking at repetitive executions,
+  this visualization can expose patterns.
+  The more often the same stack gets sampled, the more likely it is that it is indeed a major contributor to the code's execution.
+  However, the data is woefully inadequate at small scales — the kind of scales at which runtime trace data exists.
+  You shouldn't rely on the sampled stack traces to fill in the gaps between two runtime events that happened \unit{100 us} apart.
 
-  Gotraceui combines both CPU profiling and some runtime events when reconstructing stack trace tracks. CPU
-  samples are those used by pprof. Beginning with Go 1.19, runtime traces include CPU samples if profiling is enabled
-  at the same time as tracing. However, goroutines that are blocked don't receive any samples, so we additionally use
-  the stacks associated with runtime events that signal state transitions, such as goroutines calling
-  \code{time.Sleep}, to fill in the gaps. This way, the last stack before a potentially long time without samples will
-  be as accurate as possible.
+  Gotraceui combines both CPU profiling and some runtime events when reconstructing stack trace tracks.
+  CPU samples are those used by pprof.
+  Beginning with Go 1.19, runtime traces include CPU samples if profiling is enabled at the same time as tracing.
+  However, goroutines that are blocked don't receive any samples, so we additionally use
+  the stacks associated with runtime events that signal state transitions, such as goroutines calling \code{time.Sleep},
+  to fill in the gaps.
+  This way, the last stack before a potentially long time without samples will be as accurate as possible.
 
   Using sampling and runtime events together further affects how you should treat durations in stack traces
   because of the following two reasons:
