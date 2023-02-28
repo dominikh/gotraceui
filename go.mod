@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	gioui.org v0.0.0-20230224004350-5f818bc5e7f9
-	gioui.org/x v0.0.0-20230201210254-e4e582af919b
+	gioui.org/x v0.0.0-20230227132240-6822f59b3b6b
 	golang.org/x/exp v0.0.0-20221012211006-4de253d81b95
 	golang.org/x/text v0.7.0
 )
