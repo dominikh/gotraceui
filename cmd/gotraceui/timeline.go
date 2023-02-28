@@ -458,7 +458,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 		start = it.prevEnd
 	}
 
-	if time.Duration(end-start) < minSpanWidthD {
+	if time.Duration(end-start) < minSpanWidthD && s.State != ptrace.StateDone {
 		// Merge all tiny spans until we find a span or gap that's big enough to stand on its own. We do not stop
 		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
@@ -477,27 +477,34 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 			})
 
 			if offset == len(spans) {
-				// We couldn't find a span -> merge all remaining spans
-				offset = len(spans)
-				end = spans[offset-1].End
-				break
-			} else {
-				prevSpan := &spans[offset-1]
-				candidateSpan := &spans[offset]
-
-				cStart := candidateSpan.Start
-				cEnd := candidateSpan.End
-				prevEnd := prevSpan.End
-				if adjustedEnd > cStart {
-					cStart = adjustedEnd
-				}
-				if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(cStart-prevEnd) >= minSpanWidthD {
+				// We couldn't find a span -> merge all remaining spans, except for the optional "goroutine returned"
+				// span
+				if spans[len(spans)-1].State == ptrace.StateDone {
+					offset = len(spans) - 1
 					end = spans[offset-1].End
 					break
 				} else {
-					end = spans[offset].End
-					offset++
+					offset = len(spans)
+					end = spans[offset-1].End
+					break
 				}
+			}
+
+			candidateSpan := &spans[offset]
+			prevSpan := &spans[offset-1]
+
+			cStart := candidateSpan.Start
+			cEnd := candidateSpan.End
+			prevEnd := prevSpan.End
+			if adjustedEnd > cStart {
+				cStart = adjustedEnd
+			}
+			if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(cStart-prevEnd) >= minSpanWidthD {
+				end = spans[offset-1].End
+				break
+			} else {
+				end = spans[offset].End
+				offset++
 			}
 		}
 	}
@@ -1476,12 +1483,6 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	end := tt.g.Spans.End()
 	d := time.Duration(end - start)
 
-	var fnName string
-	line1 := "Goroutine %[1]d\n\n"
-	if tt.g.Function.Fn != "" {
-		fnName = tt.g.Function.Fn
-		line1 = "Goroutine %[1]d: %[2]s\n\n"
-	}
 	blocked := tt.g.Statistics.Blocked()
 	inactive := tt.g.Statistics.Inactive()
 	gcAssist := tt.g.Statistics.GCAssist()
@@ -1490,25 +1491,45 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	inactivePct := float32(inactive) / float32(d) * 100
 	gcAssistPct := float32(gcAssist) / float32(d) * 100
 	runningPct := float32(running) / float32(d) * 100
-	l := local.Sprintf(line1+
-		"Created at: %[3]s\n"+
-		"Returned at: %[4]s\n"+
-		"Lifetime: %[5]s\n"+
-		"Spans: %[14]d\n"+
-		"Time in blocked states: %[6]s (%.2[7]f%%)\n"+
-		"Time in inactive states: %[8]s (%.2[9]f%%)\n"+
-		"Time in GC assist: %[10]s (%.2[11]f%%)\n"+
-		"Time in running states: %[12]s (%.2[13]f%%)",
-		tt.g.ID, fnName,
-		formatTimestamp(start),
-		formatTimestamp(end),
-		roundDuration(d),
-		roundDuration(blocked), blockedPct,
-		roundDuration(inactive), inactivePct,
-		roundDuration(gcAssist), gcAssistPct,
-		roundDuration(running), runningPct,
-		len(tt.g.Spans),
-	)
+
+	var fmts []string
+	var args []any
+
+	if tt.g.Function.Fn != "" {
+		fmts = append(fmts, "Goroutine %d: %s\n")
+		args = append(args, tt.g.ID, tt.g.Function.Fn)
+	} else {
+		fmts = append(fmts, "Goroutine %d\n")
+		args = append(args, tt.g.ID)
+	}
+
+	fmts = append(fmts, "Created at: %s")
+	args = append(args, formatTimestamp(start))
+
+	if tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone {
+		fmts = append(fmts, "Returned at: %s")
+		args = append(args, formatTimestamp(end))
+	}
+
+	fmts = append(fmts, "Lifetime: %s")
+	args = append(args, roundDuration(d))
+
+	fmts = append(fmts, "Spans: %d")
+	args = append(args, len(tt.g.Spans))
+
+	fmts = append(fmts, "Time in blocked states: %s (%.2f%%)")
+	args = append(args, roundDuration(blocked), blockedPct)
+
+	fmts = append(fmts, "Time in inactive states: %s (%.2f%%)")
+	args = append(args, roundDuration(inactive), inactivePct)
+
+	fmts = append(fmts, "Time in GC assist: %s (%.2f%%)")
+	args = append(args, roundDuration(gcAssist), gcAssistPct)
+
+	fmts = append(fmts, "Time in running states: %s (%.2f%%)")
+	args = append(args, roundDuration(running), runningPct)
+
+	l := local.Sprintf(strings.Join(fmts, "\n"), args...)
 
 	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
@@ -1580,6 +1601,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += "GC assist wait"
 		case ptrace.StateBlockedSyscall:
 			label += "blocked on syscall"
+		case ptrace.StateDone:
+			label += "returned"
 		case ptrace.StateStuck:
 			label += "stuck"
 		case ptrace.StateReady:
@@ -1654,7 +1677,9 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		}
 	}
 
-	label += fmt.Sprintf("Duration: %s\n", roundDuration(Duration(state.spanSel)))
+	if state.spanSel.At(state.spanSel.Size()-1).State != ptrace.StateDone {
+		label += fmt.Sprintf("Duration: %s\n", roundDuration(Duration(state.spanSel)))
+	}
 
 	if len(state.events) > 0 {
 		label += local.Sprintf("Events in span: %d\n", len(state.events))

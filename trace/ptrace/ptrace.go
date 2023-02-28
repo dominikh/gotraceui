@@ -794,11 +794,10 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		if len(g.Spans) != 0 {
 			last := g.Spans[len(g.Spans)-1]
 			if last.State == StateDone {
-				// The goroutine has ended
-				// XXX the event probably has a stack associated with it, which we shouldn't discard.
-				g.Spans = g.Spans[:len(g.Spans)-1]
+				// The goroutine has ended. We encode this as a zero length span.
+				s := &g.Spans[len(g.Spans)-1]
+				s.End = s.Start
 			} else {
-				// XXX somehow encode open-ended traces
 				g.Spans[len(g.Spans)-1].End = res.Events[len(res.Events)-1].Ts
 			}
 		}

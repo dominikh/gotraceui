@@ -25,6 +25,8 @@ var colors = [...]color.NRGBA{
 	colorStateCPUSample:  rgba(0x98D597FF),
 	colorStateStack:      rgba(0x79B579FF),
 
+	colorStateDone: rgba(0x000000FF),
+
 	colorBackground:    rgba(0xffffeaFF),
 	colorZoomSelection: rgba(0xeeee9e99),
 	colorCursor:        rgba(0x000000FF),
@@ -62,6 +64,7 @@ const (
 	colorStateUserRegion
 	colorStateStack
 	colorStateCPUSample
+	colorStateDone
 
 	colorStateLast
 
@@ -105,7 +108,7 @@ var stateColors = [256]colorIndex{
 	ptrace.StateUserRegion:              colorStateUserRegion,
 	ptrace.StateStack:                   colorStateStack,
 	ptrace.StateCPUSample:               colorStateCPUSample,
-	ptrace.StateDone:                    colorStateUnknown, // no span with this state should be rendered
+	ptrace.StateDone:                    colorStateDone,
 
 	// per-P states
 	ptrace.StateRunningG: colorStateActive,
