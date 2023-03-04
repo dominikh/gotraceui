@@ -1383,12 +1383,9 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 					},
 					spanColor: func(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 						do := func(s ptrace.Span, tr *Trace) colorIndex {
-							gid := tr.Events[s.Event].G
-							g := tr.G(gid)
-							switch fn := g.Function.Fn; fn {
-							case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
+							if s.Tags&ptrace.SpanTagGC != 0 {
 								return colorStateGC
-							default:
+							} else {
 								// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
 								return stateColors[s.State]
 							}

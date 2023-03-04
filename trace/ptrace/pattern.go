@@ -12,6 +12,9 @@ const (
 	SpanTagAccept
 	SpanTagDial
 	SpanTagHTTP
+
+	// Used for spans of GC goroutines, used when choosing span colors for processor timelines.
+	SpanTagGC
 )
 
 type pattern struct {
