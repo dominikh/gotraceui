@@ -781,28 +781,33 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 
 		for seqID, g := range t.Goroutines {
 			// Populate goroutine span labels
+			localPrefixedID := local.Sprintf("g%d", g.ID)
+			localUnprefixedID := localPrefixedID[1:]
+			fmtPrefixedID := fmt.Sprintf("g%d", g.ID)
+			fmtUnprefixedID := fmtPrefixedID[1:]
+
 			var spanLabels []string
 			if g.Function.Fn != "" {
 				short := shortenFunctionName(g.Function.Fn)
-				spanLabels = append(spanLabels, local.Sprintf("g%d: %s", g.ID, g.Function))
+				spanLabels = append(spanLabels, localPrefixedID+": "+g.Function.Fn)
 				if short != g.Function.Fn {
-					spanLabels = append(spanLabels, local.Sprintf("g%d: .%s", g.ID, short))
-					spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
+					spanLabels = append(spanLabels, localPrefixedID+": ."+short)
+					spanLabels = append(spanLabels, localPrefixedID)
 				} else {
 					// This branch is probably impossible; all functions should be fully qualified.
-					spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
+					spanLabels = append(spanLabels, localPrefixedID)
 				}
 			} else {
-				spanLabels = append(spanLabels, local.Sprintf("g%d", g.ID))
+				spanLabels = append(spanLabels, localPrefixedID)
 			}
 			t.allGoroutineSpanLabels[seqID] = spanLabels
 
 			// Populate goroutine filter filterLabels
 			filterLabels := []string{
-				strconv.FormatUint(g.ID, 10),
-				local.Sprintf("%d", g.ID),
-				fmt.Sprintf("g%d", g.ID),
-				local.Sprintf("g%d", g.ID),
+				fmtUnprefixedID,
+				localUnprefixedID,
+				fmtPrefixedID,
+				localPrefixedID,
 				g.Function.Fn,
 				strings.ToLower(g.Function.Fn),
 				"goroutine", // allow queries like "goroutine 1234" to work
@@ -815,13 +820,18 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 		t.allProcessorFilterLabels = make([][]string, len(t.Processors))
 
 		for seqID, p := range t.Processors {
-			t.allProcessorSpanLabels[seqID] = append(t.allProcessorSpanLabels[seqID], local.Sprintf("p%d", p.ID))
+			localPrefixedID := local.Sprintf("p%d", p.ID)
+			localUnprefixedID := localPrefixedID[1:]
+			fmtPrefixedID := fmt.Sprintf("p%d", p.ID)
+			fmtUnprefixedID := fmtPrefixedID[1:]
+
+			t.allProcessorSpanLabels[seqID] = append(t.allProcessorSpanLabels[seqID], localPrefixedID)
 
 			filterLabels := []string{
-				strconv.FormatInt(int64(p.ID), 10),
-				local.Sprintf("%d", p.ID),
-				fmt.Sprintf("p%d", p.ID),
-				local.Sprintf("p%d", p.ID),
+				fmtUnprefixedID,
+				localUnprefixedID,
+				fmtPrefixedID,
+				localPrefixedID,
 				"processor", // allow queries like "processor 1234" to work
 			}
 			t.allProcessorFilterLabels[p.SeqID] = filterLabels
