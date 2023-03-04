@@ -260,11 +260,13 @@ func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
 }
 
 // notifyHidden informs the widget that it is no longer visible.
-func (tl *Timeline) notifyHidden() {
+func (tl *Timeline) notifyHidden(cv *Canvas) {
 	rtrace.Logf(context.Background(), "", "unloading track widget %q", tl.label)
 	for i := range tl.tracks {
+		cv.trackWidgetsCache.Put(tl.tracks[i].TrackWidget)
 		tl.tracks[i].TrackWidget = nil
 	}
+	cv.timelineWidgetsCache.Put(tl.TimelineWidget)
 	tl.TimelineWidget = nil
 }
 
@@ -273,7 +275,8 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 
 	if tl.TimelineWidget == nil {
 		rtrace.Logf(context.Background(), "", "loading timeline widget %q", tl.label)
-		tl.TimelineWidget = &TimelineWidget{cv: cv}
+		tl.TimelineWidget = cv.timelineWidgetsCache.Get()
+		*tl.TimelineWidget = TimelineWidget{cv: cv}
 	}
 
 	// TODO(dh): we could replace all uses of timelineHeight by using normal Gio widget patterns: lay out all the
@@ -396,12 +399,12 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		// If the first track doesn't have a widget then none of them do. Initialize them.
 		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
 		// timelines.
+		for i := range tl.tracks {
+			tl.tracks[i].TrackWidget = cv.trackWidgetsCache.Get()
+			*tl.tracks[i].TrackWidget = TrackWidget{}
+		}
 		if tl.buildTrackWidgets != nil {
 			tl.buildTrackWidgets(tl.tracks)
-		} else {
-			for i := range tl.tracks {
-				tl.tracks[i].TrackWidget = &TrackWidget{}
-			}
 		}
 	}
 
@@ -1092,7 +1095,7 @@ func NewMachineTimeline(cv *Canvas, m *ptrace.Machine) *Timeline {
 				track := &tracks[i]
 				switch i {
 				case 0:
-					track.TrackWidget = &TrackWidget{
+					*track.TrackWidget = TrackWidget{
 						highlightSpan: func(spanSel SpanSelector) bool {
 							if htl := cv.timeline.hoveredTimeline; htl != nil {
 								var target int32
@@ -1180,7 +1183,7 @@ func NewMachineTimeline(cv *Canvas, m *ptrace.Machine) *Timeline {
 						},
 					}
 				case 1:
-					track.TrackWidget = &TrackWidget{
+					*track.TrackWidget = TrackWidget{
 						highlightSpan: func(spanSel SpanSelector) bool {
 							if htl := cv.timeline.hoveredTimeline; htl != nil {
 								var target uint64
@@ -1326,7 +1329,7 @@ func NewProcessorTimeline(cv *Canvas, p *ptrace.Processor) *Timeline {
 		buildTrackWidgets: func(tracks []Track) {
 			for i := range tracks {
 				track := &tracks[i]
-				track.TrackWidget = &TrackWidget{
+				*track.TrackWidget = TrackWidget{
 					highlightSpan: func(spanSel SpanSelector) bool {
 						if htl := cv.timeline.hoveredTimeline; htl != nil {
 							target := struct {
@@ -1814,7 +1817,7 @@ func NewGoroutineTimeline(cv *Canvas, g *ptrace.Goroutine) *Timeline {
 				track := &tracks[i]
 				switch track.kind {
 				case TrackKindUnspecified:
-					track.TrackWidget = &TrackWidget{
+					*track.TrackWidget = TrackWidget{
 						spanLabel: func(spanSel SpanSelector, _ *Trace, out []string) []string {
 							if spanSel.Size() != 1 {
 								return out
@@ -1858,7 +1861,7 @@ func NewGoroutineTimeline(cv *Canvas, g *ptrace.Goroutine) *Timeline {
 					}
 
 				case TrackKindUserRegions:
-					track.TrackWidget = &TrackWidget{
+					*track.TrackWidget = TrackWidget{
 						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
 							if spanSel.Size() != 1 {
 								return out
@@ -1881,7 +1884,7 @@ func NewGoroutineTimeline(cv *Canvas, g *ptrace.Goroutine) *Timeline {
 					if stackTrackBase == -1 {
 						stackTrackBase = i
 					}
-					track.TrackWidget = &TrackWidget{
+					*track.TrackWidget = TrackWidget{
 						// TODO(dh): should we highlight hovered spans that share the same function?
 						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
 							if spanSel.Size() != 1 {

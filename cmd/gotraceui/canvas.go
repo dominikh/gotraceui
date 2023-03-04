@@ -169,6 +169,9 @@ type Canvas struct {
 	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
 	// Canvas.computeTimelinePositions
 	timelineEnds []int
+
+	timelineWidgetsCache Cache[TimelineWidget]
+	trackWidgetsCache    Cache[TrackWidget]
 }
 
 func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
@@ -993,6 +996,10 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		tl := cv.timelines[i]
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		topBorder := i > 0 && cv.timelines[i-1].Hovered()
+		if tl.TimelineWidget == nil {
+			tl.TimelineWidget = cv.timelineWidgetsCache.Get()
+			*tl.TimelineWidget = TimelineWidget{cv: cv}
+		}
 		tl.Layout(win, gtx, cv, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
@@ -1009,7 +1016,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		if !tl.displayed {
 			// The timeline was displayed last frame but wasn't this frame -> notify it that it is no longer visible so
 			// that it can release temporary resources.
-			tl.notifyHidden()
+			tl.notifyHidden(cv)
 		}
 	}
 
