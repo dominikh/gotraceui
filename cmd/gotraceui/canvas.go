@@ -439,7 +439,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	start, end := cv.visibleTimelines(gtx)
 	for _, tw := range cv.timelines[start:end] {
 		for _, track := range tw.tracks {
-			if track.spans.Size() == 0 || (track.kind == TimelineWidgetTrackStack && !cv.timeline.displayStackTracks) {
+			if track.spans.Size() == 0 || (track.kind == TrackKindStack && !cv.timeline.displayStackTracks) {
 				continue
 			}
 

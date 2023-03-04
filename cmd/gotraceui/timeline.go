@@ -35,19 +35,18 @@ const (
 	timelineTrackGapDp    unit.Dp = 2
 )
 
-type TimelineWidgetTrackKind uint8
+type TrackKind uint8
 
 const (
-	TimelineWidgetTrackUnspecified TimelineWidgetTrackKind = iota
-	TimelineWidgetTrackStack
-	TimelineWidgetTrackUserRegions
+	TrackKindUnspecified TrackKind = iota
+	TrackKindStack
+	TrackKindUserRegions
 )
 
 type TimelineWidget struct {
 	// Inputs
 	tracks            []Track
-	trackWidgets      []TimelineWidgetTrack
-	buildTrackWidgets func([]Track, []TimelineWidgetTrack)
+	buildTrackWidgets func([]Track)
 
 	widgetTooltip   func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions
 	invalidateCache func(tw *TimelineWidget) bool
@@ -92,9 +91,11 @@ type SpanTooltipState struct {
 }
 
 type Track struct {
-	kind   TimelineWidgetTrackKind
+	kind   TrackKind
 	spans  SpanSelector
 	events []ptrace.EventID
+
+	*TrackWidget
 }
 
 func Duration(spanSel SpanSelector) time.Duration {
@@ -162,9 +163,7 @@ func newZoomMenuItem(cv *Canvas, spanSel SpanSelector) *theme.MenuItem {
 	}
 }
 
-type TimelineWidgetTrack struct {
-	*Track
-
+type TrackWidget struct {
 	highlightSpan func(spanSel SpanSelector) bool
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
 	spanLabel       func(spanSel SpanSelector, tr *Trace, out []string) []string
@@ -202,15 +201,15 @@ type TimelineWidgetTrack struct {
 	}
 }
 
-func (track *TimelineWidgetTrack) ClickedSpans() SpanSelector {
+func (track *TrackWidget) ClickedSpans() SpanSelector {
 	return track.clickedSpans
 }
 
-func (track *TimelineWidgetTrack) NavigatedSpans() SpanSelector {
+func (track *TrackWidget) NavigatedSpans() SpanSelector {
 	return track.navigatedSpans
 }
 
-func (track *TimelineWidgetTrack) HoveredSpans() SpanSelector {
+func (track *TrackWidget) HoveredSpans() SpanSelector {
 	return track.hoveredSpans
 }
 
@@ -240,7 +239,7 @@ func (tw *TimelineWidget) Height(gtx layout.Context) int {
 	enabledTracks := 0
 	for i := range tw.tracks {
 		track := &tw.tracks[i]
-		if track.kind != TimelineWidgetTrackStack || tw.cv.timeline.displayStackTracks {
+		if track.kind != TrackKindStack || tw.cv.timeline.displayStackTracks {
 			enabledTracks++
 		}
 	}
@@ -253,7 +252,9 @@ func (tw *TimelineWidget) Height(gtx layout.Context) int {
 
 // notifyHidden informs the widget that it is no longer visible.
 func (tw *TimelineWidget) notifyHidden() {
-	tw.trackWidgets = nil
+	for i := range tw.tracks {
+		tw.tracks[i].TrackWidget = nil
+	}
 }
 
 func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
@@ -375,23 +376,22 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 	}
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
-	if tw.trackWidgets == nil {
+	if len(tw.tracks) > 0 && tw.tracks[0].TrackWidget == nil {
+		// If the first track doesn't have a widget then none of them do. Initialize them.
 		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
 		// timelines.
-		out := make([]TimelineWidgetTrack, len(tw.tracks))
 		if tw.buildTrackWidgets != nil {
-			tw.buildTrackWidgets(tw.tracks, out)
+			tw.buildTrackWidgets(tw.tracks)
 		} else {
 			for i := range tw.tracks {
-				out[i].Track = &tw.tracks[i]
+				tw.tracks[i].TrackWidget = &TrackWidget{}
 			}
 		}
-		tw.trackWidgets = out
 	}
 
-	for i := range tw.trackWidgets {
-		track := &tw.trackWidgets[i]
-		if track.kind == TimelineWidgetTrackStack && !tw.cv.timeline.displayStackTracks {
+	for i := range tw.tracks {
+		track := &tw.tracks[i]
+		if track.kind == TrackKindStack && !tw.cv.timeline.displayStackTracks {
 			continue
 		}
 		dims := track.Layout(win, gtx, tw.cv, trackSpanLabels)
@@ -521,7 +521,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 	return it.spanSel.Slice(startOffset, offset), startPx, endPx, true
 }
 
-func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, labelsOut *[]string) layout.Dimensions {
+func (track *Track) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, labelsOut *[]string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
 
 	tr := cv.trace
@@ -851,7 +851,7 @@ func (track *TimelineWidgetTrack) Layout(win *theme.Window, gtx layout.Context, 
 		track.prevFrame.dspSpans = allDspSpans
 	}
 
-	if track.kind == TimelineWidgetTrackUnspecified {
+	if track.kind == TrackKindUnspecified {
 		// Indicate parts of time where a goroutine or processor wasn't yet alive and where it no longer exists.
 		var (
 			visWidthPx    float32 = float32(gtx.Constraints.Max.X)
@@ -1072,13 +1072,12 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 		item:  m,
 		label: local.Sprintf("Machine %d", m.ID),
 
-		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
+		buildTrackWidgets: func(tracks []Track) {
 			for i := range tracks {
 				track := &tracks[i]
 				switch i {
 				case 0:
-					out[i] = TimelineWidgetTrack{
-						Track: track,
+					track.TrackWidget = &TrackWidget{
 						highlightSpan: func(spanSel SpanSelector) bool {
 							if htw := cv.timeline.hoveredTimeline; htw != nil {
 								var target int32
@@ -1166,8 +1165,7 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 						},
 					}
 				case 1:
-					out[i] = TimelineWidgetTrack{
-						Track: track,
+					track.TrackWidget = &TrackWidget{
 						highlightSpan: func(spanSel SpanSelector) bool {
 							if htw := cv.timeline.hoveredTimeline; htw != nil {
 								var target uint64
@@ -1310,11 +1308,10 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 	return &TimelineWidget{
 		tracks: []Track{{spans: SliceToSpanSelector(p.Spans)}},
 
-		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
+		buildTrackWidgets: func(tracks []Track) {
 			for i := range tracks {
 				track := &tracks[i]
-				out[i] = TimelineWidgetTrack{
-					Track: track,
+				track.TrackWidget = &TrackWidget{
 					highlightSpan: func(spanSel SpanSelector) bool {
 						if htw := cv.timeline.hoveredTimeline; htw != nil {
 							target := struct {
@@ -1795,16 +1792,15 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 			spans:  SliceToSpanSelector(g.Spans),
 			events: g.Events,
 		}},
-		buildTrackWidgets: func(tracks []Track, out []TimelineWidgetTrack) {
+		buildTrackWidgets: func(tracks []Track) {
 			stackTrackBase := -1
 			for i := range tracks {
 				i := i
 
 				track := &tracks[i]
 				switch track.kind {
-				case TimelineWidgetTrackUnspecified:
-					out[i] = TimelineWidgetTrack{
-						Track: track,
+				case TrackKindUnspecified:
+					track.TrackWidget = &TrackWidget{
 						spanLabel: func(spanSel SpanSelector, _ *Trace, out []string) []string {
 							if spanSel.Size() != 1 {
 								return out
@@ -1847,9 +1843,8 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						},
 					}
 
-				case TimelineWidgetTrackUserRegions:
-					out[i] = TimelineWidgetTrack{
-						Track: track,
+				case TrackKindUserRegions:
+					track.TrackWidget = &TrackWidget{
 						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
 							if spanSel.Size() != 1 {
 								return out
@@ -1868,13 +1863,11 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 						},
 					}
 
-				case TimelineWidgetTrackStack:
+				case TrackKindStack:
 					if stackTrackBase == -1 {
 						stackTrackBase = i
 					}
-					out[i] = TimelineWidgetTrack{
-						Track: track,
-
+					track.TrackWidget = &TrackWidget{
 						// TODO(dh): should we highlight hovered spans that share the same function?
 						spanLabel: func(spanSel SpanSelector, tr *Trace, out []string) []string {
 							if spanSel.Size() != 1 {
@@ -1928,7 +1921,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 	}
 
 	for _, ug := range g.UserRegions {
-		tw.tracks = append(tw.tracks, Track{spans: SliceToSpanSelector(ug), kind: TimelineWidgetTrackUserRegions})
+		tw.tracks = append(tw.tracks, Track{spans: SliceToSpanSelector(ug), kind: TrackKindUserRegions})
 	}
 
 	addStackTracks(tw, g, cv.trace)
@@ -2087,7 +2080,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 	}
 
 	for i := range stackTracks {
-		stackTracks[i].kind = TimelineWidgetTrackStack
+		stackTracks[i].kind = TrackKindStack
 		stackTracks[i].spans = spanAndMetadataSlices[stackSpanMeta]{
 			spans: trackSpans[i],
 			meta:  spanMeta[i],
