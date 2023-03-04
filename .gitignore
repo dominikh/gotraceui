@@ -1,5 +1,8 @@
 /cmd/gotraceui/gotraceui
 _traces
 /doc/manual/manual.pdf
-*.log
-*.tuc
+/doc/manual/*.log
+/doc/manual/*.tuc
+/doc/manual/*.toc
+/doc/manual/*.out
+/doc/manual/*.aux
