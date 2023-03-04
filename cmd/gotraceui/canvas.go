@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -164,6 +165,10 @@ type Canvas struct {
 		hoveredTimeline    *TimelineWidget
 		hoveredSpans       SpanSelector
 	}
+
+	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
+	// Canvas.computeTimelinePositions
+	timelineEnds []int
 }
 
 func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
@@ -178,6 +183,21 @@ func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
 	cv.timelines = make([]*TimelineWidget, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
 	cv.timelines[0] = NewGCWidget(cv, t, t.GC)
 	cv.timelines[1] = NewSTWWidget(cv, t, t.STW)
+}
+
+func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
+	if len(cv.timelineEnds) == len(cv.timelines) &&
+		cv.timeline.compact == cv.prevFrame.compact &&
+		cv.timeline.displayStackTracks == cv.prevFrame.displayStackTracks {
+		return
+	}
+
+	cv.timelineEnds = slices.Grow(cv.timelineEnds[:0], len(cv.timelines))[:len(cv.timelines)]
+	accEnds := 0
+	for i, tw := range cv.timelines {
+		accEnds += tw.Height(gtx)
+		cv.timelineEnds[i] = accEnds
+	}
 }
 
 func (cv *Canvas) rememberLocation() {
@@ -416,7 +436,8 @@ func (cv *Canvas) pxToTs(px float32) trace.Timestamp {
 
 func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	var first, last trace.Timestamp = -1, -1
-	for _, tw := range cv.visibleTimelines(gtx) {
+	start, end := cv.visibleTimelines(gtx)
+	for _, tw := range cv.timelines[start:end] {
 		for _, track := range tw.tracks {
 			if track.spans.Size() == 0 || (track.kind == TimelineWidgetTrackStack && !cv.timeline.displayStackTracks) {
 				continue
@@ -719,6 +740,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
+	cv.computeTimelinePositions(gtx)
+
 	func(gtx layout.Context) {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -936,74 +959,44 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	}
 }
 
-func (cv *Canvas) visibleTimelines(gtx layout.Context) []*TimelineWidget {
-	start := -1
-	end := -1
-	// OPT(dh): at least use binary search to find the range of timelines we need to draw. now that timeline heights
-	// aren't constant anymore, however, this is more complicated.
-	y := -cv.y
-	for i, tw := range cv.timelines {
-		// Don't draw timelines that would be fully hidden, but do draw partially hidden ones
-		twHeight := tw.Height(gtx)
-		if y < -twHeight {
-			y += twHeight
-			continue
+func (cv *Canvas) visibleTimelines(gtx layout.Context) (start, end int) {
+	// start at first timeline that ends within or after the visible range
+	// end at first timeline that starts after the visible range
+	start = sort.Search(len(cv.timelines), func(i int) bool {
+		return cv.timelineEnds[i]-cv.y >= 0
+	})
+	end = sort.Search(len(cv.timelines), func(i int) bool {
+		start := 0
+		if i != 0 {
+			start = cv.timelineEnds[i-1]
 		}
-		if start == -1 {
-			start = i
-		}
-		if y > gtx.Constraints.Max.Y {
-			end = i
-			break
-		}
-		y += twHeight
-	}
-
-	if start == -1 {
-		// No visible timelines
-		return nil
-	}
-
-	if end == -1 {
-		end = len(cv.timelines)
-	}
-
-	return cv.timelines[start:end]
+		return start-cv.y >= gtx.Constraints.Max.Y
+	})
+	return start, end
 }
 
 func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*TimelineWidget) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	// OPT(dh): at least use binary search to find the range of timelines we need to draw. now that timeline heights
-	// aren't constant anymore, however, this is more complicated.
-	start := -1
-	end := -1
-	y := -cv.y
-
 	for _, tw := range cv.prevFrame.displayedTws {
 		tw.displayed = false
 	}
-	for i, tw := range cv.timelines {
-		// Don't draw timelines that would be fully hidden, but do draw partially hidden ones
-		twHeight := tw.Height(gtx)
-		if y < -twHeight {
-			y += twHeight
-			continue
-		}
-		if y > gtx.Constraints.Max.Y {
-			break
-		}
-		end = i
-		if start == -1 {
-			start = i
-		}
 
+	start, end := cv.visibleTimelines(gtx)
+
+	y := -cv.y
+	if start < len(cv.timelines) && start > 0 {
+		y = cv.timelineEnds[start-1] - cv.y
+	}
+
+	for i := start; i < end; i++ {
+		tw := cv.timelines[i]
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		topBorder := i > 0 && cv.timelines[i-1].hovered
 		tw.Layout(win, gtx, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
-		y += twHeight
+		y += tw.Height(gtx)
 
 		if tw.LabelClicked() {
 			if g, ok := tw.item.(*ptrace.Goroutine); ok {
@@ -1011,6 +1004,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 			}
 		}
 	}
+
 	for _, tw := range cv.prevFrame.displayedTws {
 		if !tw.displayed {
 			// The timeline was displayed last frame but wasn't this frame -> notify it that it is no longer visible so
@@ -1019,12 +1013,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		}
 	}
 
-	var out []*TimelineWidget
-	if start != -1 {
-		out = cv.timelines[start : end+1]
-	}
-
-	return layout.Dimensions{Size: gtx.Constraints.Max}, out
+	return layout.Dimensions{Size: gtx.Constraints.Max}, cv.timelines[start:end]
 }
 
 // setPointerPosition updates the canvas's pointer position. This is used by Axis to keep the canvas updated while the
