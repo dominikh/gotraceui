@@ -1323,11 +1323,24 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 							}{^uint64(0), -1, -1}
 							switch hitem := htw.item.(type) {
 							case *ptrace.Goroutine:
-								if cv.timeline.hoveredSpans.Size() == 0 {
+								switch cv.timeline.hoveredSpans.Size() {
+								case 0:
 									// A goroutine timeline is hovered, but no spans within are.
 									target.g = hitem.ID
-								} else {
-									// A (merged) span in a goroutine timeline is hovered. Highlight processor spans for
+								case 1:
+									switch cv.timeline.hoveredSpans.At(0).State {
+									case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
+										// A span in a goroutine timeline is hovered. Highlight processor spans for
+										// the same goroutine if they overlap with the highlighted span.
+										target.g = hitem.ID
+										target.start = cv.timeline.hoveredSpans.At(0).Start
+										target.end = cv.timeline.hoveredSpans.At(cv.timeline.hoveredSpans.Size() - 1).End
+									default:
+										// There's no point in looking for a non-runnable state, processor timelines
+										// only show running goroutines.
+									}
+								default:
+									// A merged span in a goroutine timeline is hovered. Highlight processor spans for
 									// the same goroutine if they overlap with the highlighted span.
 									target.g = hitem.ID
 									target.start = cv.timeline.hoveredSpans.At(0).Start
@@ -1350,6 +1363,10 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 								target.g = tr.Event(o.Event).G
 
 							default:
+								return false
+							}
+
+							if target.g == ^uint64(0) {
 								return false
 							}
 
