@@ -872,16 +872,16 @@ func (w *MainWindow) loadTraceImpl(t *Trace) {
 
 	if supportMachineTimelines {
 		for _, m := range t.Machines {
-			w.canvas.timelines = append(w.canvas.timelines, NewMachineWidget(&w.canvas, m))
+			w.canvas.timelines = append(w.canvas.timelines, NewMachineTimeline(&w.canvas, m))
 		}
 	}
 	for _, p := range t.Processors {
-		w.canvas.timelines = append(w.canvas.timelines, NewProcessorWidget(&w.canvas, p))
+		w.canvas.timelines = append(w.canvas.timelines, NewProcessorTimeline(&w.canvas, p))
 	}
 	for _, g := range t.Goroutines {
 		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute stack tracks. This causes the UI to
 		// freeze, because loadTraceImpl runs in the UI goroutine.
-		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineWidget(&w.canvas, g))
+		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineTimeline(&w.canvas, g))
 	}
 
 	// We no longer need this.

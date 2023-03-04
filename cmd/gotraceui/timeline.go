@@ -43,21 +43,23 @@ const (
 	TrackKindUserRegions
 )
 
-type TimelineWidget struct {
+type Timeline struct {
 	// Inputs
 	tracks            []Track
 	buildTrackWidgets func([]Track)
-
-	widgetTooltip   func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions
-	invalidateCache func(tw *TimelineWidget) bool
-	cv              *Canvas
-	item            any
-	labelClick      gesture.Click
-	label           string
-
-	// Set to true by the Layout method. This is used to track which timelines have been shown during a frame.
+	widgetTooltip     func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions
+	invalidateCache   func(tl *Timeline) bool
+	item              any
+	label             string
+	// Set to true by Timeline.Layout. This is used to track which timelines have been shown during a frame.
 	displayed bool
 
+	*TimelineWidget
+}
+
+type TimelineWidget struct {
+	cv          *Canvas
+	labelClick  gesture.Click
 	labelClicks int
 
 	pointerAt f32.Point
@@ -82,6 +84,13 @@ type TimelineWidget struct {
 		ops         reusableOps
 		call        op.CallOp
 	}
+}
+
+func (tw *TimelineWidget) Hovered() bool {
+	if tw == nil {
+		return false
+	}
+	return tw.hovered
 }
 
 type SpanTooltipState struct {
@@ -234,16 +243,16 @@ func (tw *TimelineWidget) LabelClicked() bool {
 	}
 }
 
-func (tw *TimelineWidget) Height(gtx layout.Context) int {
+func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
 	timelineGap := gtx.Dp(timelineGapDp)
 	enabledTracks := 0
-	for i := range tw.tracks {
-		track := &tw.tracks[i]
-		if track.kind != TrackKindStack || tw.cv.timeline.displayStackTracks {
+	for i := range tl.tracks {
+		track := &tl.tracks[i]
+		if track.kind != TrackKindStack || cv.timeline.displayStackTracks {
 			enabledTracks++
 		}
 	}
-	if tw.cv.timeline.compact {
+	if cv.timeline.compact {
 		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + timelineGap
 	} else {
 		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + gtx.Dp(timelineLabelHeightDp) + timelineGap
@@ -251,14 +260,21 @@ func (tw *TimelineWidget) Height(gtx layout.Context) int {
 }
 
 // notifyHidden informs the widget that it is no longer visible.
-func (tw *TimelineWidget) notifyHidden() {
-	for i := range tw.tracks {
-		tw.tracks[i].TrackWidget = nil
+func (tl *Timeline) notifyHidden() {
+	rtrace.Logf(context.Background(), "", "unloading track widget %q", tl.label)
+	for i := range tl.tracks {
+		tl.tracks[i].TrackWidget = nil
 	}
+	tl.TimelineWidget = nil
 }
 
-func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
+func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidget.Layout").End()
+
+	if tl.TimelineWidget == nil {
+		rtrace.Logf(context.Background(), "", "loading timeline widget %q", tl.label)
+		tl.TimelineWidget = &TimelineWidget{cv: cv}
+	}
 
 	// TODO(dh): we could replace all uses of timelineHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
@@ -266,28 +282,28 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 	// of the height. Making the change isn't currently worth it, though, because we still need TimelineWidget.Height to
 	// exist so we can compute the scrollbar, and so we can jump to goroutines, which needs to compute an offset. In
 	// both cases we don't want to lay out every widget to figure out its size.
-	timelineHeight := tw.Height(gtx)
+	timelineHeight := tl.Height(gtx, tl.cv)
 	timelineTrackGap := gtx.Dp(timelineTrackGapDp)
 	timelineLabelHeight := gtx.Dp(timelineLabelHeightDp)
 
-	tw.displayed = true
+	tl.displayed = true
 
-	tw.clickedSpans = NoSpan{}
-	tw.navigatedSpans = NoSpan{}
-	tw.hoveredSpans = NoSpan{}
+	tl.clickedSpans = NoSpan{}
+	tl.navigatedSpans = NoSpan{}
+	tl.hoveredSpans = NoSpan{}
 
 	var widgetClicked bool
 
-	for _, e := range gtx.Events(tw) {
+	for _, e := range gtx.Events(tl) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
 		case pointer.Enter, pointer.Move:
-			tw.hovered = true
-			tw.pointerAt = ev.Position
+			tl.hovered = true
+			tl.pointerAt = ev.Position
 		case pointer.Drag:
-			tw.pointerAt = ev.Position
+			tl.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
-			tw.hovered = false
+			tl.hovered = false
 		case pointer.Press:
 			// If any part of the widget has been clicked then don't reuse the cached macro; we have to figure out what
 			// was clicked and react to it.
@@ -298,77 +314,77 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 		}
 	}
 
-	tw.labelClicks = 0
+	tl.labelClicks = 0
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
-	for _, ev := range tw.labelClick.Events(gtx.Queue) {
+	for _, ev := range tl.labelClick.Events(gtx.Queue) {
 		if ev.Type == gesture.TypeClick {
 			if ev.Modifiers == 0 {
-				tw.labelClicks++
+				tl.labelClicks++
 			} else if ev.Modifiers == key.ModShortcut {
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
-				tw.navigatedSpans = tw.tracks[0].spans
+				tl.navigatedSpans = tl.tracks[0].spans
 			}
 		}
 	}
 
 	if !widgetClicked &&
-		tw.cv.unchanged() &&
-		!tw.hovered && !tw.prevFrame.hovered &&
-		forceLabel == tw.prevFrame.forceLabel &&
-		compact == tw.prevFrame.compact &&
-		(tw.invalidateCache == nil || !tw.invalidateCache(tw)) &&
-		topBorder == tw.prevFrame.topBorder &&
-		gtx.Constraints == tw.prevFrame.constraints {
+		tl.cv.unchanged() &&
+		!tl.hovered && !tl.prevFrame.hovered &&
+		forceLabel == tl.prevFrame.forceLabel &&
+		compact == tl.prevFrame.compact &&
+		(tl.invalidateCache == nil || !tl.invalidateCache(tl)) &&
+		topBorder == tl.prevFrame.topBorder &&
+		gtx.Constraints == tl.prevFrame.constraints {
 
 		// OPT(dh): instead of avoiding cached ops completely when the timeline is hovered, draw the tooltip
 		// separately.
-		tw.prevFrame.call.Add(gtx.Ops)
+		tl.prevFrame.call.Add(gtx.Ops)
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 	}
 
-	tw.prevFrame.hovered = tw.hovered
-	tw.prevFrame.forceLabel = forceLabel
-	tw.prevFrame.compact = compact
-	tw.prevFrame.topBorder = topBorder
-	tw.prevFrame.constraints = gtx.Constraints
+	tl.prevFrame.hovered = tl.hovered
+	tl.prevFrame.forceLabel = forceLabel
+	tl.prevFrame.compact = compact
+	tl.prevFrame.topBorder = topBorder
+	tl.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
-	gtx.Ops = tw.prevFrame.ops.get()
+	gtx.Ops = tl.prevFrame.ops.get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
 		call.Add(origOps)
-		tw.prevFrame.call = call
+		tl.prevFrame.call = call
 	}()
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: tw, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	pointer.InputOp{Tag: tl, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 
 	if !compact {
-		if tw.hovered || forceLabel || topBorder {
+		if tl.hovered || forceLabel || topBorder {
 			// Draw border at top of the timeline
 			paint.FillShape(gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
-		if tw.hovered || forceLabel {
+		if tl.hovered || forceLabel {
 			labelGtx := gtx
 			labelGtx.Constraints.Min = image.Point{}
-			labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tw.label)
+			labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
 
 			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &tw.label, Types: pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
-			tw.labelClick.Add(gtx.Ops)
+			pointer.InputOp{Tag: &tl.label, Types: pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
+			tl.labelClick.Add(gtx.Ops)
 			pointer.CursorPointer.Add(gtx.Ops)
 			stack.Pop()
 		}
 
-		if tw.widgetTooltip != nil && tw.cv.timeline.showTooltips == showTooltipsBoth && tw.labelClick.Hovered() {
+		if tl.widgetTooltip != nil && tl.cv.timeline.showTooltips == showTooltipsBoth && tl.labelClick.Hovered() {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-				return tw.widgetTooltip(win, gtx, tw)
+				return tl.widgetTooltip(win, gtx, tl)
 			})
 		}
 
@@ -376,34 +392,34 @@ func (tw *TimelineWidget) Layout(win *theme.Window, gtx layout.Context, forceLab
 	}
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
-	if len(tw.tracks) > 0 && tw.tracks[0].TrackWidget == nil {
+	if len(tl.tracks) > 0 && tl.tracks[0].TrackWidget == nil {
 		// If the first track doesn't have a widget then none of them do. Initialize them.
 		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
 		// timelines.
-		if tw.buildTrackWidgets != nil {
-			tw.buildTrackWidgets(tw.tracks)
+		if tl.buildTrackWidgets != nil {
+			tl.buildTrackWidgets(tl.tracks)
 		} else {
-			for i := range tw.tracks {
-				tw.tracks[i].TrackWidget = &TrackWidget{}
+			for i := range tl.tracks {
+				tl.tracks[i].TrackWidget = &TrackWidget{}
 			}
 		}
 	}
 
-	for i := range tw.tracks {
-		track := &tw.tracks[i]
-		if track.kind == TrackKindStack && !tw.cv.timeline.displayStackTracks {
+	for i := range tl.tracks {
+		track := &tl.tracks[i]
+		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, tw.cv, trackSpanLabels)
+		dims := track.Layout(win, gtx, tl.cv, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); spans.Size() != 0 {
-			tw.hoveredSpans = spans
+			tl.hoveredSpans = spans
 		}
 		if spans := track.NavigatedSpans(); spans.Size() != 0 {
-			tw.navigatedSpans = spans
+			tl.navigatedSpans = spans
 		}
 		if spans := track.ClickedSpans(); spans.Size() != 0 {
-			tw.clickedSpans = spans
+			tl.clickedSpans = spans
 		}
 	}
 	stack.Pop()
@@ -1058,17 +1074,16 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
 
-func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
+func NewMachineTimeline(cv *Canvas, m *ptrace.Machine) *Timeline {
 	if !supportMachineTimelines {
 		panic("NewMachineWidget was called despite supportmachineActivities == false")
 	}
 	tr := cv.trace
-	return &TimelineWidget{
+	return &Timeline{
 		tracks: []Track{
 			{spans: SliceToSpanSelector(m.Spans)},
 			{spans: SliceToSpanSelector(m.Goroutines)},
 		},
-		cv:    cv,
 		item:  m,
 		label: local.Sprintf("Machine %d", m.ID),
 
@@ -1079,9 +1094,9 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 				case 0:
 					track.TrackWidget = &TrackWidget{
 						highlightSpan: func(spanSel SpanSelector) bool {
-							if htw := cv.timeline.hoveredTimeline; htw != nil {
+							if htl := cv.timeline.hoveredTimeline; htl != nil {
 								var target int32
-								switch hitem := htw.item.(type) {
+								switch hitem := htl.item.(type) {
 								case *ptrace.Processor:
 									target = hitem.ID
 								case *ptrace.Machine:
@@ -1167,9 +1182,9 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 				case 1:
 					track.TrackWidget = &TrackWidget{
 						highlightSpan: func(spanSel SpanSelector) bool {
-							if htw := cv.timeline.hoveredTimeline; htw != nil {
+							if htl := cv.timeline.hoveredTimeline; htl != nil {
 								var target uint64
-								switch hitem := htw.item.(type) {
+								switch hitem := htl.item.(type) {
 								case *ptrace.Goroutine:
 									target = hitem.ID
 								case *ptrace.Processor:
@@ -1266,10 +1281,10 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 			}
 		},
 
-		widgetTooltip: func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions {
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return MachineTooltip{m, cv.trace}.Layout(win, gtx)
 		},
-		invalidateCache: func(tw *TimelineWidget) bool {
+		invalidateCache: func(tl *Timeline) bool {
 			if cv.prevFrame.hoveredTimeline != cv.timeline.hoveredTimeline {
 				return true
 			}
@@ -1303,9 +1318,9 @@ func NewMachineWidget(cv *Canvas, m *ptrace.Machine) *TimelineWidget {
 	}
 }
 
-func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
+func NewProcessorTimeline(cv *Canvas, p *ptrace.Processor) *Timeline {
 	tr := cv.trace
-	return &TimelineWidget{
+	return &Timeline{
 		tracks: []Track{{spans: SliceToSpanSelector(p.Spans)}},
 
 		buildTrackWidgets: func(tracks []Track) {
@@ -1313,12 +1328,12 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 				track := &tracks[i]
 				track.TrackWidget = &TrackWidget{
 					highlightSpan: func(spanSel SpanSelector) bool {
-						if htw := cv.timeline.hoveredTimeline; htw != nil {
+						if htl := cv.timeline.hoveredTimeline; htl != nil {
 							target := struct {
 								g          uint64
 								start, end trace.Timestamp
 							}{^uint64(0), -1, -1}
-							switch hitem := htw.item.(type) {
+							switch hitem := htl.item.(type) {
 							case *ptrace.Goroutine:
 								switch cv.timeline.hoveredSpans.Size() {
 								case 0:
@@ -1442,10 +1457,10 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 			}
 		},
 
-		widgetTooltip: func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions {
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return ProcessorTooltip{p, cv.trace}.Layout(win, gtx)
 		},
-		invalidateCache: func(tw *TimelineWidget) bool {
+		invalidateCache: func(tl *Timeline) bool {
 			if cv.prevFrame.hoveredTimeline != cv.timeline.hoveredTimeline {
 				return true
 			}
@@ -1476,7 +1491,6 @@ func NewProcessorWidget(cv *Canvas, p *ptrace.Processor) *TimelineWidget {
 
 			return false
 		},
-		cv:    cv,
 		item:  p,
 		label: local.Sprintf("Processor %d", p.ID),
 	}
@@ -1779,7 +1793,7 @@ var spanStateLabels = [...][]string{
 	ptrace.StateLast:                    nil,
 }
 
-func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
+func NewGoroutineTimeline(cv *Canvas, g *ptrace.Goroutine) *Timeline {
 	var l string
 	if g.Function.Fn != "" {
 		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
@@ -1787,7 +1801,7 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 		l = local.Sprintf("goroutine %d", g.ID)
 	}
 
-	tw := &TimelineWidget{
+	tl := &Timeline{
 		tracks: []Track{{
 			spans:  SliceToSpanSelector(g.Spans),
 			events: g.Events,
@@ -1912,21 +1926,20 @@ func NewGoroutineWidget(cv *Canvas, g *ptrace.Goroutine) *TimelineWidget {
 				}
 			}
 		},
-		widgetTooltip: func(win *theme.Window, gtx layout.Context, tw *TimelineWidget) layout.Dimensions {
+		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return GoroutineTooltip{g, cv.trace}.Layout(win, gtx)
 		},
-		cv:    cv,
 		item:  g,
 		label: l,
 	}
 
 	for _, ug := range g.UserRegions {
-		tw.tracks = append(tw.tracks, Track{spans: SliceToSpanSelector(ug), kind: TrackKindUserRegions})
+		tl.tracks = append(tl.tracks, Track{spans: SliceToSpanSelector(ug), kind: TrackKindUserRegions})
 	}
 
-	addStackTracks(tw, g, cv.trace)
+	addStackTracks(tl, g, cv.trace)
 
-	return tw
+	return tl
 }
 
 type stackSpanMeta struct {
@@ -1935,13 +1948,12 @@ type stackSpanMeta struct {
 	num int
 }
 
-func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
+func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	if g.Function.Fn == "runtime.bgsweep" {
 		// Go <=1.19 has a lot of spans in runtime.bgsweep, but the stacks are utterly uninteresting, containing only a
 		// single frame. Save some memory by not creating stack tracks for this goroutine.
 		return
 	}
-	cv := tw.cv
 
 	var stackTracks []Track
 	var trackSpans []ptrace.Spans
@@ -1993,8 +2005,8 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 			break
 		}
 
-		ev := &cv.trace.Events[evID]
-		stk := cv.trace.Stacks[ev.StkID]
+		ev := &tr.Events[evID]
+		stk := tr.Stacks[ev.StkID]
 		switch ev.Type {
 		case trace.EvGoUnblock:
 			// The stack is in the goroutine that unblocked this one
@@ -2009,10 +2021,10 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 			state = ptrace.StateCPUSample
 			// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
 			// collected by the runtime tracer.
-			if len(stk) > 0 && cv.trace.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
+			if len(stk) > 0 && tr.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
 				stk = stk[:len(stk)-1]
 			}
-			if len(stk) > 0 && cv.trace.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
+			if len(stk) > 0 && tr.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
 				stk = stk[:len(stk)-1]
 			}
 		}
@@ -2031,7 +2043,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 		spanMeta = grow(spanMeta, len(stk))
 		var end trace.Timestamp
 		if endEvID, _, ok := nextEvent(false); ok {
-			end = cv.trace.Events[endEvID].Ts
+			end = tr.Events[endEvID].Ts
 		} else {
 			end = g.Spans.End()
 		}
@@ -2041,8 +2053,8 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 			if len(spans) != 0 {
 				prevSpan := &spans[len(spans)-1]
 				prevFn := prevFns[i]
-				fn := cv.trace.PCs[stk[len(stk)-i-1]].Fn
-				if prevSpan.End == cv.trace.Events[evID].Ts && prevFn == fn && state == prevSpan.State {
+				fn := tr.PCs[stk[len(stk)-i-1]].Fn
+				if prevSpan.End == tr.Events[evID].Ts && prevFn == fn && state == prevSpan.State {
 					// This is a continuation of the previous span. Merging these can have massive memory usage savings,
 					// which is why we do it here and not during display.
 					//
@@ -2074,7 +2086,7 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 				}
 				trackSpans[i] = append(trackSpans[i], span)
 				spanMeta[i] = append(spanMeta[i], stackSpanMeta{pc: stk[len(stk)-i-1], num: 1})
-				prevFns[i] = cv.trace.PCs[stk[len(stk)-i-1]].Fn
+				prevFns[i] = tr.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
 	}
@@ -2087,22 +2099,20 @@ func addStackTracks(tw *TimelineWidget, g *ptrace.Goroutine, tr *Trace) {
 		}
 	}
 
-	tw.tracks = append(tw.tracks, stackTracks...)
+	tl.tracks = append(tl.tracks, stackTracks...)
 }
 
-func NewGCWidget(cv *Canvas, trace *Trace, spans ptrace.Spans) *TimelineWidget {
-	return &TimelineWidget{
+func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
+	return &Timeline{
 		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
-		cv:     cv,
 		item:   spans,
 		label:  "GC",
 	}
 }
 
-func NewSTWWidget(cv *Canvas, trace *Trace, spans ptrace.Spans) *TimelineWidget {
-	return &TimelineWidget{
+func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
+	return &Timeline{
 		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
-		cv:     cv,
 		item:   spans,
 		label:  "STW",
 	}

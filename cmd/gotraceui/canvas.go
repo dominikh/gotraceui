@@ -105,7 +105,7 @@ type Canvas struct {
 
 	locationHistory []LocationHistoryEntry
 	// All timelines. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
-	timelines []*TimelineWidget
+	timelines []*Timeline
 	scrollbar widget.Scrollbar
 	axis      Axis
 
@@ -143,7 +143,7 @@ type Canvas struct {
 		// Should GC overlays be shown?
 		showGCOverlays showGCOverlays
 
-		hoveredTimeline *TimelineWidget
+		hoveredTimeline *Timeline
 		hoveredSpans    SpanSelector
 		pointerAt       f32.Point
 	}
@@ -161,8 +161,8 @@ type Canvas struct {
 		nsPerPx            float32
 		compact            bool
 		displayStackTracks bool
-		displayedTws       []*TimelineWidget
-		hoveredTimeline    *TimelineWidget
+		displayedTls       []*Timeline
+		hoveredTimeline    *Timeline
 		hoveredSpans       SpanSelector
 	}
 
@@ -180,9 +180,9 @@ func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
 	cv.trace = t
 	cv.debugWindow = w.debugWindow
 
-	cv.timelines = make([]*TimelineWidget, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
-	cv.timelines[0] = NewGCWidget(cv, t, t.GC)
-	cv.timelines[1] = NewSTWWidget(cv, t, t.STW)
+	cv.timelines = make([]*Timeline, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
+	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
+	cv.timelines[1] = NewSTWTimeline(cv, t, t.STW)
 }
 
 func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
@@ -194,8 +194,8 @@ func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
 
 	cv.timelineEnds = slices.Grow(cv.timelineEnds[:0], len(cv.timelines))[:len(cv.timelines)]
 	accEnds := 0
-	for i, tw := range cv.timelines {
-		accEnds += tw.Height(gtx)
+	for i, tl := range cv.timelines {
+		accEnds += tl.Height(gtx, cv)
 		cv.timelineEnds[i] = accEnds
 	}
 }
@@ -437,8 +437,8 @@ func (cv *Canvas) pxToTs(px float32) trace.Timestamp {
 func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	var first, last trace.Timestamp = -1, -1
 	start, end := cv.visibleTimelines(gtx)
-	for _, tw := range cv.timelines[start:end] {
-		for _, track := range tw.tracks {
+	for _, tl := range cv.timelines[start:end] {
+		for _, track := range tl.tracks {
 			if track.spans.Size() == 0 || (track.kind == TrackKindStack && !cv.timeline.displayStackTracks) {
 				continue
 			}
@@ -461,12 +461,12 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
 	// OPT(dh): don't be O(n)
 	off := 0
-	for _, tw := range cv.timelines {
-		if act == tw.item {
+	for _, tl := range cv.timelines {
+		if act == tl.item {
 			// TODO(dh): show goroutine at center of window, not the top
 			return off
 		}
-		off += tw.Height(gtx)
+		off += tl.Height(gtx, cv)
 	}
 	panic("unreachable")
 }
@@ -499,8 +499,8 @@ func (cv *Canvas) height(gtx layout.Context) int {
 	}
 
 	var total int
-	for _, tw := range cv.timelines {
-		total += tw.Height(gtx)
+	for _, tl := range cv.timelines {
+		total += tl.Height(gtx, cv)
 	}
 	cv.cachedHeight = total
 	return total
@@ -765,17 +765,17 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		cv.timeline.hoveredSpans = NoSpan{}
 		cv.timeline.hoveredTimeline = nil
-		for _, tw := range cv.prevFrame.displayedTws {
-			if spanSel := tw.NavigatedSpans(); spanSel.Size() > 0 {
+		for _, tl := range cv.prevFrame.displayedTls {
+			if spanSel := tl.NavigatedSpans(); spanSel.Size() > 0 {
 				start := spanSel.At(0).Start
 				end := spanSel.At(spanSel.Size() - 1).End
 				cv.navigateTo(gtx, start, end, cv.y)
 				break
 			}
-			if spanSel := tw.ClickedSpans(); spanSel.Size() == 1 {
+			if spanSel := tl.ClickedSpans(); spanSel.Size() == 1 {
 				// XXX defer
 				var allEvents []ptrace.EventID
-				switch item := tw.item.(type) {
+				switch item := tl.item.(type) {
 				case *ptrace.Goroutine:
 					allEvents = item.Events
 				default:
@@ -792,10 +792,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				break
 			}
 		}
-		for _, tw := range cv.prevFrame.displayedTws {
-			if tw.hovered {
-				cv.timeline.hoveredTimeline = tw
-				if spanSel := tw.HoveredSpans(); spanSel.Size() > 0 {
+		for _, tl := range cv.prevFrame.displayedTls {
+			if tl.Hovered() {
+				cv.timeline.hoveredTimeline = tl
+				if spanSel := tl.HoveredSpans(); spanSel.Size() > 0 {
 					cv.timeline.hoveredSpans = spanSel
 				}
 				break
@@ -894,7 +894,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 								pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
 								dims, tws := cv.layoutTimelines(win, gtx)
-								cv.prevFrame.displayedTws = tws
+								cv.prevFrame.displayedTls = tws
 								return dims
 							}),
 
@@ -903,7 +903,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 								totalHeight := cv.height(gtx)
 								if len(cv.timelines) > 0 {
 									// Allow scrolling past the last goroutine
-									totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx)
+									totalHeight += cv.timelines[len(cv.timelines)-1].Height(gtx, cv)
 								}
 
 								fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
@@ -975,11 +975,11 @@ func (cv *Canvas) visibleTimelines(gtx layout.Context) (start, end int) {
 	return start, end
 }
 
-func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*TimelineWidget) {
+func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*Timeline) {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-	for _, tw := range cv.prevFrame.displayedTws {
-		tw.displayed = false
+	for _, tl := range cv.prevFrame.displayedTls {
+		tl.displayed = false
 	}
 
 	start, end := cv.visibleTimelines(gtx)
@@ -990,26 +990,26 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 	}
 
 	for i := start; i < end; i++ {
-		tw := cv.timelines[i]
+		tl := cv.timelines[i]
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		topBorder := i > 0 && cv.timelines[i-1].hovered
-		tw.Layout(win, gtx, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
+		topBorder := i > 0 && cv.timelines[i-1].Hovered()
+		tl.Layout(win, gtx, cv, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
-		y += tw.Height(gtx)
+		y += tl.Height(gtx, cv)
 
-		if tw.LabelClicked() {
-			if g, ok := tw.item.(*ptrace.Goroutine); ok {
+		if tl.LabelClicked() {
+			if g, ok := tl.item.(*ptrace.Goroutine); ok {
 				cv.clickedGoroutineTimelines = append(cv.clickedGoroutineTimelines, g)
 			}
 		}
 	}
 
-	for _, tw := range cv.prevFrame.displayedTws {
-		if !tw.displayed {
+	for _, tl := range cv.prevFrame.displayedTls {
+		if !tl.displayed {
 			// The timeline was displayed last frame but wasn't this frame -> notify it that it is no longer visible so
 			// that it can release temporary resources.
-			tw.notifyHidden()
+			tl.notifyHidden()
 		}
 	}
 
