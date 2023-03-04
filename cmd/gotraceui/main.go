@@ -86,13 +86,15 @@ import (
 const supportMachineTimelines = false
 
 var (
-	cpuprofile       string
-	memprofileLoad   string
-	memprofileExit   string
-	traceFile        string
-	disableCaching   bool
-	exitAfterLoading bool
-	exitAfterParsing bool
+	cpuprofile         string
+	memprofileLoad     string
+	memprofileExit     string
+	traceFile          string
+	disableCaching     bool
+	exitAfterLoading   bool
+	exitAfterParsing   bool
+	measureFrameAllocs bool
+	invalidateFrames   bool
 )
 
 var goFonts = gofont.Collection()
@@ -514,6 +516,10 @@ func (w *MainWindow) Run(win *app.Window) error {
 		Ratio: 0.70,
 	}
 
+	var prevAllocs uint64
+	var mem runtime.MemStats
+	var frameCounter uint64
+
 	for {
 		select {
 		case cmd := <-w.commands:
@@ -525,6 +531,15 @@ func (w *MainWindow) Run(win *app.Window) error {
 			case system.DestroyEvent:
 				return ev.Err
 			case system.FrameEvent:
+				if measureFrameAllocs {
+					frameCounter++
+					if frameCounter%60 == 0 {
+						runtime.ReadMemStats(&mem)
+						log.Printf("%10.2f bytes/frame", float64(mem.TotalAlloc-prevAllocs)/float64(60))
+						prevAllocs = mem.TotalAlloc
+					}
+				}
+
 				tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 					gtx.Constraints.Min = image.Point{}
@@ -757,6 +772,9 @@ func (w *MainWindow) Run(win *app.Window) error {
 					}
 				})
 
+				if invalidateFrames {
+					op.InvalidateOp{}.Add(&ops)
+				}
 				ev.Frame(&ops)
 			}
 		}
@@ -1001,6 +1019,8 @@ func main() {
 	flag.BoolVar(&disableCaching, "debug.disable-caching", false, "Disable caching")
 	flag.BoolVar(&exitAfterLoading, "debug.exit-after-loading", false, "Exit after parsing and processing trace")
 	flag.BoolVar(&exitAfterParsing, "debug.exit-after-parsing", false, "Exit after parsing trace")
+	flag.BoolVar(&measureFrameAllocs, "debug.measure-frame-allocs", false, "Measure the number of allocations per frame")
+	flag.BoolVar(&invalidateFrames, "debug.invalidate-frames", false, "Invalidate frame after drawing it")
 	flag.Parse()
 
 	if len(flag.Args()) != 1 {
