@@ -1532,16 +1532,29 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		args = append(args, tt.g.ID)
 	}
 
-	fmts = append(fmts, "Created at: %s")
-	args = append(args, formatTimestamp(start))
-
-	if tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone {
-		fmts = append(fmts, "Returned at: %s")
-		args = append(args, formatTimestamp(end))
+	observedStart := tt.g.Spans[0].State == ptrace.StateCreated
+	observedEnd := tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone
+	if observedStart {
+		fmts = append(fmts, "Created at: %s")
+		args = append(args, formatTimestamp(start))
+	} else {
+		fmts = append(fmts, "Created at: before trace start")
 	}
 
-	fmts = append(fmts, "Lifetime: %s")
-	args = append(args, roundDuration(d))
+	if observedEnd {
+		fmts = append(fmts, "Returned at: %s")
+		args = append(args, formatTimestamp(end))
+	} else {
+		fmts = append(fmts, "Returned at: after trace end")
+	}
+
+	if observedStart && observedEnd {
+		fmts = append(fmts, "Lifetime: %s")
+		args = append(args, roundDuration(d))
+	} else {
+		fmts = append(fmts, "Observed duration: %s")
+		args = append(args, roundDuration(d))
+	}
 
 	fmts = append(fmts, "Spans: %d")
 	args = append(args, len(tt.g.Spans))

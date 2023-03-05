@@ -11,7 +11,6 @@ import (
 
 	mylayout "honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	mywidget "honnef.co/go/gotraceui/widget"
 
@@ -31,8 +30,6 @@ type GoroutineStats struct {
 	stats ptrace.Statistics
 	// mapping maps from indices of displayed statistics to indices in the stats field
 	mapping []int
-
-	start, end trace.Timestamp
 
 	sortCol        int
 	sortDescending bool
@@ -101,6 +98,12 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 
 		gi.foldables.stacktrace.Value = true
 
+		start := gi.Goroutine.Spans.Start()
+		end := gi.Goroutine.Spans.End()
+		d := time.Duration(end - start)
+		observedStart := gi.Goroutine.Spans[0].State == ptrace.StateCreated
+		observedEnd := gi.Goroutine.Spans[len(gi.Goroutine.Spans)-1].State == ptrace.StateDone
+
 		gi.description.Reset(win.Theme)
 		gi.description.Bold("Goroutine: ")
 		gi.description.Span(local.Sprintf("%d\n", gi.Goroutine.ID))
@@ -108,20 +111,41 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		gi.description.Bold("Function: ")
 		gi.description.Span(fmt.Sprintf("%s\n", gi.Goroutine.Function.Fn))
 
-		gi.description.Bold("Created at: ")
-		gi.description.Link(
-			fmt.Sprintf("%s\n", formatTimestamp(gi.stats.start)),
-			&TimestampLink{gi.stats.start},
-		)
+		if observedStart {
+			gi.description.Bold("Created at: ")
+			gi.description.Link(
+				fmt.Sprintf("%s\n", formatTimestamp(start)),
+				&TimestampLink{start},
+			)
+		} else {
+			gi.description.Bold("Created at: ")
+			gi.description.Link(
+				"before trace start\n",
+				&TimestampLink{start},
+			)
+		}
 
-		gi.description.Bold("Returned at: ")
-		gi.description.Link(
-			fmt.Sprintf("%s\n", formatTimestamp(gi.stats.end)),
-			&TimestampLink{gi.stats.end},
-		)
+		if observedEnd {
+			gi.description.Bold("Returned at: ")
+			gi.description.Link(
+				fmt.Sprintf("%s\n", formatTimestamp(end)),
+				&TimestampLink{end},
+			)
+		} else {
+			gi.description.Bold("Returned at: ")
+			gi.description.Link(
+				"After trace end\n",
+				&TimestampLink{end},
+			)
+		}
 
-		gi.description.Bold("Lifetime: ")
-		gi.description.Span(time.Duration(gi.stats.end - gi.stats.start).String())
+		if observedStart && observedEnd {
+			gi.description.Bold("Lifetime: ")
+			gi.description.Span(d.String())
+		} else {
+			gi.description.Bold("Observed duration: ")
+			gi.description.Span(d.String())
+		}
 	}
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
@@ -306,9 +330,6 @@ func NewGoroutineStats(g *ptrace.Goroutine) *GoroutineStats {
 	}
 
 	gst.sort()
-
-	gst.start = g.Spans.Start()
-	gst.end = g.Spans.End()
 
 	return gst
 }
