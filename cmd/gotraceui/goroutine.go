@@ -201,6 +201,12 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if gi.Goroutine.Spans[0].State != ptrace.StateCreated {
+				// The goroutine existed before the start of the trace and we do not have the stack trace of where it
+				// was created.
+				return layout.Dimensions{}
+			}
+
 			// TODO(dh): stack traces can get quite long, making it even more important that this window
 			// gets scrollbars
 			return theme.List(win.Theme, &gi.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
