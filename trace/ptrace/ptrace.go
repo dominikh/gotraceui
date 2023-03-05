@@ -932,6 +932,29 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		t.SeqID = i
 	}
 
+evLoop:
+	for _, ev := range tr.Events {
+		switch ev.Type {
+		case trace.EvGoCreate:
+			// This goroutine already existed at the beginning of the trace. Merge the first two spans, of which the
+			// first span is a GoCreate span that's not true, as the goroutine had already existed.
+			g := getG(ev.Args[0])
+			if len(g.Spans) > 1 {
+				if g.Spans[0].State != StateCreated {
+					panic(fmt.Sprintf("unexpected state %v", g.Spans[0].State))
+				}
+				// We set the second span's start time to 0, instead of the first span's start time, because the
+				// timestamp of the GoCreate event for existing goroutines doesn't matter, it's only non-zero because
+				// the tracer can't emit the state for all existing goroutines at once.
+				g.Spans[1].Start = 0
+				g.Spans = g.Spans[1:]
+			}
+		case trace.EvProcStart, trace.EvHeapAlloc, trace.EvGomaxprocs:
+			// These are the events we know to occur at the end of the STW phase of starting a trace.
+			break evLoop
+		}
+	}
+
 	computeGoroutineStatistics(tr.Goroutines)
 
 	return tr, nil
