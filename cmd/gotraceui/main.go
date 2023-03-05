@@ -516,7 +516,8 @@ func (w *MainWindow) Run(win *app.Window) error {
 		Ratio: 0.70,
 	}
 
-	var prevAllocs uint64
+	var prevTotalAlloc uint64
+	var prevMallocs uint64
 	var mem runtime.MemStats
 	var frameCounter uint64
 
@@ -535,8 +536,12 @@ func (w *MainWindow) Run(win *app.Window) error {
 					frameCounter++
 					if frameCounter%60 == 0 {
 						runtime.ReadMemStats(&mem)
-						log.Printf("%10.2f bytes/frame", float64(mem.TotalAlloc-prevAllocs)/float64(60))
-						prevAllocs = mem.TotalAlloc
+						log.Printf("%10.2f bytes/frame; %10.2f allocs/frame",
+							float64(mem.TotalAlloc-prevTotalAlloc)/float64(60),
+							float64(mem.Mallocs-prevMallocs)/float64(60),
+						)
+						prevTotalAlloc = mem.TotalAlloc
+						prevMallocs = mem.Mallocs
 					}
 				}
 
