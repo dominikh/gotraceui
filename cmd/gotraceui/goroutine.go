@@ -207,8 +207,6 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				return layout.Dimensions{}
 			}
 
-			// TODO(dh): stack traces can get quite long, making it even more important that this window
-			// gets scrollbars
 			return theme.List(win.Theme, &gi.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 				if index != 0 {
 					panic("impossible")

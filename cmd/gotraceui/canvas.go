@@ -1251,8 +1251,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		stack.Pop()
 
 		originLabelExtents = image.Rectangle{
-			Min: labelStart,
-			Max: labelStart.Add(image.Pt(dims.Size.X, 0)),
+			Min: image.Pt(labelStart.X, 0),
+			Max: image.Pt(labelStart.X+dims.Size.X, dims.Size.Y),
 		}
 	}
 
@@ -1275,7 +1275,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	pointer.InputOp{Tag: axis, Grab: true, Types: pointer.Press | pointer.Drag}.Add(gtx.Ops)
 
 	labelHeight := originLabelExtents.Max.Y
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight)+labelHeight)}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight+0.5)+labelHeight)}
 }
 
 type SpanModal struct {
