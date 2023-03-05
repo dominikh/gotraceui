@@ -1511,10 +1511,11 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	end := tt.g.Spans.End()
 	d := time.Duration(end - start)
 
-	blocked := tt.g.Statistics.Blocked()
-	inactive := tt.g.Statistics.Inactive()
-	gcAssist := tt.g.Statistics.GCAssist()
-	running := tt.g.Statistics.Running()
+	stats := tt.g.Statistics()
+	blocked := stats.Blocked()
+	inactive := stats.Inactive()
+	gcAssist := stats.GCAssist()
+	running := stats.Running()
 	blockedPct := float32(blocked) / float32(d) * 100
 	inactivePct := float32(inactive) / float32(d) * 100
 	gcAssistPct := float32(gcAssist) / float32(d) * 100

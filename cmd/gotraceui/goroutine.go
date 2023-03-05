@@ -28,7 +28,7 @@ import (
 )
 
 type GoroutineStats struct {
-	stats *ptrace.Statistics
+	stats ptrace.Statistics
 	// mapping maps from indices of displayed statistics to indices in the stats field
 	mapping []int
 
@@ -291,7 +291,7 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 }
 
 func NewGoroutineStats(g *ptrace.Goroutine) *GoroutineStats {
-	gst := &GoroutineStats{stats: &g.Statistics}
+	gst := &GoroutineStats{stats: g.Statistics()}
 
 	gst.mapping = make([]int, 0, len(gst.stats))
 
@@ -440,22 +440,22 @@ func (gs *GoroutineStats) sort() {
 		}
 	case 1:
 		// Count
-		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) int { return gs.Count })
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) int { return gs.Count })
 	case 2:
 		// Total
-		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Total })
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Total })
 	case 3:
 		// Min
-		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Min })
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Min })
 	case 4:
 		// Max
-		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Max })
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Max })
 	case 5:
 		// Avg
-		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Average })
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Average })
 	case 6:
 		// p50
-		sortStats(gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Median })
+		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Median })
 	default:
 		panic("unreachable")
 	}

@@ -147,7 +147,9 @@ type Goroutine struct {
 	UserRegions []Spans
 	Events      []EventID
 
-	Statistics Statistics
+	// Most goroutines are small enough that we can compute statistics on demand. For the rest, we compute them when
+	// parsing the trace and cache them here.
+	cachedStatistics *Statistics
 }
 
 type Machine struct {
@@ -207,48 +209,74 @@ type Span struct {
 type EventID int32
 
 func computeGoroutineStatistics(gs []*Goroutine) {
-	var values [StateLast][]time.Duration
+	// Compute cached statistics for large goroutines. We've measured an average of 168ns per span on an AMD 3950x. We
+	// round that up to 400ns and set a target of 5ms to calculate statistics. By that calculation, goroutines with more
+	// than 12500 spans need to have cached statistics.
+
 	for _, g := range gs {
-		for i := range values {
-			values[i] = values[i][:0]
+		if len(g.Spans) < 12500 {
+			continue
 		}
 
-		for i := range g.Spans {
-			s := &g.Spans[i]
-			stat := &g.Statistics[s.State]
-			stat.Count++
-			d := s.Duration()
-			if d > stat.Max {
-				stat.Max = d
-			}
-			if d < stat.Min || stat.Min == 0 {
-				stat.Min = d
-			}
-			stat.Total += d
-			values[s.State] = append(values[s.State], d)
+		stats := g.Statistics()
+		g.cachedStatistics = &stats
+	}
+}
+
+func (g *Goroutine) Statistics() Statistics {
+	// XXX only compute statistics for goroutines where it'd be too slow to do just in time. on this system we need
+	// about 168ns per span. let's round that up to 400ns and go for a 5ms target. this would mean any goroutine with
+	// >=12500 spans is too big.
+
+	if g.cachedStatistics != nil {
+		return *g.cachedStatistics
+	}
+
+	var values [StateLast][]time.Duration
+
+	var stats Statistics
+
+	for i := range values {
+		values[i] = values[i][:0]
+	}
+
+	for i := range g.Spans {
+		s := &g.Spans[i]
+		stat := &stats[s.State]
+		stat.Count++
+		d := s.Duration()
+		if d > stat.Max {
+			stat.Max = d
+		}
+		if d < stat.Min || stat.Min == 0 {
+			stat.Min = d
+		}
+		stat.Total += d
+		values[s.State] = append(values[s.State], d)
+	}
+
+	for state := range stats {
+		stat := &stats[state]
+
+		if len(values[state]) == 0 {
+			continue
 		}
 
-		for state := range g.Statistics {
-			stat := &g.Statistics[state]
+		stat.Average = float64(stat.Total) / float64(len(values[state]))
 
-			if len(values[state]) == 0 {
-				continue
-			}
+		sort.Slice(values[state], func(i, j int) bool {
+			return values[state][i] < values[state][j]
+		})
 
-			stat.Average = float64(stat.Total) / float64(len(values[state]))
-
-			sort.Slice(values[state], func(i, j int) bool {
-				return values[state][i] < values[state][j]
-			})
-
-			if len(values[state])%2 == 0 {
-				mid := len(values[state]) / 2
-				stat.Median = float64(values[state][mid]+values[state][mid-1]) / 2
-			} else {
-				stat.Median = float64(values[state][len(values[state])/2])
-			}
+		if len(values[state])%2 == 0 {
+			mid := len(values[state]) / 2
+			stat.Median = float64(values[state][mid]+values[state][mid-1]) / 2
+		} else {
+			stat.Median = float64(values[state][len(values[state])/2])
 		}
 	}
+
+	return stats
 }
 
 func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
