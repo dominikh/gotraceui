@@ -1132,7 +1132,11 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
 	for _, p := range pt.Processors {
 		for i := range p.Spans {
-			switch pt.G(pt.Events[p.Spans[i].Event].G).Function.Fn {
+			fn := pt.G(pt.Events[p.Spans[i].Event].G).Function
+			if fn == nil {
+				continue
+			}
+			switch fn.Fn {
 			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
 				p.Spans[i].Tags |= ptrace.SpanTagGC
 			}
