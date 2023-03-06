@@ -1077,11 +1077,10 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
 
-func NewMachineTimeline(cv *Canvas, m *ptrace.Machine) *Timeline {
+func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	if !supportMachineTimelines {
 		panic("NewMachineWidget was called despite supportmachineActivities == false")
 	}
-	tr := cv.trace
 	return &Timeline{
 		tracks: []Track{
 			{spans: SliceToSpanSelector(m.Spans)},
@@ -1321,8 +1320,7 @@ func NewMachineTimeline(cv *Canvas, m *ptrace.Machine) *Timeline {
 	}
 }
 
-func NewProcessorTimeline(cv *Canvas, p *ptrace.Processor) *Timeline {
-	tr := cv.trace
+func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
 	return &Timeline{
 		tracks: []Track{{spans: SliceToSpanSelector(p.Spans)}},
 
@@ -1810,7 +1808,7 @@ var spanStateLabels = [...][]string{
 	ptrace.StateLast:                    nil,
 }
 
-func NewGoroutineTimeline(cv *Canvas, g *ptrace.Goroutine) *Timeline {
+func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline {
 	var l string
 	if g.Function.Fn != "" {
 		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
@@ -1954,7 +1952,7 @@ func NewGoroutineTimeline(cv *Canvas, g *ptrace.Goroutine) *Timeline {
 		tl.tracks = append(tl.tracks, Track{spans: SliceToSpanSelector(ug), kind: TrackKindUserRegions})
 	}
 
-	addStackTracks(tl, g, cv.trace)
+	addStackTracks(tl, g, tr)
 
 	return tl
 }

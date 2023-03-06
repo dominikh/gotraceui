@@ -354,9 +354,9 @@ func (mwin *MainWindow) SetProgressLossy(p float64) {
 	}
 }
 
-func (mwin *MainWindow) LoadTrace(tr *Trace) {
+func (mwin *MainWindow) LoadTrace(res loadTraceResult) {
 	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
-		mwin.loadTraceImpl(tr)
+		mwin.loadTraceImpl(res)
 		mwin.setState("main")
 	}
 }
@@ -786,151 +786,13 @@ func (w *MainWindow) Run(win *app.Window) error {
 	}
 }
 
-func (w *MainWindow) loadTraceImpl(t *Trace) {
-	var end trace.Timestamp
-	for _, g := range t.Goroutines {
-		if d := g.Spans.End(); d > end {
-			end = d
-		}
-	}
-	for _, p := range t.Processors {
-		if d := p.Spans.End(); d > end {
-			end = d
-		}
-	}
-
-	if len(t.Goroutines) > 0 {
-		t.allGoroutineSpanLabels = make([][]string, len(t.Goroutines))
-		t.allGoroutineFilterLabels = make([][]string, len(t.Goroutines))
-
-		for seqID, g := range t.Goroutines {
-			// Populate goroutine span labels
-			localPrefixedID := local.Sprintf("g%d", g.ID)
-			localUnprefixedID := localPrefixedID[1:]
-			fmtPrefixedID := fmt.Sprintf("g%d", g.ID)
-			fmtUnprefixedID := fmtPrefixedID[1:]
-
-			var spanLabels []string
-			if g.Function.Fn != "" {
-				short := shortenFunctionName(g.Function.Fn)
-				spanLabels = append(spanLabels, localPrefixedID+": "+g.Function.Fn)
-				if short != g.Function.Fn {
-					spanLabels = append(spanLabels, localPrefixedID+": ."+short)
-					spanLabels = append(spanLabels, localPrefixedID)
-				} else {
-					// This branch is probably impossible; all functions should be fully qualified.
-					spanLabels = append(spanLabels, localPrefixedID)
-				}
-			} else {
-				spanLabels = append(spanLabels, localPrefixedID)
-			}
-			t.allGoroutineSpanLabels[seqID] = spanLabels
-
-			// Populate goroutine filter filterLabels
-			filterLabels := []string{
-				fmtUnprefixedID,
-				localUnprefixedID,
-				fmtPrefixedID,
-				localPrefixedID,
-				g.Function.Fn,
-				strings.ToLower(g.Function.Fn),
-				"goroutine", // allow queries like "goroutine 1234" to work
-			}
-			t.allGoroutineFilterLabels[g.SeqID] = filterLabels
-		}
-	}
-	if len(t.Processors) > 0 {
-		t.allProcessorSpanLabels = make([][]string, len(t.Processors))
-		t.allProcessorFilterLabels = make([][]string, len(t.Processors))
-
-		for seqID, p := range t.Processors {
-			localPrefixedID := local.Sprintf("p%d", p.ID)
-			localUnprefixedID := localPrefixedID[1:]
-			fmtPrefixedID := fmt.Sprintf("p%d", p.ID)
-			fmtUnprefixedID := fmtPrefixedID[1:]
-
-			t.allProcessorSpanLabels[seqID] = append(t.allProcessorSpanLabels[seqID], localPrefixedID)
-
-			filterLabels := []string{
-				fmtUnprefixedID,
-				localUnprefixedID,
-				fmtPrefixedID,
-				localPrefixedID,
-				"processor", // allow queries like "processor 1234" to work
-			}
-			t.allProcessorFilterLabels[p.SeqID] = filterLabels
-		}
-
-		// XXX do filter labels, too
-	}
-
-	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
-	// entire trace.
-	slack := float64(end) * 0.05
-	start := trace.Timestamp(-slack)
-	end = trace.Timestamp(float64(end) + slack)
-
-	mg := Plot{
-		Name: "Memory usage",
-		Unit: "bytes",
-	}
-	mg.AddSeries(
-		PlotSeries{
-			Name:   "Heap size",
-			Points: t.HeapSize,
-			Filled: true,
-			Color:  rgba(0x7EB072FF),
-		},
-		PlotSeries{
-			Name:   "Heap goal",
-			Points: t.HeapGoal,
-			Filled: false,
-			Color:  colors[colorStateBlockedGC],
-		},
-	)
-
-	NewCanvasInto(&w.canvas, w, t)
-	w.canvas.start = start
-	w.canvas.end = end
-	w.canvas.memoryGraph = mg
-
-	if supportMachineTimelines {
-		for _, m := range t.Machines {
-			w.canvas.timelines = append(w.canvas.timelines, NewMachineTimeline(&w.canvas, m))
-		}
-	}
-	for _, p := range t.Processors {
-		w.canvas.timelines = append(w.canvas.timelines, NewProcessorTimeline(&w.canvas, p))
-	}
-	for _, g := range t.Goroutines {
-		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute stack tracks. This causes the UI to
-		// freeze, because loadTraceImpl runs in the UI goroutine.
-		w.canvas.timelines = append(w.canvas.timelines, NewGoroutineTimeline(&w.canvas, g))
-	}
-
-	// We no longer need this.
-	t.CPUSamples = nil
-
-	w.trace = t
-
-	// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
-	// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
-	// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
-	// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
-	// produces a modest amount of garbage.
-	//
-	// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
-	// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
-	// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
-	//
-	// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
-	// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
-	// former would be a bug, and the former would ultimately lead to bad performance, anyway.
-	runtime.GC()
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
-	rdebug.SetMemoryLimit(limit)
+func (w *MainWindow) loadTraceImpl(res loadTraceResult) {
+	NewCanvasInto(&w.canvas, w, res.trace)
+	w.canvas.start = res.start
+	w.canvas.end = res.end
+	w.canvas.memoryGraph = res.plot
+	w.canvas.timelines = res.timelines
+	w.trace = res.trace
 }
 
 type durationNumberFormat uint8
@@ -1050,7 +912,7 @@ func main() {
 			return
 		}
 		defer f.Close()
-		t, err := loadTrace(f, mwin)
+		res, err := loadTrace(f, mwin)
 		if memprofileLoad != "" {
 			writeMemprofile(memprofileLoad)
 		}
@@ -1066,7 +928,7 @@ func main() {
 			mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
 			return
 		}
-		mwin.LoadTrace(t)
+		mwin.LoadTrace(res)
 	}()
 	go func() {
 		win := app.NewWindow(app.Title("gotraceui"))
@@ -1110,23 +972,30 @@ func main() {
 	app.Main()
 }
 
-func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
+type loadTraceResult struct {
+	trace      *Trace
+	plot       Plot
+	start, end trace.Timestamp
+	timelines  []*Timeline
+}
+
+func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 	p := func(p float64) {
-		progresser.SetProgressLossy(p / 2)
+		mwin.SetProgressLossy(p / 2)
 	}
 	t, err := trace.Parse(f, p)
 	if err != nil {
-		return nil, err
+		return loadTraceResult{}, err
 	}
 	if exitAfterParsing {
-		return nil, errExitAfterParsing
+		return loadTraceResult{}, errExitAfterParsing
 	}
 	p = func(p float64) {
-		progresser.SetProgressLossy(0.5 + p/2)
+		mwin.SetProgressLossy(0.5 + p/2)
 	}
 	pt, err := ptrace.Parse(t, p)
 	if err != nil {
-		return nil, err
+		return loadTraceResult{}, err
 	}
 
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
@@ -1143,7 +1012,154 @@ func loadTrace(f io.Reader, progresser setProgresser) (*Trace, error) {
 		}
 	}
 
-	return &Trace{Trace: pt}, nil
+	tr := &Trace{Trace: pt}
+
+	if len(tr.Goroutines) > 0 {
+		tr.allGoroutineSpanLabels = make([][]string, len(tr.Goroutines))
+		tr.allGoroutineFilterLabels = make([][]string, len(tr.Goroutines))
+
+		for seqID, g := range tr.Goroutines {
+			// Populate goroutine span labels
+			localPrefixedID := local.Sprintf("g%d", g.ID)
+			localUnprefixedID := localPrefixedID[1:]
+			fmtPrefixedID := fmt.Sprintf("g%d", g.ID)
+			fmtUnprefixedID := fmtPrefixedID[1:]
+
+			var spanLabels []string
+			if g.Function.Fn != "" {
+				short := shortenFunctionName(g.Function.Fn)
+				spanLabels = append(spanLabels, localPrefixedID+": "+g.Function.Fn)
+				if short != g.Function.Fn {
+					spanLabels = append(spanLabels, localPrefixedID+": ."+short)
+					spanLabels = append(spanLabels, localPrefixedID)
+				} else {
+					// This branch is probably impossible; all functions should be fully qualified.
+					spanLabels = append(spanLabels, localPrefixedID)
+				}
+			} else {
+				spanLabels = append(spanLabels, localPrefixedID)
+			}
+			tr.allGoroutineSpanLabels[seqID] = spanLabels
+
+			// Populate goroutine filter filterLabels
+			filterLabels := []string{
+				fmtUnprefixedID,
+				localUnprefixedID,
+				fmtPrefixedID,
+				localPrefixedID,
+				g.Function.Fn,
+				strings.ToLower(g.Function.Fn),
+				"goroutine", // allow queries like "goroutine 1234" to work
+			}
+			tr.allGoroutineFilterLabels[g.SeqID] = filterLabels
+		}
+	}
+
+	if len(tr.Processors) > 0 {
+		tr.allProcessorSpanLabels = make([][]string, len(tr.Processors))
+		tr.allProcessorFilterLabels = make([][]string, len(tr.Processors))
+
+		for seqID, p := range tr.Processors {
+			localPrefixedID := local.Sprintf("p%d", p.ID)
+			localUnprefixedID := localPrefixedID[1:]
+			fmtPrefixedID := fmt.Sprintf("p%d", p.ID)
+			fmtUnprefixedID := fmtPrefixedID[1:]
+
+			tr.allProcessorSpanLabels[seqID] = append(tr.allProcessorSpanLabels[seqID], localPrefixedID)
+
+			filterLabels := []string{
+				fmtUnprefixedID,
+				localUnprefixedID,
+				fmtPrefixedID,
+				localPrefixedID,
+				"processor", // allow queries like "processor 1234" to work
+			}
+			tr.allProcessorFilterLabels[p.SeqID] = filterLabels
+		}
+	}
+
+	var end trace.Timestamp
+	for _, g := range tr.Goroutines {
+		if d := g.Spans.End(); d > end {
+			end = d
+		}
+	}
+	for _, p := range tr.Processors {
+		if d := p.Spans.End(); d > end {
+			end = d
+		}
+	}
+
+	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
+	// entire trace.
+	slack := float64(end) * 0.05
+	start := trace.Timestamp(-slack)
+	end = trace.Timestamp(float64(end) + slack)
+
+	mg := Plot{
+		Name: "Memory usage",
+		Unit: "bytes",
+	}
+	mg.AddSeries(
+		PlotSeries{
+			Name:   "Heap size",
+			Points: tr.HeapSize,
+			Filled: true,
+			Color:  rgba(0x7EB072FF),
+		},
+		PlotSeries{
+			Name:   "Heap goal",
+			Points: tr.HeapGoal,
+			Filled: false,
+			Color:  colors[colorStateBlockedGC],
+		},
+	)
+
+	// TODO(dh): preallocate
+	var timelines []*Timeline
+	if supportMachineTimelines {
+		for _, m := range tr.Machines {
+			timelines = append(timelines, NewMachineTimeline(tr, &mwin.canvas, m))
+		}
+	}
+	for _, p := range tr.Processors {
+		timelines = append(timelines, NewProcessorTimeline(tr, &mwin.canvas, p))
+	}
+	for _, g := range tr.Goroutines {
+		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute stack tracks. This causes the UI to
+		// freeze, because loadTraceImpl runs in the UI goroutine.
+		timelines = append(timelines, NewGoroutineTimeline(tr, &mwin.canvas, g))
+	}
+
+	// We no longer need this.
+	tr.CPUSamples = nil
+
+	// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
+	// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
+	// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
+	// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
+	// produces a modest amount of garbage.
+	//
+	// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
+	// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
+	// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
+	//
+	// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
+	// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
+	// former would be a bug, and the former would ultimately lead to bad performance, anyway.
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
+	rdebug.SetMemoryLimit(limit)
+
+	return loadTraceResult{
+		trace:     tr,
+		plot:      mg,
+		start:     start,
+		end:       end,
+		timelines: timelines,
+	}, nil
 }
 
 const allocatorBucketSize = 64
