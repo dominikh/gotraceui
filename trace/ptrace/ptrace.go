@@ -80,7 +80,10 @@ type Trace struct {
 	// Mapping from Goroutine ID to list of CPU sample events
 	CPUSamples map[uint64][]EventID
 
-	gsByID        map[uint64]*Goroutine
+	gsByID map[uint64]*Goroutine
+	// psByID and msById will be unset after parsing finishes
+	psByID        map[int32]*Processor
+	msByID        map[int32]*Machine
 	HasCPUSamples bool
 
 	trace.Trace
@@ -208,18 +211,22 @@ type Span struct {
 
 type EventID int32
 
-func computeGoroutineStatistics(gs []*Goroutine) {
+func computeGoroutineStatistics(gs []*Goroutine, progress func(float64)) {
 	// Compute cached statistics for large goroutines. We've measured an average of 168ns per span on an AMD 3950x. We
 	// round that up to 400ns and set a target of 5ms to calculate statistics. By that calculation, goroutines with more
 	// than 12500 spans need to have cached statistics.
 
-	for _, g := range gs {
+	for i, g := range gs {
+		if (i+1)%10_000 == 0 {
+			progress(float64(i) / float64(len(gs)))
+		}
 		if len(g.Spans) < 12500 {
 			continue
 		}
 
 		stats := g.Statistics()
 		g.cachedStatistics = &stats
+		progress(float64(i+1) / float64(len(gs)))
 	}
 }
 
@@ -284,9 +291,36 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		Trace:      res,
 		Functions:  map[string]*Function{},
 		gsByID:     map[uint64]*Goroutine{},
+		psByID:     map[int32]*Processor{},
+		msByID:     map[int32]*Machine{},
 		CPUSamples: map[uint64][]EventID{},
 	}
 
+	makeProgresser := func(stage int, numStages int) func(float64) {
+		return func(p float64) {
+			if p > 1 {
+				panic(p)
+			}
+			progress(float64(stage-1)/float64(numStages) + (p / float64(numStages)))
+		}
+	}
+
+	if err := processEvents(res, tr, makeProgresser(1, 5)); err != nil {
+		return nil, err
+	}
+
+	populateObjects(tr, makeProgresser(2, 5))
+	postProcessSpans(tr, makeProgresser(3, 5))
+	removeBogusCreatedSpans(tr)
+	computeGoroutineStatistics(tr.Goroutines, makeProgresser(5, 5))
+
+	tr.psByID = nil
+	tr.msByID = nil
+
+	return tr, nil
+}
+
+func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 	var evTypeToState = [...]SchedulingState{
 		trace.EvGoBlockSend:   StateBlockedSend,
 		trace.EvGoBlockRecv:   StateBlockedRecv,
@@ -307,9 +341,8 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		tr.gsByID[gid] = g
 		return g
 	}
-	psByID := map[int32]*Processor{}
 	getP := func(pid int32) *Processor {
-		p, ok := psByID[pid]
+		p, ok := tr.psByID[pid]
 		if ok {
 			return p
 		}
@@ -317,20 +350,19 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			ID: pid,
 			// spanLabels: []string{local.Sprintf("p%d", pid)},
 		}
-		psByID[pid] = p
+		tr.psByID[pid] = p
 		return p
 	}
-	msByID := map[int32]*Machine{}
 	getM := func(mid int32) *Machine {
 		if !supportMachineTimelines {
 			panic("getM was called despite supportmachineActivities == false")
 		}
-		m, ok := msByID[mid]
+		m, ok := tr.msByID[mid]
 		if ok {
 			return m
 		}
 		m = &Machine{ID: mid}
-		msByID[mid] = m
+		tr.msByID[mid] = m
 		return m
 	}
 
@@ -406,7 +438,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 	userRegionDepths := map[uint64]int{}
 	for evID := range res.Events {
 		ev := &res.Events[evID]
-		if evID%10000 == 0 {
+		if (evID+1)%10_000 == 0 {
 			progress(float64(evID) / float64(len(res.Events)))
 		}
 		var gid uint64
@@ -572,7 +604,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 						// XXX guard against malformed traces
 						pspan := &m.Spans[len(m.Spans)-2]
 						if pspan.State != StateBlockedSyscall {
-							return nil, errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
+							return errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
 						}
 						pspan.End = span.Start
 					default:
@@ -743,7 +775,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			continue
 
 		default:
-			return nil, fmt.Errorf("unsupported trace event %d", ev.Type)
+			return fmt.Errorf("unsupported trace event %d", ev.Type)
 		}
 
 		if debug {
@@ -788,19 +820,17 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 				mid := lastMPerP[p.ID]
 				m := getM(mid)
 				if len(m.Goroutines) == 0 {
-					return nil, fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
+					return fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
 				}
 				m.Goroutines[len(m.Goroutines)-1].End = ev.Ts
 			}
 		}
 	}
 
-	for _, f := range tr.Functions {
-		slices.SortFunc(f.Goroutines, func(a, b *Goroutine) bool {
-			return a.SeqID < b.SeqID
-		})
-	}
+	return nil
+}
 
+func postProcessSpans(tr *Trace, progress func(float64)) {
 	var wg sync.WaitGroup
 	doG := func(g *Goroutine) {
 		for i, s := range g.Spans {
@@ -808,11 +838,11 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 				s.End = g.Spans[i+1].Start
 			}
 
-			stack := res.Stacks[res.Events[s.Event].StkID]
-			s = applyPatterns(s, res.PCs, stack)
+			stack := tr.Stacks[tr.Events[s.Event].StkID]
+			s = applyPatterns(s, tr.PCs, stack)
 
 			// move s.At out of the runtime
-			for int(s.At+1) < len(stack) && s.At < 255 && strings.HasPrefix(res.PCs[stack[s.At]].Fn, "runtime.") {
+			for int(s.At+1) < len(stack) && s.At < 255 && strings.HasPrefix(tr.PCs[stack[s.At]].Fn, "runtime.") {
 				s.At++
 			}
 
@@ -826,7 +856,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 				s := &g.Spans[len(g.Spans)-1]
 				s.End = s.Start
 			} else {
-				g.Spans[len(g.Spans)-1].End = res.Events[len(res.Events)-1].Ts
+				g.Spans[len(g.Spans)-1].End = tr.Events[len(tr.Events)-1].Ts
 			}
 		}
 
@@ -853,19 +883,13 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		}
 	}
 
-	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
-	tr.Goroutines = make([]*Goroutine, 0, len(tr.gsByID))
-	for _, g := range tr.gsByID {
-		if len(g.Spans) != 0 {
-			// OPT(dh): preallocate gs
-			tr.Goroutines = append(tr.Goroutines, g)
-		}
-	}
-
 	step := len(tr.Goroutines) / runtime.GOMAXPROCS(0)
 	if step == 0 {
 		step = 1
 	}
+
+	var progressMu sync.Mutex
+	var progressValue int
 	for off := 0; off < len(tr.Goroutines); off += step {
 		wg.Add(1)
 		end := off + step
@@ -875,70 +899,29 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		slice := tr.Goroutines[off:end]
 		go func() {
 			defer wg.Done()
-			for _, g := range slice {
+			for i, g := range slice {
 				doG(g)
+				if (i+1)%1000 == 0 {
+					progressValue += 1000
+					progressMu.Lock()
+					progress(float64(progressValue) / float64(len(tr.Goroutines)))
+					progressMu.Unlock()
+				}
 			}
 		}()
 	}
 
 	wg.Wait()
+}
 
-	sort.Slice(tr.Goroutines, func(i, j int) bool {
-		return tr.Goroutines[i].ID < tr.Goroutines[j].ID
-	})
-
-	for i, g := range tr.Goroutines {
-		g.SeqID = i
-	}
-
-	for _, p := range psByID {
-		// OPT(dh): preallocate ps
-		tr.Processors = append(tr.Processors, p)
-	}
-
-	sort.Slice(tr.Processors, func(i, j int) bool {
-		return tr.Processors[i].ID < tr.Processors[j].ID
-	})
-
-	for i, p := range tr.Processors {
-		p.SeqID = i
-	}
-
-	if supportMachineTimelines {
-		for _, m := range msByID {
-			// OPT(dh): preallocate ms
-			tr.Machines = append(tr.Machines, m)
-			if len(m.Spans) > 0 {
-				if last := &m.Spans[len(m.Spans)-1]; last.End == -1 {
-					last.End = res.Events[len(res.Events)-1].Ts
-				}
-			}
-		}
-
-		sort.Slice(tr.Machines, func(i, j int) bool {
-			return tr.Machines[i].ID < tr.Machines[j].ID
-		})
-
-		for i, m := range tr.Machines {
-			m.SeqID = i
-		}
-	}
-
-	slices.SortFunc(tr.Tasks, func(a, b *Task) bool {
-		return a.ID < b.ID
-	})
-
-	for i, t := range tr.Tasks {
-		t.SeqID = i
-	}
-
+func removeBogusCreatedSpans(tr *Trace) {
 evLoop:
 	for _, ev := range tr.Events {
 		switch ev.Type {
 		case trace.EvGoCreate:
 			// This goroutine already existed at the beginning of the trace. Merge the first two spans, of which the
 			// first span is a GoCreate span that's not true, as the goroutine had already existed.
-			g := getG(ev.Args[0])
+			g := tr.G(ev.Args[0])
 			if len(g.Spans) > 1 {
 				if g.Spans[0].State != StateCreated {
 					panic(fmt.Sprintf("unexpected state %v", g.Spans[0].State))
@@ -954,10 +937,57 @@ evLoop:
 			break evLoop
 		}
 	}
+}
 
-	computeGoroutineStatistics(tr.Goroutines)
+func populateObjects(tr *Trace, progress func(float64)) {
+	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
+	tr.Goroutines = make([]*Goroutine, 0, len(tr.gsByID))
+	for _, g := range tr.gsByID {
+		if len(g.Spans) != 0 {
+			tr.Goroutines = append(tr.Goroutines, g)
+		}
+	}
+	progress(1.0 / 5.0)
 
-	return tr, nil
+	for _, p := range tr.psByID {
+		// OPT(dh): preallocate ps
+		tr.Processors = append(tr.Processors, p)
+	}
+	progress(2.0 / 5.0)
+
+	for _, m := range tr.msByID {
+		// OPT(dh): preallocate ms
+		tr.Machines = append(tr.Machines, m)
+		if len(m.Spans) > 0 {
+			if last := &m.Spans[len(m.Spans)-1]; last.End == -1 {
+				last.End = tr.Events[len(tr.Events)-1].Ts
+			}
+		}
+	}
+	progress(3.0 / 5.0)
+
+	sort.Slice(tr.Goroutines, func(i, j int) bool { return tr.Goroutines[i].ID < tr.Goroutines[j].ID })
+	sort.Slice(tr.Processors, func(i, j int) bool { return tr.Processors[i].ID < tr.Processors[j].ID })
+	sort.Slice(tr.Machines, func(i, j int) bool { return tr.Machines[i].ID < tr.Machines[j].ID })
+	sort.Slice(tr.Tasks, func(i, j int) bool { return tr.Tasks[i].ID < tr.Tasks[j].ID })
+	for _, f := range tr.Functions {
+		slices.SortFunc(f.Goroutines, func(a, b *Goroutine) bool { return a.SeqID < b.SeqID })
+	}
+	progress(4.0 / 5.0)
+
+	for i, g := range tr.Goroutines {
+		g.SeqID = i
+	}
+	for i, p := range tr.Processors {
+		p.SeqID = i
+	}
+	for i, m := range tr.Machines {
+		m.SeqID = i
+	}
+	for i, t := range tr.Tasks {
+		t.SeqID = i
+	}
+	progress(1)
 }
 
 func (t *Trace) function(frame trace.Frame) *Function {

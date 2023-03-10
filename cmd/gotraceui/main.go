@@ -217,10 +217,12 @@ type MainWindow struct {
 
 	win *app.Window
 	// TODO(dh): use enum for state
-	state    string
-	progress float64
-	ww       *theme.ListWindow
-	err      error
+	state          string
+	progress       float64
+	progressStage  int
+	progressStages []string
+	ww             *theme.ListWindow
+	err            error
 
 	debugWindow *DebugWindow
 }
@@ -341,6 +343,19 @@ func (mwin *MainWindow) SetError(err error) {
 func (mwin *MainWindow) SetProgress(p float64) {
 	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.progress = p
+	}
+}
+
+func (mwin *MainWindow) SetProgressStages(names []string) {
+	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+		mwin.progressStages = names
+	}
+}
+
+func (mwin *MainWindow) SetProgressStage(idx int) {
+	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+		mwin.progressStage = idx
+		mwin.progress = 0
 	}
 }
 
@@ -611,21 +626,44 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 					case "loadingTrace":
 						paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
-						m := op.Record(gtx.Ops)
-						dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, "Loading trace...")
-						op.Offset(image.Pt(0, dims.Size.Y)).Add(gtx.Ops)
 
-						func() {
-							gtx := gtx
-							gtx.Constraints.Min = image.Pt(dims.Size.X, 15)
-							gtx.Constraints.Max = gtx.Constraints.Min
-							theme.ProgressBar(w.theme, float32(w.progress)).Layout(gtx)
-						}()
+						// OPT(dh): cache this computation
+						var maxNameWidth int
+						for _, name := range w.progressStages {
+							m := op.Record(gtx.Ops)
+							dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, name)
+							if dims.Size.X > maxNameWidth {
+								maxNameWidth = dims.Size.X
+							}
+							m.Stop()
+						}
+						maxLabelWidth := maxNameWidth
+						{
+							m := op.Record(gtx.Ops)
+							dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(w.progressStages), len(w.progressStages)))
+							maxLabelWidth += dims.Size.X
+							m.Stop()
+						}
 
-						call := m.Stop()
-						op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
-						call.Add(gtx.Ops)
-						return layout.Dimensions{Size: gtx.Constraints.Max}
+						gtx.Constraints.Min = gtx.Constraints.Max
+						return layout.Center.Layout(gtx,
+							func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+										name := w.progressStages[w.progressStage]
+										gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
+										gtx.Constraints.Max.X = gtx.Constraints.Min.X
+										pct := fmt.Sprintf("%5.2f%%", w.progress*100)
+										// Replace space with figure space for correct alignment
+										pct = strings.ReplaceAll(pct, " ", "\u2007")
+										return widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, w.progressStage+1, len(w.progressStages), name))
+									}),
+									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+										gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
+										gtx.Constraints.Max = gtx.Constraints.Min
+										return theme.ProgressBar(w.theme, float32(w.progress)).Layout(gtx)
+									}))
+							})
 
 					case "main":
 						for _, ev := range gtx.Events(&shortcuts) {
@@ -928,8 +966,28 @@ func main() {
 			mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
 			return
 		}
+
+		// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
+		// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
+		// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
+		// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
+		// produces a modest amount of garbage.
+		//
+		// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
+		// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
+		// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
+		//
+		// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
+		// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
+		// former would be a bug, and the former would ultimately lead to bad performance, anyway.
+		runtime.GC()
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
+		rdebug.SetMemoryLimit(limit)
 		mwin.LoadTrace(res)
 	}()
+
 	go func() {
 		win := app.NewWindow(app.Title("gotraceui"))
 		errs <- mwin.Run(win)
@@ -980,45 +1038,57 @@ type loadTraceResult struct {
 }
 
 func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
-	p := func(p float64) {
-		mwin.SetProgressLossy(p / 2)
+	names := []string{
+		"Parsing trace",
+		"Parsing trace",
+		"Processing",
+		"Processing",
+		"Processing",
+		"Processing",
+		"Processing",
+		"Processing",
 	}
-	t, err := trace.Parse(f, p)
+
+	mwin.SetProgressStages(names)
+
+	mwin.SetProgressStage(0)
+	t, err := trace.Parse(f, mwin.SetProgressLossy)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
 	if exitAfterParsing {
 		return loadTraceResult{}, errExitAfterParsing
 	}
-	p = func(p float64) {
-		mwin.SetProgressLossy(0.5 + p/2)
-	}
-	pt, err := ptrace.Parse(t, p)
+
+	mwin.SetProgressStage(1)
+	pt, err := ptrace.Parse(t, mwin.SetProgressLossy)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
 
+	mwin.SetProgressStage(2)
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
-	for _, p := range pt.Processors {
-		for i := range p.Spans {
-			fn := pt.G(pt.Events[p.Spans[i].Event].G).Function
+	for i, proc := range pt.Processors {
+		for j := range proc.Spans {
+			fn := pt.G(pt.Events[proc.Spans[j].Event].G).Function
 			if fn == nil {
 				continue
 			}
 			switch fn.Fn {
 			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
-				p.Spans[i].Tags |= ptrace.SpanTagGC
+				proc.Spans[j].Tags |= ptrace.SpanTagGC
 			}
 		}
+		mwin.SetProgressLossy(float64(i+1) / float64(len(pt.Processors)))
 	}
 
+	mwin.SetProgressStage(3)
 	tr := &Trace{Trace: pt}
+	if len(pt.Goroutines) != 0 {
+		tr.allGoroutineSpanLabels = make([][]string, len(pt.Goroutines))
+		tr.allGoroutineFilterLabels = make([][]string, len(pt.Goroutines))
 
-	if len(tr.Goroutines) > 0 {
-		tr.allGoroutineSpanLabels = make([][]string, len(tr.Goroutines))
-		tr.allGoroutineFilterLabels = make([][]string, len(tr.Goroutines))
-
-		for seqID, g := range tr.Goroutines {
+		for seqID, g := range pt.Goroutines {
 			// Populate goroutine span labels
 			localPrefixedID := local.Sprintf("g%d", g.ID)
 			localUnprefixedID := localPrefixedID[1:]
@@ -1052,17 +1122,19 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 				"goroutine", // allow queries like "goroutine 1234" to work
 			}
 			tr.allGoroutineFilterLabels[g.SeqID] = filterLabels
+			mwin.SetProgressLossy(float64(seqID+1) / float64(len(pt.Goroutines)))
 		}
 	}
 
-	if len(tr.Processors) > 0 {
-		tr.allProcessorSpanLabels = make([][]string, len(tr.Processors))
-		tr.allProcessorFilterLabels = make([][]string, len(tr.Processors))
+	mwin.SetProgressStage(4)
+	if len(pt.Processors) != 0 {
+		tr.allProcessorSpanLabels = make([][]string, len(pt.Processors))
+		tr.allProcessorFilterLabels = make([][]string, len(pt.Processors))
 
-		for seqID, p := range tr.Processors {
-			localPrefixedID := local.Sprintf("p%d", p.ID)
+		for seqID, proc := range pt.Processors {
+			localPrefixedID := local.Sprintf("p%d", proc.ID)
 			localUnprefixedID := localPrefixedID[1:]
-			fmtPrefixedID := fmt.Sprintf("p%d", p.ID)
+			fmtPrefixedID := fmt.Sprintf("p%d", proc.ID)
 			fmtUnprefixedID := fmtPrefixedID[1:]
 
 			tr.allProcessorSpanLabels[seqID] = append(tr.allProcessorSpanLabels[seqID], localPrefixedID)
@@ -1074,9 +1146,36 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 				localPrefixedID,
 				"processor", // allow queries like "processor 1234" to work
 			}
-			tr.allProcessorFilterLabels[p.SeqID] = filterLabels
+			tr.allProcessorFilterLabels[proc.SeqID] = filterLabels
+			mwin.SetProgressLossy(float64(seqID+1) / float64(len(pt.Processors)))
 		}
 	}
+
+	// TODO(dh): preallocate
+	var timelines []*Timeline
+
+	mwin.SetProgressStage(5)
+	if supportMachineTimelines {
+		for i, m := range tr.Machines {
+			timelines = append(timelines, NewMachineTimeline(tr, &mwin.canvas, m))
+			mwin.SetProgressLossy(float64(i+1) / float64(len(tr.Machines)))
+		}
+	}
+
+	mwin.SetProgressStage(6)
+	for i, proc := range tr.Processors {
+		timelines = append(timelines, NewProcessorTimeline(tr, &mwin.canvas, proc))
+		mwin.SetProgressLossy(float64(i+1) / float64(len(tr.Processors)))
+	}
+
+	mwin.SetProgressStage(7)
+	for i, g := range tr.Goroutines {
+		timelines = append(timelines, NewGoroutineTimeline(tr, &mwin.canvas, g))
+		mwin.SetProgressLossy(float64(i+1) / float64(len(tr.Goroutines)))
+	}
+
+	// We no longer need this.
+	tr.CPUSamples = nil
 
 	var end trace.Timestamp
 	for _, g := range tr.Goroutines {
@@ -1103,55 +1202,17 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 	mg.AddSeries(
 		PlotSeries{
 			Name:   "Heap size",
-			Points: tr.HeapSize,
+			Points: pt.HeapSize,
 			Filled: true,
 			Color:  rgba(0x7EB072FF),
 		},
 		PlotSeries{
 			Name:   "Heap goal",
-			Points: tr.HeapGoal,
+			Points: pt.HeapGoal,
 			Filled: false,
 			Color:  colors[colorStateBlockedGC],
 		},
 	)
-
-	// TODO(dh): preallocate
-	var timelines []*Timeline
-	if supportMachineTimelines {
-		for _, m := range tr.Machines {
-			timelines = append(timelines, NewMachineTimeline(tr, &mwin.canvas, m))
-		}
-	}
-	for _, p := range tr.Processors {
-		timelines = append(timelines, NewProcessorTimeline(tr, &mwin.canvas, p))
-	}
-	for _, g := range tr.Goroutines {
-		// FIXME(dh): NewGoroutineWidget is expensive, because it has to compute stack tracks. This causes the UI to
-		// freeze, because loadTraceImpl runs in the UI goroutine.
-		timelines = append(timelines, NewGoroutineTimeline(tr, &mwin.canvas, g))
-	}
-
-	// We no longer need this.
-	tr.CPUSamples = nil
-
-	// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
-	// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
-	// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
-	// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
-	// produces a modest amount of garbage.
-	//
-	// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
-	// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
-	// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
-	//
-	// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
-	// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
-	// former would be a bug, and the former would ultimately lead to bad performance, anyway.
-	runtime.GC()
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
-	rdebug.SetMemoryLimit(limit)
 
 	return loadTraceResult{
 		trace:     tr,

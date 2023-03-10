@@ -210,11 +210,16 @@ func (p *Parser) parse() (int, Trace, error) {
 
 	p.ver = ver
 
-	if err := p.indexAndPartiallyParse(); err != nil {
+	if p.progress == nil {
+		p.progress = func(p float64) {}
+	}
+	progress := func(r float64) { p.progress((1.0 / 3.0) * r) }
+	if err := p.indexAndPartiallyParse(progress); err != nil {
 		return 0, Trace{}, err
 	}
 
-	events, err := p.parseRest()
+	progress = func(r float64) { p.progress(1.0/3.0 + (1.0/3.0)*r) }
+	events, err := p.parseRest(progress)
 	if err != nil {
 		return 0, Trace{}, err
 	}
@@ -238,7 +243,8 @@ func (p *Parser) parse() (int, Trace, error) {
 		}
 	}
 
-	if err := p.postProcessTrace(events); err != nil {
+	progress = func(r float64) { p.progress(2.0/3.0 + (1.0/3.0)*r) }
+	if err := p.postProcessTrace(events, progress); err != nil {
 		return 0, Trace{}, err
 	}
 
@@ -296,7 +302,7 @@ type proc struct {
 // event with the lowest timestamp from the subset, merge it and repeat.
 // This approach ensures that we form a consistent stream even if timestamps are
 // incorrect (condition observed on some machines).
-func (p *Parser) parseRest() ([]Event, error) {
+func (p *Parser) parseRest(progress func(float64)) ([]Event, error) {
 	// The ordering of CPU profile sample events in the data stream is based on
 	// when each run of the signal handler was able to acquire the spinlock,
 	// with original timestamps corresponding to when ReadTrace pulled the data
@@ -336,8 +342,8 @@ func (p *Parser) parseRest() ([]Event, error) {
 		availableProcs[i] = &allProcs[i]
 	}
 	for {
-		if p.progress != nil && len(events)%100_000 == 0 {
-			p.progress(0.5 + 0.5*(float64(len(events))/float64(cap(events))))
+		if progress != nil && len(events)%100_000 == 0 {
+			progress((float64(len(events)+1) / float64(cap(events))))
 		}
 	pidLoop:
 		for i := 0; i < len(availableProcs); i++ {
@@ -456,12 +462,12 @@ func (p *Parser) parseRest() ([]Event, error) {
 }
 
 // indexAndPartiallyParse records the offsets of batches and parses strings and CPU samples.
-func (p *Parser) indexAndPartiallyParse() error {
+func (p *Parser) indexAndPartiallyParse(progress func(float64)) error {
 	// Read events.
 	var raw rawEvent
 	for n := uint64(0); ; n++ {
-		if p.progress != nil && n%1_000_000 == 0 {
-			p.progress(0.5 * (float64(p.off) / float64(len(p.data))))
+		if n%1_000_000 == 0 {
+			progress((float64(p.off+1) / float64(len(p.data))))
 		}
 		err := p.readRawEvent(skipArgs|skipStrings|trackBatches, &raw)
 		if err == io.EOF {
@@ -511,9 +517,7 @@ func (p *Parser) indexAndPartiallyParse() error {
 		}
 	}
 
-	if p.progress != nil {
-		p.progress(0.5)
-	}
+	progress(1)
 
 	return nil
 }
@@ -965,7 +969,7 @@ var ErrTimeOrder = errors.New("time stamps out of order")
 // The resulting trace is guaranteed to be consistent
 // (for example, a P does not run two Gs at the same time, or a G is indeed
 // blocked before an unblock event).
-func (p *Parser) postProcessTrace(events []Event) error {
+func (p *Parser) postProcessTrace(events []Event, progress func(float64)) error {
 	const (
 		gDead = iota
 		gRunnable
@@ -1298,7 +1302,13 @@ func (p *Parser) postProcessTrace(events []Event) error {
 
 			ev.StkID = 0
 		}
+
+		if evIdx%1_000_000 == 0 {
+			progress(float64(evIdx+1) / float64(len(events)))
+		}
 	}
+
+	progress(1)
 
 	// TODO(dvyukov): restore stacks for EvGoStart events.
 	// TODO(dvyukov): test that all EvGoStart events has non-nil Link.
