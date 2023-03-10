@@ -829,7 +829,7 @@ func (w *MainWindow) loadTraceImpl(res loadTraceResult) {
 	w.canvas.start = res.start
 	w.canvas.end = res.end
 	w.canvas.memoryGraph = res.plot
-	w.canvas.timelines = res.timelines
+	w.canvas.timelines = append(w.canvas.timelines, res.timelines...)
 	w.trace = res.trace
 }
 
