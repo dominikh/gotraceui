@@ -646,8 +646,8 @@ func (w *MainWindow) Run(win *app.Window) error {
 						}
 
 						gtx.Constraints.Min = gtx.Constraints.Max
-						return layout.Center.Layout(gtx,
-							func(gtx layout.Context) layout.Dimensions {
+						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return theme.Dialog(win.Theme, "Opening trace").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										name := w.progressStages[w.progressStage]
@@ -656,6 +656,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 										pct := fmt.Sprintf("%5.2f%%", w.progress*100)
 										// Replace space with figure space for correct alignment
 										pct = strings.ReplaceAll(pct, " ", "\u2007")
+										paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
 										return widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, w.progressStage+1, len(w.progressStages), name))
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -664,6 +665,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 										return theme.ProgressBar(w.theme, float32(w.progress)).Layout(gtx)
 									}))
 							})
+						})
 
 					case "main":
 						for _, ev := range gtx.Events(&shortcuts) {
