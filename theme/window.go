@@ -118,7 +118,19 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		// FIXME(dh): don't render context menu out of bounds
 		win.modal.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			defer op.Offset(win.modal.at.Round()).Push(gtx.Ops).Pop()
-			return win.modal.w(win, gtx)
+
+			m := op.Record(gtx.Ops)
+			dims := win.modal.w(win, gtx)
+			call := m.Stop()
+
+			// win.modal.w might not register pointer input ops for all of the space it occupies. We don't want clicking
+			// on those areas to close the model, so register our own input op covering the whole area. win.modal.w
+			// still has precedence for the areas that it does register input ops for.
+			defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
+			pointer.InputOp{Tag: &gtx, Types: 0xFF}.Add(gtx.Ops)
+
+			call.Add(gtx.Ops)
+			return dims
 		})
 	}
 }
