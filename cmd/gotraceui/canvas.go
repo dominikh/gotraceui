@@ -1286,25 +1286,23 @@ type SpanModal struct {
 }
 
 func (sm *SpanModal) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(1000, 0)).X
-	// TODO draw border
+	return theme.Dialog(win.Theme, "Span").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(1000, 0)).X
+		gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(gtx.Constraints.Max.X, 300))
 
-	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(gtx.Constraints.Max.X, 300))
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, rgba(0xDDDDDDFF))
+		if sm.Events == nil {
+			sm.Events = &Events{
+				Trace:  sm.Trace,
+				Events: sm.Span.Events(sm.AllEvents, sm.Trace.Trace),
+			}
 
-	if sm.Events == nil {
-		sm.Events = &Events{
-			Trace:  sm.Trace,
-			Events: sm.Span.Events(sm.AllEvents, sm.Trace.Trace),
+			sm.Events.Filter.ShowGoCreate.Value = true
+			sm.Events.Filter.ShowGoUnblock.Value = true
+			sm.Events.Filter.ShowGoSysCall.Value = true
+			sm.Events.Filter.ShowUserLog.Value = true
+			sm.Events.UpdateFilter()
 		}
 
-		sm.Events.Filter.ShowGoCreate.Value = true
-		sm.Events.Filter.ShowGoUnblock.Value = true
-		sm.Events.Filter.ShowGoSysCall.Value = true
-		sm.Events.Filter.ShowUserLog.Value = true
-		sm.Events.UpdateFilter()
-	}
-
-	return sm.Events.Layout(win, gtx)
+		return sm.Events.Layout(win, gtx)
+	})
 }
