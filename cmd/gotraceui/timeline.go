@@ -1790,22 +1790,30 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 }
 
 var spanStateLabels = [...][]string{
-	ptrace.StateGCDedicated:             {"GC (dedicated)", "D"},
+	ptrace.StateInactive: {"Inactive"},
+	// StateActive isn't needed, those spans have custom labels
+	ptrace.StateActive:                  {},
 	ptrace.StateGCIdle:                  {"GC (idle)", "I"},
-	ptrace.StateBlockedCond:             {"sync.Cond"},
-	ptrace.StateBlockedGC:               {"GC assist wait", "W"},
-	ptrace.StateBlockedNet:              {"I/O"},
+	ptrace.StateGCDedicated:             {"GC (dedicated)", "D"},
+	ptrace.StateBlocked:                 {"blocked"},
+	ptrace.StateBlockedSend:             {"send"},
 	ptrace.StateBlockedRecv:             {"recv"},
 	ptrace.StateBlockedSelect:           {"select"},
-	ptrace.StateBlockedSend:             {"send"},
 	ptrace.StateBlockedSync:             {"sync"},
 	ptrace.StateBlockedSyncOnce:         {"sync.Once"},
 	ptrace.StateBlockedSyncTriggeringGC: {"triggering GC", "T"},
+	ptrace.StateBlockedCond:             {"sync.Cond"},
+	ptrace.StateBlockedNet:              {"I/O"},
+	ptrace.StateBlockedGC:               {"GC assist wait", "W"},
 	ptrace.StateBlockedSyscall:          {"syscall"},
-	ptrace.StateGCMarkAssist:            {"GC mark assist", "M"},
-	ptrace.StateGCSweep:                 {"GC sweep", "S"},
 	ptrace.StateStuck:                   {"stuck"},
-	ptrace.StateLast:                    nil,
+	ptrace.StateReady:                   {"ready"},
+	ptrace.StateCreated:                 {"created"},
+	// StateDone spans will never be big enough to contain labels
+	ptrace.StateDone:         {},
+	ptrace.StateGCMarkAssist: {"GC mark assist", "M"},
+	ptrace.StateGCSweep:      {"GC sweep", "S"},
+	ptrace.StateLast:         nil,
 }
 
 func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline {
