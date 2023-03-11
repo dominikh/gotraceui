@@ -794,10 +794,6 @@ func (w *MainWindow) Run(win *app.Window) error {
 							}
 						}
 
-						if cpuprofile != "" {
-							op.InvalidateOp{}.Add(&ops)
-						}
-
 						w.debugWindow.cvStart.addValue(gtx.Now, float64(w.canvas.start))
 						w.debugWindow.cvEnd.addValue(gtx.Now, float64(w.canvas.end))
 						w.debugWindow.cvY.addValue(gtx.Now, float64(w.canvas.y))
