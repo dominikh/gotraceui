@@ -174,6 +174,8 @@ type Canvas struct {
 }
 
 func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
+	*cv = Canvas{}
+
 	cv.resizeMemoryTimelines.Axis = layout.Vertical
 	cv.resizeMemoryTimelines.Ratio = 0.1
 	cv.timeline.displayAllLabels = true
