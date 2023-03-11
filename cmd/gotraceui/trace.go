@@ -51,7 +51,3 @@ func (t *Trace) processorFilterLabels(p *ptrace.Processor) []string {
 func (t *Trace) Reason(s ptrace.Span) reason {
 	return reasonByEventType[t.Events[s.Event].Type]
 }
-
-// MergedSpans and Spans have the same functionality. The two different types are used to make APIs easier to read, to
-// be able to tell apart functions that operate on multiple spans as if they were individual items and functions that
-// treat them as one unit, because they get merged during rendering.
