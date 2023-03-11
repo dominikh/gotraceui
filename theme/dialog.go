@@ -62,6 +62,12 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	wDims = w(win, wGtx)
 	wCall = m.Stop()
 
+	if labelDims.Size.X > wDims.Size.X {
+		wDims.Size.X = labelDims.Size.X
+	} else if wDims.Size.X > labelDims.Size.X {
+		labelDims.Size.X = wDims.Size.X
+	}
+
 	return widget.Border{Width: ds.BorderWidth, Color: ds.BorderColor}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.UniformInset(ds.BorderWidth).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
