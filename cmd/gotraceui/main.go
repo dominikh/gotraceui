@@ -222,7 +222,8 @@ type MainWindow struct {
 
 	pointerAt f32.Point
 
-	win *app.Window
+	win  *app.Window
+	twin *theme.Window
 	// TODO(dh): use enum for state
 	state          string
 	progress       float64
@@ -380,6 +381,8 @@ func (mwin *MainWindow) setState(state string) {
 
 func (mwin *MainWindow) SetState(state string) {
 	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+		mwin.twin.CloseModal()
+		mwin.twin.Menu.Close()
 		mwin.setState(state)
 	}
 }
@@ -576,7 +579,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var shortcuts int
 
 	var commands []Command
-	tWin := &theme.Window{
+	mwin.twin = &theme.Window{
 		Theme: mwin.theme,
 		Menu:  mainMenu.menu,
 	}
@@ -618,7 +621,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					}
 				}
 
-				tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				mwin.twin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 					gtx.Constraints.Min = image.Point{}
 
