@@ -73,7 +73,6 @@ type LocationHistoryEntry struct {
 type Canvas struct {
 	trace *Trace
 
-	mainWindow  *MainWindow
 	debugWindow *DebugWindow
 
 	clickedGoroutineTimelines []*ptrace.Goroutine
@@ -174,14 +173,13 @@ type Canvas struct {
 	trackWidgetsCache    Cache[TrackWidget]
 }
 
-func NewCanvasInto(cv *Canvas, mwin *MainWindow, t *Trace) {
+func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.resizeMemoryTimelines.Axis = layout.Vertical
 	cv.resizeMemoryTimelines.Ratio = 0.1
 	cv.timeline.displayAllLabels = true
 	cv.axis = Axis{cv: cv, origin: 0.5}
-	cv.mainWindow = mwin
 	cv.trace = t
-	cv.debugWindow = mwin.debugWindow
+	cv.debugWindow = dwin
 
 	cv.timelines = make([]*Timeline, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
 	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
@@ -734,12 +732,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			if cv.zoomSelection.active {
 				cv.endZoomSelection(win, gtx, ev.Position)
 			}
-		}
-	}
-
-	if cv.spanModal != nil {
-		for _, l := range cv.spanModal.Events.ClickedLinks() {
-			cv.mainWindow.OpenLink(l)
 		}
 	}
 

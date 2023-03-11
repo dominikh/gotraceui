@@ -842,6 +842,12 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							mwin.openGoroutine(g)
 						}
 
+						if sm := mwin.canvas.spanModal; sm != nil {
+							for _, l := range sm.Events.ClickedLinks() {
+								mwin.OpenLink(l)
+							}
+						}
+
 						if mwin.panel != nil {
 							if mwin.panel.Closed() {
 								mwin.closePanel()
@@ -913,7 +919,7 @@ func (mwin *MainWindow) showFileOpenDialog() {
 }
 
 func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
-	NewCanvasInto(&mwin.canvas, mwin, res.trace)
+	NewCanvasInto(&mwin.canvas, mwin.debugWindow, res.trace)
 	mwin.canvas.start = res.start
 	mwin.canvas.end = res.end
 	mwin.canvas.memoryGraph = res.plot
