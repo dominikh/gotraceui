@@ -207,11 +207,12 @@ func shortenFunctionName(s string) string {
 type Command func(*MainWindow, layout.Context)
 
 type MainWindow struct {
-	canvas   Canvas
-	theme    *theme.Theme
-	trace    *Trace
-	commands chan Command
-	explorer *explorer.Explorer
+	canvas          Canvas
+	theme           *theme.Theme
+	trace           *Trace
+	commands        chan Command
+	explorer        *explorer.Explorer
+	showingExplorer atomic.Bool
 
 	// Channel used by goroutines to report critical errors.
 	errs chan error
@@ -240,8 +241,6 @@ func NewMainWindow() *MainWindow {
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
 	}
-
-	mwin.canvas.axis.cv = &mwin.canvas
 
 	return mwin
 }
@@ -328,9 +327,9 @@ func (f *timelineFilter) Filter(item theme.ListWindowItem) bool {
 	return true
 }
 
-// openTrace initiates loading of a trace. It changes the state to loadingTrace, loads the trace, and notifies the
-// window when it's done. openTrace should be called from a different goroutine than the render loop.
-func (mwin *MainWindow) openTrace(r io.Reader) {
+// OpenTrace initiates loading of a trace. It changes the state to loadingTrace, loads the trace, and notifies the
+// window when it's done. OpenTrace should be called from a different goroutine than the render loop.
+func (mwin *MainWindow) OpenTrace(r io.Reader) {
 	// Unset the memory limit in case we've already loaded a trace but this trace needs more memory.
 	rdebug.SetMemoryLimit(-1)
 
@@ -472,7 +471,8 @@ func PlainLabel(s string) func() string { return func() string { return s } }
 
 type MainMenu struct {
 	File struct {
-		Quit theme.MenuItem
+		OpenTrace theme.MenuItem
+		Quit      theme.MenuItem
 	}
 
 	Display struct {
@@ -499,6 +499,7 @@ type MainMenu struct {
 func NewMainMenu(mwin *MainWindow) *MainMenu {
 	m := &MainMenu{}
 
+	m.File.OpenTrace = theme.MenuItem{Label: PlainLabel("Open trace")}
 	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
 
 	notMainDisabled := func() bool { return mwin.state != "main" }
@@ -519,6 +520,7 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 			{
 				Label: "File",
 				Items: []theme.Widget{
+					theme.NewMenuItemStyle(mwin.theme, &m.File.OpenTrace).Layout,
 					theme.NewMenuItemStyle(mwin.theme, &m.File.Quit).Layout,
 				},
 			},
@@ -589,7 +591,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var mem runtime.MemStats
 	var frameCounter uint64
 	var openTraceButton widget.Clickable
-	var showingExplorer atomic.Bool
 
 	for {
 		select {
@@ -668,6 +669,11 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						os.Exit(0)
 					}
 
+					if mainMenu.File.OpenTrace.Clicked() {
+						win.Menu.Close()
+						mwin.showFileOpenDialog()
+					}
+
 					switch mwin.state {
 					case "empty":
 						return layout.Dimensions{}
@@ -678,27 +684,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						gtx.Constraints.Min = gtx.Constraints.Max
 
 						for openTraceButton.Clicked() {
-							if showingExplorer.CompareAndSwap(false, true) {
-								go func() {
-									rc, err := mwin.explorer.ChooseFile()
-									showingExplorer.Store(false)
-									if err != nil {
-										switch err {
-										case explorer.ErrUserDecline:
-											return
-										case explorer.ErrNotAvailable:
-											//lint:ignore ST1005 This error is only used for display in the UI. It probably shouldn't be of type error though.
-											err = errors.New("Opening file system dialogs isn't supported on this system. Please pass the trace file as an argument to gotraceui instead.")
-										}
-										mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
-											mwin.SetError(err)
-										}
-										return
-									}
-									defer rc.Close()
-									mwin.openTrace(rc)
-								}()
-							}
+							mwin.showFileOpenDialog()
 						}
 
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -902,6 +888,30 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	}
 }
 
+func (mwin *MainWindow) showFileOpenDialog() {
+	if mwin.showingExplorer.CompareAndSwap(false, true) {
+		go func() {
+			rc, err := mwin.explorer.ChooseFile()
+			mwin.showingExplorer.Store(false)
+			if err != nil {
+				switch err {
+				case explorer.ErrUserDecline:
+					return
+				case explorer.ErrNotAvailable:
+					//lint:ignore ST1005 This error is only used for display in the UI. It probably shouldn't be of type error though.
+					err = errors.New("Opening file system dialogs isn't supported on this system. Please pass the trace file as an argument to gotraceui instead.")
+				}
+				mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
+					mwin.SetError(err)
+				}
+				return
+			}
+			defer rc.Close()
+			mwin.OpenTrace(rc)
+		}()
+	}
+}
+
 func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	NewCanvasInto(&mwin.canvas, mwin, res.trace)
 	mwin.canvas.start = res.start
@@ -909,6 +919,9 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.canvas.memoryGraph = res.plot
 	mwin.canvas.timelines = append(mwin.canvas.timelines, res.timelines...)
 	mwin.trace = res.trace
+	mwin.panel = nil
+	mwin.panelHistory = nil
+	mwin.ww = nil
 }
 
 type durationNumberFormat uint8
@@ -1004,7 +1017,7 @@ func openTraceFromCmdline(mwin *MainWindow) {
 	mwin.SetState("loadingTrace")
 	go func() {
 		defer f.Close()
-		mwin.openTrace(f)
+		mwin.OpenTrace(f)
 	}()
 }
 
