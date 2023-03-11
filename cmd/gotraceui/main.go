@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	mylayout "honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -701,14 +700,8 @@ func (w *MainWindow) Run(win *app.Window) error {
 										w.ww.SetItems(items)
 										w.ww.BuildFilter = newTimelineFilter
 										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-											return mylayout.PixelInset{
-												Top:    gtx.Constraints.Max.Y/2 - 500/2,
-												Bottom: gtx.Constraints.Max.Y/2 - 500/2,
-												Left:   gtx.Constraints.Max.X/2 - 1000/2,
-												Right:  gtx.Constraints.Max.X/2 - 1000/2,
-											}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-												return w.ww.Layout(gtx)
-											})
+											gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
+											return w.ww.Layout(gtx)
 										})
 									}
 								}
