@@ -129,13 +129,27 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		}
 		modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				if isPopup {
-					defer op.Offset(win.modal.at.Round()).Push(gtx.Ops).Pop()
-				}
 
 				m := op.Record(gtx.Ops)
 				dims := win.modal.w(win, gtx)
 				call := m.Stop()
+
+				if isPopup {
+					off := win.modal.at.Round()
+					if off.X+dims.Size.X > gtx.Constraints.Max.X {
+						off.X = gtx.Constraints.Max.X - dims.Size.X
+						if off.X < 0 {
+							off.X = 0
+						}
+					}
+					if off.Y+dims.Size.Y > gtx.Constraints.Max.Y {
+						off.Y = gtx.Constraints.Max.Y - dims.Size.Y
+						if off.Y < 0 {
+							off.Y = 0
+						}
+					}
+					defer op.Offset(off).Push(gtx.Ops).Pop()
+				}
 
 				// win.modal.w might not register pointer input ops for all of the space it occupies. We don't want clicking
 				// on those areas to close the model, so register our own input op covering the whole area. win.modal.w
