@@ -141,7 +141,7 @@ func (win *Window) SetContextMenu(items []*MenuItem) {
 	for i, item := range items {
 		widgets[i] = NewMenuItemStyle(win.Theme, item).Layout
 	}
-	win.SetModal(NewMenuGroupStyle(win.Theme, &MenuGroup{Items: widgets}).Layout)
+	win.SetPopup(NewMenuGroupStyle(win.Theme, &MenuGroup{Items: widgets}).Layout)
 }
 
 func (win *Window) SetTooltip(w Widget) {
@@ -149,7 +149,7 @@ func (win *Window) SetTooltip(w Widget) {
 }
 
 // TODO(dh): support specifying the minimum/maximum size of the modal, but make it optional
-func (win *Window) SetModal(w Widget) {
+func (win *Window) SetPopup(w Widget) {
 	win.modal.at = win.pointerAt
 	win.modal.w = w
 }

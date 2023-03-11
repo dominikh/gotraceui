@@ -791,7 +791,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					Trace:     cv.trace,
 				}
 				cv.spanModal = sm
-				win.SetModal(sm.Layout)
+				win.SetPopup(sm.Layout)
 				break
 			}
 		}
