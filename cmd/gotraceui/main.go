@@ -700,6 +700,16 @@ func (w *MainWindow) Run(win *app.Window) error {
 										}
 										w.ww.SetItems(items)
 										w.ww.BuildFilter = newTimelineFilter
+										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+											return mylayout.PixelInset{
+												Top:    gtx.Constraints.Max.Y/2 - 500/2,
+												Bottom: gtx.Constraints.Max.Y/2 - 500/2,
+												Left:   gtx.Constraints.Max.X/2 - 1000/2,
+												Right:  gtx.Constraints.Max.X/2 - 1000/2,
+											}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+												return w.ww.Layout(gtx)
+											})
+										})
 									}
 								}
 							}
@@ -777,24 +787,10 @@ func (w *MainWindow) Run(win *app.Window) error {
 							if item, ok := w.ww.Confirmed(); ok {
 								w.canvas.scrollToTimeline(gtx, item)
 								w.ww = nil
+								win.CloseModal()
 							} else if w.ww.Cancelled() {
 								w.ww = nil
-							} else {
-								macro := op.Record(gtx.Ops)
-								// XXX use constant for color
-								// XXX maintain modal state so the modal can be closed
-								(&theme.Modal{Background: rgba(0x000000DD)}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-									return mylayout.PixelInset{
-										Top:    gtx.Constraints.Max.Y/2 - 500/2,
-										Bottom: gtx.Constraints.Max.Y/2 - 500/2,
-										Left:   gtx.Constraints.Max.X/2 - 1000/2,
-										Right:  gtx.Constraints.Max.X/2 - 1000/2,
-									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return w.ww.Layout(gtx)
-									})
-								})
-
-								op.Defer(gtx.Ops, macro.Stop())
+								win.CloseModal()
 							}
 						}
 
