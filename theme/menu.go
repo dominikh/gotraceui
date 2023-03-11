@@ -31,7 +31,7 @@ type Menu struct {
 		off int
 		g   *MenuGroup
 	}
-	modal Modal
+	cancelled bool
 }
 
 func (m *Menu) Close() {
@@ -67,8 +67,9 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 
 	gtx.Constraints.Min = image.Point{}
 
-	if m.Menu.modal.Cancelled() {
+	if m.Menu.cancelled {
 		m.Menu.Close()
+		m.Menu.cancelled = false
 	}
 
 	return mywidget.Background{Color: m.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -83,7 +84,7 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 				// opens them. The horizontal offset is inside the modal to position the group, without moving the modal
 				// away from x=0.
 				stack := op.Offset(image.Pt(0, h)).Push(gtx.Ops)
-				m.Menu.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+				Modal(&m.Menu.cancelled).Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 					defer op.Offset(image.Pt(off, 0)).Push(gtx.Ops).Pop()
 					return MenuGroupStyle{
 						Group:      g,

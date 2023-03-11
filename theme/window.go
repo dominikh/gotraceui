@@ -24,9 +24,9 @@ type Window struct {
 	pointerAt f32.Point
 
 	modal struct {
-		modal Modal
-		at    f32.Point
-		w     Widget
+		cancelled bool
+		at        f32.Point
+		w         Widget
 	}
 	notification notification
 	windowFrameState
@@ -109,8 +109,9 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		stack.Pop()
 	}
 
-	if win.modal.modal.Cancelled() {
+	if win.modal.cancelled {
 		win.modal.w = nil
+		win.modal.cancelled = false
 	}
 
 	if win.modal.w != nil {
@@ -118,14 +119,15 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 
 		isPopup := win.modal.at != f32.Pt(-1, -1)
 
+		modal := Modal(&win.modal.cancelled)
 		if isPopup {
 			gtx.Constraints.Min = image.Point{}
-			win.modal.modal.Background = color.NRGBA{}
+			modal.Background = color.NRGBA{}
 		} else {
 			gtx.Constraints.Min = gtx.Constraints.Max
-			win.modal.modal.Background = rgba(0x000000DD)
+			modal.Background = rgba(0x000000DD)
 		}
-		win.modal.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+		modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				if isPopup {
 					defer op.Offset(win.modal.at.Round()).Push(gtx.Ops).Pop()

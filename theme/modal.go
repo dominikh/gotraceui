@@ -12,19 +12,18 @@ import (
 	"gioui.org/op/paint"
 )
 
-type Modal struct {
+type ModalStyle struct {
 	Background color.NRGBA
-
-	cancelled bool
+	Cancelled  *bool
 }
 
-func (m *Modal) Cancelled() bool {
-	b := m.cancelled
-	m.cancelled = false
-	return b
+func Modal(cancelled *bool) ModalStyle {
+	return ModalStyle{
+		Cancelled: cancelled,
+	}
 }
 
-func (m *Modal) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+func (m ModalStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.Modal.Layout").End()
 
 	// FIXME(dh): the modal doesn't cover the whole window if an offset or transform is active
@@ -35,7 +34,7 @@ func (m *Modal) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensi
 		switch ev := ev.(type) {
 		case pointer.Event:
 			if (ev.Priority == pointer.Foremost || ev.Priority == pointer.Grabbed) && ev.Type == pointer.Press {
-				m.cancelled = true
+				*m.Cancelled = true
 			}
 
 		case key.Event:
