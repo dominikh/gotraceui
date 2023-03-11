@@ -12,7 +12,7 @@
           packages.gotraceui = pkgs.buildGoModule {
             name = "gotraceui";
             src = self;
-            vendorSha256 = "sha256-uIQvHd1423/donV8LmXOyTfpwv00onywLI2M5yq4m/E=";
+            vendorSha256 = "sha256-YI65bKMnXwbskv0/x0ImSDBol08TVlWqUezsoYLjDoY=";
 
             subPackages = ["cmd/gotraceui"];
 

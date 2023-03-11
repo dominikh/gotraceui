@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -14,6 +15,7 @@ import (
 	rtrace "runtime/trace"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"honnef.co/go/gotraceui/theme"
@@ -34,6 +36,7 @@ import (
 	"gioui.org/text"
 	"gioui.org/widget"
 	"gioui.org/x/component"
+	"gioui.org/x/explorer"
 	"gioui.org/x/styledtext"
 	"golang.org/x/text/message"
 )
@@ -208,6 +211,10 @@ type MainWindow struct {
 	theme    *theme.Theme
 	trace    *Trace
 	commands chan Command
+	explorer *explorer.Explorer
+
+	// Channel used by goroutines to report critical errors.
+	errs chan error
 
 	panel        theme.Panel
 	panelHistory []theme.Panel
@@ -231,6 +238,7 @@ func NewMainWindow() *MainWindow {
 		theme:       theme.NewTheme(gofont.Collection()),
 		commands:    make(chan Command, 128),
 		debugWindow: NewDebugWindow(),
+		errs:        make(chan error),
 	}
 
 	mwin.canvas.axis.cv = &mwin.canvas
@@ -318,6 +326,51 @@ func (f *timelineFilter) Filter(item theme.ListWindowItem) bool {
 		}
 	}
 	return true
+}
+
+// openTrace initiates loading of a trace. It changes the state to loadingTrace, loads the trace, and notifies the
+// window when it's done. openTrace should be called from a different goroutine than the render loop.
+func (mwin *MainWindow) openTrace(r io.Reader) {
+	// Unset the memory limit in case we've already loaded a trace but this trace needs more memory.
+	rdebug.SetMemoryLimit(-1)
+
+	mwin.SetState("loadingTrace")
+	res, err := loadTrace(r, mwin)
+	if memprofileLoad != "" {
+		writeMemprofile(memprofileLoad)
+	}
+	if err == errExitAfterParsing {
+		mwin.errs <- err
+		return
+	}
+	if exitAfterLoading {
+		mwin.errs <- errExitAfterLoading
+		return
+	}
+	if err != nil {
+		mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
+		return
+	}
+
+	// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
+	// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
+	// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
+	// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
+	// produces a modest amount of garbage.
+	//
+	// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
+	// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
+	// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
+	//
+	// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
+	// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
+	// former would be a bug, and the former would ultimately lead to bad performance, anyway.
+	runtime.GC()
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
+	rdebug.SetMemoryLimit(limit)
+	mwin.LoadTrace(res)
 }
 
 func (mwin *MainWindow) setState(state string) {
@@ -514,6 +567,7 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 func (mwin *MainWindow) Run(win *app.Window) error {
 	mainMenu := NewMainMenu(mwin)
 	mwin.win = win
+	mwin.explorer = explorer.NewExplorer(win)
 
 	profileTag := new(int)
 	var ops op.Ops
@@ -534,6 +588,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var prevMallocs uint64
 	var mem runtime.MemStats
 	var frameCounter uint64
+	var openTraceButton widget.Clickable
+	var showingExplorer atomic.Bool
 
 	for {
 		select {
@@ -542,6 +598,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 			mwin.win.Invalidate()
 
 		case e := <-win.Events():
+			mwin.explorer.ListenEvents(e)
+
 			switch ev := e.(type) {
 			case system.DestroyEvent:
 				return ev.Err
@@ -613,6 +671,39 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					switch mwin.state {
 					case "empty":
 						return layout.Dimensions{}
+
+					case "start":
+						// XXX logo
+						// XXX splash screen of some sort
+						gtx.Constraints.Min = gtx.Constraints.Max
+
+						for openTraceButton.Clicked() {
+							if showingExplorer.CompareAndSwap(false, true) {
+								go func() {
+									rc, err := mwin.explorer.ChooseFile()
+									showingExplorer.Store(false)
+									if err != nil {
+										switch err {
+										case explorer.ErrUserDecline:
+											return
+										case explorer.ErrNotAvailable:
+											//lint:ignore ST1005 This error is only used for display in the UI. It probably shouldn't be of type error though.
+											err = errors.New("Opening file system dialogs isn't supported on this system. Please pass the trace file as an argument to gotraceui instead.")
+										}
+										mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
+											mwin.SetError(err)
+										}
+										return
+									}
+									defer rc.Close()
+									mwin.openTrace(rc)
+								}()
+							}
+						}
+
+						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return theme.Button(win.Theme, &openTraceButton, "Open trace").Layout(win, gtx)
+						})
 
 					case "error":
 						gtx.Constraints.Min = gtx.Constraints.Max
@@ -903,6 +994,20 @@ func formatTimestamp(ts trace.Timestamp) string {
 	return local.Sprintf("%d ns", ts)
 }
 
+func openTraceFromCmdline(mwin *MainWindow) {
+	f, err := os.Open(flag.Args()[0])
+	if err != nil {
+		mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
+		return
+	}
+	// Set state explicitly so user doesn't see a flash of the start state.
+	mwin.SetState("loadingTrace")
+	go func() {
+		defer f.Close()
+		mwin.openTrace(f)
+	}()
+}
+
 func main() {
 	flag.StringVar(&cpuprofile, "debug.cpuprofile", "", "write CPU profile to this file")
 	flag.StringVar(&memprofileLoad, "debug.memprofile-load", "", "write memory profile to this file after loading trace")
@@ -915,11 +1020,6 @@ func main() {
 	flag.BoolVar(&invalidateFrames, "debug.invalidate-frames", false, "Invalidate frame after drawing it")
 	flag.Parse()
 
-	if len(flag.Args()) != 1 {
-		fmt.Fprintln(os.Stderr, "need one argument: path to trace")
-		os.Exit(1)
-	}
-
 	mwin := NewMainWindow()
 	if debug {
 		go func() {
@@ -928,56 +1028,15 @@ func main() {
 		}()
 	}
 
-	errs := make(chan error)
-	go func() {
-		mwin.SetState("loadingTrace")
-		f, err := os.Open(flag.Args()[0])
-		if err != nil {
-			mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
-			return
-		}
-		defer f.Close()
-		res, err := loadTrace(f, mwin)
-		if memprofileLoad != "" {
-			writeMemprofile(memprofileLoad)
-		}
-		if err == errExitAfterParsing {
-			errs <- err
-			return
-		}
-		if exitAfterLoading {
-			errs <- errExitAfterLoading
-			return
-		}
-		if err != nil {
-			mwin.SetError(fmt.Errorf("couldn't load trace: %w", err))
-			return
-		}
+	mwin.SetState("start")
 
-		// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
-		// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
-		// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
-		// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
-		// produces a modest amount of garbage.
-		//
-		// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
-		// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
-		// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
-		//
-		// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
-		// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
-		// former would be a bug, and the former would ultimately lead to bad performance, anyway.
-		runtime.GC()
-		var mem runtime.MemStats
-		runtime.ReadMemStats(&mem)
-		limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
-		rdebug.SetMemoryLimit(limit)
-		mwin.LoadTrace(res)
-	}()
+	if len(flag.Args()) > 0 {
+		openTraceFromCmdline(mwin)
+	}
 
 	go func() {
 		win := app.NewWindow(app.Title("gotraceui"))
-		errs <- mwin.Run(win)
+		mwin.errs <- mwin.Run(win)
 	}()
 
 	go func() {
@@ -998,7 +1057,7 @@ func main() {
 			}
 		}
 
-		err := <-errs
+		err := <-mwin.errs
 		if err != nil {
 			log.Println(err)
 		}
