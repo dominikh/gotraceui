@@ -33,10 +33,10 @@ func Dialog(th *Theme, title string) DialogStyle {
 		BorderColor:     th.Palette.Border,
 		Title:           title,
 		TitleSize:       th.TextSize,
-		TitleColor:      th.Palette.Foreground,
-		TitleBackground: th.Palette.Menu.Background,
+		TitleColor:      th.Palette.Popup.TitleForeground,
+		TitleBackground: th.Palette.Popup.TitleBackground,
 		TitlePadding:    th.WindowPadding,
-		Background:      color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF},
+		Background:      th.Palette.Popup.Background,
 		Padding:         th.WindowPadding * 2,
 	}
 }

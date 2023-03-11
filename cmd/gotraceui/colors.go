@@ -27,18 +27,10 @@ var colors = [...]color.NRGBA{
 
 	colorStateDone: rgba(0x000000FF),
 
-	colorBackground:    rgba(0xffffeaFF),
-	colorZoomSelection: rgba(0xeeee9e99),
-	colorCursor:        rgba(0x000000FF),
-	colorTick:          rgba(0x000000FF),
-	colorTickLabel:     rgba(0x000000FF),
-
 	colorTimelineLabel:  rgba(0x888888FF),
 	colorTimelineBorder: rgba(0xDDDDDDFF),
 
 	// TODO(dh): find a nice color for this
-	colorSpanWithEvents:                  rgba(0xFF00FFFF),
-	colorSpanOutline:                     rgba(0x000000FF),
 	colorSpanHighlightedPrimaryOutline:   rgba(0xFF00FFFF),
 	colorSpanHighlightedSecondaryOutline: rgba(0x6FFF00FF),
 }
@@ -68,17 +60,9 @@ const (
 
 	colorStateLast
 
-	colorBackground
-	colorZoomSelection
-	colorCursor
-	colorTick
-	colorTickLabel
-
 	colorTimelineLabel
 	colorTimelineBorder
 
-	colorSpanWithEvents
-	colorSpanOutline
 	colorSpanHighlightedPrimaryOutline
 	colorSpanHighlightedSecondaryOutline
 )

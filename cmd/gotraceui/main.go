@@ -158,7 +158,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			return ev.Err
 		case system.FrameEvent:
 			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				paint.Fill(gtx.Ops, colors[colorBackground])
+				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
 				return pwin.Panel.Layout(win, gtx)
 			})
 
@@ -603,7 +603,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 					// Fill background
-					paint.Fill(gtx.Ops, colors[colorBackground])
+					paint.Fill(gtx.Ops, mwin.theme.Palette.Background)
 
 					if mainMenu.File.Quit.Clicked() {
 						win.Menu.Close()

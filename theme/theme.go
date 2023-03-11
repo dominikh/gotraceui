@@ -35,12 +35,18 @@ type Theme struct {
 }
 
 type Palette struct {
-	Background color.NRGBA
-	Foreground color.NRGBA
-	Link       color.NRGBA
+	Background       color.NRGBA
+	Foreground       color.NRGBA
+	Link             color.NRGBA
+	PrimarySelection color.NRGBA
 
-	Border           color.NRGBA
-	WindowBackground color.NRGBA
+	Border color.NRGBA
+
+	Popup struct {
+		TitleForeground color.NRGBA
+		TitleBackground color.NRGBA
+		Background      color.NRGBA
+	}
 
 	Menu struct {
 		Background color.NRGBA
@@ -51,12 +57,21 @@ type Palette struct {
 }
 
 var DefaultPalette = Palette{
-	Background: rgba(0xFFFFEAFF),
-	Foreground: rgba(0x000000FF),
-	Link:       rgba(0x0000FFFF),
-	Border:     rgba(0x000000FF),
+	Background:       rgba(0xFFFFEAFF),
+	Foreground:       rgba(0x000000FF),
+	Link:             rgba(0x0000FFFF),
+	PrimarySelection: rgba(0xeeee9e99),
+	Border:           rgba(0x000000FF),
 
-	WindowBackground: rgba(0xEEFFEEFF),
+	Popup: struct {
+		TitleForeground color.NRGBA
+		TitleBackground color.NRGBA
+		Background      color.NRGBA
+	}{
+		TitleForeground: rgba(0x000000FF),
+		TitleBackground: rgba(0xEFFFFFFF),
+		Background:      rgba(0xEEFFEEFF),
+	},
 
 	Menu: struct {
 		Background color.NRGBA
@@ -311,7 +326,7 @@ func Tooltip(th *Theme, msg string) TooltipStyle {
 		Padding:         th.WindowPadding,
 		TextSize:        th.TextSize,
 		TextColor:       th.Palette.Foreground,
-		BackgroundColor: th.Palette.WindowBackground,
+		BackgroundColor: th.Palette.Popup.Background,
 	}
 }
 
@@ -348,7 +363,7 @@ func BorderedText(th *Theme, s string) BorderedTextStyle {
 		Padding:         th.WindowPadding,
 		TextSize:        th.TextSize,
 		TextColor:       th.Palette.Foreground,
-		BackgroundColor: th.Palette.WindowBackground,
+		BackgroundColor: th.Palette.Popup.Background,
 	}
 }
 

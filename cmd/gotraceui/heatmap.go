@@ -323,7 +323,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 			return ev.Err
 		case system.FrameEvent:
 			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				paint.Fill(gtx.Ops, colors[colorBackground])
+				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
 
 				if useLinear.Changed() {
 					hm.UseLinearColors = useLinear.Value

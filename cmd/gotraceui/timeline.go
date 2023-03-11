@@ -930,7 +930,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, la
 	//
 	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
 	// specific instance.
-	paint.FillShape(gtx.Ops, colors[colorSpanOutline], clip.Outline{Path: outlinesPath.End()}.Op())
+	paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: outlinesPath.End()}.Op())
 	paint.FillShape(gtx.Ops, colors[colorSpanHighlightedSecondaryOutline], clip.Outline{Path: highlightedSecondaryOutlinesPath.End()}.Op())
 	paint.FillShape(gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: highlightedPrimaryOutlinesPath.End()}.Op())
 

@@ -928,7 +928,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				Min: f32.Pt(min(one, two), 0),
 				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
 			}
-			paint.FillShape(gtx.Ops, colors[colorZoomSelection], rect.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, win.Theme.Palette.PrimarySelection, rect.Op(gtx.Ops))
 		}
 
 		// Draw STW and GC overlays
@@ -944,7 +944,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			Min: image.Pt(int(round32(cv.pointerAt.X)), 0),
 			Max: image.Pt(int(round32(cv.pointerAt.X+1)), gtx.Constraints.Max.Y),
 		}
-		paint.FillShape(gtx.Ops, colors[colorCursor], rect.Op())
+		paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, rect.Op())
 
 	}(gtx)
 
@@ -1194,7 +1194,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 		macro := op.Record(gtx.Ops)
 		// TODO separate value and unit symbol with a space
-		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
+		dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
 		call := macro.Stop()
 
 		if gtrf(subf(start, float32(dims.Size.X/2)), addf(prevLabelEnd, minTickLabelDistance)) || prevLabelEnd == 0 {
@@ -1237,7 +1237,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		// TODO separate value and unit symbol with a space
 		f := text.Font{Weight: text.Bold}
 		label := formatTimestamp(t)
-		dims := mywidget.TextLine{Color: colors[colorTickLabel]}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
+		dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
 		call := macro.Stop()
 
 		labelStart := image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))
@@ -1270,7 +1270,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		drawTick(t, label, false)
 	}
 
-	paint.FillShape(gtx.Ops, colors[colorTick], clip.Outline{Path: ticksPath.End()}.Op())
+	paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: ticksPath.End()}.Op())
 
 	pointer.InputOp{Tag: axis, Grab: true, Types: pointer.Press | pointer.Drag}.Add(gtx.Ops)
 
