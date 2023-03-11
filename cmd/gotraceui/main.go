@@ -1020,6 +1020,25 @@ func main() {
 	flag.BoolVar(&invalidateFrames, "debug.invalidate-frames", false, "Invalidate frame after drawing it")
 	flag.Parse()
 
+	go func() {
+		if cpuprofile != "" {
+			f, err := os.Create(cpuprofile)
+			if err == nil {
+				pprof.StartCPUProfile(f)
+			} else {
+				fmt.Fprintln(os.Stderr, "couldn't write CPU profile:", err)
+			}
+		}
+		if traceFile != "" {
+			f, err := os.Create(traceFile)
+			if err == nil {
+				rtrace.Start(f)
+			} else {
+				fmt.Fprintln(os.Stderr, "couldn't write trace:", err)
+			}
+		}
+	}()
+
 	mwin := NewMainWindow()
 	if debug {
 		go func() {
@@ -1040,23 +1059,6 @@ func main() {
 	}()
 
 	go func() {
-		if cpuprofile != "" {
-			f, err := os.Create(cpuprofile)
-			if err == nil {
-				pprof.StartCPUProfile(f)
-			} else {
-				fmt.Fprintln(os.Stderr, "couldn't write CPU profile:", err)
-			}
-		}
-		if traceFile != "" {
-			f, err := os.Create(traceFile)
-			if err == nil {
-				rtrace.Start(f)
-			} else {
-				fmt.Fprintln(os.Stderr, "couldn't write trace:", err)
-			}
-		}
-
 		err := <-mwin.errs
 		if err != nil {
 			log.Println(err)
