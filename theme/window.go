@@ -68,7 +68,7 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	}
 
 	if win.Menu != nil {
-		dims := win.Menu.Layout(win, gtx)
+		dims := NewMenuStyle(win.Theme, win.Menu).Layout(win, gtx)
 		mylayout.PixelInset{
 			Top: dims.Size.Y,
 		}.Layout(gtx, Dumb(win, w))
@@ -139,9 +139,9 @@ func (win *Window) SetContextMenu(items []*MenuItem) {
 	win.contextMenu = items
 	widgets := make([]Widget, len(items))
 	for i, item := range items {
-		widgets[i] = item.Layout
+		widgets[i] = NewMenuItemStyle(win.Theme, item).Layout
 	}
-	win.SetModal((&MenuGroup{Items: widgets}).Layout)
+	win.SetModal(NewMenuGroupStyle(win.Theme, &MenuGroup{Items: widgets}).Layout)
 }
 
 func (win *Window) SetTooltip(w Widget) {

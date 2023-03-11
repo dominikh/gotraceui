@@ -41,6 +41,13 @@ type Palette struct {
 
 	Border           color.NRGBA
 	WindowBackground color.NRGBA
+
+	Menu struct {
+		Background color.NRGBA
+		Selected   color.NRGBA
+		Border     color.NRGBA
+		Disabled   color.NRGBA
+	}
 }
 
 var DefaultPalette = Palette{
@@ -50,6 +57,18 @@ var DefaultPalette = Palette{
 	Border:     rgba(0x000000FF),
 
 	WindowBackground: rgba(0xEEFFEEFF),
+
+	Menu: struct {
+		Background color.NRGBA
+		Selected   color.NRGBA
+		Border     color.NRGBA
+		Disabled   color.NRGBA
+	}{
+		Background: rgba(0xEFFFFFFF),
+		Selected:   rgba(0x9CEFEFFF),
+		Border:     rgba(0x9CEFEFFF),
+		Disabled:   rgba(0xAAAAAAFF),
+	},
 }
 
 func NewTheme(fontCollection []text.FontFace) *Theme {

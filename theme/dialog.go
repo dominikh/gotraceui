@@ -34,7 +34,7 @@ func Dialog(th *Theme, title string) DialogStyle {
 		Title:           title,
 		TitleSize:       th.TextSize,
 		TitleColor:      th.Palette.Foreground,
-		TitleBackground: menuColor,
+		TitleBackground: th.Palette.Menu.Background,
 		TitlePadding:    th.WindowPadding,
 		Background:      color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF},
 		Padding:         th.WindowPadding * 2,

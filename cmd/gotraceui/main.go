@@ -467,26 +467,26 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			{
 				Label: "File",
 				Items: []theme.Widget{
-					m.File.Quit.Layout,
+					theme.NewMenuItemStyle(w.theme, &m.File.Quit).Layout,
 				},
 			},
 			{
 				Label: "Display",
 				Items: []theme.Widget{
 					// TODO(dh): disable Undo menu item when there are no more undo steps
-					m.Display.UndoNavigation.Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.UndoNavigation).Layout,
 
-					theme.MenuDivider{}.Layout,
+					theme.MenuDivider(w.theme).Layout,
 
-					m.Display.ScrollToTop.Layout,
-					m.Display.ZoomToFit.Layout,
-					m.Display.JumpToBeginning.Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.ScrollToTop).Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.ZoomToFit).Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.JumpToBeginning).Layout,
 
-					theme.MenuDivider{}.Layout,
+					theme.MenuDivider(w.theme).Layout,
 
-					m.Display.ToggleCompactDisplay.Layout,
-					m.Display.ToggleTimelineLabels.Layout,
-					m.Display.ToggleStackTracks.Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.ToggleCompactDisplay).Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.ToggleTimelineLabels).Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Display.ToggleStackTracks).Layout,
 					// TODO(dh): add items for STW and GC overlays
 					// TODO(dh): add item for tooltip display
 				},
@@ -494,7 +494,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			{
 				Label: "Analyze",
 				Items: []theme.Widget{
-					m.Analyze.OpenHeatmap.Layout,
+					theme.NewMenuItemStyle(w.theme, &m.Analyze.OpenHeatmap).Layout,
 				},
 			},
 		},
@@ -504,7 +504,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
 			Label: "Debug",
 			Items: []theme.Widget{
-				m.Debug.Memprofile.Layout,
+				theme.NewMenuItemStyle(w.theme, &m.Debug.Memprofile).Layout,
 			},
 		})
 	}
