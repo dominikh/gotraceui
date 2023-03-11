@@ -3,6 +3,7 @@ package theme
 import (
 	"context"
 	"image"
+	"image/color"
 	rtrace "runtime/trace"
 	"time"
 
@@ -114,23 +115,35 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 
 	if win.modal.w != nil {
 		gtx := gtx
-		gtx.Constraints.Min = image.Point{}
-		// FIXME(dh): don't render context menu out of bounds
+
+		isPopup := win.modal.at != f32.Pt(-1, -1)
+
+		if isPopup {
+			gtx.Constraints.Min = image.Point{}
+			win.modal.modal.Background = color.NRGBA{}
+		} else {
+			gtx.Constraints.Min = gtx.Constraints.Max
+			win.modal.modal.Background = rgba(0x000000DD)
+		}
 		win.modal.modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
-			defer op.Offset(win.modal.at.Round()).Push(gtx.Ops).Pop()
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				if isPopup {
+					defer op.Offset(win.modal.at.Round()).Push(gtx.Ops).Pop()
+				}
 
-			m := op.Record(gtx.Ops)
-			dims := win.modal.w(win, gtx)
-			call := m.Stop()
+				m := op.Record(gtx.Ops)
+				dims := win.modal.w(win, gtx)
+				call := m.Stop()
 
-			// win.modal.w might not register pointer input ops for all of the space it occupies. We don't want clicking
-			// on those areas to close the model, so register our own input op covering the whole area. win.modal.w
-			// still has precedence for the areas that it does register input ops for.
-			defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
-			pointer.InputOp{Tag: &gtx, Types: 0xFF}.Add(gtx.Ops)
+				// win.modal.w might not register pointer input ops for all of the space it occupies. We don't want clicking
+				// on those areas to close the model, so register our own input op covering the whole area. win.modal.w
+				// still has precedence for the areas that it does register input ops for.
+				defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
+				pointer.InputOp{Tag: &gtx, Types: 0xFF}.Add(gtx.Ops)
 
-			call.Add(gtx.Ops)
-			return dims
+				call.Add(gtx.Ops)
+				return dims
+			})
 		})
 	}
 }
@@ -151,6 +164,11 @@ func (win *Window) SetTooltip(w Widget) {
 // TODO(dh): support specifying the minimum/maximum size of the modal, but make it optional
 func (win *Window) SetPopup(w Widget) {
 	win.modal.at = win.pointerAt
+	win.modal.w = w
+}
+
+func (win *Window) SetModal(w Widget) {
+	win.modal.at = f32.Pt(-1, -1)
 	win.modal.w = w
 }
 
