@@ -615,13 +615,13 @@ func (w *MainWindow) Run(win *app.Window) error {
 						return layout.Dimensions{}
 
 					case "error":
-						paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
-						m := op.Record(gtx.Ops)
-						dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("Error: %s", w.err))
-						call := m.Stop()
-						op.Offset(image.Pt(gtx.Constraints.Max.X/2-dims.Size.X/2, gtx.Constraints.Max.Y/2-dims.Size.Y/2)).Add(gtx.Ops)
-						call.Add(gtx.Ops)
-						return layout.Dimensions{Size: gtx.Constraints.Max}
+						gtx.Constraints.Min = gtx.Constraints.Max
+						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+								paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
+								return widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, win.Theme.TextSize, w.err.Error())
+							})
+						})
 
 					case "loadingTrace":
 						paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
