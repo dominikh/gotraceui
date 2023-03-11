@@ -108,39 +108,39 @@ func (rops *reusableOps) get() *op.Ops {
 	return &rops.ops
 }
 
-func (w *MainWindow) openGoroutine(g *ptrace.Goroutine) {
+func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
 	gi := &GoroutineInfo{
-		MainWindow: w,
+		MainWindow: mwin,
 		Goroutine:  g,
-		Trace:      w.trace,
+		Trace:      mwin.trace,
 	}
-	w.openPanel(gi)
+	mwin.openPanel(gi)
 }
 
-func (w *MainWindow) openPanel(p theme.Panel) {
-	if w.panel != nil {
-		w.panelHistory = append(w.panelHistory, w.panel)
-		if len(w.panelHistory) == 101 {
-			copy(w.panelHistory, w.panelHistory[1:])
-			w.panelHistory = w.panelHistory[:100]
+func (mwin *MainWindow) openPanel(p theme.Panel) {
+	if mwin.panel != nil {
+		mwin.panelHistory = append(mwin.panelHistory, mwin.panel)
+		if len(mwin.panelHistory) == 101 {
+			copy(mwin.panelHistory, mwin.panelHistory[1:])
+			mwin.panelHistory = mwin.panelHistory[:100]
 		}
 	}
 	p.SetWindowed(false)
-	w.panel = p
+	mwin.panel = p
 }
 
-func (w *MainWindow) prevPanel() bool {
-	if len(w.panelHistory) == 0 {
+func (mwin *MainWindow) prevPanel() bool {
+	if len(mwin.panelHistory) == 0 {
 		return false
 	}
-	p := w.panelHistory[len(w.panelHistory)-1]
-	w.panelHistory = w.panelHistory[:len(w.panelHistory)-1]
-	w.panel = p
+	p := mwin.panelHistory[len(mwin.panelHistory)-1]
+	mwin.panelHistory = mwin.panelHistory[:len(mwin.panelHistory)-1]
+	mwin.panel = p
 	return true
 }
 
-func (w *MainWindow) closePanel() {
-	w.panel = nil
+func (mwin *MainWindow) closePanel() {
+	mwin.panel = nil
 }
 
 type PanelWindow struct {
@@ -176,8 +176,8 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 	return nil
 }
 
-func (w *MainWindow) openPanelWindow(p theme.Panel) {
-	win := &PanelWindow{MainWindow: w, Panel: p}
+func (mwin *MainWindow) openPanelWindow(p theme.Panel) {
+	win := &PanelWindow{MainWindow: mwin, Panel: p}
 	p.SetWindowed(true)
 	go func() {
 		// XXX handle error?
@@ -186,9 +186,9 @@ func (w *MainWindow) openPanelWindow(p theme.Panel) {
 
 }
 
-func (w *MainWindow) openHeatmap() {
+func (mwin *MainWindow) openHeatmap() {
 	win := &HeatmapWindow{
-		trace: w.trace,
+		trace: mwin.trace,
 	}
 	go func() {
 		// XXX handle error?
@@ -227,15 +227,15 @@ type MainWindow struct {
 }
 
 func NewMainWindow() *MainWindow {
-	win := &MainWindow{
+	mwin := &MainWindow{
 		theme:       theme.NewTheme(gofont.Collection()),
 		commands:    make(chan Command, 128),
 		debugWindow: NewDebugWindow(),
 	}
 
-	win.canvas.axis.cv = &win.canvas
+	mwin.canvas.axis.cv = &mwin.canvas
 
-	return win
+	return mwin
 }
 
 type timelineFilter struct {
@@ -443,19 +443,19 @@ type MainMenu struct {
 	menu *theme.Menu
 }
 
-func NewMainMenu(w *MainWindow) *MainMenu {
+func NewMainMenu(mwin *MainWindow) *MainMenu {
 	m := &MainMenu{}
 
 	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
 
-	notMainDisabled := func() bool { return w.state != "main" }
+	notMainDisabled := func() bool { return mwin.state != "main" }
 	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
 	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of canvas"), Disabled: notMainDisabled}
 	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible timelines"), Disabled: notMainDisabled}
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
-	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &w.canvas.timeline.compact), Disabled: notMainDisabled}
-	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &w.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
-	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &w.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
+	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &mwin.canvas.timeline.compact), Disabled: notMainDisabled}
+	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &mwin.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
+	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &mwin.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
 
@@ -466,26 +466,26 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			{
 				Label: "File",
 				Items: []theme.Widget{
-					theme.NewMenuItemStyle(w.theme, &m.File.Quit).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.File.Quit).Layout,
 				},
 			},
 			{
 				Label: "Display",
 				Items: []theme.Widget{
 					// TODO(dh): disable Undo menu item when there are no more undo steps
-					theme.NewMenuItemStyle(w.theme, &m.Display.UndoNavigation).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.UndoNavigation).Layout,
 
-					theme.MenuDivider(w.theme).Layout,
+					theme.MenuDivider(mwin.theme).Layout,
 
-					theme.NewMenuItemStyle(w.theme, &m.Display.ScrollToTop).Layout,
-					theme.NewMenuItemStyle(w.theme, &m.Display.ZoomToFit).Layout,
-					theme.NewMenuItemStyle(w.theme, &m.Display.JumpToBeginning).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.ScrollToTop).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.ZoomToFit).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.JumpToBeginning).Layout,
 
-					theme.MenuDivider(w.theme).Layout,
+					theme.MenuDivider(mwin.theme).Layout,
 
-					theme.NewMenuItemStyle(w.theme, &m.Display.ToggleCompactDisplay).Layout,
-					theme.NewMenuItemStyle(w.theme, &m.Display.ToggleTimelineLabels).Layout,
-					theme.NewMenuItemStyle(w.theme, &m.Display.ToggleStackTracks).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleCompactDisplay).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleTimelineLabels).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleStackTracks).Layout,
 					// TODO(dh): add items for STW and GC overlays
 					// TODO(dh): add item for tooltip display
 				},
@@ -493,7 +493,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 			{
 				Label: "Analyze",
 				Items: []theme.Widget{
-					theme.NewMenuItemStyle(w.theme, &m.Analyze.OpenHeatmap).Layout,
+					theme.NewMenuItemStyle(mwin.theme, &m.Analyze.OpenHeatmap).Layout,
 				},
 			},
 		},
@@ -503,7 +503,7 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
 			Label: "Debug",
 			Items: []theme.Widget{
-				theme.NewMenuItemStyle(w.theme, &m.Debug.Memprofile).Layout,
+				theme.NewMenuItemStyle(mwin.theme, &m.Debug.Memprofile).Layout,
 			},
 		})
 	}
@@ -511,9 +511,9 @@ func NewMainMenu(w *MainWindow) *MainMenu {
 	return m
 }
 
-func (w *MainWindow) Run(win *app.Window) error {
-	mainMenu := NewMainMenu(w)
-	w.win = win
+func (mwin *MainWindow) Run(win *app.Window) error {
+	mainMenu := NewMainMenu(mwin)
+	mwin.win = win
 
 	profileTag := new(int)
 	var ops op.Ops
@@ -521,7 +521,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 	var commands []Command
 	tWin := &theme.Window{
-		Theme: w.theme,
+		Theme: mwin.theme,
 		Menu:  mainMenu.menu,
 	}
 
@@ -537,9 +537,9 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 	for {
 		select {
-		case cmd := <-w.commands:
+		case cmd := <-mwin.commands:
 			commands = append(commands, cmd)
-			w.win.Invalidate()
+			mwin.win.Invalidate()
 
 		case e := <-win.Events():
 			switch ev := e.(type) {
@@ -564,20 +564,20 @@ func (w *MainWindow) Run(win *app.Window) error {
 					gtx.Constraints.Min = image.Point{}
 
 					for _, cmd := range commands {
-						cmd(w, gtx)
+						cmd(mwin, gtx)
 					}
 					commands = commands[:0]
 
-					for _, ev := range gtx.Events(&w.pointerAt) {
-						w.pointerAt = ev.(pointer.Event).Position
+					for _, ev := range gtx.Events(&mwin.pointerAt) {
+						mwin.pointerAt = ev.(pointer.Event).Position
 					}
-					pointer.InputOp{Tag: &w.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+					pointer.InputOp{Tag: &mwin.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
 
 				commandLoop:
 					for {
 						select {
-						case cmd := <-w.commands:
-							cmd(w, gtx)
+						case cmd := <-mwin.commands:
+							cmd(mwin, gtx)
 						default:
 							break commandLoop
 						}
@@ -597,7 +597,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 							d, _ := time.ParseDuration(s)
 							// We're using gtx.Now because events don't have timestamps associated with them. Hopefully
 							// event creation isn't too far removed from this code.
-							w.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
+							mwin.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
 						}
 					}
 					profile.Op{Tag: profileTag}.Add(gtx.Ops)
@@ -610,7 +610,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 						os.Exit(0)
 					}
 
-					switch w.state {
+					switch mwin.state {
 					case "empty":
 						return layout.Dimensions{}
 
@@ -619,18 +619,18 @@ func (w *MainWindow) Run(win *app.Window) error {
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 								paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-								return widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, win.Theme.TextSize, w.err.Error())
+								return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, win.Theme.TextSize, mwin.err.Error())
 							})
 						})
 
 					case "loadingTrace":
-						paint.ColorOp{Color: w.theme.Palette.Foreground}.Add(gtx.Ops)
+						paint.ColorOp{Color: mwin.theme.Palette.Foreground}.Add(gtx.Ops)
 
 						// OPT(dh): cache this computation
 						var maxNameWidth int
-						for _, name := range w.progressStages {
+						for _, name := range mwin.progressStages {
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, name)
+							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, name)
 							if dims.Size.X > maxNameWidth {
 								maxNameWidth = dims.Size.X
 							}
@@ -639,7 +639,7 @@ func (w *MainWindow) Run(win *app.Window) error {
 						maxLabelWidth := maxNameWidth
 						{
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(w.progressStages), len(w.progressStages)))
+							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
 							maxLabelWidth += dims.Size.X
 							m.Stop()
 						}
@@ -649,19 +649,19 @@ func (w *MainWindow) Run(win *app.Window) error {
 							return theme.Dialog(win.Theme, "Opening trace").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										name := w.progressStages[w.progressStage]
+										name := mwin.progressStages[mwin.progressStage]
 										gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
 										gtx.Constraints.Max.X = gtx.Constraints.Min.X
-										pct := fmt.Sprintf("%5.2f%%", w.progress*100)
+										pct := fmt.Sprintf("%5.2f%%", mwin.progress*100)
 										// Replace space with figure space for correct alignment
 										pct = strings.ReplaceAll(pct, " ", "\u2007")
 										paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-										return widget.Label{}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, w.progressStage+1, len(w.progressStages), name))
+										return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name))
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
 										gtx.Constraints.Max = gtx.Constraints.Min
-										return theme.ProgressBar(w.theme, float32(w.progress)).Layout(gtx)
+										return theme.ProgressBar(mwin.theme, float32(mwin.progress)).Layout(gtx)
 									}))
 							})
 						})
@@ -670,20 +670,20 @@ func (w *MainWindow) Run(win *app.Window) error {
 						for _, ev := range gtx.Events(&shortcuts) {
 							switch ev := ev.(type) {
 							case key.Event:
-								if ev.State == key.Press && w.ww == nil {
+								if ev.State == key.Press && mwin.ww == nil {
 									switch ev.Name {
 									case "G":
-										w.ww = theme.NewListWindow(w.theme)
-										items := make([]theme.ListWindowItem, 0, 2+len(w.trace.Processors)+len(w.trace.Goroutines))
+										mwin.ww = theme.NewListWindow(mwin.theme)
+										items := make([]theme.ListWindowItem, 0, 2+len(mwin.trace.Processors)+len(mwin.trace.Goroutines))
 										// XXX the GC and STW widgets should also be added here
-										for _, p := range w.trace.Processors {
+										for _, p := range mwin.trace.Processors {
 											items = append(items, theme.ListWindowItem{
 												Item:         p,
 												Label:        local.Sprintf("processor %d", p.ID),
-												FilterLabels: w.trace.processorFilterLabels(p),
+												FilterLabels: mwin.trace.processorFilterLabels(p),
 											})
 										}
-										for _, g := range w.trace.Goroutines {
+										for _, g := range mwin.trace.Goroutines {
 											var label string
 											if g.Function.Fn == "" {
 												// At least GCSweepStart can happen on g0
@@ -694,14 +694,14 @@ func (w *MainWindow) Run(win *app.Window) error {
 											items = append(items, theme.ListWindowItem{
 												Item:         g,
 												Label:        label,
-												FilterLabels: w.trace.goroutineFilterLabels(g),
+												FilterLabels: mwin.trace.goroutineFilterLabels(g),
 											})
 										}
-										w.ww.SetItems(items)
-										w.ww.BuildFilter = newTimelineFilter
+										mwin.ww.SetItems(items)
+										mwin.ww.BuildFilter = newTimelineFilter
 										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 											gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
-											return w.ww.Layout(gtx)
+											return mwin.ww.Layout(gtx)
 										})
 									}
 								}
@@ -710,35 +710,35 @@ func (w *MainWindow) Run(win *app.Window) error {
 
 						if mainMenu.Display.UndoNavigation.Clicked() {
 							win.Menu.Close()
-							w.canvas.UndoNavigation(gtx)
+							mwin.canvas.UndoNavigation(gtx)
 						}
 						if mainMenu.Display.ScrollToTop.Clicked() {
 							win.Menu.Close()
-							w.canvas.ScrollToTop(gtx)
+							mwin.canvas.ScrollToTop(gtx)
 						}
 						if mainMenu.Display.ZoomToFit.Clicked() {
 							win.Menu.Close()
-							w.canvas.ZoomToFitCurrentView(gtx)
+							mwin.canvas.ZoomToFitCurrentView(gtx)
 						}
 						if mainMenu.Display.JumpToBeginning.Clicked() {
 							win.Menu.Close()
-							w.canvas.JumpToBeginning(gtx)
+							mwin.canvas.JumpToBeginning(gtx)
 						}
 						if mainMenu.Display.ToggleCompactDisplay.Clicked() {
 							win.Menu.Close()
-							w.canvas.ToggleCompactDisplay()
+							mwin.canvas.ToggleCompactDisplay()
 						}
 						if mainMenu.Display.ToggleTimelineLabels.Clicked() {
 							win.Menu.Close()
-							w.canvas.ToggleTimelineLabels()
+							mwin.canvas.ToggleTimelineLabels()
 						}
 						if mainMenu.Display.ToggleStackTracks.Clicked() {
 							win.Menu.Close()
-							w.canvas.ToggleStackTracks()
+							mwin.canvas.ToggleStackTracks()
 						}
 						if mainMenu.Analyze.OpenHeatmap.Clicked() {
 							win.Menu.Close()
-							w.openHeatmap()
+							mwin.openHeatmap()
 						}
 						if mainMenu.Debug.Memprofile.Clicked() {
 							win.Menu.Close()
@@ -761,40 +761,40 @@ func (w *MainWindow) Run(win *app.Window) error {
 							}
 						}
 
-						for _, g := range w.canvas.clickedGoroutineTimelines {
-							w.openGoroutine(g)
+						for _, g := range mwin.canvas.clickedGoroutineTimelines {
+							mwin.openGoroutine(g)
 						}
 
-						if w.panel != nil {
-							if w.panel.Closed() {
-								w.closePanel()
-							} else if w.panel.Detached() {
-								w.openPanelWindow(w.panel)
-								w.closePanel()
+						if mwin.panel != nil {
+							if mwin.panel.Closed() {
+								mwin.closePanel()
+							} else if mwin.panel.Detached() {
+								mwin.openPanelWindow(mwin.panel)
+								mwin.closePanel()
 							}
 						}
 
 						key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
 
-						if w.ww != nil {
-							if item, ok := w.ww.Confirmed(); ok {
-								w.canvas.scrollToTimeline(gtx, item)
-								w.ww = nil
+						if mwin.ww != nil {
+							if item, ok := mwin.ww.Confirmed(); ok {
+								mwin.canvas.scrollToTimeline(gtx, item)
+								mwin.ww = nil
 								win.CloseModal()
-							} else if w.ww.Cancelled() {
-								w.ww = nil
+							} else if mwin.ww.Cancelled() {
+								mwin.ww = nil
 								win.CloseModal()
 							}
 						}
 
-						w.debugWindow.cvStart.addValue(gtx.Now, float64(w.canvas.start))
-						w.debugWindow.cvEnd.addValue(gtx.Now, float64(w.canvas.end))
-						w.debugWindow.cvY.addValue(gtx.Now, float64(w.canvas.y))
+						mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
+						mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.end))
+						mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
 
-						if w.panel == nil {
-							return w.canvas.Layout(win, gtx)
+						if mwin.panel == nil {
+							return mwin.canvas.Layout(win, gtx)
 						} else {
-							return theme.Resize(win.Theme, &resize).Layout(win, gtx, w.canvas.Layout, w.panel.Layout)
+							return theme.Resize(win.Theme, &resize).Layout(win, gtx, mwin.canvas.Layout, mwin.panel.Layout)
 						}
 
 					default:
@@ -811,13 +811,13 @@ func (w *MainWindow) Run(win *app.Window) error {
 	}
 }
 
-func (w *MainWindow) loadTraceImpl(res loadTraceResult) {
-	NewCanvasInto(&w.canvas, w, res.trace)
-	w.canvas.start = res.start
-	w.canvas.end = res.end
-	w.canvas.memoryGraph = res.plot
-	w.canvas.timelines = append(w.canvas.timelines, res.timelines...)
-	w.trace = res.trace
+func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
+	NewCanvasInto(&mwin.canvas, mwin, res.trace)
+	mwin.canvas.start = res.start
+	mwin.canvas.end = res.end
+	mwin.canvas.memoryGraph = res.plot
+	mwin.canvas.timelines = append(mwin.canvas.timelines, res.timelines...)
+	mwin.trace = res.trace
 }
 
 type durationNumberFormat uint8

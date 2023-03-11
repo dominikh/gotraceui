@@ -174,14 +174,14 @@ type Canvas struct {
 	trackWidgetsCache    Cache[TrackWidget]
 }
 
-func NewCanvasInto(cv *Canvas, w *MainWindow, t *Trace) {
+func NewCanvasInto(cv *Canvas, mwin *MainWindow, t *Trace) {
 	cv.resizeMemoryTimelines.Axis = layout.Vertical
 	cv.resizeMemoryTimelines.Ratio = 0.1
 	cv.timeline.displayAllLabels = true
 	cv.axis = Axis{cv: cv, origin: 0.5}
-	cv.mainWindow = w
+	cv.mainWindow = mwin
 	cv.trace = t
-	cv.debugWindow = w.debugWindow
+	cv.debugWindow = mwin.debugWindow
 
 	cv.timelines = make([]*Timeline, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
 	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
