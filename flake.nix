@@ -33,6 +33,10 @@
                 darwin.apple_sdk_11_0.frameworks.AppKit
                 darwin.apple_sdk_11_0.MacOSX-SDK
               ] else [ ]);
+
+            postInstall = ''
+              cp -r share $out/
+            '';
           };
 
           packages.default = self.packages.${system}.gotraceui;
