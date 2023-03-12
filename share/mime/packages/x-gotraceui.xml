@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<mime-info xmlns='http://www.freedesktop.org/standards/shared-mime-info'>
+  <mime-type type="application/x-go-execution-trace">
+	<comment>Go execution trace</comment>
+	<magic>
+	  <match type="string" offset="0" value="go 1.7 trace\0\0\0\0"></match>
+	  <match type="string" offset="0" value="go 1.8 trace\0\0\0\0"></match>
+	  <match type="string" offset="0" value="go 1.9 trace\0\0\0\0"></match>
+	  <match type="string" offset="0" value="go 1.10 trace\0\0\0"></match>
+	  <match type="string" offset="0" value="go 1.11 trace\0\0\0"></match>
+	  <match type="string" offset="0" value="go 1.19 trace\0\0\0"></match>
+	</magic>
+  </mime-type>
+</mime-info>
