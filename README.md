@@ -4,16 +4,20 @@ Gotraceui is a tool for visualizing and analyzing Go execution traces. It is mea
 more powerful alternative to `go tool trace`. Unlike `go tool trace`, Gotraceui doesn’t use deprecated browser APIs (or a
 browser at all), and its UI is tuned specifically to the unique characteristics of Go traces.
 
-## Use
+## Status
 
-Gotraceui is still a work in progress with many sharp corners, but you can already try it out. Simply build
-`honnef.co/go/gotraceui/cmd/gotraceui` and run it, passing the path to a trace file as the only argument. See the
-documentation of [runtime/trace](https://pkg.go.dev/runtime/trace) on how to obtain traces, and see [Gio's
-instructions](https://gioui.org/doc/install) to figure out the dependencies required for building Gotraceui.
+Gotraceui still has some sharp corners, hasn't had its first release yet and is lacking a manual. It is, however, fairly
+usable, and people have already used it productively.
+
+## Installation
+
+Users of Nix can use the flake. There are no packages for other distributions or OSs yet and you will have to build
+`honnef.co/go/gotraceui/cmd/gotraceui` yourself. [Gio's instructions](https://gioui.org/doc/install) explain the
+dependencies for the various platforms.
 
 ## Controls
 
-None of these controls are final. Users without a middle mouse button will have a bad experience right now.
+None of these controls are final.
 
 | Key                                     | Function                                                                    |
 |-----------------------------------------|-----------------------------------------------------------------------------|
