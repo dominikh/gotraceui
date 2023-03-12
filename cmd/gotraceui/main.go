@@ -18,9 +18,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -682,16 +684,22 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						return layout.Dimensions{}
 
 					case "start":
-						// XXX logo
-						// XXX splash screen of some sort
 						gtx.Constraints.Min = gtx.Constraints.Max
 
 						for openTraceButton.Clicked() {
 							mwin.showFileOpenDialog()
 						}
-
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return theme.Button(win.Theme, &openTraceButton, "Open trace").Layout(win, gtx)
+							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return layout.Center.Layout(gtx, mywidget.Image{Src: assets.Image(gtx, "logo", 128)}.Layout)
+								}),
+
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &openTraceButton, "Open trace").Layout))
+								}),
+							)
 						})
 
 					case "error":

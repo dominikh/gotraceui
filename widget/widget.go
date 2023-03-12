@@ -6,6 +6,7 @@ import (
 	"image/color"
 	rtrace "runtime/trace"
 
+	"gioui.org/f32"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -94,4 +95,35 @@ type List struct {
 	CrossOffset float32
 	Widest      int
 	layout.List
+}
+
+// Image is like the official widget.Image but doesn't apply any scaling, not even for PxPerDp.
+// In other words, it maps one image pixel to one output pixel.
+type Image struct {
+	Src      paint.ImageOp
+	Position layout.Direction
+}
+
+func (im Image) Layout(gtx layout.Context) layout.Dimensions {
+	size := im.Src.Size()
+
+	dims, trans := scale(gtx.Constraints, im.Position, layout.Dimensions{Size: size})
+	defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
+	defer op.Affine(trans).Push(gtx.Ops).Pop()
+
+	im.Src.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+
+	return dims
+}
+
+// scale computes the new dimensions and transformation required to fit dims to cs, given the position.
+func scale(cs layout.Constraints, pos layout.Direction, dims layout.Dimensions) (layout.Dimensions, f32.Affine2D) {
+	widgetSize := dims.Size
+
+	dims.Size = cs.Constrain(dims.Size)
+
+	offset := pos.Position(widgetSize, dims.Size)
+	dims.Baseline += offset.Y
+	return dims, f32.Affine2D{}.Offset(layout.FPt(offset))
 }
