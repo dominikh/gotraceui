@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.4
+Name=Gotraceui
+GenericName=Trace Viewer
+Comment=View Go execution traces
+Icon=gotraceui
+Exec=gotraceui %f
+Terminal=false
+MimeType=application/x-go-execution-trace
