@@ -37,6 +37,13 @@
             postInstall = ''
               cp -r share $out/
             '';
+
+            meta = with nixpkgs.lib; {
+              description = "An efficient frontend for Go execution traces";
+              homepage = "https://github.com/dominikh/gotraceui";
+              license = licenses.mit;
+              platforms = platforms.all;
+            };
           };
 
           packages.default = self.packages.${system}.gotraceui;
