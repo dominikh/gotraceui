@@ -16,6 +16,7 @@ var colors = [...]color.NRGBA{
 	colorStateBlockedGC:            rgba(0x9C6FD6FF),
 	colorStateBlockedSyscall:       rgba(0xBA4F41FF),
 	colorStateGC:                   rgba(0x9C6FD6FF),
+	colorStateSTW:                  rgba(0xBA4141FF),
 
 	colorStateReady:      rgba(0x4BACB8FF),
 	colorStateStuck:      rgba(0x000000FF),
@@ -49,6 +50,7 @@ const (
 	colorStateBlockedGC
 	colorStateBlockedSyscall
 	colorStateGC
+	colorStateSTW
 
 	colorStateReady
 	colorStateStuck

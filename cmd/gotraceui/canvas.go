@@ -927,10 +927,14 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw STW and GC overlays
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
-			drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), rgba(0x9C6FD633), gtx.Constraints.Max.Y)
+			c := colors[colorStateGC]
+			c.A = 0xCC
+			drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), c, gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
-			drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), rgba(0xBA414133), gtx.Constraints.Max.Y)
+			c := colors[colorStateSTW]
+			c.A = 0xCC
+			drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), c, gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
