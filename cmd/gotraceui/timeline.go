@@ -2125,11 +2125,37 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	tl.tracks = append(tl.tracks, stackTracks...)
 }
 
+func singleSpanLabel(label string, showForMerged bool) func(spanSel SpanSelector, tr *Trace, out []string) []string {
+	return func(spanSel SpanSelector, tr *Trace, out []string) []string {
+		if !showForMerged && spanSel.Size() != 1 {
+			return out
+		}
+		return append(out, label)
+	}
+}
+
+func singleSpanColor(c colorIndex) func(spanSel SpanSelector, tr *Trace) [2]colorIndex {
+	return func(spanSel SpanSelector, tr *Trace) [2]colorIndex {
+		if spanSel.Size() == 1 {
+			return [2]colorIndex{c, 0}
+		} else {
+			return [2]colorIndex{c, colorStateMerged}
+		}
+	}
+}
+
 func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 	return &Timeline{
 		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
 		item:   spans,
 		label:  "GC",
+
+		buildTrackWidgets: func(tracks []Track) {
+			*tracks[0].TrackWidget = TrackWidget{
+				spanLabel: singleSpanLabel("GC", true),
+				spanColor: singleSpanColor(colorStateGC),
+			}
+		},
 	}
 }
 
@@ -2138,5 +2164,12 @@ func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
 		item:   spans,
 		label:  "STW",
+
+		buildTrackWidgets: func(tracks []Track) {
+			*tracks[0].TrackWidget = TrackWidget{
+				spanLabel: singleSpanLabel("STW", true),
+				spanColor: singleSpanColor(colorStateSTW),
+			}
+		},
 	}
 }
