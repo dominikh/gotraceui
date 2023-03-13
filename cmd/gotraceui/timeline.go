@@ -794,7 +794,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, la
 			})
 		}
 
-		if dspSpanSel.Size() == 1 && track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
+		if track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) {
 			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
 			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
 			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
