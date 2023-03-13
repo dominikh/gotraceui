@@ -22,7 +22,6 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -693,7 +692,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							gtx.Constraints.Min.X = gtx.Constraints.Max.X
 							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return layout.Center.Layout(gtx, mywidget.Image{Src: assets.Image(gtx, "logo", 128)}.Layout)
+									return layout.Center.Layout(gtx, widget.Image{Src: assets.Image(gtx, "logo", 128), Scale: 1.0 / gtx.Metric.PxPerDp}.Layout)
 								}),
 
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
