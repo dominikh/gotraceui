@@ -1,4 +1,4 @@
-\documentclass[10pt,letterpaper,oneside,openany,showtrims,draft]{memoir}
+\documentclass[10pt,letterpaper,oneside,openany,showtrims]{memoir}
 \usepackage[english]{babel}
 \usepackage{microtype}
 \usepackage{csquotes}
@@ -50,24 +50,58 @@
 
 \AtBeginEnvironment{verbatim}{\microtypesetup{activate=false}}
 
+\title{Gotraceui --- the manual}
+\author{Dominik Honnef \& contributors}
+
 \begin{document}
 \frontmatter
 
-\mainmatter
+\begin{titlingpage}
+\centering
+\includegraphics[width=0.8\textwidth]{./images/logo}
+
+\begin{vplace}
+{\HUGE\bfseries Gotraceui}\\[\baselineskip]
+{\Huge The manual}\\[2\baselineskip]
+{by Dominik Honnef \& contributors}
+\end{vplace}
+\end{titlingpage}
 
 \microtypesetup{protrusion=false}
 \tableofcontents
 \microtypesetup{protrusion=true}
+
+\mainmatter
+
+% TODO UI features to document
+% - axis
+%   - ticks, draggable origin, context menu
+% - memory graph
+%   - line, area, tooltip, top and bottom label, context menu, resizable
+% - main menu
+% - timelines
+%   - clicking on label (both to open goroutine panel and to zoom)
+%   - spans (zoom, hover, context menus)
+% - goroutine panel
+%   - it can pop out!
+% - heatmap
+% - stack tracks
+% - user regions
+% - jump to timeline dialog
+% - whiskers
+% - span tags
+% - end of timeline marker
+% - span popup
+% - event in span tooltip
 
 \chapter{Introduction}
 
 The official implementation of the Go language depends on a runtime for memory management (via garbage collection) and for scheduling goroutines.
 The runtime does its work in the background, out of sight, but it provides a powerful tool for inspecting its actions: the runtime tracer.
 
-The tracer produces an exact (i.e., not sampled) stream of events describing in detail the execution of goroutines.
+The runtime tracer produces execution traces, which are exact (i.e., not sampled) streams of events describing in detail the execution of goroutines.
 It shows when goroutines start or stop, where they block, what unblocks them, how long they spend stuck in syscalls, and more.
-The trace also contains information about the work of the garbage collector (GC):
-It indicates stop-the-world phases, the duration of mark phases, and even how much time each goroutine is spending assisting the GC.
+Traces also contains information about the work of the garbage collector (GC), indicating its various phases, and how much CPU time goroutines have to contribute to assisting the GC.
 In short, the runtime tracer provides a complete view of the interactions between the runtime and our code.
 
 These traces can be useful in two situations:
@@ -77,43 +111,43 @@ and when we want to analyze how our goroutines interact with each other and the 
 Because the runtime is responsible for scheduling goroutines, it may make decisions that we don't agree with.
 For example, it might take an unusually long time to schedule an important goroutine.
 This might become apparent due to unreliable performance and large tail latencies.
-When this happens, the runtime trace is the best way to make sure that the issue does indeed lie with Go and not our code.
+When this happens, traces are the best way to make sure that the issue does indeed lie with Go and not our code.
 
 More commonly, traces can be used to understand the behavior of our own code.
 Virtually all interactions between goroutines go through the runtime.
 Similarly, most interactions with the outside world (such as file or network I/O, or syscalls) go through the runtime, too.
-Runtime traces, then, provide an accurate view into what our code is doing while it's not spending time on the CPU executing instructions.
+Execution traces, then, provide an accurate view into what our code is doing while it's not spending time on the CPU executing instructions.
 In other words, they show us what our code is waiting on.
 This, too, can help diagnose performance issues (this time caused by us), deadlocks, and more.
 
-Unfortunately, the runtime tracer hasn't seen widespread adoption.
+Unfortunately, the tracer hasn't seen widespread adoption.
 This can be attributed to shortcomings in the official frontend, the \emph{Trace viewer}.
-The trace viewer isn't a custom-made tool for viewing Go runtime traces;
+The trace viewer isn't a custom-made tool for viewing Go execution traces;
 instead, it is a repurposed copy of Chrome's old tracing frontend, \emph{Catapult}.
-Unfortunately, it wasn't made to handle the millions of events that can occur in even short runtime traces,
+Unfortunately, it wasn't made to handle the millions of events that can occur in even short traces,
 nor does it have any functionality that helps with understanding the specifics of the behavior of the Go runtime.
 Finally, the UI is just weird, using controls that are neither ergonomic nor intuitive.
 Go tries to work around these shortcomings, by splitting large traces into smaller ones and by clever use of Catapult's features.
 However, workarounds can only do so much and come with their own problems.
-For these reasons, the runtime tracer is usually people's last choice for debugging problems.
+For these reasons, the tracer is usually people's last choice for debugging problems.
 
 Gotraceui was created to address these problems.
-It was written from scratch, with a focus on displaying large Go runtime traces and making them more accessible.
+It was written from scratch, with a focus on displaying large Go execution traces and making them more accessible.
 It can handle millions of events in a single trace, overlay traces with CPU profiling data as well as memory usage,
-and annotate runtime traces with metadata extracted from stack traces, among other things.
+and annotate traces with metadata extracted from stack traces, among other things.
 Unlike the official frontend, Gotraceui provides both per-processor and per-goroutine timelines,
 with the latter often being much more useful for understanding the behavior of user code.
 
 Even though the current version of Gotraceui is still in its early stages,
 lacking many of the envisioned features,
 it has already proven to be a useful tool in everyday use
-and people have diagnosed real problems with it without prior experience with runtime traces.
+and people have diagnosed real problems with it without prior experience with Go's traces.
 
 The purpose of this manual is not just to explain every aspect of Gotraceui,
-but also to offer an introduction to runtime traces themselves,
+but also to offer an introduction to execution traces themselves,
 and, where necessary, explain how the runtime works to make better sense of the traces it produces.
 
-The author hopes that runtime traces will become a standard debugging tool for most Go developers.
+The authors hope that execution traces will become a standard debugging tool for most Go developers.
 
 \chapter{Quickstart}
 
@@ -121,7 +155,7 @@ The author hopes that runtime traces will become a standard debugging tool for m
 
 Gotraceui runs on Linux (X11 and Wayland), Windows, and macOS.
 
-Runtime traces are very dense in information and can contain millions of events in the span of seconds.
+Execution traces are very dense in information and can contain millions of events in the span of seconds.
 The format emitted by \code{runtime/trace} is optimized for small and low overhead output and is highly compressed.
 To be able to process and display a trace, Gotraceui has to parse and materialize it in memory.
 Memory usage is roughly 30x the size of the input trace.
@@ -231,7 +265,7 @@ For merged spans with mixed states, a solid light yellow is shown instead.
 
 \todo{talk about context menu}
 
-\section{Goroutine windows}
+\section{Goroutine panels}
 \begin{itemize}
 \item \todo{General information}
 \item \todo{Stack trace}
@@ -239,8 +273,6 @@ For merged spans with mixed states, a solid light yellow is shown instead.
 \item \todo{Events}
 \end{itemize}
 
-\section{Processor windows}
-\todo{TODO}
 \section{Heatmaps}
 \todo{TODO}
 
@@ -273,16 +305,23 @@ The following tags exist:
 A single span can be annotated with multiple tags.
 
 \chapter{The \code{runtime/trace} package}
+
+The \code{runtime/trace} package provides the interface between user code and runtime tracing.
+It allows recording traces, as well as adding additional information --- in the form of user regions and tasks --- to them.
+
 \section{Adding tracing to your application}
+\todo{TODO}
+
+\section{\code{net/http/pprof}}
+\todo{TODO}
+
+\section{Tracing tests}
 \todo{TODO}
 
 \section{User annotations}
 \todo{TODO}
 
 \section{CPU profiling}
-\todo{TODO}
-
-\section{\todo{Tracing in tests or something}}
 \todo{TODO}
 
 \chapter{The Go runtime}
@@ -297,7 +336,7 @@ Because it wouldn't be feasible to map one goroutine to one OS level thread,
 Go has to distribute goroutines over a smaller number of threads.
 To do so, the scheduler has to decide which goroutines to run when,
 part of which involves tracking which goroutines {\em can} run.
-The activity related to this makes up a large part of what the runtime trace captures and Gotraceui visualizes.
+The activity related to this makes up a large part of what the trace captures and Gotraceui visualizes.
 It is thus helpful to understand how the scheduler works.
 
 \subsection{Ms, Ps, and Gs}
@@ -401,7 +440,7 @@ the level of detail.
 Go uses a concurrent mark and sweep garbage collector.
 Its activity will interact with the scheduling of your goroutines in various ways,
 which we'll explore in this section.
-We will focus on the details that matter for understanding runtime traces.
+We will focus on the details that matter for understanding execution traces.
 There are many more details to how the GC works
 and you're encouraged to read the \href{https://go.dev/doc/gc-guide}{official documentation} to learn more about it.
 
@@ -451,12 +490,12 @@ Nevertheless, when looking at larger scales (hundreds of milliseconds, if not se
 especially when looking at repetitive executions,
 this visualization can expose patterns.
 The more often the same stack gets sampled, the more likely it is that it is indeed a major contributor to the code's execution.
-However, the data is woefully inadequate at small scales --- the kind of scales at which runtime trace data exists.
+However, the data is woefully inadequate at small scales --- the kind of scales at which execution trace data exists.
 You shouldn't rely on the sampled stack traces to fill in the gaps between two runtime events that happened \unit{100 us} apart.
 
 Gotraceui combines both CPU profiling and some runtime events when reconstructing stack trace tracks.
 CPU samples are those used by pprof.
-Beginning with Go 1.19, runtime traces include CPU samples if profiling is enabled at the same time as tracing.
+Beginning with Go 1.19, execution traces include CPU samples if profiling is enabled at the same time as tracing.
 However, goroutines that are blocked don't receive any samples, so we additionally use
 the stacks associated with runtime events that signal state transitions, such as goroutines calling \code{time.Sleep},
 to fill in the gaps.
