@@ -51,14 +51,14 @@ type GoroutineInfo struct {
 	stats  *GoroutineStats
 
 	buttons struct {
-		scrollToGoroutine widget.Clickable
-		zoomToGoroutine   widget.Clickable
+		scrollToGoroutine mywidget.PrimaryClickable
+		zoomToGoroutine   mywidget.PrimaryClickable
 	}
 
 	foldables struct {
-		stacktrace widget.Bool
-		stats      widget.Bool
-		events     widget.Bool
+		stacktrace mywidget.Bool
+		stats      mywidget.Bool
+		events     mywidget.Bool
 	}
 
 	description Text
@@ -167,12 +167,12 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	dims := layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			type button struct {
-				w     *widget.Clickable
+				w     *mywidget.Clickable
 				label string
 			}
 			buttonsLeft := []button{
-				{&gi.buttons.scrollToGoroutine, "Scroll to goroutine"},
-				{&gi.buttons.zoomToGoroutine, "Zoom to goroutine"},
+				{&gi.buttons.scrollToGoroutine.Clickable, "Scroll to goroutine"},
+				{&gi.buttons.zoomToGoroutine.Clickable, "Zoom to goroutine"},
 			}
 
 			var children []layout.FlexChild

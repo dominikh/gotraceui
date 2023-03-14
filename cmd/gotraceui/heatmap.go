@@ -25,7 +25,6 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
-	"gioui.org/widget"
 )
 
 type heatmapCacheKey struct {
@@ -314,7 +313,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 	}
 	hm := NewHeatMap(xStep, yStep, 100, buckets)
 
-	var useLinear widget.Bool
+	var useLinear mywidget.Bool
 	var ops op.Ops
 	tWin := &theme.Window{Theme: theme.NewTheme(gofont.Collection())}
 	for e := range win.Events() {

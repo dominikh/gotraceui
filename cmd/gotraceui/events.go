@@ -14,17 +14,16 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/text"
-	"gioui.org/widget"
 )
 
 type Events struct {
 	Trace  *Trace
 	Events []ptrace.EventID
 	Filter struct {
-		ShowGoCreate  widget.Bool
-		ShowGoUnblock widget.Bool
-		ShowGoSysCall widget.Bool
-		ShowUserLog   widget.Bool
+		ShowGoCreate  mywidget.Bool
+		ShowGoUnblock mywidget.Bool
+		ShowGoSysCall mywidget.Bool
+		ShowUserLog   mywidget.Bool
 	}
 	filteredEvents []ptrace.EventID
 	list           mywidget.List

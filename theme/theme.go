@@ -136,7 +136,7 @@ func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type CheckBoxStyle struct {
-	Checkbox        *widget.Bool
+	Checkbox        *mywidget.Bool
 	Label           string
 	TextSize        unit.Sp
 	ForegroundColor color.NRGBA
@@ -144,7 +144,7 @@ type CheckBoxStyle struct {
 	TextColor       color.NRGBA
 }
 
-func CheckBox(th *Theme, checkbox *widget.Bool, label string) CheckBoxStyle {
+func CheckBox(th *Theme, checkbox *mywidget.Bool, label string) CheckBoxStyle {
 	return CheckBoxStyle{
 		Checkbox:        checkbox,
 		Label:           label,
@@ -251,13 +251,13 @@ func clamp1(v float32) float32 {
 
 type FoldableStyle struct {
 	Title  string
-	Closed *widget.Bool
+	Closed *mywidget.Bool
 
 	TextSize  unit.Sp
 	TextColor color.NRGBA
 }
 
-func Foldable(th *Theme, b *widget.Bool, title string) FoldableStyle {
+func Foldable(th *Theme, b *mywidget.Bool, title string) FoldableStyle {
 	return FoldableStyle{
 		Closed: b,
 		Title:  title,
@@ -400,7 +400,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 
 type ButtonStyle struct {
 	Text   string
-	Button *widget.Clickable
+	Button *mywidget.Clickable
 
 	ActiveBackgroundColor color.NRGBA
 	BackgroundColor       color.NRGBA
@@ -408,7 +408,7 @@ type ButtonStyle struct {
 	TextColor             color.NRGBA
 }
 
-func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
+func Button(th *Theme, button *mywidget.Clickable, txt string) ButtonStyle {
 	return ButtonStyle{
 		Text:                  txt,
 		Button:                button,
@@ -426,7 +426,7 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		return mywidget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{Alignment: layout.Center}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-					if b.Button.Pressed() {
+					if b.Button.Pressed(pointer.ButtonPrimary) {
 						paint.FillShape(gtx.Ops, b.ActiveBackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
 					} else {
 						paint.FillShape(gtx.Ops, b.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())

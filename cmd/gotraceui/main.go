@@ -22,6 +22,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -600,7 +601,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var prevMallocs uint64
 	var mem runtime.MemStats
 	var frameCounter uint64
-	var openTraceButton widget.Clickable
+	var openTraceButton mywidget.PrimaryClickable
 
 	for {
 		select {
@@ -702,7 +703,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 								}),
 
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &openTraceButton, "Open trace").Layout))
+									return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &openTraceButton.Clickable, "Open trace").Layout))
 								}),
 							)
 						})
@@ -1379,14 +1380,14 @@ type Text struct {
 	// Clickables we use for spans and reuse between frames. We allocate them one by one because it really doesn't
 	// matter; we have hundreds of these at most. This won't make the GC sweat, and it avoids us having to do a bunch of
 	// semi-manual memory management.
-	clickables []*widget.Clickable
+	clickables []*mywidget.PrimaryClickable
 }
 
 type TextSpan struct {
 	*styledtext.SpanStyle
 	Link Link
 
-	Clickable *widget.Clickable
+	Clickable *mywidget.PrimaryClickable
 }
 
 func (txt *Text) Span(label string) *TextSpan {
@@ -1437,12 +1438,12 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	for i := range txt.Spans {
 		s := &txt.Spans[i]
 		if s.Link != nil {
-			var clk *widget.Clickable
+			var clk *mywidget.PrimaryClickable
 			if clickableIdx < len(txt.clickables) {
 				clk = txt.clickables[clickableIdx]
 				clickableIdx++
 			} else {
-				clk = &widget.Clickable{}
+				clk = &mywidget.PrimaryClickable{}
 				txt.clickables = append(txt.clickables, clk)
 				clickableIdx++
 			}
