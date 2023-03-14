@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	mygesture "honnef.co/go/gotraceui/gesture"
+	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -61,7 +61,7 @@ type TimelineWidget struct {
 	labelClick  widget.PrimaryClickable
 	labelClicks int
 
-	hover mygesture.Hover
+	hover gesture.Hover
 
 	// OPT(dh): Only one timeline can have hovered or activated spans, so we could track this directly in Canvas, and
 	// save 48 bytes per timeline (which means per goroutine). However, the current API is cleaner, because
@@ -184,8 +184,8 @@ type TrackWidget struct {
 	eventsOps                       reusableOps
 	labelsOps                       reusableOps
 
-	hover mygesture.Hover
-	click mygesture.Click
+	hover gesture.Hover
+	click gesture.Click
 
 	// cached state
 	prevFrame struct {
@@ -505,14 +505,14 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
 	for _, ev := range track.click.Events(gtx.Queue) {
-		if ev.Type == mygesture.TypeClick && ev.Button == pointer.ButtonPrimary {
+		if ev.Type == gesture.TypeClick && ev.Button == pointer.ButtonPrimary {
 			switch ev.Modifiers {
 			case key.ModShortcut:
 				trackNavigatedSpans = true
 			case 0:
 				trackClickedSpans = true
 			}
-		} else if ev.Type == mygesture.TypePress && ev.Button == pointer.ButtonSecondary {
+		} else if ev.Type == gesture.TypePress && ev.Button == pointer.ButtonSecondary {
 			trackContextMenuSpans = true
 		}
 	}

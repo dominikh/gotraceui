@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/exp/slices"
-	mygesture "honnef.co/go/gotraceui/gesture"
+	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -19,7 +19,6 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
-	"gioui.org/gesture"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
@@ -134,7 +133,7 @@ type Canvas struct {
 	// We have multiple sources of the pointer position, which are valid during different times: Canvas.hover and
 	// Canvas.drag.drag – when we're dragging, Canvas.drag.drag grabs pointer input and the hover won't update anymore.
 	pointerAt f32.Point
-	hover     mygesture.Hover
+	hover     gesture.Hover
 
 	timeline struct {
 		displayAllLabels   bool
@@ -147,7 +146,7 @@ type Canvas struct {
 
 		hoveredTimeline *Timeline
 		hoveredSpans    SpanSelector
-		hover           mygesture.Hover
+		hover           gesture.Hover
 	}
 
 	resizeMemoryTimelines component.Resize

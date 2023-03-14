@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	mygesture "honnef.co/go/gotraceui/gesture"
+	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -46,8 +46,8 @@ type Plot struct {
 	min uint64
 	max uint64
 
-	click mygesture.Click
-	hover mygesture.Hover
+	click gesture.Click
+	hover gesture.Hover
 
 	scratchPoints  []f32.Point
 	scratchStrings []string
@@ -132,7 +132,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 	var clicked bool
 	for _, click := range pl.click.Events(gtx.Queue) {
-		if click.Type == mygesture.TypePress && click.Button == pointer.ButtonSecondary {
+		if click.Type == gesture.TypePress && click.Button == pointer.ButtonSecondary {
 			clicked = true
 			break
 		}
