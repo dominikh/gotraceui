@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/exp/slices"
+	mygesture "honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -131,7 +132,10 @@ type Canvas struct {
 	// Frame-local state set by Layout and read by various helpers
 	nsPerPx float32
 
+	// We have multiple sources of the pointer position, which are valid during different times: Canvas.hover and
+	// Canvas.drag.drag – when we're dragging, Canvas.drag.drag grabs pointer input and the hover won't update anymore.
 	pointerAt f32.Point
+	hover     mygesture.Hover
 
 	timeline struct {
 		displayAllLabels   bool
@@ -144,7 +148,7 @@ type Canvas struct {
 
 		hoveredTimeline *Timeline
 		hoveredSpans    SpanSelector
-		pointerAt       f32.Point
+		hover           mygesture.Hover
 	}
 
 	resizeMemoryTimelines component.Resize
@@ -559,6 +563,13 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		return layout.Dimensions{Size: gtx.Constraints.Max}
 	}
 
+	cv.timeline.hover.Update(gtx.Queue)
+	cv.hover.Update(gtx.Queue)
+
+	if cv.hover.Hovered() {
+		cv.pointerAt = cv.hover.Pointer()
+	}
+
 	if cv.animateTo.animating {
 		// XXX animation really makes it obvious that our span merging algorithm is unstable
 
@@ -643,7 +654,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 						} else {
 							cv.cancelNavigation()
 							y := cv.timelineY(gtx, h.item)
-							cv.y = y - (int(cv.timeline.pointerAt.Y) - int(h.pointerAt.Y))
+							cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(h.hover.Pointer().Y))
 						}
 					}
 
@@ -687,8 +698,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				}
 			}
 		case pointer.Event:
-			cv.pointerAt = ev.Position
-
 			switch ev.Type {
 			case pointer.Scroll:
 				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
@@ -700,11 +709,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				}
 			}
 		}
-	}
-
-	for _, e := range gtx.Events(&cv.timeline.pointerAt) {
-		ev := e.(pointer.Event)
-		cv.timeline.pointerAt = ev.Position
 	}
 
 	for _, ev := range cv.drag.drag.Events(gtx.Metric, gtx, gesture.Both) {
@@ -741,6 +745,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 	func(gtx layout.Context) {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		cv.hover.Add(gtx.Ops)
 
 		cv.clickedGoroutineTimelines = cv.clickedGoroutineTimelines[:0]
 
@@ -889,7 +894,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 								cv.drag.drag.Add(gtx.Ops)
 
-								pointer.InputOp{Tag: &cv.timeline.pointerAt, Types: pointer.Move | pointer.Drag}.Add(gtx.Ops)
+								cv.timeline.hover.Add(gtx.Ops)
 								dims, tws := cv.layoutTimelines(win, gtx)
 								cv.prevFrame.displayedTls = tws
 								return dims

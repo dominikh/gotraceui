@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	mygesture "honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -45,10 +46,11 @@ type Plot struct {
 	min uint64
 	max uint64
 
+	click mygesture.Click
+	hover mygesture.Hover
+
 	scratchPoints  []f32.Point
 	scratchStrings []string
-	pointerAt      f32.Point
-	hovered        bool
 	hideLegends    bool
 	autoScale      bool
 
@@ -122,19 +124,17 @@ func (pl *Plot) computeExtents(start, end trace.Timestamp) (min, max uint64) {
 
 func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Plot.Layout").End()
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+	pl.hover.Update(gtx.Queue)
+	pl.click.Add(gtx.Ops)
+	pl.hover.Add(gtx.Ops)
+
 	var clicked bool
-	for _, e := range gtx.Events(pl) {
-		ev := e.(pointer.Event)
-		switch ev.Type {
-		case pointer.Enter, pointer.Move:
-			pl.hovered = true
-			pl.pointerAt = ev.Position
-		case pointer.Press:
-			if ev.Buttons == pointer.ButtonSecondary {
-				clicked = true
-			}
-		case pointer.Leave, pointer.Cancel:
-			pl.hovered = false
+	for _, click := range pl.click.Events(gtx.Queue) {
+		if click.Type == mygesture.TypePress && click.Button == pointer.ButtonSecondary {
+			clicked = true
+			break
 		}
 	}
 
@@ -155,9 +155,6 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		r.End()
 	}
 
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: pl, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Press | pointer.Cancel}.Add(gtx.Ops)
-
 	paint.Fill(gtx.Ops, rgba(0xDFFFEAFF))
 
 	{
@@ -171,7 +168,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		r.End()
 	}
 
-	if pl.hovered {
+	if pl.click.Hovered() {
 		r := rtrace.StartRegion(context.Background(), "hovered")
 		// When drawing the plot, multiple points can fall on the same pixel, in which case we pick the last value for a
 		// given pixel.
@@ -179,7 +176,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		// When hovering, we want to get the most recent point for the hovered pixel. We do this by searching for the
 		// first point whose timestamp would fall on a later pixel, and then use the point immediately before that.
 
-		ts := cv.pxToTs(pl.pointerAt.X + 1)
+		ts := cv.pxToTs(pl.hover.Pointer().X + 1)
 
 		lines := pl.scratchStrings[:0]
 		for _, s := range pl.series {

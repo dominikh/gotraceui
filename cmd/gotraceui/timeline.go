@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	mygesture "honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -61,8 +62,7 @@ type TimelineWidget struct {
 	labelClick  gesture.Click
 	labelClicks int
 
-	pointerAt f32.Point
-	hovered   bool
+	hover mygesture.Hover
 
 	// OPT(dh): Only one timeline can have hovered or activated spans, so we could track this directly in Canvas, and
 	// save 48 bytes per timeline (which means per goroutine). However, the current API is cleaner, because
@@ -78,7 +78,7 @@ func (tw *TimelineWidget) Hovered() bool {
 	if tw == nil {
 		return false
 	}
-	return tw.hovered
+	return tw.hover.Hovered()
 }
 
 type SpanTooltipState struct {
@@ -185,9 +185,8 @@ type TrackWidget struct {
 	eventsOps                       reusableOps
 	labelsOps                       reusableOps
 
-	pointerAt f32.Point
-	hovered   bool
-	click     gesture.Click
+	hover mygesture.Hover
+	click mygesture.Click
 
 	// cached state
 	prevFrame struct {
@@ -273,6 +272,8 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		*tl.TimelineWidget = TimelineWidget{cv: cv}
 	}
 
+	tl.hover.Update(gtx.Queue)
+
 	// TODO(dh): we could replace all uses of timelineHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
 	// and pointer input. When we reuse the previous frame and need to return dimensions, we should use a stored value
@@ -288,19 +289,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	tl.clickedSpans = NoSpan{}
 	tl.navigatedSpans = NoSpan{}
 	tl.hoveredSpans = NoSpan{}
-
-	for _, e := range gtx.Events(tl) {
-		ev := e.(pointer.Event)
-		switch ev.Type {
-		case pointer.Enter, pointer.Move:
-			tl.hovered = true
-			tl.pointerAt = ev.Position
-		case pointer.Drag:
-			tl.pointerAt = ev.Position
-		case pointer.Leave, pointer.Cancel:
-			tl.hovered = false
-		}
-	}
 
 	tl.labelClicks = 0
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
@@ -318,15 +306,15 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	}
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: tl, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	tl.hover.Add(gtx.Ops)
 
 	if !compact {
-		if tl.hovered || forceLabel || topBorder {
+		if tl.Hovered() || forceLabel || topBorder {
 			// Draw border at top of the timeline
 			paint.FillShape(gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
-		if tl.hovered || forceLabel {
+		if tl.Hovered() || forceLabel {
 			labelGtx := gtx
 			labelGtx.Constraints.Min = image.Point{}
 			labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
@@ -508,6 +496,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
 	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 	track.click.Add(gtx.Ops)
+	track.hover.Add(gtx.Ops)
 
 	track.clickedSpans = NoSpan{}
 	track.navigatedSpans = NoSpan{}
@@ -516,39 +505,25 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	trackClickedSpans := false
 	trackNavigatedSpans := false
 	trackContextMenuSpans := false
-	for _, e := range gtx.Events(track) {
-		ev := e.(pointer.Event)
-		switch ev.Type {
-		case pointer.Enter, pointer.Move:
-			track.hovered = true
-			track.pointerAt = ev.Position
-		case pointer.Drag:
-			track.pointerAt = ev.Position
-		case pointer.Leave, pointer.Cancel:
-			track.hovered = false
-		case pointer.Press:
-			if ev.Buttons == pointer.ButtonSecondary {
-				trackContextMenuSpans = true
-			}
-		}
-	}
 
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
 	for _, ev := range track.click.Events(gtx.Queue) {
-		if ev.Type != gesture.TypeClick {
-			continue
-		}
-		switch ev.Modifiers {
-		case key.ModShortcut:
-			trackNavigatedSpans = true
-		case 0:
-			trackClickedSpans = true
+		if ev.Type == mygesture.TypeClick && ev.Button == pointer.ButtonPrimary {
+			switch ev.Modifiers {
+			case key.ModShortcut:
+				trackNavigatedSpans = true
+			case 0:
+				trackClickedSpans = true
+			}
+		} else if ev.Type == mygesture.TypePress && ev.Button == pointer.ButtonSecondary {
+			trackContextMenuSpans = true
 		}
 	}
+	track.hover.Update(gtx.Queue)
 
 	// OPT(dh): don't redraw if the only change is cv.y
-	if !track.hovered &&
+	if !track.hover.Hovered() &&
 		!track.prevFrame.hovered &&
 		cv.unchanged() &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
@@ -559,7 +534,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		return track.prevFrame.dims
 	}
 
-	track.prevFrame.hovered = track.hovered
+	track.prevFrame.hovered = track.hover.Hovered()
 	track.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
@@ -604,7 +579,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	var prevEndPx float32
 	doSpans := func(dspSpanSel SpanSelector, startPx, endPx float32) {
 		hovered := false
-		if track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+		if track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
 			// Highlight the span under the cursor
 			hovered = true
 			track.hoveredSpans = dspSpanSel
@@ -699,7 +674,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		p.Close()
 
 		var spanTooltipState SpanTooltipState
-		if cv.timeline.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= startPx && track.pointerAt.X < endPx {
+		if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
 			events := dspSpanSel.Spans().Events(track.events, tr.Trace)
 
 			spanTooltipState = SpanTooltipState{
@@ -761,7 +736,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				eventsPath.LineTo(f32.Pt(minX, maxY))
 				eventsPath.Close()
 
-				if cv.timeline.showTooltips < showTooltipsNone && track.hovered && track.pointerAt.X >= minX && track.pointerAt.X < maxX {
+				if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= minX && track.hover.Pointer().X < maxX {
 					spanTooltipState.eventsUnderCursor = events[oldi : i+1]
 				}
 			}
