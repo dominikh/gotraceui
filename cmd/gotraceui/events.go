@@ -6,12 +6,14 @@ import (
 	"image"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
+	"gioui.org/io/pointer"
 	"gioui.org/op/clip"
 	"gioui.org/text"
 )
@@ -75,11 +77,9 @@ func (evs *Events) Clicked() []any {
 	var out []any
 	for i := 0; i < evs.texts.Len(); i++ {
 		txt := evs.texts.Ptr(i)
-		for j := range txt.Spans {
-			if s := &txt.Spans[j]; s.Clickable != nil {
-				for s.Clickable.Clicked() {
-					out = append(out, s.Object)
-				}
+		for _, ev := range txt.Events() {
+			if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
+				out = append(out, ev.Span.Object)
 			}
 		}
 	}

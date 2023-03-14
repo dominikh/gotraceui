@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -247,11 +248,9 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		}),
 	)
 
-	for i := range gi.description.Spans {
-		if s := &gi.description.Spans[i]; s.Clickable != nil {
-			for s.Clickable.Clicked() {
-				gi.MainWindow.OpenLink(defaultLink(s.Object))
-			}
+	for _, ev := range gi.description.Events() {
+		if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
+			gi.MainWindow.OpenLink(defaultLink(ev.Span.Object))
 		}
 	}
 

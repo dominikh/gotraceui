@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
+	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -1376,17 +1377,24 @@ type Text struct {
 	Spans     []TextSpan
 	Alignment text.Alignment
 
+	events []TextEvent
+
 	// Clickables we use for spans and reuse between frames. We allocate them one by one because it really doesn't
 	// matter; we have hundreds of these at most. This won't make the GC sweat, and it avoids us having to do a bunch of
 	// semi-manual memory management.
-	clickables []*widget.PrimaryClickable
+	clickables []*gesture.Click
+}
+
+type TextEvent struct {
+	Span  *TextSpan
+	Event gesture.ClickEvent
 }
 
 type TextSpan struct {
 	*styledtext.SpanStyle
 	Object any
 
-	Clickable *widget.PrimaryClickable
+	Click *gesture.Click
 }
 
 func (txt *Text) Span(label string) *TextSpan {
@@ -1424,10 +1432,15 @@ func (txt *Text) Link(label string, obj any) *TextSpan {
 }
 
 func (txt *Text) Reset(th *theme.Theme) {
+	txt.events = txt.events[:0]
 	txt.styles = txt.styles[:0]
 	txt.Spans = txt.Spans[:0]
 	txt.Alignment = 0
 	txt.theme = th
+}
+
+func (txt *Text) Events() []TextEvent {
+	return txt.events
 }
 
 func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -1437,16 +1450,26 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	for i := range txt.Spans {
 		s := &txt.Spans[i]
 		if s.Object != nil {
-			var clk *widget.PrimaryClickable
+			var clk *gesture.Click
 			if clickableIdx < len(txt.clickables) {
 				clk = txt.clickables[clickableIdx]
 				clickableIdx++
 			} else {
-				clk = &widget.PrimaryClickable{}
+				clk = &gesture.Click{}
 				txt.clickables = append(txt.clickables, clk)
 				clickableIdx++
 			}
-			s.Clickable = clk
+			s.Click = clk
+		}
+	}
+
+	txt.events = txt.events[:0]
+	for i := range txt.Spans {
+		s := &txt.Spans[i]
+		if s.Click != nil {
+			for _, ev := range s.Click.Events(gtx.Queue) {
+				txt.events = append(txt.events, TextEvent{s, ev})
+			}
 		}
 	}
 
@@ -1455,13 +1478,12 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	if txt.Alignment == text.Start {
 		gtx.Constraints.Max.X = 1e6
 	}
-	return ptxt.Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
+	return ptxt.Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
+		defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
 		s := &txt.Spans[i]
 		if s.Object != nil {
-			s.Clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				pointer.CursorPointer.Add(gtx.Ops)
-				return dims
-			})
+			s.Click.Add(gtx.Ops)
+			pointer.CursorPointer.Add(gtx.Ops)
 		}
 	})
 }
@@ -1472,6 +1494,8 @@ func defaultLink(obj any) Link {
 		return &GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen}
 	case *trace.Timestamp:
 		return &TimestampLink{*obj}
+	case trace.Timestamp:
+		return &TimestampLink{obj}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}
