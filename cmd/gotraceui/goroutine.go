@@ -15,7 +15,6 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 	mywidget "honnef.co/go/gotraceui/widget"
 
-	"gioui.org/gesture"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -37,7 +36,7 @@ type GoroutineStats struct {
 
 	numberFormat durationNumberFormat
 
-	columnClicks [7]gesture.Click
+	columnClicks [7]mywidget.PrimaryClickable
 }
 
 type GoroutineInfo struct {
@@ -490,24 +489,6 @@ func (gs *GoroutineStats) sort() {
 func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineStats.Layout").End()
 
-	for col := range gs.columnClicks {
-		// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
-		// nil.
-		for _, ev := range gs.columnClicks[col].Events(gtx.Queue) {
-			if ev.Type != gesture.TypeClick {
-				continue
-			}
-
-			if col == gs.sortCol {
-				gs.sortDescending = !gs.sortDescending
-			} else {
-				gs.sortCol = col
-				gs.sortDescending = false
-			}
-			gs.sort()
-		}
-	}
-
 	grid := mylayout.SmallGrid{
 		RowPadding:    0,
 		ColumnPadding: gtx.Dp(10),
@@ -563,10 +544,11 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 				ss.Font.Weight = text.Bold
 				return ss
 			})
-			styledtext.Text(win.Theme.Shaper, s).Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
-				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-				pointer.CursorPointer.Add(gtx.Ops)
-				gs.columnClicks[col].Add(gtx.Ops)
+			gs.columnClicks[col].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return styledtext.Text(win.Theme.Shaper, s).Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
+					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+					pointer.CursorPointer.Add(gtx.Ops)
+				})
 			})
 		} else {
 			row--
@@ -609,6 +591,18 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 		}
 
 		return layout.Dimensions{Size: gtx.Constraints.Min}
+	}
+
+	for col := range gs.columnClicks {
+		for gs.columnClicks[col].Clicked() {
+			if col == gs.sortCol {
+				gs.sortDescending = !gs.sortDescending
+			} else {
+				gs.sortCol = col
+				gs.sortDescending = false
+			}
+			gs.sort()
+		}
 	}
 
 	return grid.Layout(gtx, len(gs.mapping)+1, 7, sizer, cellFn)

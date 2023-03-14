@@ -16,7 +16,6 @@ import (
 	mywidget "honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
-	"gioui.org/gesture"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -59,7 +58,7 @@ type Timeline struct {
 
 type TimelineWidget struct {
 	cv          *Canvas
-	labelClick  gesture.Click
+	labelClick  mywidget.PrimaryClickable
 	labelClicks int
 
 	hover mygesture.Hover
@@ -290,21 +289,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	tl.navigatedSpans = NoSpan{}
 	tl.hoveredSpans = NoSpan{}
 
-	tl.labelClicks = 0
-	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
-	// nil.
-	for _, ev := range tl.labelClick.Events(gtx.Queue) {
-		if ev.Type == gesture.TypeClick {
-			if ev.Modifiers == 0 {
-				tl.labelClicks++
-			} else if ev.Modifiers == key.ModShortcut {
-				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
-				// assumption to make.
-				tl.navigatedSpans = tl.tracks[0].spans
-			}
-		}
-	}
-
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
 	tl.hover.Add(gtx.Ops)
 
@@ -315,15 +299,16 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		}
 
 		if tl.Hovered() || forceLabel {
-			labelGtx := gtx
-			labelGtx.Constraints.Min = image.Point{}
-			labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
+			tl.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				labelGtx := gtx
+				labelGtx.Constraints.Min = image.Point{}
+				labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
+				stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
+				pointer.CursorPointer.Add(gtx.Ops)
+				stack.Pop()
 
-			stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
-			pointer.InputOp{Tag: &tl.label, Types: pointer.Enter | pointer.Leave | pointer.Cancel | pointer.Move}.Add(gtx.Ops)
-			tl.labelClick.Add(gtx.Ops)
-			pointer.CursorPointer.Add(gtx.Ops)
-			stack.Pop()
+				return labelDims
+			})
 		}
 
 		if tl.widgetTooltip != nil && tl.cv.timeline.showTooltips == showTooltipsBoth && tl.labelClick.Hovered() {
@@ -369,6 +354,17 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		}
 	}
 	stack.Pop()
+
+	tl.labelClicks = 0
+	for _, click := range tl.labelClick.Clicks() {
+		if click.Modifiers == 0 {
+			tl.labelClicks++
+		} else if click.Modifiers == key.ModShortcut {
+			// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
+			// assumption to make.
+			tl.navigatedSpans = tl.tracks[0].spans
+		}
+	}
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }
