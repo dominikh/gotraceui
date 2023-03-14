@@ -3,7 +3,6 @@ package layout
 import (
 	"image"
 
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/x/outlay"
 )
@@ -14,12 +13,12 @@ type SmallGrid struct {
 	ColumnPadding int
 }
 
-func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, sizeEstimator outlay.Cell, cellFunc outlay.Cell) layout.Dimensions {
+func (sg SmallGrid) Layout(gtx Context, rows, cols int, sizeEstimator outlay.Cell, cellFunc outlay.Cell) Dimensions {
 	colWidths := make([]int, cols)
 	// Storing dims isn't strictly necessarily, since we only need to know the row height (which Grid assumes is the
 	// same for each row) and the column widths, as outlay.Grid passes an exact constraint to the cell function with
 	// those dimensions. However, as written, the code depends less on implementation details.
-	dims := make([]layout.Dimensions, rows*cols)
+	dims := make([]Dimensions, rows*cols)
 
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {
@@ -31,12 +30,12 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, sizeEstimator out
 		}
 	}
 
-	dimmer := func(axis layout.Axis, index, constraint int) int {
+	dimmer := func(axis Axis, index, constraint int) int {
 		switch axis {
-		case layout.Vertical:
+		case Vertical:
 			// outlay.Grid doesn't support different row heights, so we can return any of them
 			return dims[0].Size.Y + sg.RowPadding
-		case layout.Horizontal:
+		case Horizontal:
 			return colWidths[index] + sg.ColumnPadding
 		default:
 			panic("unreachable")
@@ -50,7 +49,7 @@ func (sg SmallGrid) Layout(gtx layout.Context, rows, cols int, sizeEstimator out
 		width += cw + sg.ColumnPadding
 	}
 	gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(width, height))
-	wrapper := func(gtx layout.Context, row, col int) layout.Dimensions {
+	wrapper := func(gtx Context, row, col int) Dimensions {
 		ogtx := gtx
 		gtx.Constraints.Min.X -= sg.ColumnPadding
 		gtx.Constraints.Max.X -= sg.ColumnPadding
@@ -66,7 +65,7 @@ type PixelInset struct {
 	Top, Bottom, Left, Right int
 }
 
-func (in PixelInset) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+func (in PixelInset) Layout(gtx Context, w Widget) Dimensions {
 	top := (in.Top)
 	right := (in.Right)
 	bottom := (in.Bottom)
@@ -94,13 +93,13 @@ func (in PixelInset) Layout(gtx layout.Context, w layout.Widget) layout.Dimensio
 	trans := op.Offset(image.Pt(left, top)).Push(gtx.Ops)
 	dims := w(gtx)
 	trans.Pop()
-	return layout.Dimensions{
+	return Dimensions{
 		Size:     dims.Size.Add(image.Point{X: right + left, Y: top + bottom}),
 		Baseline: dims.Baseline + bottom,
 	}
 }
 
-func Normalize(c layout.Constraints) layout.Constraints {
+func Normalize(c Constraints) Constraints {
 	if c.Min.X < 0 {
 		c.Min.X = 0
 	}
@@ -124,15 +123,15 @@ func Normalize(c layout.Constraints) layout.Constraints {
 	return c
 }
 
-func Main(a layout.Axis, pt *image.Point) *int {
-	if a == layout.Horizontal {
+func Main(a Axis, pt *image.Point) *int {
+	if a == Horizontal {
 		return &pt.X
 	}
 	return &pt.Y
 }
 
-func Cross(a layout.Axis, pt *image.Point) *int {
-	if a == layout.Horizontal {
+func Cross(a Axis, pt *image.Point) *int {
+	if a == Horizontal {
 		return &pt.Y
 	}
 	return &pt.X

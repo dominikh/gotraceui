@@ -8,10 +8,10 @@ import (
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/f32color"
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/io/semantic"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/paint"
 	"gioui.org/text"

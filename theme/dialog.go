@@ -4,10 +4,9 @@ import (
 	"image"
 	"image/color"
 
-	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -45,7 +44,7 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	innerGtx := gtx
 	innerGtx.Constraints.Max.X -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)
 	innerGtx.Constraints.Max.Y -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)
-	innerGtx.Constraints = mylayout.Normalize(innerGtx.Constraints)
+	innerGtx.Constraints = layout.Normalize(innerGtx.Constraints)
 
 	m := op.Record(innerGtx.Ops)
 	paint.ColorOp{Color: ds.TitleColor}.Add(innerGtx.Ops)
@@ -54,7 +53,7 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 
 	wGtx := innerGtx
 	wGtx.Constraints.Max.Y -= labelDims.Size.Y + 2*gtx.Dp(ds.TitlePadding) + gtx.Dp(ds.BorderWidth) + 2*gtx.Dp(ds.Padding)
-	wGtx.Constraints = mylayout.Normalize(wGtx.Constraints)
+	wGtx.Constraints = layout.Normalize(wGtx.Constraints)
 
 	var wDims layout.Dimensions
 	var wCall op.CallOp

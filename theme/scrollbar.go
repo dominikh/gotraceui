@@ -7,10 +7,10 @@ import (
 	"math"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/io/pointer"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"

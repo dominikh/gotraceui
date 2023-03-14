@@ -9,14 +9,13 @@ import (
 	"strings"
 	"time"
 
-	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/io/pointer"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/text"
@@ -151,7 +150,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
 	gtx.Constraints.Max = gtx.Constraints.Max.Sub(image.Pt(2*5, 2*5))
-	gtx.Constraints = mylayout.Normalize(gtx.Constraints)
+	gtx.Constraints = layout.Normalize(gtx.Constraints)
 
 	if gtx.Constraints.Max.X <= 5 || gtx.Constraints.Max.Y <= 5 {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -488,7 +487,7 @@ func (gs *GoroutineStats) sort() {
 func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineStats.Layout").End()
 
-	grid := mylayout.SmallGrid{
+	grid := layout.SmallGrid{
 		RowPadding:    0,
 		ColumnPadding: gtx.Dp(10),
 	}

@@ -8,10 +8,9 @@ import (
 	"math"
 	rtrace "runtime/trace"
 
-	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 )
@@ -113,7 +112,7 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 	if l.EnableCrossScrolling {
 		// When cross scrolling is enabled we allow the list to draw itself however wide it wants. We'll later pan and
 		// crop the visible portion.
-		*mylayout.Cross(l.state.Axis, &gtx.Constraints.Max) = 1e6
+		*layout.Cross(l.state.Axis, &gtx.Constraints.Max) = 1e6
 	}
 
 	m := op.Record(gtx.Ops)
@@ -163,7 +162,7 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 		mainAnchoring = layout.SW
 		crossAnchoring = layout.NE
 	}
-	majorAxisSize := *mylayout.Main(l.state.Axis, &listDims.Size)
+	majorAxisSize := *layout.Main(l.state.Axis, &listDims.Size)
 
 	// layout.Direction respects the minimum, so ensure that the
 	// scrollbar will be drawn on the correct edge even if the provided
@@ -181,9 +180,9 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 	mainAnchoring.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		if l.EnableCrossScrolling {
 			// Make sure the two scrollbars don't overlap, by leaving a gap in the corner where they meet.
-			*mylayout.Main(l.state.Axis, &gtx.Constraints.Min) -= crossBarWidth
-			*mylayout.Main(l.state.Axis, &gtx.Constraints.Max) -= crossBarWidth
-			gtx.Constraints = mylayout.Normalize(gtx.Constraints)
+			*layout.Main(l.state.Axis, &gtx.Constraints.Min) -= crossBarWidth
+			*layout.Main(l.state.Axis, &gtx.Constraints.Max) -= crossBarWidth
+			gtx.Constraints = layout.Normalize(gtx.Constraints)
 		}
 
 		start, end := fromListPosition(l.state.Position, length, majorAxisSize)
@@ -193,12 +192,12 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 	if l.EnableCrossScrolling {
 		crossAnchoring.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			// Make sure the two scrollbars don't overlap, by leaving a gap in the corner where they meet.
-			*mylayout.Cross(l.state.Axis, &gtx.Constraints.Min) -= mainBarWidth
-			*mylayout.Cross(l.state.Axis, &gtx.Constraints.Max) -= mainBarWidth
-			gtx.Constraints = mylayout.Normalize(gtx.Constraints)
+			*layout.Cross(l.state.Axis, &gtx.Constraints.Min) -= mainBarWidth
+			*layout.Cross(l.state.Axis, &gtx.Constraints.Max) -= mainBarWidth
+			gtx.Constraints = layout.Normalize(gtx.Constraints)
 
 			start, end := float32(0), float32(1)
-			renderedWidth := *mylayout.Cross(l.state.Axis, &listDims.Size)
+			renderedWidth := *layout.Cross(l.state.Axis, &listDims.Size)
 			if crossWidth > renderedWidth {
 				width := float32(renderedWidth) / float32(crossWidth)
 				start = float32(l.state.CrossOffset) / float32(crossWidth)

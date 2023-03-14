@@ -6,7 +6,8 @@ import (
 	"image/color"
 	rtrace "runtime/trace"
 
-	"gioui.org/layout"
+	"honnef.co/go/gotraceui/layout"
+
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"

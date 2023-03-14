@@ -1,8 +1,9 @@
 package widget
 
 import (
+	"honnef.co/go/gotraceui/layout"
+
 	"gioui.org/io/semantic"
-	"gioui.org/layout"
 )
 
 type Bool struct {

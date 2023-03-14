@@ -8,12 +8,11 @@ import (
 	"math"
 	rtrace "runtime/trace"
 
-	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -466,7 +465,7 @@ func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay
 	// Reserve space for the scrollbars using the gtx constraints.
 	gtx.Constraints.Max.X -= vBarWidth
 	gtx.Constraints.Max.Y -= hBarWidth
-	gtx.Constraints = mylayout.Normalize(gtx.Constraints)
+	gtx.Constraints = layout.Normalize(gtx.Constraints)
 
 	defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 	// Draw grid.

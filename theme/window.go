@@ -10,10 +10,9 @@ import (
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/layout"
 )
 
 type Window struct {
@@ -70,7 +69,7 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 
 	if win.Menu != nil {
 		dims := NewMenuStyle(win.Theme, win.Menu).Layout(win, gtx)
-		mylayout.PixelInset{
+		layout.PixelInset{
 			Top: dims.Size.Y,
 		}.Layout(gtx, Dumb(win, w))
 	} else {

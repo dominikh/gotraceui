@@ -6,12 +6,11 @@ import (
 	"image/color"
 	rtrace "runtime/trace"
 
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
-	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 )
 
@@ -75,7 +74,7 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		var h, b, off int
 
 		drawGroup := func(gtx layout.Context, g *MenuGroup, off int) {
-			mylayout.PixelInset{Bottom: h}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			layout.PixelInset{Bottom: h}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				macro := op.Record(gtx.Ops)
 
 				// We use two separate offsets to position the menu group. One purely vertical and one purely

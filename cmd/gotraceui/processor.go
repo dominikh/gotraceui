@@ -7,11 +7,10 @@ import (
 	"sort"
 	"time"
 
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-
-	"gioui.org/layout"
 )
 
 type ProcessorTooltip struct {

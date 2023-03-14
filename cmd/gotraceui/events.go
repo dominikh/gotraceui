@@ -6,12 +6,12 @@ import (
 	"image"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/layout"
 	"gioui.org/op/clip"
 	"gioui.org/text"
 )

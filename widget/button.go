@@ -4,11 +4,11 @@ import (
 	"image"
 
 	"honnef.co/go/gotraceui/gesture"
+	"honnef.co/go/gotraceui/layout"
 
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/semantic"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 )
