@@ -1115,6 +1115,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 	if axis.cv.unchanged() && axis.prevFrame.origin == axis.origin {
 		axis.prevFrame.call.Add(gtx.Ops)
+		debugCaching(gtx)
 		return axis.prevFrame.dims
 	}
 

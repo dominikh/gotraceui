@@ -555,6 +555,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		gtx.Constraints == track.prevFrame.constraints {
 
 		track.prevFrame.call.Add(gtx.Ops)
+		debugCaching(gtx)
 		return track.prevFrame.dims
 	}
 

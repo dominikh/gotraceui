@@ -42,6 +42,12 @@ import (
 	"golang.org/x/text/message"
 )
 
+func debugCaching(gtx layout.Context) {
+	if false {
+		paint.Fill(gtx.Ops, rgba(0xFF00FFAA))
+	}
+}
+
 // A note on Ps
 //
 // Not all events have a P. For example, when sysmon wakes up the scavenger, it doesn't have a P while unblocking
