@@ -72,17 +72,6 @@ type TimelineWidget struct {
 	clickedSpans   SpanSelector
 	navigatedSpans SpanSelector
 	hoveredSpans   SpanSelector
-
-	prevFrame struct {
-		// State for reusing the previous frame's ops, to avoid redrawing from scratch if no relevant state has changed.
-		hovered     bool
-		forceLabel  bool
-		compact     bool
-		topBorder   bool
-		constraints layout.Constraints
-		ops         reusableOps
-		call        op.CallOp
-	}
 }
 
 func (tw *TimelineWidget) Hovered() bool {
@@ -202,6 +191,12 @@ type TrackWidget struct {
 
 	// cached state
 	prevFrame struct {
+		hovered     bool
+		constraints layout.Constraints
+		ops         reusableOps
+		call        op.CallOp
+		dims        layout.Dimensions
+
 		dspSpans []struct {
 			dspSpanSel     SpanSelector
 			startPx, endPx float32
@@ -294,8 +289,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	tl.navigatedSpans = NoSpan{}
 	tl.hoveredSpans = NoSpan{}
 
-	var widgetClicked bool
-
 	for _, e := range gtx.Events(tl) {
 		ev := e.(pointer.Event)
 		switch ev.Type {
@@ -306,13 +299,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.pointerAt = ev.Position
 		case pointer.Leave, pointer.Cancel:
 			tl.hovered = false
-		case pointer.Press:
-			// If any part of the widget has been clicked then don't reuse the cached macro; we have to figure out what
-			// was clicked and react to it.
-			//
-			// OPT(dh): if it was the label that was clicked, then we can reuse the macro
-
-			widgetClicked = true
 		}
 	}
 
@@ -330,36 +316,6 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			}
 		}
 	}
-
-	if !widgetClicked &&
-		tl.cv.unchanged() &&
-		!tl.hovered && !tl.prevFrame.hovered &&
-		forceLabel == tl.prevFrame.forceLabel &&
-		compact == tl.prevFrame.compact &&
-		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
-		topBorder == tl.prevFrame.topBorder &&
-		gtx.Constraints == tl.prevFrame.constraints {
-
-		// OPT(dh): instead of avoiding cached ops completely when the timeline is hovered, draw the tooltip
-		// separately.
-		tl.prevFrame.call.Add(gtx.Ops)
-		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
-	}
-
-	tl.prevFrame.hovered = tl.hovered
-	tl.prevFrame.forceLabel = forceLabel
-	tl.prevFrame.compact = compact
-	tl.prevFrame.topBorder = topBorder
-	tl.prevFrame.constraints = gtx.Constraints
-
-	origOps := gtx.Ops
-	gtx.Ops = tl.prevFrame.ops.get()
-	macro := op.Record(gtx.Ops)
-	defer func() {
-		call := macro.Stop()
-		call.Add(origOps)
-		tl.prevFrame.call = call
-	}()
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
 	pointer.InputOp{Tag: tl, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
@@ -412,7 +368,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, tl.cv, trackSpanLabels)
+		dims := track.Layout(win, gtx, tl, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); spans.Size() != 0 {
 			tl.hoveredSpans = spans
@@ -539,14 +495,19 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 	return it.spanSel.Slice(startOffset, offset), startPx, endPx, true
 }
 
-func (track *Track) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, labelsOut *[]string) layout.Dimensions {
+func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, labelsOut *[]string) (dims layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
 
+	cv := tl.cv
 	tr := cv.trace
 	trackHeight := gtx.Dp(timelineTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 	spanHighlightedBorderWidth := gtx.Dp(spanHighlightedBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
+
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
+	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	track.click.Add(gtx.Ops)
 
 	track.clickedSpans = NoSpan{}
 	track.navigatedSpans = NoSpan{}
@@ -586,9 +547,29 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, la
 		}
 	}
 
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
-	track.click.Add(gtx.Ops)
+	// OPT(dh): don't redraw if the only change is cv.y
+	if !track.hovered &&
+		!track.prevFrame.hovered &&
+		cv.unchanged() &&
+		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
+		gtx.Constraints == track.prevFrame.constraints {
+
+		track.prevFrame.call.Add(gtx.Ops)
+		return track.prevFrame.dims
+	}
+
+	track.prevFrame.hovered = track.hovered
+	track.prevFrame.constraints = gtx.Constraints
+
+	origOps := gtx.Ops
+	gtx.Ops = track.prevFrame.ops.get()
+	macro := op.Record(gtx.Ops)
+	defer func() {
+		call := macro.Stop()
+		call.Add(origOps)
+		track.prevFrame.call = call
+		track.prevFrame.dims = dims
+	}()
 
 	// Draw timeline lifetimes
 	//
