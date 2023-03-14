@@ -13,7 +13,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
 	"gioui.org/io/key"
@@ -58,7 +58,7 @@ type Timeline struct {
 
 type TimelineWidget struct {
 	cv          *Canvas
-	labelClick  mywidget.PrimaryClickable
+	labelClick  widget.PrimaryClickable
 	labelClicks int
 
 	hover mygesture.Hover
@@ -302,7 +302,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				labelGtx := gtx
 				labelGtx.Constraints.Min = image.Point{}
-				labelDims := mywidget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
+				labelDims := widget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
 				stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 				pointer.CursorPointer.Add(gtx.Ops)
 				stack.Pop()
@@ -766,7 +766,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 						gtx := gtx
 						gtx.Ops = labelsOps
 						gtx.Constraints.Min = image.Point{}
-						dims = mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
+						dims = widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
 					}
 					if float32(dims.Size.X) > endPx-startPx {
 						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise

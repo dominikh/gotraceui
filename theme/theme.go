@@ -9,7 +9,7 @@ import (
 	rtrace "runtime/trace"
 
 	mylayout "honnef.co/go/gotraceui/layout"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
@@ -19,7 +19,6 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget"
 	"gioui.org/x/component"
 	"gioui.org/x/outlay"
 )
@@ -117,7 +116,7 @@ func ProgressBar(th *Theme, progress float32) ProgressBarStyle {
 func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ProgressBarStyle.Layout").End()
 
-	return mywidget.Border{
+	return widget.Border{
 		Color: p.ForegroundColor,
 		Width: p.BorderWidth,
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -136,7 +135,7 @@ func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type CheckBoxStyle struct {
-	Checkbox        *mywidget.Bool
+	Checkbox        *widget.Bool
 	Label           string
 	TextSize        unit.Sp
 	ForegroundColor color.NRGBA
@@ -144,7 +143,7 @@ type CheckBoxStyle struct {
 	TextColor       color.NRGBA
 }
 
-func CheckBox(th *Theme, checkbox *mywidget.Bool, label string) CheckBoxStyle {
+func CheckBox(th *Theme, checkbox *widget.Bool, label string) CheckBoxStyle {
 	return CheckBoxStyle{
 		Checkbox:        checkbox,
 		Label:           label,
@@ -166,7 +165,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 
 				ngtx := gtx
 				ngtx.Constraints = layout.Exact(image.Pt(sizePx, sizePx))
-				return mywidget.Border{
+				return widget.Border{
 					Color: c.ForegroundColor,
 					Width: 1,
 				}.Layout(ngtx, func(gtx layout.Context) layout.Dimensions {
@@ -190,7 +189,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 			layout.Rigid(layout.Spacer{Width: 3}.Layout),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return mywidget.TextLine{Color: c.TextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, c.TextSize, c.Label)
+				return widget.TextLine{Color: c.TextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, c.TextSize, c.Label)
 			}),
 		)
 	})
@@ -251,13 +250,13 @@ func clamp1(v float32) float32 {
 
 type FoldableStyle struct {
 	Title  string
-	Closed *mywidget.Bool
+	Closed *widget.Bool
 
 	TextSize  unit.Sp
 	TextColor color.NRGBA
 }
 
-func Foldable(th *Theme, b *mywidget.Bool, title string) FoldableStyle {
+func Foldable(th *Theme, b *widget.Bool, title string) FoldableStyle {
 	return FoldableStyle{
 		Closed: b,
 		Title:  title,
@@ -368,7 +367,7 @@ func BorderedText(th *Theme, s string) BorderedTextStyle {
 }
 
 func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	return mywidget.Bordered{Color: bt.BorderColor, Width: bt.BorderSize}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return widget.Bordered{Color: bt.BorderColor, Width: bt.BorderSize}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
 		// rendered as part of a flex child.
@@ -400,7 +399,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 
 type ButtonStyle struct {
 	Text   string
-	Button *mywidget.Clickable
+	Button *widget.Clickable
 
 	ActiveBackgroundColor color.NRGBA
 	BackgroundColor       color.NRGBA
@@ -408,7 +407,7 @@ type ButtonStyle struct {
 	TextColor             color.NRGBA
 }
 
-func Button(th *Theme, button *mywidget.Clickable, txt string) ButtonStyle {
+func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 	return ButtonStyle{
 		Text:                  txt,
 		Button:                button,
@@ -423,7 +422,7 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ButtonStyle.Layout").End()
 
 	return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return mywidget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{Alignment: layout.Center}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					if b.Button.Pressed(pointer.ButtonPrimary) {

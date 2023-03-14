@@ -11,9 +11,8 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
-	"gioui.org/widget"
 	mylayout "honnef.co/go/gotraceui/layout"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 )
 
 // FIXME(dh): click on menu, click on item, menu closed. click on same menu, previously clicked item is still
@@ -72,7 +71,7 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		m.Menu.cancelled = false
 	}
 
-	return mywidget.Background{Color: m.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return widget.Background{Color: m.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		var h, b, off int
 
 		drawGroup := func(gtx layout.Context, g *MenuGroup, off int) {
@@ -118,10 +117,10 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 					bg = m.Selected
 				}
 
-				dims := mywidget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				dims := widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return g.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return mywidget.TextLine{Color: m.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, g.Label)
+							return widget.TextLine{Color: m.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, g.Label)
 						})
 					})
 				})
@@ -147,7 +146,7 @@ type MenuGroup struct {
 	Items []Widget
 
 	list  layout.List
-	click widget.Clickable
+	click widget.PrimaryClickable
 }
 
 type MenuGroupStyle struct {
@@ -183,8 +182,8 @@ func (g MenuGroupStyle) Layout(win *Window, gtx layout.Context) layout.Dimension
 	gtx.Ops = origOps
 	g.Group.list.Axis = layout.Vertical
 
-	return mywidget.Bordered{Color: g.Border, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return mywidget.Background{Color: g.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return widget.Bordered{Color: g.Border, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return widget.Background{Color: g.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return (g.Group.list).Layout(gtx, len(g.Group.Items), func(gtx layout.Context, index int) layout.Dimensions {
 				gtx.Constraints.Min.X = maxWidth
 				gtx.Constraints.Max.X = maxWidth
@@ -200,7 +199,7 @@ type MenuItem struct {
 	Disabled func() bool
 	Do       func(layout.Context)
 
-	click widget.Clickable
+	click widget.PrimaryClickable
 }
 
 type MenuItemStyle struct {
@@ -233,11 +232,11 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 	if !disabled && item.Item.click.Hovered() {
 		bg = item.Selected
 	}
-	dims := mywidget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return item.Item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				l := func(gtx layout.Context) layout.Dimensions {
-					dims := mywidget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Item.Label())
+					dims := widget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Item.Label())
 					if item.Item.Shortcut != "" {
 						// add padding between label and shortcut
 						dims.Size.X += gtx.Dp(10)
@@ -248,7 +247,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 					if item.Item.Shortcut == "" {
 						return layout.Dimensions{}
 					} else {
-						return mywidget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Item.Shortcut)
+						return widget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Item.Shortcut)
 					}
 				}
 				return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceBetween}.Layout(gtx, layout.Rigid(l), layout.Rigid(r))

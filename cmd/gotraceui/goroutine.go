@@ -13,14 +13,13 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/text"
-	"gioui.org/widget"
 	"gioui.org/x/styledtext"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
@@ -36,7 +35,7 @@ type GoroutineStats struct {
 
 	numberFormat durationNumberFormat
 
-	columnClicks [7]mywidget.PrimaryClickable
+	columnClicks [7]widget.PrimaryClickable
 }
 
 type GoroutineInfo struct {
@@ -50,20 +49,20 @@ type GoroutineInfo struct {
 	stats  *GoroutineStats
 
 	buttons struct {
-		scrollToGoroutine mywidget.PrimaryClickable
-		zoomToGoroutine   mywidget.PrimaryClickable
+		scrollToGoroutine widget.PrimaryClickable
+		zoomToGoroutine   widget.PrimaryClickable
 	}
 
 	foldables struct {
-		stacktrace mywidget.Bool
-		stats      mywidget.Bool
-		events     mywidget.Bool
+		stacktrace widget.Bool
+		stats      widget.Bool
+		events     widget.Bool
 	}
 
 	description Text
 
-	stacktraceList mywidget.List
-	statsList      mywidget.List
+	stacktraceList widget.List
+	statsList      widget.List
 
 	theme.PanelButtons
 }
@@ -166,7 +165,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	dims := layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			type button struct {
-				w     *mywidget.Clickable
+				w     *widget.Clickable
 				label string
 			}
 			buttonsLeft := []button{

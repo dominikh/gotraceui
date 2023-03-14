@@ -5,6 +5,7 @@ import (
 	"image/color"
 
 	mylayout "honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -12,7 +13,6 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget"
 )
 
 type DialogStyle struct {

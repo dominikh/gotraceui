@@ -15,7 +15,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
 	"gioui.org/gesture"
@@ -27,7 +27,6 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget"
 	"gioui.org/x/component"
 )
 
@@ -1198,7 +1197,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 		macro := op.Record(gtx.Ops)
 		// TODO separate value and unit symbol with a space
-		dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
+		dims := widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
 		call := macro.Stop()
 
 		if gtrf(subf(start, float32(dims.Size.X/2)), addf(prevLabelEnd, minTickLabelDistance)) || prevLabelEnd == 0 {
@@ -1241,7 +1240,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		// TODO separate value and unit symbol with a space
 		f := text.Font{Weight: text.Bold}
 		label := formatTimestamp(t)
-		dims := mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
+		dims := widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
 		call := macro.Stop()
 
 		labelStart := image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))

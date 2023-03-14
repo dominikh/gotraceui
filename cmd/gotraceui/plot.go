@@ -16,6 +16,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
@@ -24,7 +25,6 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
-	"gioui.org/widget"
 	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
 )

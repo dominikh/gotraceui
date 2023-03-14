@@ -8,6 +8,7 @@ import (
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/f32color"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/io/semantic"
 	"gioui.org/layout"
@@ -15,7 +16,6 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget"
 )
 
 type EditorStyle struct {

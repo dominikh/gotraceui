@@ -7,13 +7,14 @@ import (
 	"math"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/widget"
+
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
-	"gioui.org/widget"
 )
 
 // rangeIsScrollable returns whether the viewport described by start and end

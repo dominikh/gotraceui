@@ -12,7 +12,7 @@ import (
 
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -313,7 +313,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 	}
 	hm := NewHeatMap(xStep, yStep, 100, buckets)
 
-	var useLinear mywidget.Bool
+	var useLinear widget.Bool
 	var ops op.Ops
 	tWin := &theme.Window{Theme: theme.NewTheme(gofont.Collection())}
 	for e := range win.Events() {
@@ -361,7 +361,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 						if b, ok := hm.HoveredBucket(); ok {
 							label = local.Sprintf("time %s, range %d–%d, count: %d", b.XStart, b.YStart, b.YEnd, b.Count)
 						}
-						return mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
+						return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and

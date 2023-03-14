@@ -10,9 +10,8 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
-	"gioui.org/widget"
 	"gioui.org/x/eventx"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 )
 
 type ListWindowItem struct {
@@ -20,7 +19,7 @@ type ListWindowItem struct {
 	Label        string
 	FilterLabels []string
 	index        int
-	click        widget.Clickable
+	click        widget.PrimaryClickable
 }
 
 type Filter interface {
@@ -40,7 +39,7 @@ type ListWindow struct {
 
 	theme *Theme
 	input widget.Editor
-	list  mywidget.List
+	list  widget.List
 }
 
 func NewListWindow(th *Theme) *ListWindow {
@@ -50,7 +49,7 @@ func NewListWindow(th *Theme) *ListWindow {
 			SingleLine: true,
 			Submit:     true,
 		},
-		list: mywidget.List{
+		list: widget.List{
 			List: layout.List{
 				Axis: layout.Vertical,
 			},
@@ -89,7 +88,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 
 	var spy *eventx.Spy
 
-	dims := mywidget.Bordered{Color: w.theme.Palette.Border, Width: w.theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := widget.Bordered{Color: w.theme.Palette.Border, Width: w.theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		spy, gtx = eventx.Enspy(gtx)
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -109,7 +108,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						c = rgba(0x000000FF)
 					}
-					return mywidget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.Label)
+					return widget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.Label)
 				})
 			})
 		}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -18,7 +19,6 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
-	"gioui.org/widget"
 )
 
 const debug = true

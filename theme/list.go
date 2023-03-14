@@ -9,7 +9,7 @@ import (
 	rtrace "runtime/trace"
 
 	mylayout "honnef.co/go/gotraceui/layout"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -52,7 +52,7 @@ const (
 
 // ListStyle configures the presentation of a layout.List with a scrollbar.
 type ListStyle struct {
-	state *mywidget.List
+	state *widget.List
 	Main  ScrollbarStyle
 	Cross ScrollbarStyle
 	AnchorStrategy
@@ -60,7 +60,7 @@ type ListStyle struct {
 }
 
 // List constructs a ListStyle using the provided theme and state.
-func List(th *Theme, state *mywidget.List) ListStyle {
+func List(th *Theme, state *widget.List) ListStyle {
 	return ListStyle{
 		state: state,
 		Cross: Scrollbar(th, &state.Cross),

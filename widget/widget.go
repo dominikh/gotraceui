@@ -12,7 +12,6 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget"
 )
 
 // TODO(dh): Bordered, Border, and TextLine probably belong in the theme package instead.
@@ -69,7 +68,7 @@ func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font text.Fon
 	// Effectively disable widget.Label's word wrapping and sentence truncation.
 	gtx.Constraints.Max.X = 1e6
 	paint.ColorOp{Color: tl.Color}.Add(gtx.Ops)
-	return widget.Label{MaxLines: 1}.Layout(gtx, shaper, font, size, label)
+	return Label{MaxLines: 1}.Layout(gtx, shaper, font, size, label)
 }
 
 type Background struct {
@@ -89,8 +88,8 @@ func (b Background) Layout(gtx layout.Context, w layout.Widget) layout.Dimension
 }
 
 type List struct {
-	Main        widget.Scrollbar
-	Cross       widget.Scrollbar
+	Main        Scrollbar
+	Cross       Scrollbar
 	CrossOffset float32
 	Widest      int
 	layout.List

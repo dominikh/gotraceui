@@ -9,7 +9,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/layout"
 	"gioui.org/op/clip"
@@ -20,13 +20,13 @@ type Events struct {
 	Trace  *Trace
 	Events []ptrace.EventID
 	Filter struct {
-		ShowGoCreate  mywidget.Bool
-		ShowGoUnblock mywidget.Bool
-		ShowGoSysCall mywidget.Bool
-		ShowUserLog   mywidget.Bool
+		ShowGoCreate  widget.Bool
+		ShowGoUnblock widget.Bool
+		ShowGoSysCall widget.Bool
+		ShowUserLog   widget.Bool
 	}
 	filteredEvents []ptrace.EventID
-	list           mywidget.List
+	list           widget.List
 
 	timestampLinks allocator[TimestampLink]
 	goroutineLinks allocator[GoroutineLink]
@@ -152,7 +152,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		if row == 0 {
-			return mywidget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
+			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
 		} else {
 			ev := evs.Trace.Event(evs.filteredEvents[row-1])
 			// XXX styledtext wraps our spans if the window is too small

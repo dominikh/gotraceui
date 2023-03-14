@@ -2,7 +2,7 @@ package theme
 
 import (
 	"gioui.org/layout"
-	mywidget "honnef.co/go/gotraceui/widget"
+	"honnef.co/go/gotraceui/widget"
 )
 
 type Panel interface {
@@ -15,10 +15,10 @@ type Panel interface {
 }
 
 type PanelButtons struct {
-	close  mywidget.PrimaryClickable
-	back   mywidget.PrimaryClickable
-	detach mywidget.PrimaryClickable
-	attach mywidget.PrimaryClickable
+	close  widget.PrimaryClickable
+	back   widget.PrimaryClickable
+	detach widget.PrimaryClickable
+	attach widget.PrimaryClickable
 
 	windowed bool
 }
@@ -45,7 +45,7 @@ func (pb *PanelButtons) Backed() bool {
 
 func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	type button struct {
-		w     *mywidget.PrimaryClickable
+		w     *widget.PrimaryClickable
 		label string
 	}
 
