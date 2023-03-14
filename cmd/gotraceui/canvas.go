@@ -1096,7 +1096,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		if ev.Type == pointer.Press || ev.Type == pointer.Drag {
 			// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
 			axis.cv.setPointerPosition(ev.Position)
-			axis.origin = float32(ev.Position.X) / float32(gtx.Constraints.Max.X)
+			width := axis.cv.VisibleWidth(win, gtx)
+			axis.origin = float32(ev.Position.X) / float32(width)
 			if axis.origin < 0 {
 				axis.origin = 0
 			} else if axis.origin > 1 {
