@@ -113,13 +113,13 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			gi.description.Bold("Created at: ")
 			gi.description.Link(
 				fmt.Sprintf("%s\n", formatTimestamp(start)),
-				&TimestampLink{start},
+				start,
 			)
 		} else {
 			gi.description.Bold("Created at: ")
 			gi.description.Link(
 				"before trace start\n",
-				&TimestampLink{start},
+				start,
 			)
 		}
 
@@ -127,13 +127,13 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			gi.description.Bold("Returned at: ")
 			gi.description.Link(
 				fmt.Sprintf("%s\n", formatTimestamp(end)),
-				&TimestampLink{end},
+				end,
 			)
 		} else {
 			gi.description.Bold("Returned at: ")
 			gi.description.Link(
 				"After trace end\n",
-				&TimestampLink{end},
+				end,
 			)
 		}
 
@@ -250,13 +250,13 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	for i := range gi.description.Spans {
 		if s := &gi.description.Spans[i]; s.Clickable != nil {
 			for s.Clickable.Clicked() {
-				gi.MainWindow.OpenLink(gi.description.Spans[i].Link)
+				gi.MainWindow.OpenLink(defaultLink(s.Object))
 			}
 		}
 	}
 
-	for _, link := range gi.events.ClickedLinks() {
-		gi.MainWindow.OpenLink(link)
+	for _, obj := range gi.events.Clicked() {
+		gi.MainWindow.OpenLink(defaultLink(obj))
 	}
 
 	for gi.buttons.scrollToGoroutine.Clicked() {

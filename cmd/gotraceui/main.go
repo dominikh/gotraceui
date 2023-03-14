@@ -859,8 +859,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						}
 
 						if sm := mwin.canvas.spanModal; sm != nil {
-							for _, l := range sm.Events.ClickedLinks() {
-								mwin.OpenLink(l)
+							for _, obj := range sm.Events.Clicked() {
+								mwin.OpenLink(defaultLink(obj))
 							}
 						}
 
@@ -1384,7 +1384,7 @@ type Text struct {
 
 type TextSpan struct {
 	*styledtext.SpanStyle
-	Link Link
+	Object any
 
 	Clickable *widget.PrimaryClickable
 }
@@ -1416,10 +1416,10 @@ func (txt *Text) Bold(label string) *TextSpan {
 	return s
 }
 
-func (txt *Text) Link(label string, link Link) *TextSpan {
+func (txt *Text) Link(label string, obj any) *TextSpan {
 	s := txt.Span(label)
 	s.Color = txt.theme.Palette.Link
-	s.Link = link
+	s.Object = obj
 	return s
 }
 
@@ -1436,7 +1436,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	var clickableIdx int
 	for i := range txt.Spans {
 		s := &txt.Spans[i]
-		if s.Link != nil {
+		if s.Object != nil {
 			var clk *widget.PrimaryClickable
 			if clickableIdx < len(txt.clickables) {
 				clk = txt.clickables[clickableIdx]
@@ -1457,11 +1457,22 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	}
 	return ptxt.Layout(gtx, func(_ layout.Context, i int, dims layout.Dimensions) {
 		s := &txt.Spans[i]
-		if s.Link != nil {
+		if s.Object != nil {
 			s.Clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				pointer.CursorPointer.Add(gtx.Ops)
 				return dims
 			})
 		}
 	})
+}
+
+func defaultLink(obj any) Link {
+	switch obj := obj.(type) {
+	case *ptrace.Goroutine:
+		return &GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen}
+	case *trace.Timestamp:
+		return &TimestampLink{*obj}
+	default:
+		panic(fmt.Sprintf("unsupported type: %T", obj))
+	}
 }

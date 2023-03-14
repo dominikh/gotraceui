@@ -28,9 +28,8 @@ type Events struct {
 	filteredEvents []ptrace.EventID
 	list           widget.List
 
-	timestampLinks allocator[TimestampLink]
-	goroutineLinks allocator[GoroutineLink]
-	texts          allocator[Text]
+	timestampObjects allocator[trace.Timestamp]
+	texts            allocator[Text]
 }
 
 func (evs *Events) UpdateFilter() {
@@ -70,16 +69,16 @@ func (evs *Events) UpdateFilter() {
 	}
 }
 
-// ClickedLinks returns all links that have been clicked since the last call to the method.
-func (evs *Events) ClickedLinks() []Link {
+// Clicked returns all objects of text spans that have been clicked since the last call to Layout.
+func (evs *Events) Clicked() []any {
 	// This only allocates when links have been clicked, which is a very low frequency event.
-	var out []Link
+	var out []any
 	for i := 0; i < evs.texts.Len(); i++ {
 		txt := evs.texts.Ptr(i)
 		for j := range txt.Spans {
 			if s := &txt.Spans[j]; s.Clickable != nil {
 				for s.Clickable.Clicked() {
-					out = append(out, s.Link)
+					out = append(out, s.Object)
 				}
 			}
 		}
@@ -119,8 +118,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 
 	evs.list.Axis = layout.Vertical
 
-	evs.timestampLinks.Reset()
-	evs.goroutineLinks.Reset()
+	evs.timestampObjects.Reset()
 
 	if evs.Filter.ShowGoCreate.Changed() ||
 		evs.Filter.ShowGoUnblock.Changed() ||
@@ -158,11 +156,11 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			// XXX styledtext wraps our spans if the window is too small
 
 			addSpanG := func(gid uint64) {
-				txt.Link(local.Sprintf("goroutine %d", gid), evs.goroutineLinks.Allocate(GoroutineLink{evs.Trace.G(gid), GoroutineLinkKindOpen}))
+				txt.Link(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
 			}
 
 			addSpanTs := func(ts trace.Timestamp) {
-				txt.Link(formatTimestamp(ts), evs.timestampLinks.Allocate(TimestampLink{ts}))
+				txt.Link(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
 			}
 
 			switch col {
