@@ -1031,8 +1031,9 @@ func (cv *Canvas) setPointerPosition(pos f32.Point) {
 }
 
 type Axis struct {
-	cv *Canvas
-
+	cv       *Canvas
+	click    gesture.Click
+	drag     gesture.Drag
 	ticksOps reusableOps
 
 	// the location of the origin, expressed as a ratio of the axis width in [0, 1]
@@ -1064,41 +1065,42 @@ func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
 func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "main.Axis.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	axis.click.Add(gtx.Ops)
+	axis.drag.Add(gtx.Ops)
 
-	for _, e := range gtx.Events(axis) {
-		ev := e.(pointer.Event)
-		switch ev.Type {
-		case pointer.Press, pointer.Drag:
-			switch ev.Buttons {
-			case pointer.ButtonPrimary:
-				// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
-				axis.cv.setPointerPosition(ev.Position)
-				axis.origin = ev.Position.X / float32(gtx.Constraints.Max.X)
-				if axis.origin < 0 {
-					axis.origin = 0
-				} else if axis.origin > 1 {
-					axis.origin = 1
-				}
-			case pointer.ButtonSecondary:
-				win.SetContextMenu(
-					[]*theme.MenuItem{
-						{
-							Label:    PlainLabel("Move origin to the left"),
-							Disabled: func() bool { return axis.origin == 0 },
-							Do:       func(gtx layout.Context) { axis.origin = 0 },
-						},
-						{
-							Label:    PlainLabel("Move origin to the center"),
-							Disabled: func() bool { return axis.origin == 0.5 },
-							Do:       func(gtx layout.Context) { axis.origin = 0.5 },
-						},
-						{
-							Label:    PlainLabel("Move origin to the right"),
-							Disabled: func() bool { return axis.origin == 1 },
-							Do:       func(gtx layout.Context) { axis.origin = 1 },
-						},
+	for _, ev := range axis.click.Events(gtx.Queue) {
+		if ev.Type == gesture.TypePress && ev.Button == pointer.ButtonSecondary {
+			win.SetContextMenu(
+				[]*theme.MenuItem{
+					{
+						Label:    PlainLabel("Move origin to the left"),
+						Disabled: func() bool { return axis.origin == 0 },
+						Do:       func(gtx layout.Context) { axis.origin = 0 },
 					},
-				)
+					{
+						Label:    PlainLabel("Move origin to the center"),
+						Disabled: func() bool { return axis.origin == 0.5 },
+						Do:       func(gtx layout.Context) { axis.origin = 0.5 },
+					},
+					{
+						Label:    PlainLabel("Move origin to the right"),
+						Disabled: func() bool { return axis.origin == 1 },
+						Do:       func(gtx layout.Context) { axis.origin = 1 },
+					},
+				},
+			)
+		}
+	}
+
+	for _, ev := range axis.drag.Events(gtx.Metric, gtx.Queue, gesture.Horizontal) {
+		if ev.Type == pointer.Press || ev.Type == pointer.Drag {
+			// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
+			axis.cv.setPointerPosition(ev.Position)
+			axis.origin = float32(ev.Position.X) / float32(gtx.Constraints.Max.X)
+			if axis.origin < 0 {
+				axis.origin = 0
+			} else if axis.origin > 1 {
+				axis.origin = 1
 			}
 		}
 	}
@@ -1273,8 +1275,6 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: ticksPath.End()}.Op())
-
-	pointer.InputOp{Tag: axis, Grab: true, Types: pointer.Press | pointer.Drag}.Add(gtx.Ops)
 
 	labelHeight := originLabelExtents.Max.Y
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight+0.5)+labelHeight)}
