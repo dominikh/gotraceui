@@ -254,8 +254,8 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		}
 	}
 
-	for _, obj := range gi.events.Clicked() {
-		gi.MainWindow.OpenLink(defaultLink(obj))
+	for _, ev := range gi.events.Clicked() {
+		handleLinkClick(gi.MainWindow, ev)
 	}
 
 	for gi.buttons.scrollToGoroutine.Clicked() {
@@ -1239,4 +1239,27 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	}
 
 	tl.tracks = append(tl.tracks, stackTracks...)
+}
+
+func goroutineLinkContextMenu(mwin *MainWindow, obj *ptrace.Goroutine) []*theme.MenuItem {
+	return []*theme.MenuItem{
+		{
+			Label: PlainLabel("Scroll to goroutine"),
+			Do: func(gtx layout.Context) {
+				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindScroll})
+			},
+		},
+		{
+			Label: PlainLabel("Zoom to goroutine"),
+			Do: func(gtx layout.Context) {
+				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindZoom})
+			},
+		},
+		{
+			Label: PlainLabel("Show goroutine information"),
+			Do: func(gtx layout.Context) {
+				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen})
+			},
+		},
+	}
 }

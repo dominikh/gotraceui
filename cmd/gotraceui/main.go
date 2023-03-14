@@ -860,8 +860,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						}
 
 						if sm := mwin.canvas.spanModal; sm != nil {
-							for _, obj := range sm.Events.Clicked() {
-								mwin.OpenLink(defaultLink(obj))
+							for _, ev := range sm.Events.Clicked() {
+								handleLinkClick(mwin, ev)
 							}
 						}
 
@@ -1498,5 +1498,26 @@ func defaultLink(obj any) Link {
 		return &TimestampLink{obj}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
+	}
+}
+
+func handleLinkClick(mwin *MainWindow, ev TextEvent) {
+	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
+		if obj, ok := ev.Span.Object.(*ptrace.Goroutine); ok {
+			switch ev.Event.Modifiers {
+			case 0:
+				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindScroll})
+			case key.ModShortcut:
+				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindZoom})
+			case key.ModShift:
+				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen})
+			}
+		} else {
+			mwin.OpenLink(defaultLink(ev.Span.Object))
+		}
+	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
+		if obj, ok := ev.Span.Object.(*ptrace.Goroutine); ok {
+			mwin.twin.SetContextMenu(goroutineLinkContextMenu(mwin, obj))
+		}
 	}
 }

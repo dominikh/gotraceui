@@ -6,14 +6,12 @@ import (
 	"image"
 	rtrace "runtime/trace"
 
-	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/io/pointer"
 	"gioui.org/op/clip"
 	"gioui.org/text"
 )
@@ -72,16 +70,12 @@ func (evs *Events) UpdateFilter() {
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.
-func (evs *Events) Clicked() []any {
+func (evs *Events) Clicked() []TextEvent {
 	// This only allocates when links have been clicked, which is a very low frequency event.
-	var out []any
+	var out []TextEvent
 	for i := 0; i < evs.texts.Len(); i++ {
 		txt := evs.texts.Ptr(i)
-		for _, ev := range txt.Events() {
-			if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
-				out = append(out, ev.Span.Object)
-			}
-		}
+		out = append(out, txt.Events()...)
 	}
 	return out
 }
