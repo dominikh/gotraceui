@@ -16,8 +16,10 @@ import (
 )
 
 type Window struct {
-	Theme       *Theme
-	Menu        *Menu
+	Theme *Theme
+	Menu  *Menu
+	// The current frame number
+	Frame       uint64
 	contextMenu []*MenuItem
 
 	pointerAt f32.Point
@@ -45,6 +47,7 @@ func Dumb(win *Window, w Widget) layout.Widget {
 
 func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
+	win.Frame++
 	gtx := layout.NewContext(ops, ev)
 
 	win.windowFrameState = windowFrameState{}
