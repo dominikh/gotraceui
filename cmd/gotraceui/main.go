@@ -128,6 +128,32 @@ func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
 	mwin.openPanel(gi)
 }
 
+func (mwin *MainWindow) openSpan(s SpanSelector, tl *Timeline, tr *Track, allEvents []ptrace.EventID) {
+	var labels []string
+	var label string
+	if tr.spanLabel != nil {
+		labels = tr.spanLabel(s, tl.cv.trace, nil)
+	}
+	if len(labels) > 0 {
+		label = labels[0]
+	}
+	si := &SpansInfo{
+		MainWindow: mwin,
+		Spans:      s,
+		Trace:      mwin.trace,
+		Label:      label,
+		AllEvents:  allEvents,
+		Container: struct {
+			Timeline *Timeline
+			Track    *Track
+		}{
+			Timeline: tl,
+			Track:    tr,
+		},
+	}
+	mwin.openPanel(si)
+}
+
 func (mwin *MainWindow) openPanel(p theme.Panel) {
 	if mwin.panel != nil {
 		mwin.panelHistory = append(mwin.panelHistory, mwin.panel)
@@ -454,9 +480,22 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			default:
 				panic(l.Kind)
 			}
+
 		case *TimestampLink:
 			d := mwin.canvas.end - mwin.canvas.start
 			mwin.canvas.navigateTo(gtx, l.Ts-d/2, l.Ts+d/2, mwin.canvas.y)
+
+		case *SpansLink:
+			switch l.Kind {
+			case SpanLinkKindScrollAndPan:
+				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
+				d := mwin.canvas.end - mwin.canvas.start
+				ts := l.Spans.At(0).Start + trace.Timestamp(SpansDuration(l.Spans)/2)
+				mwin.canvas.navigateTo(gtx, ts-d/2, ts+d/2, mwin.canvas.animateTo.targetY)
+			case SpanLinkKindZoom:
+				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
+				mwin.canvas.navigateTo(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
+			}
 		default:
 			panic(l)
 		}
@@ -855,16 +894,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							}
 						}
 
-						for _, g := range mwin.canvas.clickedGoroutineTimelines {
-							mwin.openGoroutine(g)
-						}
-
-						if sm := mwin.canvas.spanModal; sm != nil {
-							for _, ev := range sm.Events.Clicked() {
-								handleLinkClick(mwin, ev)
-							}
-						}
-
 						if mwin.panel != nil {
 							if mwin.panel.Closed() {
 								mwin.closePanel()
@@ -891,11 +920,21 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.end))
 						mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
 
+						var dims layout.Dimensions
 						if mwin.panel == nil {
-							return mwin.canvas.Layout(win, gtx)
+							dims = mwin.canvas.Layout(win, gtx)
 						} else {
-							return theme.Resize(win.Theme, &resize).Layout(win, gtx, mwin.canvas.Layout, mwin.panel.Layout)
+							dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mwin.canvas.Layout, mwin.panel.Layout)
 						}
+
+						for _, g := range mwin.canvas.clickedGoroutineTimelines {
+							mwin.openGoroutine(g)
+						}
+						for _, clicked := range mwin.canvas.clickedSpans {
+							mwin.openSpan(clicked.Spans, clicked.Timeline, clicked.Track, clicked.AllEvents)
+						}
+
+						return dims
 
 					default:
 						return layout.Dimensions{}
@@ -1005,11 +1044,11 @@ const (
 )
 
 type GoroutineLink struct {
+	aLink
+
 	Goroutine *ptrace.Goroutine
 	Kind      GoroutineLinkKind
 }
-
-func (*GoroutineLink) isLink() {}
 
 func span(th *theme.Theme, text string) styledtext.SpanStyle {
 	return styledtext.SpanStyle{

@@ -285,13 +285,15 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	if !supportMachineTimelines {
 		panic("NewMachineWidget was called despite supportmachineActivities == false")
 	}
+	l := local.Sprintf("Machine %d", m.ID)
 	return &Timeline{
 		tracks: []Track{
 			{spans: SliceToSpanSelector(m.Spans)},
 			{spans: SliceToSpanSelector(m.Goroutines)},
 		},
-		item:  m,
-		label: local.Sprintf("Machine %d", m.ID),
+		item:      m,
+		label:     l,
+		shortName: l,
 
 		buildTrackWidgets: func(tracks []Track) {
 			for i := range tracks {

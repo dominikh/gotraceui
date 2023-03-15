@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -249,9 +248,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	)
 
 	for _, ev := range gi.description.Events() {
-		if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
-			gi.MainWindow.OpenLink(defaultLink(ev.Span.Object))
-		}
+		handleLinkClick(gi.MainWindow, ev)
 	}
 
 	for _, ev := range gi.events.Clicked() {
@@ -289,6 +286,29 @@ var statLabels = [...][numStatLabels * 3]string{
 		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
 		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
 	},
+}
+var stateNames = [ptrace.StateLast]string{
+	ptrace.StateInactive:                "inactive",
+	ptrace.StateActive:                  "active",
+	ptrace.StateGCIdle:                  "GC (idle)",
+	ptrace.StateGCDedicated:             "GC (dedicated)",
+	ptrace.StateBlocked:                 "blocked (other)",
+	ptrace.StateBlockedSend:             "blocked (channel send)",
+	ptrace.StateBlockedRecv:             "blocked (channel receive)",
+	ptrace.StateBlockedSelect:           "blocked (select)",
+	ptrace.StateBlockedSync:             "blocked (sync)",
+	ptrace.StateBlockedSyncOnce:         "blocked (sync.Once)",
+	ptrace.StateBlockedSyncTriggeringGC: "blocked (triggering GC)",
+	ptrace.StateBlockedCond:             "blocked (sync.Cond)",
+	ptrace.StateBlockedNet:              "blocked (pollable I/O)",
+	ptrace.StateBlockedGC:               "blocked (GC)",
+	ptrace.StateBlockedSyscall:          "blocked (syscall)",
+	ptrace.StateStuck:                   "stuck",
+	ptrace.StateReady:                   "ready",
+	ptrace.StateCreated:                 "created",
+	ptrace.StateDone:                    "done",
+	ptrace.StateGCMarkAssist:            "GC (mark assist)",
+	ptrace.StateGCSweep:                 "GC (sweep assist)",
 }
 
 var stateNamesCapitalized = [ptrace.StateLast]string{
@@ -698,11 +718,10 @@ func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr 
 }
 
 func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline {
-	var l string
+	shortName := local.Sprintf("goroutine %d", g.ID)
+	l := shortName
 	if g.Function.Fn != "" {
 		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
-	} else {
-		l = local.Sprintf("goroutine %d", g.ID)
 	}
 
 	tl := &Timeline{
@@ -749,8 +768,9 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return GoroutineTooltip{g, cv.trace}.Layout(win, gtx)
 		},
-		item:  g,
-		label: l,
+		item:      g,
+		label:     l,
+		shortName: shortName,
 	}
 
 	for _, ug := range g.UserRegions {

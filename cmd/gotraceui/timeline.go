@@ -49,6 +49,7 @@ type Timeline struct {
 	widgetTooltip     func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions
 	invalidateCache   func(tl *Timeline, cv *Canvas) bool
 	item              any
+	shortName         string
 	label             string
 	// Set to true by Timeline.Layout. This is used to track which timelines have been shown during a frame.
 	displayed bool
@@ -68,7 +69,10 @@ type TimelineWidget struct {
 	// TimelineWidget doesn't have to mutate Timeline's state.
 	//
 	// OPT(dh): clicked spans and navigated spans are mutually exclusive, combine the fields
-	clickedSpans   SpanSelector
+	clickedSpans struct {
+		Spans SpanSelector
+		Track *Track
+	}
 	navigatedSpans SpanSelector
 	hoveredSpans   SpanSelector
 }
@@ -214,7 +218,10 @@ func (track *TrackWidget) HoveredSpans() SpanSelector {
 	return track.hoveredSpans
 }
 
-func (tw *TimelineWidget) ClickedSpans() SpanSelector {
+func (tw *TimelineWidget) ClickedSpans() struct {
+	Spans SpanSelector
+	Track *Track
+} {
 	return tw.clickedSpans
 }
 
@@ -285,7 +292,8 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 
 	tl.displayed = true
 
-	tl.clickedSpans = NoSpan{}
+	tl.clickedSpans.Spans = NoSpan{}
+	tl.clickedSpans.Track = nil
 	tl.navigatedSpans = NoSpan{}
 	tl.hoveredSpans = NoSpan{}
 
@@ -350,7 +358,10 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.navigatedSpans = spans
 		}
 		if spans := track.ClickedSpans(); spans.Size() != 0 {
-			tl.clickedSpans = spans
+			tl.clickedSpans = struct {
+				Spans SpanSelector
+				Track *Track
+			}{spans, track}
 		}
 	}
 	stack.Pop()
@@ -932,9 +943,10 @@ func singleSpanColor(c colorIndex) func(spanSel SpanSelector, tr *Trace) [2]colo
 
 func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 	return &Timeline{
-		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
-		item:   spans,
-		label:  "GC",
+		tracks:    []Track{{spans: SliceToSpanSelector(spans)}},
+		item:      spans,
+		label:     "GC",
+		shortName: "GC",
 
 		buildTrackWidgets: func(tracks []Track) {
 			*tracks[0].TrackWidget = TrackWidget{
@@ -947,9 +959,10 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 
 func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 	return &Timeline{
-		tracks: []Track{{spans: SliceToSpanSelector(spans)}},
-		item:   spans,
-		label:  "STW",
+		tracks:    []Track{{spans: SliceToSpanSelector(spans)}},
+		item:      spans,
+		label:     "STW",
+		shortName: "STW",
 
 		buildTrackWidgets: func(tracks []Track) {
 			*tracks[0].TrackWidget = TrackWidget{

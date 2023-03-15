@@ -243,6 +243,7 @@ func processorTrackSpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.Me
 }
 
 func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
+	l := local.Sprintf("Processor %d", p.ID)
 	return &Timeline{
 		tracks: []Track{{spans: SliceToSpanSelector(p.Spans)}},
 
@@ -264,6 +265,7 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 		},
 		invalidateCache: processorInvalidateCache,
 		item:            p,
-		label:           local.Sprintf("Processor %d", p.ID),
+		label:           l,
+		shortName:       l,
 	}
 }

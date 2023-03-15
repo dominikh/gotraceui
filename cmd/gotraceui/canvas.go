@@ -75,6 +75,12 @@ type Canvas struct {
 	debugWindow *DebugWindow
 
 	clickedGoroutineTimelines []*ptrace.Goroutine
+	clickedSpans              []struct {
+		Spans     SpanSelector
+		AllEvents []ptrace.EventID
+		Timeline  *Timeline
+		Track     *Track
+	}
 
 	// The region of the canvas that we're displaying, measured in nanoseconds
 	start trace.Timestamp
@@ -151,8 +157,6 @@ type Canvas struct {
 
 	resizeMemoryTimelines component.Resize
 
-	spanModal *SpanModal
-
 	// prevFrame records the canvas's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the canvas hasn't changed.
 	prevFrame struct {
@@ -188,6 +192,8 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.timelines = make([]*Timeline, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
 	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
 	cv.timelines[1] = NewSTWTimeline(cv, t, t.STW)
+
+	cv.timeline.hoveredSpans = NoSpan{}
 }
 
 func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
@@ -739,6 +745,15 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
+	for _, tl := range cv.prevFrame.displayedTls {
+		if spanSel := tl.NavigatedSpans(); spanSel.Size() > 0 {
+			start := spanSel.At(0).Start
+			end := spanSel.At(spanSel.Size() - 1).End
+			cv.navigateTo(gtx, start, end, cv.y)
+			break
+		}
+	}
+
 	cv.computeTimelinePositions(gtx)
 
 	func(gtx layout.Context) {
@@ -760,45 +775,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			cv.y += int(round32(d * float32(totalHeight)))
 			if cv.y < 0 {
 				cv.y = 0
-			}
-		}
-
-		cv.timeline.hoveredSpans = NoSpan{}
-		cv.timeline.hoveredTimeline = nil
-		for _, tl := range cv.prevFrame.displayedTls {
-			if spanSel := tl.NavigatedSpans(); spanSel.Size() > 0 {
-				start := spanSel.At(0).Start
-				end := spanSel.At(spanSel.Size() - 1).End
-				cv.navigateTo(gtx, start, end, cv.y)
-				break
-			}
-			if spanSel := tl.ClickedSpans(); spanSel.Size() == 1 {
-				// XXX defer
-				var allEvents []ptrace.EventID
-				switch item := tl.item.(type) {
-				case *ptrace.Goroutine:
-					allEvents = item.Events
-				default:
-					// TODO(dh): give all relevant types a method that we can check for, instead of having to hard-code
-					// a list of types here.
-				}
-				sm := &SpanModal{
-					Span:      spanSel.At(0),
-					AllEvents: allEvents,
-					Trace:     cv.trace,
-				}
-				cv.spanModal = sm
-				win.SetPopup(sm.Layout)
-				break
-			}
-		}
-		for _, tl := range cv.prevFrame.displayedTls {
-			if tl.Hovered() {
-				cv.timeline.hoveredTimeline = tl
-				if spanSel := tl.HoveredSpans(); spanSel.Size() > 0 {
-					cv.timeline.hoveredSpans = spanSel
-				}
-				break
 			}
 		}
 
@@ -957,6 +933,35 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
 	cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
 	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
+
+	cv.clickedSpans = cv.clickedSpans[:0]
+	cv.timeline.hoveredSpans = NoSpan{}
+	cv.timeline.hoveredTimeline = nil
+	for _, tl := range cv.prevFrame.displayedTls {
+		if clicked := tl.ClickedSpans(); clicked.Spans.Size() > 0 {
+			var allEvents []ptrace.EventID
+			switch item := tl.item.(type) {
+			case *ptrace.Goroutine:
+				allEvents = item.Events
+			default:
+				// TODO(dh): give all relevant types a method that we can check for, instead of having to hard-code
+				// a list of types here.
+			}
+			cv.clickedSpans = append(cv.clickedSpans, struct {
+				Spans     SpanSelector
+				AllEvents []ptrace.EventID
+				Timeline  *Timeline
+				Track     *Track
+			}{clicked.Spans, allEvents, tl, clicked.Track})
+		}
+		if tl.Hovered() {
+			cv.timeline.hoveredTimeline = tl
+			if spanSel := tl.HoveredSpans(); spanSel.Size() > 0 {
+				cv.timeline.hoveredSpans = spanSel
+			}
+			break
+		}
+	}
 
 	return layout.Dimensions{
 		Size: gtx.Constraints.Max,
@@ -1279,33 +1284,4 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 	labelHeight := originLabelExtents.Max.Y
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight+0.5)+labelHeight)}
-}
-
-type SpanModal struct {
-	Trace     *Trace
-	AllEvents []ptrace.EventID
-	Span      ptrace.Span
-	Events    *Events
-}
-
-func (sm *SpanModal) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	return theme.Dialog(win.Theme, "Span").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(1000, 0)).X
-		gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(gtx.Constraints.Max.X, 300))
-
-		if sm.Events == nil {
-			sm.Events = &Events{
-				Trace:  sm.Trace,
-				Events: sm.Span.Events(sm.AllEvents, sm.Trace.Trace),
-			}
-
-			sm.Events.Filter.ShowGoCreate.Value = true
-			sm.Events.Filter.ShowGoUnblock.Value = true
-			sm.Events.Filter.ShowGoSysCall.Value = true
-			sm.Events.Filter.ShowUserLog.Value = true
-			sm.Events.UpdateFilter()
-		}
-
-		return sm.Events.Layout(win, gtx)
-	})
 }
