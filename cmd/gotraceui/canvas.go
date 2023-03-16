@@ -169,6 +169,7 @@ type Canvas struct {
 		displayedTls       []*Timeline
 		hoveredTimeline    *Timeline
 		hoveredSpans       SpanSelector
+		width              int
 	}
 
 	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
@@ -782,6 +783,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		// long before we get to laying out the timelines. Practically, the max width of timelines is only restricted by
 		// the scrollbar, which has a fixed width.
 		estimatedTimelinesWidth := cv.VisibleWidth(win, gtx)
+		if estimatedTimelinesWidth != cv.prevFrame.width && cv.prevFrame.width != 0 {
+			// The width of the timelines changed. Instead of changing nsPerPx, change the end position, to achieve a
+			// truncating/extending effect instead of a scaling effect.
+			cv.end = cv.start + trace.Timestamp(float32(cv.nsPerPx)*float32(estimatedTimelinesWidth))
+		}
+		cv.prevFrame.width = estimatedTimelinesWidth
 		cv.nsPerPx = float32(cv.end-cv.start) / float32(estimatedTimelinesWidth)
 		cv.debugWindow.cvPxPerNs.addValue(gtx.Now, 1.0/float64(cv.nsPerPx))
 
