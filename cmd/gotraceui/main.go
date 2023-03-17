@@ -476,25 +476,25 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				mwin.canvas.scrollToTimeline(gtx, l.Goroutine)
 			case GoroutineLinkKindZoom:
 				y := mwin.canvas.timelineY(gtx, l.Goroutine)
-				mwin.canvas.navigateTo(gtx, l.Goroutine.Spans.Start(), l.Goroutine.Spans.End(), y)
+				mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans.Start(), l.Goroutine.Spans.End(), y)
 			default:
 				panic(l.Kind)
 			}
 
 		case *TimestampLink:
-			d := mwin.canvas.end - mwin.canvas.start
-			mwin.canvas.navigateTo(gtx, l.Ts-d/2, l.Ts+d/2, mwin.canvas.y)
+			d := mwin.canvas.End() - mwin.canvas.start
+			mwin.canvas.navigateTo(gtx, l.Ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.y)
 
 		case *SpansLink:
 			switch l.Kind {
 			case SpanLinkKindScrollAndPan:
 				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
-				d := mwin.canvas.end - mwin.canvas.start
+				d := mwin.canvas.End() - mwin.canvas.start
 				ts := l.Spans.At(0).Start + trace.Timestamp(SpansDuration(l.Spans)/2)
-				mwin.canvas.navigateTo(gtx, ts-d/2, ts+d/2, mwin.canvas.animateTo.targetY)
+				mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.animateTo.targetY)
 			case SpanLinkKindZoom:
 				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
-				mwin.canvas.navigateTo(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
+				mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 			}
 		default:
 			panic(l)
@@ -917,7 +917,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						}
 
 						mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
-						mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.end))
+						mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
 						mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
 
 						var dims layout.Dimensions
@@ -977,7 +977,6 @@ func (mwin *MainWindow) showFileOpenDialog() {
 func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	NewCanvasInto(&mwin.canvas, mwin.debugWindow, res.trace)
 	mwin.canvas.start = res.start
-	mwin.canvas.end = res.end
 	mwin.canvas.memoryGraph = res.plot
 	mwin.canvas.timelines = append(mwin.canvas.timelines, res.timelines...)
 	mwin.trace = res.trace
@@ -1300,17 +1299,7 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 	// We no longer need this.
 	tr.CPUSamples = nil
 
-	var end trace.Timestamp
-	for _, g := range tr.Goroutines {
-		if d := g.Spans.End(); d > end {
-			end = d
-		}
-	}
-	for _, p := range tr.Processors {
-		if d := p.Spans.End(); d > end {
-			end = d
-		}
-	}
+	end := tr.Events[len(tr.Events)-1].Ts
 
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
 	// entire trace.

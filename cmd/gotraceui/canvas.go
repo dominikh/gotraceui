@@ -64,9 +64,9 @@ const animateLength = 250 * time.Millisecond
 const maxLocationHistoryEntries = 1024
 
 type LocationHistoryEntry struct {
-	start trace.Timestamp
-	end   trace.Timestamp
-	y     int
+	start   trace.Timestamp
+	nsPerPx float64
+	y       int
 }
 
 type Canvas struct {
@@ -82,9 +82,13 @@ type Canvas struct {
 		Track     *Track
 	}
 
-	// The region of the canvas that we're displaying, measured in nanoseconds
-	start trace.Timestamp
-	end   trace.Timestamp
+	// The start of the timeline
+	start   trace.Timestamp
+	nsPerPx float64
+
+	// The width of the canvas, in pixels, updated on each frame
+	width int
+
 	// Imagine we're drawing all timelines onto an infinitely long canvas. Canvas.y specifies the y of that infinite
 	// canvas that the timeline section's y == 0 is displaying.
 	y            int
@@ -96,13 +100,13 @@ type Canvas struct {
 	animateTo struct {
 		animating bool
 
-		initialStart trace.Timestamp
-		initialEnd   trace.Timestamp
-		initialY     int
+		initialStart   trace.Timestamp
+		initialNsPerPx float64
+		initialY       int
 
-		targetStart trace.Timestamp
-		targetEnd   trace.Timestamp
-		targetY     int
+		targetStart   trace.Timestamp
+		targetNsPerPx float64
+		targetY       int
 
 		startedAt time.Time
 	}
@@ -133,9 +137,6 @@ type Canvas struct {
 		active  bool
 	}
 
-	// Frame-local state set by Layout and read by various helpers
-	nsPerPx float32
-
 	// We have multiple sources of the pointer position, which are valid during different times: Canvas.hover and
 	// Canvas.drag.drag – when we're dragging, Canvas.drag.drag grabs pointer input and the hover won't update anymore.
 	pointerAt f32.Point
@@ -163,7 +164,7 @@ type Canvas struct {
 		start              trace.Timestamp
 		end                trace.Timestamp
 		y                  int
-		nsPerPx            float32
+		nsPerPx            float64
 		compact            bool
 		displayStackTracks bool
 		displayedTls       []*Timeline
@@ -197,6 +198,10 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.timeline.hoveredSpans = NoSpan{}
 }
 
+func (cv *Canvas) End() trace.Timestamp {
+	return cv.start + trace.Timestamp(float64(cv.width)*cv.nsPerPx)
+}
+
 func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
 	if len(cv.timelineEnds) == len(cv.timelines) &&
 		cv.timeline.compact == cv.prevFrame.compact &&
@@ -214,9 +219,9 @@ func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
 
 func (cv *Canvas) rememberLocation() {
 	e := LocationHistoryEntry{
-		start: cv.start,
-		end:   cv.end,
-		y:     cv.y,
+		start:   cv.start,
+		nsPerPx: cv.nsPerPx,
+		y:       cv.y,
 	}
 	if o, ok := cv.peekLocationHistory(); ok && o == e {
 		// don't record duplicate locations
@@ -230,14 +235,13 @@ func (cv *Canvas) rememberLocation() {
 	}
 }
 
-func (cv *Canvas) navigateToChecks(start, end trace.Timestamp, y int) bool {
-	if start == cv.start && end == cv.end && y == cv.y {
+func (cv *Canvas) navigateToChecks(start trace.Timestamp, nsPerPx float64, y int) bool {
+	if start == cv.start && nsPerPx == cv.nsPerPx && y == cv.y {
 		// We're already there, do nothing. In particular, don't push to the location history.
 		return false
 	}
 
-	if start == end {
-		// Cannot zoom to a zero width area
+	if nsPerPx == 0 {
 		return false
 	}
 
@@ -250,32 +254,37 @@ func (cv *Canvas) cancelNavigation() {
 
 // navigateTo modifes the canvas's start, end and y values, recording the previous location in the undo stack.
 // navigateTo rejects invalid operations, like setting start = end.
-func (cv *Canvas) navigateTo(gtx layout.Context, start, end trace.Timestamp, y int) {
-	if !cv.navigateToChecks(start, end, y) {
+func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y int) {
+	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
 
 	cv.rememberLocation()
-	cv.navigateToImpl(gtx, start, end, y)
+	cv.navigateToImpl(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start, end trace.Timestamp, y int) {
-	if !cv.navigateToChecks(start, end, y) {
+func (cv *Canvas) navigateToStartAndEnd(gtx layout.Context, start, end trace.Timestamp, y int) {
+	nsPerPx := float64(end-start) / float64(cv.width)
+	cv.navigateTo(gtx, start, nsPerPx, y)
+}
+
+func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y int) {
+	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
 
-	cv.navigateToImpl(gtx, start, end, y)
+	cv.navigateToImpl(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToImpl(gtx layout.Context, start, end trace.Timestamp, y int) {
+func (cv *Canvas) navigateToImpl(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y int) {
 	cv.animateTo.animating = true
 
 	cv.animateTo.initialStart = cv.start
-	cv.animateTo.initialEnd = cv.end
+	cv.animateTo.initialNsPerPx = cv.nsPerPx
 	cv.animateTo.initialY = cv.y
 
 	cv.animateTo.targetStart = start
-	cv.animateTo.targetEnd = end
+	cv.animateTo.targetNsPerPx = nsPerPx
 	cv.animateTo.targetY = y
 
 	cv.animateTo.startedAt = gtx.Now
@@ -307,8 +316,8 @@ func (cv *Canvas) unchanged() bool {
 	}
 
 	return cv.prevFrame.start == cv.start &&
-		cv.prevFrame.end == cv.end &&
 		cv.prevFrame.nsPerPx == cv.nsPerPx &&
+		cv.prevFrame.width == cv.width &&
 		cv.prevFrame.y == cv.y &&
 		cv.prevFrame.compact == cv.timeline.compact &&
 		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks
@@ -345,7 +354,7 @@ func (cv *Canvas) endZoomSelection(win *theme.Window, gtx layout.Context, pos f3
 		return
 	}
 
-	cv.navigateTo(gtx, start, end, cv.y)
+	cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 }
 
 func (cv *Canvas) startDrag(pos f32.Point) {
@@ -355,7 +364,6 @@ func (cv *Canvas) startDrag(pos f32.Point) {
 	cv.drag.clickAt = pos
 	cv.drag.active = true
 	cv.drag.start = cv.start
-	cv.drag.end = cv.end
 	cv.drag.startY = cv.y
 }
 
@@ -364,9 +372,8 @@ func (cv *Canvas) endDrag() {
 }
 
 func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
-	td := time.Duration(round32(cv.nsPerPx * (cv.drag.clickAt.X - pos.X)))
+	td := time.Duration(math.Round(cv.nsPerPx * float64(cv.drag.clickAt.X-pos.X)))
 	cv.start = cv.drag.start + trace.Timestamp(td)
-	cv.end = cv.drag.end + trace.Timestamp(td)
 
 	yd := int(round32(cv.drag.clickAt.Y - pos.Y))
 	cv.y = cv.drag.startY + yd
@@ -380,17 +387,19 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	// TODO(dh): implement location history for zooming. We shouldn't record one entry per call to zoom, and instead
 	// only record on calls that weren't immediately preceeded by other calls to zoom.
 
-	// FIXME(dh): repeatedly zooming in and out doesn't cancel each other out. Fix that.
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
-		ratio := at.X / float32(gtx.Constraints.Max.X)
-		ds := time.Duration(cv.nsPerPx * 100 * ratio)
-		de := time.Duration(cv.nsPerPx * 100 * (1 - ratio))
-		cv.start += trace.Timestamp(ds)
-		cv.end -= trace.Timestamp(de)
+		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
+		ds := trace.Timestamp(cv.nsPerPx * 100 * ratio)
+		de := trace.Timestamp(cv.nsPerPx * 100 * (1 - ratio))
+
+		start := cv.start + ds
+		end := cv.End() - de
+		cv.start = start
+		cv.nsPerPx = float64(end-start) / float64(cv.width)
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
-		ratio := at.X / float32(gtx.Constraints.Max.X)
+		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
 		ds := trace.Timestamp(cv.nsPerPx * 100 * ratio)
 		de := trace.Timestamp(cv.nsPerPx * 100 * (1 - ratio))
 
@@ -403,18 +412,14 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 		}
 
 		start := cv.start - ds
-		end := cv.end + de
+		end := cv.End() + de
 
-		// Limit canvas to roughly one day. There's rno reason to zoom out this far, and zooming out further will lead
+		// Limit canvas to roughly one day. There's no reason to zoom out this far, and zooming out further will lead
 		// to edge cases and eventually overflow.
 		if time.Duration(end-start) < 24*time.Hour {
 			cv.start = start
-			cv.end = end
+			cv.nsPerPx = float64(end-start) / float64(cv.width)
 		}
-	}
-
-	if cv.start > cv.end {
-		cv.start = cv.end - 1
 	}
 }
 
@@ -430,7 +435,7 @@ func (cv *Canvas) visibleSpans(spanSel SpanSelector) SpanSelector {
 	}
 	end := sort.Search(len(spans), func(i int) bool {
 		s := spans[i]
-		return s.Start >= cv.end
+		return s.Start >= cv.End()
 	})
 
 	return spanSel.Slice(start, end)
@@ -467,7 +472,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 		panic("unreachable")
 	}
 
-	cv.navigateTo(gtx, first, last, cv.y)
+	cv.navigateToStartAndEnd(gtx, first, last, cv.y)
 }
 
 func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
@@ -485,7 +490,7 @@ func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
 
 func (cv *Canvas) scrollToTimeline(gtx layout.Context, act any) {
 	off := cv.timelineY(gtx, act)
-	cv.navigateTo(gtx, cv.start, cv.end, off)
+	cv.navigateTo(gtx, cv.start, cv.nsPerPx, off)
 }
 
 // The width in pixels of the visible portion of the canvas, i.e. the part that isn't occupied by the scrollbar.
@@ -524,17 +529,16 @@ func (cv *Canvas) ToggleStackTracks() {
 
 func (cv *Canvas) UndoNavigation(gtx layout.Context) {
 	if e, ok := cv.popLocationHistory(); ok {
-		cv.navigateToNoHistory(gtx, e.start, e.end, e.y)
+		cv.navigateToNoHistory(gtx, e.start, e.nsPerPx, e.y)
 	}
 }
 
 func (cv *Canvas) ScrollToTop(gtx layout.Context) {
-	cv.navigateTo(gtx, cv.start, cv.end, 0)
+	cv.navigateTo(gtx, cv.start, cv.nsPerPx, 0)
 }
 
 func (cv *Canvas) JumpToBeginning(gtx layout.Context) {
-	d := cv.end - cv.start
-	cv.navigateTo(gtx, 0, d, cv.y)
+	cv.navigateTo(gtx, 0, cv.nsPerPx, cv.y)
 }
 
 func (cv *Canvas) ToggleCompactDisplay() {
@@ -555,17 +559,26 @@ func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 	}
 	// XXX don't allow dragging cv.y beyond end
 
-	cv.start += trace.Timestamp(round32(dx * cv.nsPerPx))
-	cv.end += trace.Timestamp(round32(dx * cv.nsPerPx))
+	cv.start += trace.Timestamp(math.Round(float64(dx) * cv.nsPerPx))
 }
 
 func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Canvas.Layout").End()
-	gtx.Constraints.Min = image.Point{}
 
+	// Compute the width. This has to make assumptions about the width of the timelines, because we need it
+	// long before we get to laying out the timelines. Practically, the max width of timelines is only restricted by
+	// the scrollbar, which has a fixed width.
+	cv.width = cv.VisibleWidth(win, gtx)
+	gtx.Constraints.Min = image.Point{}
 	if gtx.Constraints.Max.X < 50 || gtx.Constraints.Max.Y < 50 {
 		// Crude guard against having too litle space to render anything useful.
 		return layout.Dimensions{Size: gtx.Constraints.Max}
+	}
+
+	if cv.nsPerPx == 0 {
+		end := cv.trace.Events[len(cv.trace.Events)-1].Ts
+		slack := float64(end) * 0.05
+		cv.nsPerPx = (float64(end) + 2*slack) / float64(cv.width)
 	}
 
 	cv.timeline.hover.Update(gtx.Queue)
@@ -581,7 +594,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		dt := gtx.Now.Sub(cv.animateTo.startedAt)
 		if dt >= animateLength {
 			cv.start = cv.animateTo.targetStart
-			cv.end = cv.animateTo.targetEnd
+			cv.nsPerPx = cv.animateTo.targetNsPerPx
 			cv.y = cv.animateTo.targetY
 
 			cv.debugWindow.animationProgress.addValue(gtx.Now, 1)
@@ -593,12 +606,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 			{
 				initialStart := float64(cv.animateTo.initialStart)
-				initialEnd := float64(cv.animateTo.initialEnd)
+				initialNsPerPx := float64(cv.animateTo.initialNsPerPx)
 				targetStart := float64(cv.animateTo.targetStart)
-				targetEnd := float64(cv.animateTo.targetEnd)
+				targetNsPerPx := float64(cv.animateTo.targetNsPerPx)
 
-				initialWidth := initialEnd - initialStart
-				targetWidth := targetEnd - targetStart
+				initialWidth := initialNsPerPx*float64(cv.VisibleWidth(win, gtx)) - initialStart
+				targetWidth := targetNsPerPx*float64(cv.VisibleWidth(win, gtx)) - targetStart
 
 				var ease func(float64) float64
 				if targetWidth <= initialWidth {
@@ -614,10 +627,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.debugWindow.animationRatio.addValue(gtx.Now, r)
 
 				curStart := initialStart + (targetStart-initialStart)*r
-				curEnd := initialEnd + (targetEnd-initialEnd)*r
+				curNsPerPx := initialNsPerPx + (targetNsPerPx-initialNsPerPx)*r
 
 				cv.start = trace.Timestamp(curStart)
-				cv.end = trace.Timestamp(curEnd)
+				cv.nsPerPx = curNsPerPx
 			}
 
 			// XXX this looks bad when we panned in both X and Y, because the two animations don't run at the same speed
@@ -750,7 +763,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if spanSel := tl.NavigatedSpans(); spanSel.Size() > 0 {
 			start := spanSel.At(0).Start
 			end := spanSel.At(spanSel.Size() - 1).End
-			cv.navigateTo(gtx, start, end, cv.y)
+			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 			break
 		}
 	}
@@ -779,19 +792,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			}
 		}
 
-		// Compute nsPerPx. This has to make assumptions about the width of the timelines, because we need nsPerPx set
-		// long before we get to laying out the timelines. Practically, the max width of timelines is only restricted by
-		// the scrollbar, which has a fixed width.
-		estimatedTimelinesWidth := cv.VisibleWidth(win, gtx)
-		if estimatedTimelinesWidth != cv.prevFrame.width && cv.prevFrame.width != 0 {
-			// The width of the timelines changed. Instead of changing nsPerPx, change the end position, to achieve a
-			// truncating/extending effect instead of a scaling effect.
-			cv.end = cv.start + trace.Timestamp(float32(cv.nsPerPx)*float32(estimatedTimelinesWidth))
-		}
-		cv.prevFrame.width = estimatedTimelinesWidth
-		cv.nsPerPx = float32(cv.end-cv.start) / float32(estimatedTimelinesWidth)
-		cv.debugWindow.cvPxPerNs.addValue(gtx.Now, 1.0/float64(cv.nsPerPx))
-
 		// Set up event handlers
 		pointer.InputOp{
 			Tag:          cv,
@@ -814,8 +814,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				if start < cv.start {
 					start = cv.start
 				}
-				if end > cv.end {
-					end = cv.end
+				if end > cv.End() {
+					end = cv.End()
 				}
 
 				xMin := cv.tsToPx(start)
@@ -869,8 +869,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-								if width := gtx.Constraints.Max.X; width != estimatedTimelinesWidth {
-									panic(fmt.Sprintf("estimated timelines width differs from actual width: %d != %d", estimatedTimelinesWidth, width))
+								if width := gtx.Constraints.Max.X; width != cv.width {
+									panic(fmt.Sprintf("computed timelines width differs from actual width: %d != %d", cv.width, width))
 								}
 
 								cv.drag.drag.Add(gtx.Ops)
@@ -933,8 +933,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	}(gtx)
 
 	cv.prevFrame.start = cv.start
-	cv.prevFrame.end = cv.end
 	cv.prevFrame.nsPerPx = cv.nsPerPx
+	cv.prevFrame.width = cv.width
 	cv.prevFrame.y = cv.y
 	cv.prevFrame.compact = cv.timeline.compact
 	cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
@@ -1066,7 +1066,7 @@ func (axis *Axis) tickInterval(gtx layout.Context) (time.Duration, bool) {
 	// Note that an analytical solution exists for this, but computing it is slower than the loop.
 	minTickDistance := gtx.Dp(minTickDistanceDp)
 	for t := time.Duration(1); true; t *= 10 {
-		tickDistance := int(round32(float32(t) / axis.cv.nsPerPx))
+		tickDistance := int(math.Round(float64(t) / axis.cv.nsPerPx))
 		if tickDistance >= minTickDistance {
 			return t, true
 		}
@@ -1128,7 +1128,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	min := axis.cv.start
-	max := axis.cv.end
+	max := axis.cv.End()
 	origin := min + trace.Timestamp(round32(float32(max-min)*axis.origin))
 
 	if axis.cv.unchanged() && axis.prevFrame.origin == axis.origin {

@@ -146,11 +146,11 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				bitmap |= 1 << i
 			}
 		}
-		if pl.prevFrame.start != cv.start || pl.prevFrame.end != cv.end || pl.prevFrame.disabledSeries != bitmap {
-			pl.min, pl.max = pl.computeExtents(cv.start, cv.end)
+		if pl.prevFrame.start != cv.start || pl.prevFrame.end != cv.End() || pl.prevFrame.disabledSeries != bitmap {
+			pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
 		}
 		pl.prevFrame.start = cv.start
-		pl.prevFrame.end = cv.end
+		pl.prevFrame.end = cv.End()
 		pl.prevFrame.disabledSeries = bitmap
 		r.End()
 	}
@@ -223,7 +223,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			{
 				Label: PlainLabel("Set extents to local extrema"),
 				Do: func(gtx layout.Context) {
-					pl.min, pl.max = pl.computeExtents(cv.start, cv.end)
+					pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
 				},
 			},
 			{

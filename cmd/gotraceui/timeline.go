@@ -158,7 +158,7 @@ func newZoomMenuItem(cv *Canvas, spanSel SpanSelector) *theme.MenuItem {
 		Do: func(gtx layout.Context) {
 			start := spanSel.At(0).Start
 			end := spanSel.At(spanSel.Size() - 1).End
-			cv.navigateTo(gtx, start, end, cv.y)
+			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 		},
 	}
 }
@@ -870,7 +870,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				if cv.start >= died {
 					// The goroutine is dead
 					deadFromPx = 0
-				} else if cv.end < born {
+				} else if cv.End() < born {
 					// The goroutine hasn't been created yet
 					unbornUntilPx = visWidthPx
 				}
