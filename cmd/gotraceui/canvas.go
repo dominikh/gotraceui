@@ -187,7 +187,7 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.resizeMemoryTimelines.Axis = layout.Vertical
 	cv.resizeMemoryTimelines.Ratio = 0.1
 	cv.timeline.displayAllLabels = true
-	cv.axis = Axis{cv: cv, origin: 0.5}
+	cv.axis = Axis{cv: cv, anchor: AxisAnchorCenter}
 	cv.trace = t
 	cv.debugWindow = dwin
 
@@ -1042,20 +1042,31 @@ func (cv *Canvas) setPointerPosition(pos f32.Point) {
 	cv.pointerAt = pos
 }
 
+type AxisAnchor uint8
+
+const (
+	AxisAnchorNone AxisAnchor = iota
+	AxisAnchorStart
+	AxisAnchorCenter
+	AxisAnchorEnd
+)
+
 type Axis struct {
 	cv       *Canvas
 	click    gesture.Click
 	drag     gesture.Drag
 	ticksOps reusableOps
 
-	// the location of the origin, expressed as a ratio of the axis width in [0, 1]
-	origin float32
+	// the location of the origin in pixels
+	position float32
+	// where the position of the origin is anchored to
+	anchor AxisAnchor
 
 	prevFrame struct {
 		ops    reusableOps
 		call   op.CallOp
 		dims   layout.Dimensions
-		origin float32
+		origin trace.Timestamp
 	}
 }
 
@@ -1086,18 +1097,18 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 				[]*theme.MenuItem{
 					{
 						Label:    PlainLabel("Move origin to the left"),
-						Disabled: func() bool { return axis.origin == 0 },
-						Do:       func(gtx layout.Context) { axis.origin = 0 },
+						Disabled: func() bool { return axis.anchor == AxisAnchorStart },
+						Do:       func(gtx layout.Context) { axis.anchor = AxisAnchorStart },
 					},
 					{
 						Label:    PlainLabel("Move origin to the center"),
-						Disabled: func() bool { return axis.origin == 0.5 },
-						Do:       func(gtx layout.Context) { axis.origin = 0.5 },
+						Disabled: func() bool { return axis.anchor == AxisAnchorCenter },
+						Do:       func(gtx layout.Context) { axis.anchor = AxisAnchorCenter },
 					},
 					{
 						Label:    PlainLabel("Move origin to the right"),
-						Disabled: func() bool { return axis.origin == 1 },
-						Do:       func(gtx layout.Context) { axis.origin = 1 },
+						Disabled: func() bool { return axis.anchor == AxisAnchorEnd },
+						Do:       func(gtx layout.Context) { axis.anchor = AxisAnchorEnd },
 					},
 				},
 			)
@@ -1109,11 +1120,12 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
 			axis.cv.setPointerPosition(ev.Position)
 			width := axis.cv.VisibleWidth(win, gtx)
-			axis.origin = float32(ev.Position.X) / float32(width)
-			if axis.origin < 0 {
-				axis.origin = 0
-			} else if axis.origin > 1 {
-				axis.origin = 1
+			axis.position = ev.Position.X
+			axis.anchor = AxisAnchorNone
+			if axis.position < 0 {
+				axis.position = 0
+			} else if axis.position > float32(width) {
+				axis.position = float32(width)
 			}
 		}
 	}
@@ -1129,9 +1141,25 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 	min := axis.cv.start
 	max := axis.cv.End()
-	origin := min + trace.Timestamp(round32(float32(max-min)*axis.origin))
+	var origin trace.Timestamp
+	switch axis.anchor {
+	case AxisAnchorNone:
+		origin = axis.cv.pxToTs(axis.position)
+		if origin < min {
+			origin = min
+		}
+		if origin > max {
+			origin = max
+		}
+	case AxisAnchorStart:
+		origin = min
+	case AxisAnchorCenter:
+		origin = (min + max) / 2
+	case AxisAnchorEnd:
+		origin = max
+	}
 
-	if axis.cv.unchanged() && axis.prevFrame.origin == axis.origin {
+	if axis.cv.unchanged() && axis.prevFrame.origin == origin {
 		axis.prevFrame.call.Add(gtx.Ops)
 		debugCaching(gtx)
 		return axis.prevFrame.dims
@@ -1145,7 +1173,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		call.Add(origOps)
 		axis.prevFrame.call = call
 		axis.prevFrame.dims = dims
-		axis.prevFrame.origin = axis.origin
+		axis.prevFrame.origin = origin
 	}()
 
 	var ticksPath clip.Path
