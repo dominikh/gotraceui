@@ -807,8 +807,18 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 									switch ev.Name {
 									case "G":
 										mwin.ww = theme.NewListWindow(mwin.theme)
-										items := make([]theme.ListWindowItem, 0, 2+len(mwin.trace.Processors)+len(mwin.trace.Goroutines))
-										// XXX the GC and STW widgets should also be added here
+										items := make([]theme.ListWindowItem, 0, len(mwin.canvas.timelines))
+										items = append(items,
+											theme.ListWindowItem{
+												Item:  mwin.canvas.timelines[0].item,
+												Label: mwin.canvas.timelines[0].label,
+											},
+
+											theme.ListWindowItem{
+												Item:  mwin.canvas.timelines[1].item,
+												Label: mwin.canvas.timelines[1].label,
+											},
+										)
 										for _, p := range mwin.trace.Processors {
 											items = append(items, theme.ListWindowItem{
 												Item:         p,
