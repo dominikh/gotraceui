@@ -944,7 +944,7 @@ func singleSpanColor(c colorIndex) func(spanSel SpanSelector, tr *Trace) [2]colo
 func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 	return &Timeline{
 		tracks:    []Track{{spans: SliceToSpanSelector(spans)}},
-		item:      spans,
+		item:      &GC{spans},
 		label:     "GC",
 		shortName: "GC",
 
@@ -960,7 +960,7 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 	return &Timeline{
 		tracks:    []Track{{spans: SliceToSpanSelector(spans)}},
-		item:      spans,
+		item:      &STW{spans},
 		label:     "STW",
 		shortName: "STW",
 
@@ -971,4 +971,12 @@ func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 			}
 		},
 	}
+}
+
+type GC struct {
+	Spans ptrace.Spans
+}
+
+type STW struct {
+	Spans ptrace.Spans
 }
