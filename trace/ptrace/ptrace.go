@@ -799,6 +799,18 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 				panic("expected zero stack ID")
 			}
 			res.Events[s.Event].StkID = lastSyscall[ev.G]
+
+			// EvGoSysBlock arrives some time after EvGoSysCall (once sysmon has figured out that the syscall is
+			// blocking). Shrink the previous running span and backdate this span to when the syscall actually started.
+			g := getG(gid)
+			if len(g.Events) > 0 {
+				sysEvID := g.Events[len(g.Events)-1]
+				if sysEv := tr.Events[sysEvID]; sysEv.Type == trace.EvGoSysCall {
+					g.Spans[len(g.Spans)-1].End = sysEv.Ts
+					s.Start = sysEv.Ts
+				}
+			}
+
 		}
 
 		getG(gid).Spans = append(getG(gid).Spans, s)
