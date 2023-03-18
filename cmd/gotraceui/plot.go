@@ -364,19 +364,23 @@ func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
 		points[i] = f32.Pt(float32(i+canvasStart), scaleValue(values[idx-1].Value))
 	}
 
-	var path clip.Path
-	path.Begin(gtx.Ops)
 	var first f32.Point
 	var start int
 	for i, pt := range points {
 		if pt != (f32.Point{}) {
-			path.MoveTo(pt)
 			first = pt
 			start = i + 1
 			break
 		}
 	}
 
+	if first == (f32.Point{}) {
+		// We don't have any points to draw
+		return
+	}
+
+	var path clip.Path
+	path.Begin(gtx.Ops)
 	path.MoveTo(first)
 	for _, pt := range points[start:] {
 		if pt == (f32.Point{}) {
