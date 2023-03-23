@@ -363,7 +363,11 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 						var label string
 
 						if b, ok := hm.HoveredBucket(); ok {
-							label = local.Sprintf("time %s, range %d–%d, count: %d", b.XStart, b.YStart, b.YEnd, b.Count)
+							close := ')'
+							if b.YEnd >= hm.MaxY {
+								close = ']'
+							}
+							label = local.Sprintf("time [%s, %s), range [%d, %d%c, count: %d", b.XStart, b.XEnd, b.YStart, b.YEnd, close, b.Count)
 						}
 						return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
 					}),
