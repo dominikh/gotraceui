@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -31,14 +30,17 @@ type heatmapCacheKey struct {
 	size            image.Point
 	useLinearColors bool
 	yBucketSize     int
+	xBucketSize     time.Duration
 }
 
 type Heatmap struct {
+	MaxY int
+
+	// These values can be changed and the heatmap will update accordingly.
 	UseLinearColors bool
+	XBucketSize     time.Duration
 	YBucketSize     int
 
-	xBucketSize time.Duration
-	maxY        int
 	numXBuckets int
 	numYBuckets int
 	data        []int
@@ -61,39 +63,8 @@ type Heatmap struct {
 	rankedSaturations []uint8
 }
 
-func NewHeatMap(xBucketSize time.Duration, yBucketSize int, maxY int, data [][]int) *Heatmap {
-	// the data argument consists of slices of values that were bucketed in the X dimension.
-
-	// XXX guard against empty data, zero steps, etc
-
-	if debug {
-		for i, row := range data {
-			if len(row) != len(data[0]) {
-				panic("all rows must have same size")
-			}
-
-			for j, y := range row {
-				if y > maxY {
-					panic(fmt.Sprintf("value %d at row %d column %d exceeds maximum of %d", y, i, j, maxY))
-				}
-			}
-		}
-	}
-
-	hm := &Heatmap{
-		xBucketSize: xBucketSize,
-		YBucketSize: yBucketSize,
-		numXBuckets: len(data[0]),
-		maxY:        maxY,
-		origData:    data,
-	}
-	hm.computeBuckets()
-	hm.computeSaturations()
-	return hm
-}
-
 func (hm *Heatmap) computeBuckets() {
-	hm.numYBuckets = int(math.Ceil(float64(hm.maxY) / float64(hm.YBucketSize)))
+	hm.numYBuckets = int(math.Ceil(float64(hm.MaxY) / float64(hm.YBucketSize)))
 	hm.data = make([]int, hm.numXBuckets*hm.numYBuckets)
 	for _, xBuckets := range hm.origData {
 		for i, y := range xBuckets {
@@ -181,15 +152,23 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		hm.pointerConstraint = dims
 	}
 
-	numXBuckets := len(hm.data) / hm.numYBuckets
-	xStepPx := float32(dims.X) / float32(numXBuckets)
-	yStepPx := float32(dims.Y) / float32(hm.numYBuckets)
-
 	key := heatmapCacheKey{
 		size:            dims,
 		useLinearColors: hm.UseLinearColors,
 		yBucketSize:     hm.YBucketSize,
+		xBucketSize:     hm.XBucketSize,
 	}
+
+	if key.xBucketSize != hm.cacheKey.xBucketSize || key.yBucketSize != hm.cacheKey.yBucketSize {
+		hm.numXBuckets = len(hm.origData[0])
+		hm.computeBuckets()
+		hm.computeSaturations()
+	}
+
+	numXBuckets := len(hm.data) / hm.numYBuckets
+	xStepPx := float32(dims.X) / float32(numXBuckets)
+	yStepPx := float32(dims.Y) / float32(hm.numYBuckets)
+
 	if hm.cacheKey == key {
 		hm.cachedMacro.Add(gtx.Ops)
 	} else {
@@ -287,8 +266,8 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 
 		idx := x*hm.numYBuckets + y
 		hm.hovered = HeatmapBucket{
-			XStart: time.Duration(x) * hm.xBucketSize,
-			XEnd:   time.Duration(x)*hm.xBucketSize + hm.xBucketSize,
+			XStart: time.Duration(x) * hm.XBucketSize,
+			XEnd:   time.Duration(x)*hm.XBucketSize + hm.XBucketSize,
 			YStart: y * hm.YBucketSize,
 			YEnd:   y*hm.YBucketSize + hm.YBucketSize,
 			Count:  hm.data[idx],
@@ -300,18 +279,38 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
+func (hm *Heatmap) SetData(data [][]int) {
+	hm.origData = data
+	hm.numXBuckets = len(data[0])
+	// invalidate cache
+	hm.cacheKey = heatmapCacheKey{}
+}
+
 type HeatmapWindow struct {
 	trace *Trace
 }
 
 func (hwin *HeatmapWindow) Run(win *app.Window) error {
-	xStep := 100 * time.Millisecond
-	yStep := 1
-	buckets := make([][]int, len(hwin.trace.Processors))
-	for i, p := range hwin.trace.Processors {
-		buckets[i] = ptrace.ComputeProcessorBusy(hwin.trace.Trace, p, xStep)
+	const xStep = 100 * time.Millisecond
+	const yStep = 1
+
+	// bucketByX computes processor business for time intervals of size xStep.
+	// The returned value maps processor -> x bucket -> busy time.
+	bucketByX := func(tr *Trace, xStep time.Duration) [][]int {
+		buckets := make([][]int, len(tr.Processors))
+		for i, p := range tr.Processors {
+			buckets[i] = ptrace.ComputeProcessorBusy(tr.Trace, p, xStep)
+		}
+		return buckets
 	}
-	hm := NewHeatMap(xStep, yStep, 100, buckets)
+
+	hm := &Heatmap{
+		UseLinearColors: false,
+		XBucketSize:     xStep,
+		YBucketSize:     yStep,
+		MaxY:            100,
+	}
+	hm.SetData(bucketByX(hwin.trace, xStep))
 
 	var useLinear widget.Bool
 	var ops op.Ops
@@ -334,15 +333,11 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 						switch ev.Name {
 						case "↑":
 							hm.YBucketSize++
-							hm.computeBuckets()
-							hm.computeSaturations()
 						case "↓":
 							hm.YBucketSize--
 							if hm.YBucketSize < 1 {
 								hm.YBucketSize = 1
 							}
-							hm.computeBuckets()
-							hm.computeSaturations()
 						}
 					}
 				}
