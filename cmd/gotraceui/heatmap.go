@@ -338,11 +338,20 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 							if hm.YBucketSize < 1 {
 								hm.YBucketSize = 1
 							}
+						case "←":
+							hm.XBucketSize -= 10 * time.Millisecond
+							if hm.XBucketSize < 10*time.Millisecond {
+								hm.XBucketSize = 10 * time.Millisecond
+							}
+							hm.SetData(bucketByX(hwin.trace, hm.XBucketSize))
+						case "→":
+							hm.XBucketSize += 10 * time.Millisecond
+							hm.SetData(bucketByX(hwin.trace, hm.XBucketSize))
 						}
 					}
 				}
 
-				key.InputOp{Tag: hwin, Keys: "↑|↓"}.Add(gtx.Ops)
+				key.InputOp{Tag: hwin, Keys: "↑|↓|←|→"}.Add(gtx.Ops)
 				key.FocusOp{Tag: hwin}.Add(gtx.Ops)
 
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
