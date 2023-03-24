@@ -291,8 +291,12 @@ type HeatmapWindow struct {
 }
 
 func (hwin *HeatmapWindow) Run(win *app.Window) error {
-	const xStep = 100 * time.Millisecond
-	const yStep = 1
+	const initialXStep = 100 * time.Millisecond
+	const initialYStep = 1
+	const maxY = 100
+
+	ySteps := [...]int{1, 2, 4, 5, 10, 20, 25, 50, 100}
+	yStep := 0
 
 	// bucketByX computes processor business for time intervals of size xStep.
 	// The returned value maps processor -> x bucket -> busy time.
@@ -306,11 +310,11 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 
 	hm := &Heatmap{
 		UseLinearColors: false,
-		XBucketSize:     xStep,
-		YBucketSize:     yStep,
-		MaxY:            100,
+		XBucketSize:     initialXStep,
+		YBucketSize:     initialYStep,
+		MaxY:            maxY,
 	}
-	hm.SetData(bucketByX(hwin.trace, xStep))
+	hm.SetData(bucketByX(hwin.trace, initialXStep))
 
 	var useLinear widget.Bool
 	var ops op.Ops
@@ -332,12 +336,17 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 						// TODO(dh): provide visual feedback, displaying the bucket size
 						switch ev.Name {
 						case "↑":
-							hm.YBucketSize++
-						case "↓":
-							hm.YBucketSize--
-							if hm.YBucketSize < 1 {
-								hm.YBucketSize = 1
+							yStep++
+							if yStep >= len(ySteps) {
+								yStep = len(ySteps) - 1
 							}
+							hm.YBucketSize = ySteps[yStep]
+						case "↓":
+							yStep--
+							if yStep < 0 {
+								yStep = 0
+							}
+							hm.YBucketSize = ySteps[yStep]
 						case "←":
 							hm.XBucketSize -= 10 * time.Millisecond
 							if hm.XBucketSize < 10*time.Millisecond {
