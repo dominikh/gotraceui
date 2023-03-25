@@ -216,16 +216,17 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 					continue
 				}
 
-				xStart := float32(x) * xStepPx
-				yEnd := float32(dims.Y) - float32(y)*yStepPx
-				xEnd := xStart + xStepPx
-				yStart := yEnd - yStepPx
+				// Round coordinates to avoid conflation artifacts.
+				xStart := round32(float32(x) * xStepPx)
+				yEnd := round32(float32(dims.Y) - float32(y)*yStepPx)
+				xEnd := round32(float32(x+1) * xStepPx)
+				yStart := round32(float32(dims.Y) - float32(y+1)*yStepPx)
 
 				p := &paths[saturations[idx]]
-				p.MoveTo(f32.Pt(float32(xStart), float32(yStart)))
-				p.LineTo(f32.Pt(float32(xEnd), float32(yStart)))
-				p.LineTo(f32.Pt(float32(xEnd), float32(yEnd)))
-				p.LineTo(f32.Pt(float32(xStart), float32(yEnd)))
+				p.MoveTo(f32.Pt(xStart, yStart))
+				p.LineTo(f32.Pt(xEnd, yStart))
+				p.LineTo(f32.Pt(xEnd, yEnd))
+				p.LineTo(f32.Pt(xStart, yEnd))
 				p.Close()
 			}
 		}
