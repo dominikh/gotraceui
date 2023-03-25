@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -20,7 +21,6 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
-	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
@@ -797,7 +797,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 					}
 					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
 					paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(labelsOps)
-					stack2 := FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
+					stack2 := clip.FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
 					call.Add(labelsOps)
 					stack2.Pop()
 					stack.Pop()
@@ -881,11 +881,11 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		bottom := mid + 2
 		if unbornUntilPx > 0 {
 			// Draw the unborn indicator
-			paint.FillShape(gtx.Ops, rgba(0x10a56fFF), FRect{Min: f32.Pt(0, top), Max: f32.Pt(unbornUntilPx, bottom)}.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, rgba(0x10a56fFF), clip.FRect{Min: f32.Pt(0, top), Max: f32.Pt(unbornUntilPx, bottom)}.Op(gtx.Ops))
 		}
 		if deadFromPx < visWidthPx {
 			// Draw the dead indicator
-			paint.FillShape(gtx.Ops, rgba(0x6F6F6FFF), FRect{Min: f32.Pt(deadFromPx, top), Max: f32.Pt(visWidthPx, bottom)}.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, rgba(0x6F6F6FFF), clip.FRect{Min: f32.Pt(deadFromPx, top), Max: f32.Pt(visWidthPx, bottom)}.Op(gtx.Ops))
 		}
 	}
 

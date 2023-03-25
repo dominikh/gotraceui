@@ -6,6 +6,16 @@ import (
 	"gioui.org/op/clip"
 )
 
+type Ellipse = clip.Ellipse
+type Op = clip.Op
+type Outline = clip.Outline
+type Path = clip.Path
+type PathSpec = clip.PathSpec
+type RRect = clip.RRect
+type Rect = clip.Rect
+type Stack = clip.Stack
+type Stroke = clip.Stroke
+
 type FRect struct {
 	Min f32.Point
 	Max f32.Point

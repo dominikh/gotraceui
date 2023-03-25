@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/exp/slices"
+	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -22,7 +23,6 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
-	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
@@ -823,7 +823,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				if xMax-xMin < 1 {
 					continue
 				}
-				FRect{
+				clip.FRect{
 					// TODO(dh): should the overlay start at the top of the screen, or after the axis?
 					Min: f32.Pt(xMin, 0),
 					Max: f32.Pt(xMax, float32(height)),
@@ -904,7 +904,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if cv.zoomSelection.active {
 			one := cv.zoomSelection.clickAt.X
 			two := cv.pointerAt.X
-			rect := FRect{
+			rect := clip.FRect{
 				Min: f32.Pt(min(one, two), 0),
 				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
 			}
@@ -1217,7 +1217,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 		start := axis.cv.tsToPx(t) - tickWidth/2
 		end := axis.cv.tsToPx(t) + tickWidth/2
-		rect := FRect{
+		rect := clip.FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
 		}
@@ -1230,7 +1230,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
 			}
-			rect := FRect{
+			rect := clip.FRect{
 				Min: f32.Pt(smallStart, 0),
 				Max: f32.Pt(smallEnd, smallTickHeight),
 			}
@@ -1258,7 +1258,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	drawOrigin := func(t trace.Timestamp) {
 		start := axis.cv.tsToPx(t) - tickWidth/2
 		end := axis.cv.tsToPx(t) + tickWidth/2
-		rect := FRect{
+		rect := clip.FRect{
 			Min: f32.Pt(start, 0),
 			Max: f32.Pt(end, tickHeight),
 		}
@@ -1271,7 +1271,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			if j == 5 || j == -5 {
 				smallTickHeight = tickHeight / 2
 			}
-			rect := FRect{
+			rect := clip.FRect{
 				Min: f32.Pt(smallStart, 0),
 				Max: f32.Pt(smallEnd, smallTickHeight),
 			}
