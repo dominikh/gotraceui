@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	myclip "honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -253,17 +254,17 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		x := int(hm.pointer.X / xStepPx)
 		y := int((float32(dims.Y) - hm.pointer.Y) / yStepPx)
 
-		xStart := float32(x) * xStepPx
-		yEnd := float32(dims.Y) - float32(y)*yStepPx
-		xEnd := xStart + xStepPx
-		yStart := yEnd - yStepPx
+		xStart := round32(float32(x) * xStepPx)
+		yEnd := round32(float32(dims.Y) - float32(y)*yStepPx)
+		xEnd := round32(float32(x+1) * xStepPx)
+		yStart := round32(float32(dims.Y) - float32(y+1)*yStepPx)
 
-		stroke := clip.Stroke{
-			Path:  FRect{Min: f32.Pt(xStart, yStart), Max: f32.Pt(xEnd, yEnd)}.Path(gtx.Ops),
+		outline := myclip.RectangularOutline{
+			Rect:  myclip.FRect{Min: f32.Pt(xStart, yStart), Max: f32.Pt(xEnd, yEnd)},
 			Width: float32(gtx.Dp(1)),
-		}.Op()
+		}.Op(gtx.Ops)
 		// XXX use constant or theme for the color
-		paint.FillShape(gtx.Ops, rgba(0x0000FFFF), stroke)
+		paint.FillShape(gtx.Ops, rgba(0x0000FFFF), outline)
 
 		idx := x*hm.numYBuckets + y
 		hm.hovered = HeatmapBucket{
