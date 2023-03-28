@@ -15,33 +15,6 @@ Users of Nix can use the flake. There are no packages for other distributions or
 `honnef.co/go/gotraceui/cmd/gotraceui` yourself. [Gio's instructions](https://gioui.org/doc/install) explain the
 dependencies for the various platforms.
 
-## Controls
-
-None of these controls are final.
-
-| Key                                     | Function                                                                    |
-|-----------------------------------------|-----------------------------------------------------------------------------|
-| Left mouse button (hold)                | Pan the view                                                                |
-| Ctrl/Command + left mouse button (drag) | Draw a zoom selection                                                       |
-| Ctrl/Command + left mouse button        | Zoom to clicked span or activity                                            |
-| Scroll wheel                            | Scroll up and down                                                          |
-| Ctrl/Command + Scroll wheel             | Zoom in and out                                                             |
-| Home                                    | Scroll to top of activity  list                                             |
-| Ctrl/Command + Home                     | Zooms to fit current activities                                             |
-| Shift + Home                            | Jump to timestamp 0                                                         |
-| X                                       | Toggle display of all activity  labels                                      |
-| C                                       | Toggle compact display                                                      |
-| G                                       | Open an activity selector                                                   |
-| T                                       | Toggle displaying tooltips; only spans -> none -> both spans and activities |
-| O                                       | Toggle displaying STW and GC overlays                                       |
-| S                                       | Toggle displaying sampling-based timelines                                  |
-| Ctrl/Command + Z                        | Undo navigations (works most of the time)                                   |
-
-## Notes
-
-No aspect of Gotraceui is final yet, but do note that bright pink and bright yellow are debug colors and I never thought
-they were a good idea. The rest of the color scheme is actually meant to be pleasant.
-
 ## Known issues
 
 - [runtime/trace: time stamps out of order](https://github.com/golang/go/issues/16755)
