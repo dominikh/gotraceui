@@ -15,6 +15,19 @@ Users of Nix can use the flake. There are no packages for other distributions or
 `honnef.co/go/gotraceui/cmd/gotraceui` yourself. [Gio's instructions](https://gioui.org/doc/install) explain the
 dependencies for the various platforms.
 
+## Notes for package maintainers
+
+When packaging Gotraceui please take care to
+
+- pass `-X gioui.org/app.ID=co.honnef.Gotraceui` to the linker
+- install the `share` directory
+- call the package `gotraceui`, _please_
+- include the `LICENSE-THIRD-PARTY` file; it contains all the licenses and copyright notices of all dependencies and all
+  code our code is derived from. Including this file satisfies the requirement of reproducing copyright notices and
+  permission notices.
+
+If you want to package the manual, `make gotraceui.pdf` builds it.
+
 ## Known issues
 
 - [runtime/trace: time stamps out of order](https://github.com/golang/go/issues/16755)
