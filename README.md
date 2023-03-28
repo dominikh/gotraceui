@@ -28,6 +28,22 @@ When packaging Gotraceui please take care to
 
 If you want to package the manual, `make gotraceui.pdf` builds it.
 
+## License
+
+The source code of the program and all assets necessary to run the program are licensed under the MIT license.
+The manual (all files in `doc/manual` as well as the compiled output) is licensed under the [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
+Copies of the licenses of all dependencies can be found in LICENSE-THIRD-PARTY.
+
+## Copyright
+
+All original work is copyrighted by its respective authors (consult the git log.)
+Parts of the code are derived from Go, © The Go Authors.
+Parts of the code are derived from Gio, © The Gio authors.
+`doc/manual/images/olive.jpg` is © Charlotte Brandhorst-Satzkorn, photographer and owner of the subject.
+
+The compiled binary includes code from dependencies. These dependencies and their copyright holders can be found in `LICENSE-THIRD-PARTY`.
+
 ## Known issues
 
 - [runtime/trace: time stamps out of order](https://github.com/golang/go/issues/16755)
