@@ -12,4 +12,4 @@ gotraceui.pdf: doc/manual/manual.pdf
 # latexmk is like a LaTeX-specific make. It tracks dependencies and only rebuilds when necessary.
 # This is superior to having to manually extract all of our dependencies.
 doc/manual/manual.pdf: doc/manual/version.tex
-	latexmk -cd -f -pdf -lualatex -use-make -bibtex-cond1 doc/manual/manual.tex
+	latexmk -cd -f -pdf -lualatex -interaction=nonstopmode -use-make -bibtex-cond1 doc/manual/manual.tex
