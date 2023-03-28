@@ -34,6 +34,8 @@
                 darwin.apple_sdk_11_0.MacOSX-SDK
               ] else [ ]);
 
+            ldflags = ["-X gioui.org/app.ID=co.honnef.Gotraceui"];
+
             postInstall = ''
               cp -r share $out/
             '';
