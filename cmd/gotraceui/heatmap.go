@@ -44,7 +44,8 @@ type Heatmap struct {
 
 	numXBuckets int
 	numYBuckets int
-	data        []int
+	// data represents the absolute value of each bucket, laid out in column-major order.
+	data []int
 
 	// We store the original data as this allows us to change the yStep and recompute the buckets.
 	origData [][]int
