@@ -6,6 +6,7 @@ require (
 	gioui.org v0.0.0-20230224004350-5f818bc5e7f9
 	gioui.org/x v0.0.0-20230227132240-6822f59b3b6b
 	golang.org/x/exp v0.0.0-20221012211006-4de253d81b95
+	golang.org/x/image v0.0.0-20220722155232-062f8c9fd539
 	golang.org/x/text v0.7.0
 )
 
@@ -17,6 +18,5 @@ require (
 	github.com/go-text/typesetting v0.0.0-20221214153724-0399769901d5 // indirect
 	github.com/godbus/dbus/v5 v5.0.6 // indirect
 	golang.org/x/exp/shiny v0.0.0-20220827204233-334a2380cb91 // indirect
-	golang.org/x/image v0.0.0-20220722155232-062f8c9fd539 // indirect
 	golang.org/x/sys v0.0.0-20220825204002-c680a09ffe64 // indirect
 )
