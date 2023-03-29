@@ -26,8 +26,6 @@ When packaging Gotraceui please take care to
   code our code is derived from. Including this file satisfies the requirement of reproducing copyright notices and
   permission notices.
 
-If you want to package the manual, `make gotraceui.pdf` builds it.
-
 ## License
 
 The source code of the program and all assets necessary to run the program are licensed under the MIT license.
