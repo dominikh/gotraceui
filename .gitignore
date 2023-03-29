@@ -13,5 +13,4 @@
 /doc/manual/*.fdb_latexmk
 /doc/manual/*.fls
 /doc/manual/*.run.xml
-/doc/manual/version.tex
 /gotraceui.pdf
