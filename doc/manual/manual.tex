@@ -113,6 +113,7 @@
 % - whiskers
 % - end of timeline marker
 % - event in span tooltip
+% - highlighting of related spans
 
 \chapter{Introduction}
 
@@ -169,9 +170,66 @@ and, where necessary, explain how the runtime works to make better sense of the 
 
 The authors hope that execution traces will become a standard debugging tool for most Go developers.
 
-\chapter{Quickstart}
+\chapter{Install}
 
-\todo{TODO}
+\section*{Nix with flakes}
+
+Gotraceui is available as a Nix flake. You can add it to your system configuration, or run it directly with
+\begin{verbatim}
+nix run github:dominikh/gotraceui
+\end{verbatim}
+
+\section*{Linux}
+
+Gotraceui hasn't yet been packaged by any Linux distributions.
+You can build it yourself, as long as you have the following development dependencies installed:
+
+\begin{itemize}
+\item Wayland
+\item X11
+\item xkbcommon
+\item \textsc{gles}
+\item \textsc{egl}
+\item libXcursor
+\end{itemize}
+
+On Fedora, you can use the following command to install all required dependencies:
+
+\begin{verbatim}
+dnf install gcc pkg-config wayland-devel libX11-devel libxkbcommon-x11-devel mesa-libGLES-devel mesa-libEGL-devel libXcursor-devel vulkan-headers
+\end{verbatim}
+
+On Ubuntu, you can use the following command to install all required dependencies:
+
+\begin{verbatim}
+apt install gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev
+\end{verbatim}
+
+After having installed all dependencies, you can run Gotraceui with
+
+\begin{verbatim}
+go run honnef.co/go/gotraceui/cmd/gotraceui@latest
+\end{verbatim}
+
+\section*{macOS}
+
+The only dependency on macOS is Xcode.
+
+After having installed Xcode, you can run Gotraceui with
+
+\begin{verbatim}
+go run honnef.co/go/gotraceui/cmd/gotraceui@latest
+\end{verbatim}
+
+\section*{Windows}
+
+There are no external dependencies on Windows.
+
+To run Gotraceui you can use
+
+\begin{verbatim}
+go run -ldflags="-H windowsgui" honnef.co/go/gotraceui/cmd/gotraceui@latest
+\end{verbatim}
 
 \chapter{System requirements}
 
@@ -471,17 +529,27 @@ A window can be turned back into a panel by clicking the \menu{Attach} button.
 
 Depending on the type of panel, additional buttons may exist. 
 
+Panels consist of sections of information.
+Each section can be collapsed or expanded by clicking on its title.
+
 \subsection{Goroutine panel}
-\begin{itemize}
-\item \todo{General information}
-\item \todo{Stack trace}
-\item \todo{Per-state statistics}
-\item \todo{Events}
-\end{itemize}
+
+Clicking on goroutine labels or goroutine links opens the goroutine panel.
+The stack trace section shows where the goroutine was created, if that information is available.
+The statistics section provides common statistics on a per-state basis, showing how much time the goroutine spent doing what.
+The event section lists all events that occurred on the goroutine.
+They can be filtered by type by clicking on the corresponding checkboxes.
+
+Goroutine panels have two additional buttons for scrolling and zooming to the goroutine.
 
 \subsection{Span panel}
 
-\todo{TODO}
+Clicking on spans (either merged or unmerged ones) opens the span panel.
+
+Span panels display basic information as well as a list of all events that occured during the spans.
+Events can be filtered by type by clicking on the corresponding checkboxes.
+
+Span panels have two additional buttons for scrolling\,\&\,panning and zooming to the spans.
 
 \section{Heatmaps}
 
@@ -651,7 +719,7 @@ All goroutines are in one of three states: Runnable, running, and blocked.
 The runtime subdivides \emph{blocked} into different reasons for being blocked, and Gotraceui introduces some of its own subdivisions to further increase the level of detail.
 
 The following is an exhaustive list of states found in Gotraceui.
-Each state name's background color coresponds to the span color used in Gotraceui.
+Each state name's background color corresponds to the span color used in Gotraceui.
 
 \begin{description}
 \item[\traceState{created}{stateReady}:] Newly created goroutines will be in this state before they get scheduled for the first time.
@@ -689,7 +757,7 @@ Each state name's background color coresponds to the span color used in Gotraceu
   as this indicates that they willingly gave up part of their share in \textsc{cpu} time,
   and their time spent waiting shouldn't be considered scheduler latency.
 
-\item[\traceState{BlockedGC}{stateGC}:]  \todo{We still need to describe this state}
+\item[\traceState{Blocked (GC)}{stateGC}:] The goroutine is waiting to assist the garbage collector.
 
 \item[\traceState{ready}{stateReady}:] A goroutine in this state isn't blocked on anything anymore and can start running
   as soon as it gets scheduled.
@@ -699,15 +767,15 @@ Each state name's background color coresponds to the span color used in Gotraceu
   or from any of the various blocked states once they get unblocked.
   Time spent in this state is commonly called scheduler latency.
 
-\item[\traceState{GC (idle)}{stateGC}:]  \todo{We still need to describe these states}
+\item[\traceState{GC (idle)}{stateGC}:] A \code{runtime.gcBgMarkWorker} goroutine doing idle mark work.
 
-\item[\traceState{GC (dedicated)}{stateGC}:]  \todo{We still need to describe these states}
+\item[\traceState{GC (dedicated)}{stateGC}:] A \code{runtime.gcBgMarkWorker} goroutine doing dedicated mark work.
+
+\item[\traceState{GC (fractional)}{stateGC}:] A \code{runtime.gcBgMarkWorker} goroutine doing fractional mark work.
 
 \item[\traceState{GC mark assist}{stateGC}:] Goroutines in the \enquote{\textsc{gc} mark assist} state are assisting the mark phase.
-  See \cref{gc} to learn more about the garbage collector.
 
 \item[\traceState{GC sweep}{stateGC}:] Goroutines in the \enquote{\textsc{gc} sweep} state are sweeping memory.
-  See \cref{gc} to learn more about the garbage collector.
 
 \item[stuck:] Goroutines in this state are stuck and can never make progress.
   This happens, for example, when receiving from a nil channel or using \code{select} with no cases.
@@ -747,7 +815,7 @@ For non-pollable files the netpoller cannot be used and Go falls back to normal,
 However, the most important use case of the netpoller is undoubtedly network connections, and these are pollable on all systems.
 
 In Gotraceui, blocking on pollable \textsc{i/o} is represented using \textsc{i/o} spans, while non-pollable \textsc{i/o} is shown as syscalls in the way described in \cref{syscalls}.
-For pollable \textsc{i/o}, span tooltips may additionaly show the kind of \textsc{i/o}, such as network reads. This information is based on tags, which are described in \cref{tags}.
+For pollable \textsc{i/o}, span tooltips may additionally show the kind of \textsc{i/o}, such as network reads. This information is based on tags, which are described in \cref{tags}.
 
 \begin{figure}[h]
   \centering
@@ -774,8 +842,8 @@ Most of these exist to help with the concurrent garbage collector.
 \begin{itemize}
 \item \code{bgsweep} is a low priority goroutine that sweeps spans when there are idle processors. This reduces the amount
   of sweeping that has to be done by other goroutines.
-\item \todo{bgscavenger}
-\item \todo{gcBgMarkWorker}
+\item \code{bgscavenge} periodically returns unused memory to the \textsc{os}.
+\item Multiple \code{gcBgMarkWorker} goroutines implement the garbage collector's concurrent mark phase. See \cref{gc} for more information on the garbage collector.
 \item \code{forcegchelper} periodically gets woken up and forces a garbage collection cycle to start.
   This ensures that garbage gets collected regularly even if the program isn't allocating enough memory to hit the heap target.
 \item \code{runfinq} is the goroutine that is responsible for running finalizers.
