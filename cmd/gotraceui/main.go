@@ -1102,7 +1102,17 @@ func main() {
 	flag.BoolVar(&exitAfterParsing, "debug.exit-after-parsing", false, "Exit after parsing trace")
 	flag.BoolVar(&measureFrameAllocs, "debug.measure-frame-allocs", false, "Measure the number of allocations per frame")
 	flag.BoolVar(&invalidateFrames, "debug.invalidate-frames", false, "Invalidate frame after drawing it")
+	fv := flag.Bool("version", false, "Print version and exit")
+	fdv := flag.Bool("debug.version", false, "Print extended version information and exit")
 	flag.Parse()
+
+	if *fv {
+		PrintVersion(Version)
+		return
+	} else if *fdv {
+		PrintVerboseVersion(Version)
+		return
+	}
 
 	go func() {
 		if cpuprofile != "" {
