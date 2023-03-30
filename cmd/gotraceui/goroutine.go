@@ -292,6 +292,7 @@ var stateNames = [ptrace.StateLast]string{
 	ptrace.StateActive:                  "active",
 	ptrace.StateGCIdle:                  "GC (idle)",
 	ptrace.StateGCDedicated:             "GC (dedicated)",
+	ptrace.StateGCFractional:            "GC (fractional)",
 	ptrace.StateBlocked:                 "blocked (other)",
 	ptrace.StateBlockedSend:             "blocked (channel send)",
 	ptrace.StateBlockedRecv:             "blocked (channel receive)",
@@ -316,6 +317,7 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateActive:                  "Active",
 	ptrace.StateGCIdle:                  "GC (idle)",
 	ptrace.StateGCDedicated:             "GC (dedicated)",
+	ptrace.StateGCFractional:            "GC (fractional)",
 	ptrace.StateBlocked:                 "Blocked (other)",
 	ptrace.StateBlockedSend:             "Blocked (channel send)",
 	ptrace.StateBlockedRecv:             "Blocked (channel receive)",
@@ -638,7 +640,7 @@ func goroutineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.M
 
 	if spanSel.Size() == 1 {
 		switch spanSel.At(0).State {
-		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
+		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCFractional, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
 			// These are the states that are actually on-CPU
 			pid := cv.trace.Event((spanSel.At(0).Event)).P
 			items = append(items, &theme.MenuItem{
@@ -902,6 +904,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += "active"
 		case ptrace.StateGCDedicated:
 			label += "GC (dedicated)"
+		case ptrace.StateGCFractional:
+			label += "GC (fractional)"
 		case ptrace.StateGCIdle:
 			label += "GC (idle)"
 		case ptrace.StateBlocked:
@@ -1080,6 +1084,7 @@ var spanStateLabels = [...][]string{
 	ptrace.StateActive:                  {},
 	ptrace.StateGCIdle:                  {"GC (idle)", "I"},
 	ptrace.StateGCDedicated:             {"GC (dedicated)", "D"},
+	ptrace.StateGCFractional:            {"GC (fractional)", "F"},
 	ptrace.StateBlocked:                 {"blocked"},
 	ptrace.StateBlockedSend:             {"send"},
 	ptrace.StateBlockedRecv:             {"recv"},

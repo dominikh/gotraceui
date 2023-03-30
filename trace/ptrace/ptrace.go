@@ -29,6 +29,7 @@ const (
 	StateActive
 	StateGCIdle
 	StateGCDedicated
+	StateGCFractional
 	StateBlocked
 	StateBlockedSend
 	StateBlockedRecv
@@ -490,16 +491,17 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			}
 		case trace.EvGoStartLabel:
 			// ev.G starts running
-			// TODO(dh): make use of the label
 			gid = ev.G
 			pState = pRunG
 			state = StateActive
 
-			switch res.Strings[ev.Args[trace.ArgGoStartLabelLabelID]] {
+			switch label := res.Strings[ev.Args[trace.ArgGoStartLabelLabelID]]; label {
 			case "GC (dedicated)":
 				state = StateGCDedicated
 			case "GC (idle)":
 				state = StateGCIdle
+			case "GC (fractional)":
+				state = StateGCFractional
 			}
 		case trace.EvGoStop:
 			// ev.G is stopping

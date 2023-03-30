@@ -89,6 +89,7 @@ var stateColors = [256]colorIndex{
 	ptrace.StateGCSweep:                 colorStateGC,
 	ptrace.StateGCIdle:                  colorStateGC,
 	ptrace.StateGCDedicated:             colorStateGC,
+	ptrace.StateGCFractional:            colorStateGC,
 	ptrace.StateBlockedSyncOnce:         colorStateBlockedHappensBefore,
 	ptrace.StateBlockedSyncTriggeringGC: colorStateGC,
 	ptrace.StateUserRegion:              colorStateUserRegion,

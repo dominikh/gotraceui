@@ -41,6 +41,12 @@ var legalStateTransitions = [256][StateLast]bool{
 		StateInactive:    true,
 		StateBlockedSync: true,
 	},
+	StateGCFractional: {
+		// active -> ready occurs on preemption
+		StateReady:       true,
+		StateInactive:    true,
+		StateBlockedSync: true,
+	},
 	StateCreated: {
 		StateActive: true,
 
@@ -56,6 +62,7 @@ var legalStateTransitions = [256][StateLast]bool{
 		StateGCMarkAssist: true,
 		StateGCIdle:       true,
 		StateGCDedicated:  true,
+		StateGCFractional: true,
 	},
 	StateBlocked:                 {StateReady: true},
 	StateBlockedSend:             {StateReady: true},

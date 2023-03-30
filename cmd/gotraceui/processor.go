@@ -127,7 +127,7 @@ func processorTrackHighlightSpan(spanSel SpanSelector, cv *Canvas) bool {
 				target.g = hitem.ID
 			case 1:
 				switch cv.timeline.hoveredSpans.At(0).State {
-				case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
+				case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCFractional, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
 					// A span in a goroutine timeline is hovered. Highlight processor spans for
 					// the same goroutine if they overlap with the highlighted span.
 					target.g = hitem.ID
