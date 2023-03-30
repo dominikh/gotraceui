@@ -296,14 +296,14 @@ This is commonly used for acquiring \textsc{cpu} and memory profiles, but it can
 To collect a 5-second trace you can run a command like
 
 \begin{verbatim}
-curl -o trace.out http://localhost:6060/debug/pprof/trace?seconds=5
+curl -o trace.out 'http://localhost:6060/debug/pprof/trace?seconds=5'
 \end{verbatim}
 
 There is no single endpoint to capture a trace with \textsc{cpu} profiling enabled, but you could capture both a \textsc{cpu} profile and a trace in parallel, like this:
 
 \begin{verbatim}
-curl -o /dev/null http://localhost:6060/debug/pprof/profile?seconds=6 &
-curl -o trace.out http://localhost:6060/debug/pprof/trace?seconds=5
+curl -o /dev/null 'http://localhost:6060/debug/pprof/profile?seconds=6' &
+curl -o trace.out 'http://localhost:6060/debug/pprof/trace?seconds=5'
 \end{verbatim}
 
 We capture a slightly longer \textsc{cpu} profile to ensure it covers the entire duration of the trace.
