@@ -914,12 +914,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		// Draw STW and GC overlays
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
 			c := colors[colorStateGC]
-			c.A = 0xCC
+			c.A = 0x33
 			drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), c, gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
 			c := colors[colorStateSTW]
-			c.A = 0xCC
+			c.A = 0x33
 			drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), c, gtx.Constraints.Max.Y)
 		}
 
