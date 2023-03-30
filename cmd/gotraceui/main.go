@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"reflect"
 	"runtime"
 	rdebug "runtime/debug"
 	"runtime/pprof"
@@ -1092,7 +1093,74 @@ func openTraceFromCmdline(mwin *MainWindow) {
 	}()
 }
 
+func usage(name string, fs *flag.FlagSet) func() {
+	return func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] [trace file]\n", name)
+
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "Flags:")
+		printDefaults(fs)
+	}
+}
+
+// this function has been copied from the Go standard library's 'flag' package and modified to skip debug flags.
+func printDefaults(fs *flag.FlagSet) {
+	fs.VisitAll(func(f *flag.Flag) {
+		// Don't print debug flags
+		if strings.HasPrefix(f.Name, "debug.") {
+			return
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "  -%s", f.Name) // Two spaces before -; see next two comments.
+		name, usage := flag.UnquoteUsage(f)
+		if len(name) > 0 {
+			b.WriteString(" ")
+			b.WriteString(name)
+		}
+		// Boolean flags of one ASCII letter are so common we
+		// treat them specially, putting their usage on the same line.
+		if b.Len() <= 4 { // space, space, '-', 'x'.
+			b.WriteString("\t")
+		} else {
+			// Four spaces before the tab triggers good alignment
+			// for both 4- and 8-space tab stops.
+			b.WriteString("\n    \t")
+		}
+		b.WriteString(strings.ReplaceAll(usage, "\n", "\n    \t"))
+
+		if !isZeroValue(f, f.DefValue) {
+			if T := reflect.TypeOf(f.Value); T.Name() == "*stringValue" && T.PkgPath() == "flag" {
+				// put quotes on the value
+				fmt.Fprintf(&b, " (default %q)", f.DefValue)
+			} else {
+				fmt.Fprintf(&b, " (default %v)", f.DefValue)
+			}
+		}
+		fmt.Fprint(fs.Output(), b.String(), "\n")
+	})
+}
+
+// isZeroValue determines whether the string represents the zero
+// value for a flag.
+//
+// this function has been copied from the Go standard library's 'flag' package.
+func isZeroValue(f *flag.Flag, value string) bool {
+	// Build a zero value of the flag's Value type, and see if the
+	// result of calling its String method equals the value passed in.
+	// This works unless the Value type is itself an interface type.
+	typ := reflect.TypeOf(f.Value)
+	var z reflect.Value
+	if typ.Kind() == reflect.Ptr {
+		z = reflect.New(typ.Elem())
+	} else {
+		z = reflect.Zero(typ)
+	}
+	return value == z.Interface().(flag.Value).String()
+}
+
 func main() {
+	flag.Usage = usage("gotraceui", flag.CommandLine)
 	flag.StringVar(&cpuprofile, "debug.cpuprofile", "", "write CPU profile to this file")
 	flag.StringVar(&memprofileLoad, "debug.memprofile-load", "", "write memory profile to this file after loading trace")
 	flag.StringVar(&memprofileExit, "debug.memprofile-exit", "", "write meory profile to this file when exiting")
