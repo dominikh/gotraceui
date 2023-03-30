@@ -8,7 +8,7 @@ import (
 	rdebug "runtime/debug"
 )
 
-const Version = "devel"
+const Version = "v0.1.0"
 
 // version returns a version descriptor and reports whether the
 // version is a known release.
