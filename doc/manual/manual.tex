@@ -30,12 +30,7 @@
 
 % For \hl, which we use to colorize the names of states
 \usepackage{soul}
-
-% TODO: add nix derivation for building the manual, take inspiration from https://github.com/NixOS/nixpkgs/issues/100086#issuecomment-709567631
-
 \usepackage{siunitx}
-
-
 \usepackage[final=true]{hyperref}           % should be loaded last since it redefines commands, but before cleveref
 \usepackage[noabbrev]{cleveref} % cleveref should be loaded last
 
@@ -59,7 +54,6 @@
 
 \newcommand{\code}[1]{{\ttfamily\mbox{#1}}}
 \newcommand{\noun}[1]{{\emph{#1}}}
-% \newcommand{\traceState}[2]{\fcolorbox{black}{#2}{#1}}
 \newcommand{\traceState}[2]{{\sethlcolor{#2}\hl{#1}}}
 \newcommand{\todo}[1]{{\color{red}#1}}
 \newcommand{\shortcut}{\ctrl{} or \cmdmac}
@@ -107,6 +101,7 @@
 \end{titlingpage}
 
 \microtypesetup{protrusion=false}
+\enlargethispage{2\baselineskip}
 \tableofcontents
 \microtypesetup{protrusion=true}
 
@@ -114,16 +109,8 @@
 
 % TODO UI features to document
 % - mention ctrl+z somewhere
-% - main menu
-% - timelines
-%   - clicking on label (both to open goroutine panel and to zoom)
-%   - spans (zoom, hover, context menus)
-% - goroutine panel
-%   - it can pop out!
-% - user regions
 % - jump to timeline dialog
 % - whiskers
-% - span tags
 % - end of timeline marker
 % - event in span tooltip
 
@@ -134,7 +121,7 @@ The runtime does its work in the background, out of sight, but it provides a pow
 
 The runtime tracer produces execution traces, which are exact (i.e., not sampled) streams of events describing in detail the execution of goroutines.
 It shows when goroutines start or stop, where they block, what unblocks them, how long they spend stuck in syscalls, and more.
-Traces also contains information about the work of the garbage collector (\textsc{gc}), indicating its various phases, and how much \textsc{cpu} time goroutines have to contribute to assisting the \textsc{gc}.
+Traces also contain information about the work of the garbage collector (\textsc{gc}), indicating its various phases, and how much \textsc{cpu} time goroutines have to contribute to assisting the \textsc{gc}.
 In short, the runtime tracer provides a complete view of the interactions between the runtime and our code.
 
 These traces can be useful in two situations:
@@ -193,20 +180,89 @@ Gotraceui runs on Linux (X11 and Wayland), Windows, and macOS.
 Execution traces are very dense in information and can contain millions of events in the span of seconds.
 The format emitted by \code{runtime/trace} is optimized for small and low overhead output and is highly compressed.
 To be able to process and display a trace, Gotraceui has to parse and materialize it in memory.
-Memory usage is roughly 30x the size of the input trace.
-That is, a \qty{300}{\mega\byte} trace file will need about \qty{9}{GB} of memory to be loaded by Gotraceui.
+Memory usage is roughly 30\texttimes{} the size of the input trace.
+That is, a \qty{300}{\mega\byte} trace file will need about \qty{9}{\giga\byte} of memory to be loaded by Gotraceui.
 For reference, an example \qty{300}{\mega\byte} trace file was produced by tracing a busy Prometheus instance for one minute,
-resulting in \qty{66044021}{} events.
+resulting in \num{66044021} events.
 This represents an extreme example.
 Many of your traces will be much smaller than that.
-For example, tracing \code{net/http}'s tests produces a \qty{7.3}{\mega\byte} trace instead, 
+For example, tracing \code{net/http}'s tests produces a \qty{7.3}{\mega\byte} trace instead. 
+
+\chapter{Adding tracing to your application}
+
+\section{The \code{runtime/trace} package}
+
+The \code{runtime/trace} package provides the interface between user code and runtime tracing.
+It allows recording traces, as well as adding additional information to them, in the form of user regions and tasks.
+The package is \href{https://pkg.go.dev/runtime/trace}{well documented}\cite{TracePackageRuntime2023} and we recommend that you read it for a complete overview.
+For the purposes of this manual, we will quickly describe how to use \code{runtime/trace} to write trace files and how to add user regions.
+
+To start tracing, use the \code{Start} function and pass it the desired destination, usually a file.
+To stop tracing, use the \code{Stop} function.
+It is crucial that \code{Stop} gets called, as otherwise an incomplete trace may get written, which may not be parseable at all.
+For short-lived applications, \code{Start} is best called as early in your main function as possible, and \code{Stop} right before returning.
+For long-lived applications, it is better to start and stop tracing on demand, for example via an \textsc{api} call of some sort, to capture an interesting time window.
+One possible implementation is \code{net/http/pprof}, which is described in \cref{net-http-pprof}.
+
+\subsection{User annotations}
+It is possible to add your own information to traces by using user annotations, which encompass log messages, regions, and tasks.
+
+Log messages show up as events in Gotraceui, consist of a category and message, and can be emitted via \code{Log} or \code{Logf}.
+
+Regions group events in a goroutine.
+They can be used to, for example, denote distinct steps when handling an \textsc{api} request, such as querying the database, processing the results, and serializing them.
+Regions can also be nested, for additional detail. They can be started with \code{StartRegion} and stopped with \code{(*Region).End}.
+It is important that regions are stopped in a \textsc{lifo}\footnote{Last in, first out} order to maintain valid nesting.
+It is therefore recommended to use \code{defer}, like in the following example:
+\begin{verbatim}
+defer trace.StartRegion(ctx, "myTracedRegion").End()
+\end{verbatim}
+There is also a helper function called \code{WithRegion} that wraps the execution of a function in a region.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{images/screenshots/user-regions.png}
+  \caption{User regions showing how part of Gotraceui's \textsc{ui} is being rendered.}
+\end{figure}
+
+Finally, tasks exist to group work that is happening across multiple goroutines.
+For example, if an incoming \textsc{api} request causes multiple goroutines to do work on behalf of that request in parallel, a task will be able to tie all of them together.
+Tasks are created similarly to regions, but with \code{NewTask} and \code{(*Task).End} respectively.
+
+Gotraceui does not currently display tasks.
+
+\section{\code{net/http/pprof}}\label{net-http-pprof}
+
+\code{net/http/pprof} is a package that adds \textsc{http} debugging endpoints to your application.
+This is commonly used for acquiring \textsc{cpu} and memory profiles, but it can also be used to capture traces.
+To collect a 5-second trace you can run a command like
+
+\begin{verbatim}
+curl -o trace.out http://localhost:6060/debug/pprof/trace?seconds=5
+\end{verbatim}
+
+There is no single endpoint to capture a trace with \textsc{cpu} profiling enabled, but you could capture both a \textsc{cpu} profile and a trace in parallel, like this:
+
+\begin{verbatim}
+curl -o /dev/null http://localhost:6060/debug/pprof/profile?seconds=6 &
+curl -o trace.out http://localhost:6060/debug/pprof/trace?seconds=5
+\end{verbatim}
+
+We capture a slightly longer \textsc{cpu} profile to ensure it covers the entire duration of the trace.
+
+\section{Tracing tests}
+
+One way to acquire execution traces without having to modify your code is by using \code{go test}'s \code{-trace} flag, which writes an execution trace to a file.
+This can be particularly useful in combination with running benchmarks.
+You can additionally use the \code{-cpuprofile} flag to include \textsc{cpu} profiling samples in the trace.
+
 
 \chapter{The user interface}
 The following sections will describe the various components of Gotraceui's \textsc{ui}.
 
 \section{Main window}
 The main window displays a main menu and an interactive \noun{canvas} representing the trace data.
-The canvas can be moved around by dragging with \keys{LMB} or by scrolling.
+The canvas can be moved around by dragging with \keys{LMB}, by using the scroll wheel, or by using the scrollbar.
 Holding \keys{\shortcut} while scrolling zooms in and out, centered around the cursor's position.
 Dragging with \keys{\shortcut+LMB} selects a region of time to zoom to.
 The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed on the canvas,
@@ -220,7 +276,7 @@ Ticks to the left and right of the origin show relative decrements and increment
 By default, the origin is placed at the center of the axis,
 as analyzing traces often involves looking at what happened before and after an event.
 The origin can be moved by clicking and dragging anywhere on the axis.
-Alternatively, the context menu of the axis allows quickly placing it at the beginning, middle, or end of the axis.
+Alternatively, the context menu of the axis allows quickly placing the origin at the beginning, middle, or end of the axis.
 Manually placed origins will stay in place when resizing the window or canvas,
 while origins set via the context menu will stay at their relative position.
 
@@ -257,12 +313,12 @@ For example, for processors, the tooltip will show how much time was spent execu
 doing garbage collection work,
 and being idle.
 Pressing \keys{\shortcut+LMB} on a label will zoom the canvas such that all spans in that timeline are visible.
-Pressing \keys{LMB} on a goroutine label will open a panel with additional information about the goroutine.
+Pressing \keys{LMB} on a goroutine label will open a panel with additional information about the goroutine (see \cref{panels} for more on panels.)
 
 A timeline consists of one or more horizontally stacked \noun{tracks},
 each track consisting of a series of \noun{spans}.
 A span represents a state for some duration of time.
-For example, a goroutine may be blocked on a channel send operation for \qty{100}{ms}, and this would be displayed as a single span.
+For example, a goroutine may be blocked on a channel send operation for \qty{100}{\milli\second}, and this would be displayed as a single span.
 Tracks can visualize various things, such as the states of goroutines, call stacks, or user regions.
 
 Hovering over a span will show context-specific information about it,
@@ -270,7 +326,7 @@ including its state and duration,
 but also additional information such as tags (see \cref{tags})
 or the reason for being in a certain state.
 Pressing \keys{LMB} on a span will open a panel with additional information about the span, including a list of events that happened during that span.
-Pressing \keys{\shortcut+LMB} on a span will zoom the canvas to the span.
+Pressing \keys{\shortcut+LMB} on a span will zoom to the span.
 
 Spans have different colors depending on the states they represent.
 Different kinds of timelines and tracks use different color schemes.
@@ -308,11 +364,11 @@ or in a \traceState{lighter shade of green}{stateSampled} if they've been acquir
 
 When small spans get merged, they will be displayed in one of two ways:
 if all merged spans have the same state,
-then we will display a gradient from \traceState{light yellow}{stateMerged} to the color of the merged spans.
+they will be displayed using a gradient from \traceState{light yellow}{stateMerged} to the color of the merged spans.
 For merged spans with mixed states, a solid light yellow is shown instead.
 
 \subsubsection{Span tags}\label{tags}
-Gotraceui will annotate spans with tags, which further describe the states goroutines are in.
+Gotraceui annotates spans with tags, which further describe the states goroutines are in.
 These tags are produced by automatically parsing stack traces,
 and for example deducing that a goroutine that's blocked on pollable \textsc{i/o} got to that state by making a \textsc{tls}-encrypted
 \textsc{http} request over \textsc{tcp},
@@ -358,9 +414,9 @@ A \textsc{cpu} profiling sample states that at a specific point in time, a certa
   In Gotraceui, we only consider the call stack.}
 It doesn't say anything about what happened right before or after the sample.
 
-By default, samples occur at a frequency of \qty{100}{Hz}, i.e., once every \qty{10}{ms}.
-This means that there is \qty{10}{ms} of uncertainty after a sample.
-The stack trace might've changed anywhere from \num{0} to \qty{10}{ms} after the sample.
+By default, samples occur at a frequency of \qty{100}{\hertz}, i.e., once every \qty{10}{\milli\second}.
+This means that there is \qty{10}{\milli\second} of uncertainty after a sample.
+The stack trace might've changed anywhere from \num{0} to \qty{10}{\milli\second} after the sample.
 The same function may even have been called repeatedly.
 All we really know is that at one point in time, the function was running.
 
@@ -375,7 +431,7 @@ To further aid this macroscopic view, spans of consecutive \textsc{cpu} samples 
 This creates the usual layered representation of stacks that one might be familiar with from other tools such as flame graphs.
 
 However, the data is woefully inadequate at small scales --- the kind of scales at which execution trace data exists.
-You shouldn't rely on sampled stack traces to fill in the gaps between two runtime events that happened \qty{100}{us} apart.
+You shouldn't rely on sampled stack traces to fill in the gaps between two runtime events that happened \qty{100}{\micro\second} apart.
 It is important to either look at runtime events or \textsc{cpu} samples, but not both together.
 Runtime events show an exact history of what happened in the runtime, while \textsc{cpu} samples show a guess at what happened in user code.
 
@@ -392,11 +448,17 @@ Runtime events show an exact history of what happened in the runtime, while \tex
 
 It is also important to understand that \textsc{cpu} profiling samples happen at a fairly constant rate, which means all samples have the same uncertainty.
 Runtime events, however, can happen at arbitrary points.
-If a sample is followed by a runtime event \qty{1}{ms} later then it will look much smaller than if it were followed by a runtime event \qty{9}{ms} later,
-even though in the latter case we still don't know what happened for the first \qty{9}{ms}. 
+If a sample is followed by a runtime event \qty{1}{\milli\second} later then it will look much smaller than if it were followed by a runtime event \qty{9}{\milli\second} later,
+even though in the latter case we still don't know what happened for the first \qty{9}{\milli\second}. 
 
+\section{Links}
 
-\section{Panels}
+Timestamps and references to goroutines are formatted as clickable links.
+Clicking on a timestamp will scroll the canvas to that point in time.
+Clicking on a goroutine will display information about it in a goroutine panel.
+Right-clicking on a goroutine opens a context menu that allows scrolling or zooming to the goroutine.
+
+\section{Panels}\label{panels}
 
 Gotraceui uses a side panel to display additional information about entities such as goroutines and spans.
 Clicking on a supported entity opens the panel on the right side of the window.
@@ -428,7 +490,7 @@ These can be accessed via \menu{Analyze>Open processor utilization heatmap}.
 
 The X-axis shows time, the Y-axis shows utilization in percent, and color saturation represents the number of processors.
 
-The size of a bucket can be adjusted using the arrow keys. The \keys{\arrowkey{<}} and \keys{\arrowkey{>}} keys decrease and increase the amount of time represented by a bucket in steps of \qty{10}{ms}.
+The size of a bucket can be adjusted using the arrow keys. The \keys{\arrowkey{<}} and \keys{\arrowkey{>}} keys decrease and increase the amount of time represented by a bucket in steps of \qty{10}{\milli\second}.
 The \keys{\arrowkey{v}} and \keys{\arrowkey{^}} keys decrease and increase the range of percentage points per bucket.
 
 By default, a ranked color palette is used, where each distinct value that occurred gets its own saturation.%
@@ -441,13 +503,13 @@ On the flip side, a linear palette allows comparing absolute values just by look
   \begin{subfigure}[b]{0.49\textwidth}
     \centering
     \includegraphics[width=\textwidth]{images/screenshots/heatmap-linear.png}
-    \caption{Linear color palette}
+    \caption{Linear color palette.}
   \end{subfigure}
   \hfill
   \begin{subfigure}[b]{0.49\textwidth}
     \centering
     \includegraphics[width=\textwidth]{images/screenshots/heatmap-ranked.png}
-    \caption{Ranked color palette}
+    \caption{Ranked color palette.}
   \end{subfigure}
 
   \caption{Two heatmaps showing a trace with 31 processors at 95--100\% utilization and one processor at 0--5\% utilization. Note how on the left, the single processor is barely visible.}
@@ -482,7 +544,7 @@ While processor utilization is a good estimate for actual \textsc{cpu} utilizati
   \keys{\shift + Home} & Jump to beginning of trace \\
   \keys{C} & Toggle compact display \\
   \keys{G} & Open timeline selector \\
-  \keys{O} & Toggle STW and GC overlays \\
+  \keys{O} & Toggle \textsc{stw} and \textsc{gc} overlays \\
   \keys{S} & Toggle display of stack tracks \\
   \keys{T} & Toggle displaying tooltips \\
   \keys{X} & Toggle display of all timeline labels \\
@@ -497,74 +559,12 @@ While processor utilization is a good estimate for actual \textsc{cpu} utilizati
 \begin{tabular}{ll}
   Input & Function \\
   \hline
-  \keys{\arrowkey{<}} & Decrease X-axis bucket size by \qty{10}{ms} \\
-  \keys{\arrowkey{>}} & Increase X-axis bucket size by \qty{10}{ms} \\
+  \keys{\arrowkey{<}} & Decrease X-axis bucket size by \qty{10}{\milli\second} \\
+  \keys{\arrowkey{>}} & Increase X-axis bucket size by \qty{10}{\milli\second} \\
   \keys{\arrowkey{v}} & Decrease Y-axis bucket size \\
   \keys{\arrowkey{^}} & Increase Y-axis bucket size
 \end{tabular}
 \endgroup
-
-\chapter{Adding tracing to your application}
-
-\section{The \code{runtime/trace} package}
-
-The \code{runtime/trace} package provides the interface between user code and runtime tracing.
-It allows recording traces, as well as adding additional information to them, in the form of user regions and tasks.
-The package is \href{https://pkg.go.dev/runtime/trace}{well documented}\cite{TracePackageRuntime2023} and we recommend that you read it for a complete overview.
-For the purposes of this manual, we will quickly describe how to use \code{runtime/trace} to write trace files and how to add user regions.
-
-To start tracing, use the \code{Start} function and pass it the desired destination, usually a file.
-To stop tracing, use the \code{Stop} function.
-For short-lived applications, \code{Start} is best called as early in your main function as possible.
-It is also crucial that \code{Stop} gets called, as otherwise an incomplete trace may get written, which may not be parseable at all.
-For long-lived applications, it is better to start and stop tracing on demand, for example via an \textsc{api} call of some sort, to capture an interesting time window.
-
-\subsection{User annotations}
-It is possible to add your own information to traces by using user annotations, which encompass log messages, regions, and tasks.
-
-Log messages show up as events in Gotraceui, consist of a category and message, and can be emitted via \code{Log} or \code{Logf}.
-
-Regions group events in a goroutine.
-They can be used to, for example, denote distinct steps when handling an \textsc{api} request, such as querying the database, processing the results, and serializing them.
-Regions can also be nested, for additional detail. They can be started with \code{StartRegion} and stopped with \code{(*Region).Stop}.
-It is important that regions are stopped in a \textsc{lifo}\footnote{Last in, first out} order to maintain valid nesting.
-It is therefore recommended to use \code{defer}, like in the following example:
-\begin{verbatim}
-defer trace.StartRegion(ctx, "myTracedRegion").End()
-\end{verbatim}
-There is also a helper function called \code{WithRegion} that wraps the execution of a function in a region.
-
-Finally, tasks exist to group work that is happening across multiple goroutines.
-For example, if an incoming \textsc{api} request causes multiple goroutines to do work on behalf of that request in parallel, a task will be able to tie all of them together.
-Tasks are created similarly to regions, but with \code{NewTask} and \code{(*Task).End} respectively.
-
-Gotraceui does not currently display tasks.
-
-\section{\code{net/http/pprof}}
-
-\code{net/http/pprof} is a package that adds \textsc{http} debugging endpoints to your application.
-This is commonly used for acquiring \textsc{cpu} and memory profiles, but it can also be used to capture traces.
-To collect a 5-second trace you can run a command like
-
-\begin{verbatim}
-curl -o trace.out http://localhost:6060/debug/pprof/trace?seconds=5
-\end{verbatim}
-
-There is no single endpoint to capture a trace with \textsc{cpu} profiling enabled, but you could capture both a \textsc{cpu} profile and a trace in parallel, like this:
-
-\begin{verbatim}
-curl -o /dev/null http://localhost:6060/debug/pprof/profile?seconds=6 &
-curl -o trace.out http://localhost:6060/debug/pprof/trace?seconds=5
-\end{verbatim}
-
-We capture a slightly longer \textsc{cpu} profile to ensure it covers the entire duration of the trace.
-
-\section{Tracing tests}
-
-One way to acquire execution traces without having to modify your code is by using \code{go test}'s \code{-trace} flag, which writes an execution trace to a file.
-This can be particularly useful in combination with running benchmarks.
-You can additionally use the \code{-cpuprofile} flag to include CPU profiling samples in the trace.
-
 
 
 \chapter{The Go runtime}
@@ -597,7 +597,7 @@ You wouldn't want hundreds of threads to fight for \textsc{cpu} resources.
 Second, it allows for an efficient implementation.
 While processors are tokens in principle, they are also a concrete data structure that holds information necessary for efficiently running goroutines.
 In other words, machines use processors to run goroutines.
-The environment variable \code{GOMAXPROCS} controls the number of available processors.
+The environment variable \code{\textsc{gomaxprocs}} controls the number of available processors.
 It defaults to the number of \textsc{cpu} cores.
 
 In the context of execution traces and Gotraceui, goroutines are said to be running on processors, as the trace format is processor-centric.
@@ -622,7 +622,7 @@ For example, the \code{gettimeofday} syscall usually returns within a few micros
 It would take longer to give up the processor and spawn a new thread than it would to wait for the syscall to return.
 Additionally, the goroutine that invoked the syscall would have to wait its turn to be scheduled again, which might involve waiting for another goroutine to be preempted.
 All in all, the cost of a cheap syscall would multiply tenfold.
-Instead of doing all that, Go just waits to see if the syscall returns promptly\footnote{The exact duration it waits for depends on various factors, but it ranges from \num{0} to \qty{10}{ms}.}.
+Instead of doing all that, Go just waits to see if the syscall returns promptly\footnote{The exact duration it waits for depends on various factors, but it ranges from \num{0} to \qty{10}{\milli\second}.}.
 Only if it doesn't will Go go through the steps we described earlier.
 
 In the execution trace, and thus Gotraceui, these two kinds of syscalls are represented differently.
@@ -642,8 +642,8 @@ Because Gotraceui visualizes processors and goroutines but not machines, the use
 In particular, thread-locked goroutines can still move between processors freely.
 
 \subsection{Cooperative scheduling and preemption}
-\todo{TODO}
-\todo{mention Gosched}
+
+\todo{This section will be expanded in the future}
 
 \subsection{Goroutine states}\label{goroutine-states}
 
@@ -722,7 +722,7 @@ However, we've also established that syscalls block execution and force Go to cr
 This is especially true for \textsc{i/o}, which rarely finishes quickly.
 But what happens if we're working on a highly concurrent server that handles thousands of connections simultaneously?
 We certainly do not want thousands of threads.
-Threads are expensive to create, they need memory, the OS has to manage them, the Go runtime has to manage them, and so on.
+Threads are expensive to create, they need memory, the \textsc{os} has to manage them, the Go runtime has to manage them, and so on.
 Avoiding a large number of threads is one of the reasons Go doesn't use one thread per goroutine in the first place.
 
 Most operating systems provide a more efficient alternative to having thousands of threads waiting in syscalls:
@@ -752,7 +752,7 @@ For pollable \textsc{i/o}, span tooltips may additionaly show the kind of \texts
 \begin{figure}[h]
   \centering
   \includegraphics[scale=2]{images/screenshots/pollable-io-span.png}
-  \caption{A span blocked on a pollable network read}
+  \caption{A span blocked on a pollable network read.}
 \end{figure}
 
 \section{Garbage collection}\label{gc}
@@ -763,7 +763,9 @@ We will focus on the details that matter for understanding execution traces.
 There are many more details to how the \textsc{gc} works
 and you're encouraged to read the \href{https://go.dev/doc/gc-guide}{official documentation}\cite{GuideGoGarbage} to learn more about it.
 
-\todo{Something about mark, sweep, mark assist, STW, how GC gets triggered, etc}
+% \todo{Something about mark, sweep, mark assist, STW, how GC gets triggered, etc}
+
+\todo{This section will be expanded in the future}
 
 \section{The runtime's goroutines}
 The runtime spawns several of its own goroutines that will show up in most traces.
