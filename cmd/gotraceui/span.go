@@ -175,11 +175,11 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	)
 
 	for _, ev := range si.description.Events() {
-		handleLinkClick(si.MainWindow, ev)
+		handleLinkClick(win, si.MainWindow, ev)
 	}
 
 	for _, ev := range si.Events.Clicked() {
-		handleLinkClick(si.MainWindow, ev)
+		handleLinkClick(win, si.MainWindow, ev)
 	}
 
 	for si.buttons.scrollAndPanToSpan.Clicked() {

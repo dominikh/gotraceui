@@ -248,11 +248,11 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	)
 
 	for _, ev := range gi.description.Events() {
-		handleLinkClick(gi.MainWindow, ev)
+		handleLinkClick(win, gi.MainWindow, ev)
 	}
 
 	for _, ev := range gi.events.Clicked() {
-		handleLinkClick(gi.MainWindow, ev)
+		handleLinkClick(win, gi.MainWindow, ev)
 	}
 
 	for gi.buttons.scrollToGoroutine.Clicked() {

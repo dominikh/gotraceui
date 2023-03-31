@@ -1645,7 +1645,7 @@ func defaultLink(obj any) Link {
 	}
 }
 
-func handleLinkClick(mwin *MainWindow, ev TextEvent) {
+func handleLinkClick(win *theme.Window, mwin *MainWindow, ev TextEvent) {
 	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
 		if obj, ok := ev.Span.Object.(*ptrace.Goroutine); ok {
 			switch ev.Event.Modifiers {
@@ -1662,9 +1662,9 @@ func handleLinkClick(mwin *MainWindow, ev TextEvent) {
 	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
 		switch obj := ev.Span.Object.(type) {
 		case *ptrace.Goroutine:
-			mwin.twin.SetContextMenu(goroutineLinkContextMenu(mwin, obj))
+			win.SetContextMenu(goroutineLinkContextMenu(mwin, obj))
 		case *ptrace.Processor:
-			mwin.twin.SetContextMenu(processorLinkContextMenu(mwin, obj))
+			win.SetContextMenu(processorLinkContextMenu(mwin, obj))
 		}
 	}
 }
