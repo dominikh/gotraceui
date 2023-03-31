@@ -212,6 +212,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				Do: func(gtx layout.Context) {
 					pl.min = 0
 					_, pl.max = pl.computeExtents(0, math.MaxInt64)
+					pl.autoScale = false
 				},
 			},
 			{
