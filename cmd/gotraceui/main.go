@@ -1660,8 +1660,11 @@ func handleLinkClick(mwin *MainWindow, ev TextEvent) {
 			mwin.OpenLink(defaultLink(ev.Span.Object))
 		}
 	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
-		if obj, ok := ev.Span.Object.(*ptrace.Goroutine); ok {
+		switch obj := ev.Span.Object.(type) {
+		case *ptrace.Goroutine:
 			mwin.twin.SetContextMenu(goroutineLinkContextMenu(mwin, obj))
+		case *ptrace.Processor:
+			mwin.twin.SetContextMenu(processorLinkContextMenu(mwin, obj))
 		}
 	}
 }

@@ -269,3 +269,20 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 		shortName:       l,
 	}
 }
+
+func processorLinkContextMenu(mwin *MainWindow, obj *ptrace.Processor) []*theme.MenuItem {
+	return []*theme.MenuItem{
+		{
+			Label: PlainLabel("Scroll to processor"),
+			Do: func(gtx layout.Context) {
+				mwin.OpenLink(&ProcessorLink{Processor: obj, Kind: ProcessorLinkKindScroll})
+			},
+		},
+		{
+			Label: PlainLabel("Zoom to processor"),
+			Do: func(gtx layout.Context) {
+				mwin.OpenLink(&ProcessorLink{Processor: obj, Kind: ProcessorLinkKindZoom})
+			},
+		},
+	}
+}
