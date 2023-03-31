@@ -542,7 +542,6 @@ func (cv *Canvas) JumpToBeginning(gtx layout.Context) {
 }
 
 func (cv *Canvas) ToggleCompactDisplay() {
-	// FIXME(dh): adjust cv.Y so that the top visible goroutine stays the same
 	cv.timeline.compact = !cv.timeline.compact
 }
 
@@ -680,6 +679,23 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 				case "C":
 					cv.ToggleCompactDisplay()
+					if h := cv.timeline.hoveredTimeline; h != nil {
+						cv.cancelNavigation()
+						y := cv.timelineY(gtx, h.item)
+
+						offset := h.hover.Pointer().Y
+						if cv.timeline.compact {
+							// We're going from expanded to compact. This reduces the offset from the top of the
+							// timeline to the first track to zero.
+							offset -= float32(gtx.Dp(timelineLabelHeightDp))
+							if h.hover.Pointer().Y < float32(gtx.Dp(timelineLabelHeightDp)) {
+								// The cursor is above the first track; adjust the offset so that the cursor lands on the first track
+								offset += float32(gtx.Dp(timelineLabelHeightDp)) - h.hover.Pointer().Y
+							}
+						}
+
+						cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
+					}
 
 				case "T":
 					cv.timeline.showTooltips = (cv.timeline.showTooltips + 1) % (showTooltipsNone + 1)
