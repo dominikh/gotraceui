@@ -666,7 +666,15 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					if h := cv.timeline.hoveredTimeline; h != nil {
 						cv.cancelNavigation()
 						y := cv.timelineY(gtx, h.item)
-						cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(h.hover.Pointer().Y))
+						offset := h.hover.Pointer().Y
+						if !cv.timeline.displayStackTracks {
+							// We're going from stacks to no stacks. This shrinks the timeline and the cursor might end
+							// up on the next timeline. Prevent that.
+							if h.hover.Pointer().Y > float32(h.Height(gtx, cv)) {
+								offset -= h.hover.Pointer().Y - float32(h.Height(gtx, cv))
+							}
+						}
+						cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
 					}
 
 				case "Z":
