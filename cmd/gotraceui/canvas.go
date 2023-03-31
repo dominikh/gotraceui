@@ -665,15 +665,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				case "S":
 					cv.ToggleStackTracks()
 					if h := cv.timeline.hoveredTimeline; h != nil {
-						if _, ok := h.item.(ptrace.Spans); ok {
-							// FIXME(dh): these are the GC and STW timelines at the top. We don't have to do anything
-							// for them because there can't be stack tracks above them. We _mustn't_ do anything because
-							// timelineY will crash upon seeing ptrace.Spans.
-						} else {
-							cv.cancelNavigation()
-							y := cv.timelineY(gtx, h.item)
-							cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(h.hover.Pointer().Y))
-						}
+						cv.cancelNavigation()
+						y := cv.timelineY(gtx, h.item)
+						cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(h.hover.Pointer().Y))
 					}
 
 				case "Z":
