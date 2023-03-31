@@ -482,6 +482,17 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				panic(l.Kind)
 			}
 
+		case *ProcessorLink:
+			switch l.Kind {
+			case ProcessorLinkKindScroll:
+				mwin.canvas.scrollToTimeline(gtx, l.Processor)
+			case ProcessorLinkKindZoom:
+				y := mwin.canvas.timelineY(gtx, l.Processor)
+				mwin.canvas.navigateToStartAndEnd(gtx, l.Processor.Spans.Start(), l.Processor.Spans.End(), y)
+			default:
+				panic(l.Kind)
+			}
+
 		case *TimestampLink:
 			d := mwin.canvas.End() - mwin.canvas.start
 			mwin.canvas.navigateTo(gtx, l.Ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.y)
@@ -498,7 +509,7 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 			}
 		default:
-			panic(l)
+			panic(fmt.Sprintf("unsupported type: %T", l))
 		}
 	}
 }
@@ -1060,6 +1071,20 @@ type GoroutineLink struct {
 	Kind      GoroutineLinkKind
 }
 
+type ProcessorLinkKind uint8
+
+const (
+	ProcessorLinkKindScroll ProcessorLinkKind = iota
+	ProcessorLinkKindZoom
+)
+
+type ProcessorLink struct {
+	aLink
+
+	Processor *ptrace.Processor
+	Kind      ProcessorLinkKind
+}
+
 func span(th *theme.Theme, text string) styledtext.SpanStyle {
 	return styledtext.SpanStyle{
 		Content: text,
@@ -1608,6 +1633,9 @@ func defaultLink(obj any) Link {
 	switch obj := obj.(type) {
 	case *ptrace.Goroutine:
 		return &GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen}
+	case *ptrace.Processor:
+		// There are no processor panels yet, so we default to scrolling
+		return &ProcessorLink{Processor: obj, Kind: ProcessorLinkKindScroll}
 	case *trace.Timestamp:
 		return &TimestampLink{*obj}
 	case trace.Timestamp:
