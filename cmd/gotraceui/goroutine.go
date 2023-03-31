@@ -627,11 +627,25 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 	return grid.Layout(gtx, len(gs.mapping)+1, 7, sizer, cellFn)
 }
 
-func goroutineTrack0SpanLabel(spanSel SpanSelector, _ *Trace, out []string) []string {
+func goroutineTrack0SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
 	if spanSel.Size() != 1 {
 		return out
 	}
-	return append(out, spanStateLabels[spanSel.At(0).State]...)
+	span := spanSel.At(0)
+	state := span.State
+	if state == ptrace.StateBlockedSyscall {
+		ev := tr.Event(span.Event)
+		if ev.StkID != 0 {
+			frames := tr.Stacks[ev.StkID]
+			fn := tr.PCs[frames[0]].Fn
+			return append(out,
+				fmt.Sprintf("syscall (%s)", fn),
+				fmt.Sprintf("syscall (.%s)", shortenFunctionName(fn)),
+				"syscall",
+			)
+		}
+	}
+	return append(out, spanStateLabels[state]...)
 }
 
 func goroutineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.MenuItem {
