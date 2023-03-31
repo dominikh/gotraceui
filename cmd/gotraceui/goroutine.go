@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"fmt"
 	"image"
 	rtrace "runtime/trace"
@@ -37,6 +39,37 @@ type GoroutineStats struct {
 	columnClicks [7]widget.PrimaryClickable
 }
 
+func statisticsToCSV(stats *ptrace.Statistics) string {
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+
+	w.Write([]string{"State", "Count", "Min", "Max", "Total", "Average", "Median"})
+
+	for state := range stats {
+		if state == int(ptrace.StateNone) {
+			continue
+		}
+
+		if stateNamesCapitalized[state] == "" {
+			continue
+		}
+		stat := &stats[state]
+		fields := []string{
+			stateNamesCapitalized[state],
+			fmt.Sprintf("%d", stat.Count),
+			fmt.Sprintf("%d", stat.Min),
+			fmt.Sprintf("%d", stat.Max),
+			fmt.Sprintf("%d", stat.Total),
+			fmt.Sprintf("%f", stat.Average),
+			fmt.Sprintf("%f", stat.Median),
+		}
+		w.Write(fields)
+	}
+
+	w.Flush()
+	return buf.String()
+}
+
 type GoroutineInfo struct {
 	MainWindow *MainWindow
 	Goroutine  *ptrace.Goroutine
@@ -50,6 +83,7 @@ type GoroutineInfo struct {
 	buttons struct {
 		scrollToGoroutine widget.PrimaryClickable
 		zoomToGoroutine   widget.PrimaryClickable
+		copyAsCSV         widget.PrimaryClickable
 	}
 
 	foldables struct {
@@ -237,7 +271,11 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				}
 				return theme.Foldable(win.Theme, &gi.foldables.stats, "Statistics").Layout(win, gtx, gi.stats.Layout)
 			})
-
+		}),
+		layout.Rigid(layout.Spacer{Height: 1}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = 0
+			return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
 		}),
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
@@ -246,6 +284,10 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			return theme.Foldable(win.Theme, &gi.foldables.events, "Events").Layout(win, gtx, gi.events.Layout)
 		}),
 	)
+
+	for gi.buttons.copyAsCSV.Clicked() {
+		gi.MainWindow.win.WriteClipboard(statisticsToCSV(&gi.stats.stats))
+	}
 
 	for _, ev := range gi.description.Events() {
 		handleLinkClick(win, gi.MainWindow, ev)
