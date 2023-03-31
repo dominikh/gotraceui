@@ -132,7 +132,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		} else {
 			gi.description.Bold("Returned at: ")
 			gi.description.Link(
-				"After trace end\n",
+				"after trace end\n",
 				end,
 			)
 		}
