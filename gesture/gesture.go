@@ -83,7 +83,7 @@ func (c *Click) Hovered() bool {
 // Pressed returns whether a pointer is pressing.
 func (c *Click) Pressed(btn pointer.Buttons) bool {
 	for i := 0; i < 3; i++ {
-		if btn&1<<i == 0 {
+		if btn&(1<<i) == 0 {
 			continue
 		}
 		if c.buttons[i].pressed {
