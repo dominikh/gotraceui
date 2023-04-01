@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
+	"honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -29,7 +30,6 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
-	"gioui.org/font/gofont"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/profile"
@@ -108,8 +108,6 @@ var (
 	invalidateFrames   bool
 )
 
-var goFonts = gofont.Collection()
-
 type reusableOps struct {
 	ops op.Ops
 }
@@ -185,7 +183,7 @@ type PanelWindow struct {
 
 func (pwin *PanelWindow) Run(win *app.Window) error {
 	var ops op.Ops
-	tWin := &theme.Window{Theme: theme.NewTheme(gofont.Collection())}
+	tWin := &theme.Window{Theme: theme.NewTheme(font.Collection())}
 
 	for e := range win.Events() {
 		switch ev := e.(type) {
@@ -269,7 +267,7 @@ type MainWindow struct {
 
 func NewMainWindow() *MainWindow {
 	mwin := &MainWindow{
-		theme:       theme.NewTheme(gofont.Collection()),
+		theme:       theme.NewTheme(font.Collection()),
 		commands:    make(chan Command, 128),
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
@@ -1097,7 +1095,7 @@ func span(th *theme.Theme, text string) styledtext.SpanStyle {
 		Content: text,
 		Size:    th.TextSize,
 		Color:   th.Palette.Foreground,
-		Font:    goFonts[0].Font,
+		Font:    font.Collection()[0].Font,
 	}
 }
 
@@ -1550,7 +1548,7 @@ func (txt *Text) Span(label string) *TextSpan {
 		Content: label,
 		Size:    txt.theme.TextSize,
 		Color:   txt.theme.Palette.Foreground,
-		Font:    goFonts[0].Font,
+		Font:    font.Collection()[0].Font,
 	}
 	txt.styles = append(txt.styles, style)
 	s := TextSpan{

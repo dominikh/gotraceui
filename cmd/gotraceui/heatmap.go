@@ -10,6 +10,7 @@ import (
 	"time"
 
 	myclip "honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -17,7 +18,6 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
-	"gioui.org/font/gofont"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
@@ -321,7 +321,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 
 	var useLinear widget.Bool
 	var ops op.Ops
-	tWin := &theme.Window{Theme: theme.NewTheme(gofont.Collection())}
+	tWin := &theme.Window{Theme: theme.NewTheme(font.Collection())}
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:

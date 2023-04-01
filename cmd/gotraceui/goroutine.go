@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -406,9 +407,9 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	//
 	// We assume that all lines have the same height. This is an assumption shared by outlay.Grid.
 
-	fLabel := goFonts[0].Font
+	fLabel := font.Collection()[0].Font
 	fLabel.Weight = text.Bold
-	fContent := goFonts[0].Font
+	fContent := font.Collection()[0].Font
 
 	var columnSizes [numStatLabels]image.Point
 
@@ -559,7 +560,7 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 	// contents.)
 	var labelSizes [3]image.Point
 	for i := numStatLabels; i < 2*numStatLabels; i++ {
-		f := goFonts[0].Font
+		f := font.Collection()[0].Font
 		f.Weight = text.Bold
 
 		l := statLabels[gs.numberFormat][i]

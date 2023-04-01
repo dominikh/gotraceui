@@ -7,13 +7,13 @@ import (
 	"math"
 	"time"
 
+	"honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/widget"
 	"honnef.co/go/gotraceui/layout"
 
 	"gioui.org/app"
 	"gioui.org/f32"
-	"gioui.org/font/gofont"
 	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -215,7 +215,7 @@ func (dwin *DebugWindow) Run(win *app.Window) error {
 			gtx := layout.NewContext(&ops, ev)
 			// gtx.Constraints.Min = image.Point{}
 
-			th := theme.NewTheme(gofont.Collection())
+			th := theme.NewTheme(font.Collection())
 
 			themeWidget := func(fn func(gtx layout.Context, th *theme.Theme) layout.Dimensions) layout.Widget {
 				return func(gtx layout.Context) layout.Dimensions { return fn(gtx, th) }
