@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"strings"
 	"time"
 
 	"gioui.org/op"
@@ -99,11 +100,18 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 		si.description.Bold("State: ")
 		if si.Spans.Size() == 1 {
-			si.description.Span(stateNames[si.Spans.At(0).State])
+			si.description.Span(stateNames[firstSpan.State])
 		} else {
 			si.description.Span("mixed")
 		}
 		si.description.Span("\n")
+
+		if si.Spans.Size() == 1 && firstSpan.Tags != 0 {
+			si.description.Bold("Tags: ")
+			tags := spanTagStrings(firstSpan.Tags)
+			si.description.Span(strings.Join(tags, ", "))
+			si.description.Span("\n")
+		}
 
 		si.description.Bold("In: ")
 		si.description.Link(
@@ -226,3 +234,33 @@ const (
 	SpanLinkKindScrollAndPan SpanLinkKind = iota
 	SpanLinkKindZoom
 )
+
+func spanTagStrings(tags ptrace.SpanTags) []string {
+	if tags == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, 4)
+	if tags&ptrace.SpanTagRead != 0 {
+		out = append(out, "read")
+	}
+	if tags&ptrace.SpanTagAccept != 0 {
+		out = append(out, "accept")
+	}
+	if tags&ptrace.SpanTagDial != 0 {
+		out = append(out, "dial")
+	}
+	if tags&ptrace.SpanTagNetwork != 0 {
+		out = append(out, "network")
+	}
+	if tags&ptrace.SpanTagTCP != 0 {
+		out = append(out, "TCP")
+	}
+	if tags&ptrace.SpanTagTLS != 0 {
+		out = append(out, "TLS")
+	}
+	if tags&ptrace.SpanTagHTTP != 0 {
+		out = append(out, "HTTP")
+	}
+	return out
+}

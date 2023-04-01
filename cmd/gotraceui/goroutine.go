@@ -1009,28 +1009,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			}
 		}
 
-		tags := make([]string, 0, 4)
-		if s.Tags&ptrace.SpanTagRead != 0 {
-			tags = append(tags, "read")
-		}
-		if s.Tags&ptrace.SpanTagAccept != 0 {
-			tags = append(tags, "accept")
-		}
-		if s.Tags&ptrace.SpanTagDial != 0 {
-			tags = append(tags, "dial")
-		}
-		if s.Tags&ptrace.SpanTagNetwork != 0 {
-			tags = append(tags, "network")
-		}
-		if s.Tags&ptrace.SpanTagTCP != 0 {
-			tags = append(tags, "TCP")
-		}
-		if s.Tags&ptrace.SpanTagTLS != 0 {
-			tags = append(tags, "TLS")
-		}
-		if s.Tags&ptrace.SpanTagHTTP != 0 {
-			tags = append(tags, "HTTP")
-		}
+		tags := spanTagStrings(s.Tags)
 		if len(tags) != 0 {
 			label += " (" + strings.Join(tags, ", ") + ")"
 		}
