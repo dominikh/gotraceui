@@ -143,6 +143,7 @@ type Canvas struct {
 	hover     gesture.Hover
 
 	timeline struct {
+		filter             Filter
 		displayAllLabels   bool
 		compact            bool
 		displayStackTracks bool
@@ -171,6 +172,7 @@ type Canvas struct {
 		hoveredTimeline    *Timeline
 		hoveredSpans       SpanSelector
 		width              int
+		filter             Filter
 	}
 
 	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
@@ -320,7 +322,8 @@ func (cv *Canvas) unchanged() bool {
 		cv.prevFrame.width == cv.width &&
 		cv.prevFrame.y == cv.y &&
 		cv.prevFrame.compact == cv.timeline.compact &&
-		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks
+		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
+		cv.prevFrame.filter == cv.timeline.filter
 }
 
 func (cv *Canvas) startZoomSelection(pos f32.Point) {

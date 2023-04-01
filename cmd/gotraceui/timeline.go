@@ -198,6 +198,7 @@ type TrackWidget struct {
 		ops         reusableOps
 		call        op.CallOp
 		dims        layout.Dimensions
+		filter      Filter
 
 		dspSpans []struct {
 			dspSpanSel     SpanSelector
@@ -349,7 +350,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, tl, trackSpanLabels)
+		dims := track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); spans.Size() != 0 {
 			tl.hoveredSpans = spans
@@ -490,7 +491,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 	return it.spanSel.Slice(startOffset, offset), startPx, endPx, true
 }
 
-func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, labelsOut *[]string) (dims layout.Dimensions) {
+func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, filter Filter, labelsOut *[]string) (dims layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
 
 	cv := tl.cv
@@ -534,7 +535,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		!track.prevFrame.hovered &&
 		cv.unchanged() &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
-		gtx.Constraints == track.prevFrame.constraints {
+		gtx.Constraints == track.prevFrame.constraints &&
+		track.prevFrame.filter == filter {
 
 		track.prevFrame.call.Add(gtx.Ops)
 		debugCaching(gtx)
@@ -543,6 +545,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 	track.prevFrame.hovered = track.hover.Hovered()
 	track.prevFrame.constraints = gtx.Constraints
+	track.prevFrame.filter = filter
 
 	origOps := gtx.Ops
 	gtx.Ops = track.prevFrame.ops.get()
@@ -625,6 +628,9 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		var highlighted bool
 		if track.highlightSpan != nil {
 			highlighted = track.highlightSpan(dspSpanSel, cv)
+		}
+		if filter.Match(dspSpanSel, SpanContainer{Timeline: tl, Track: track}) {
+			highlighted = true
 		}
 		if hovered {
 			highlightedPrimaryOutlinesPath.MoveTo(minP)

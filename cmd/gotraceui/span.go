@@ -20,6 +20,11 @@ func SpansDuration(sel SpanSelector) time.Duration {
 	return time.Duration(LastSpan(sel).End - sel.At(0).Start)
 }
 
+type SpanContainer struct {
+	Timeline *Timeline
+	Track    *Track
+}
+
 type SpansInfo struct {
 	MainWindow *MainWindow
 	Trace      *Trace
@@ -27,10 +32,7 @@ type SpansInfo struct {
 	Spans      SpanSelector
 	Label      string
 	Events     Events
-	Container  struct {
-		Timeline *Timeline
-		Track    *Track
-	}
+	Container  SpanContainer
 
 	initialized bool
 

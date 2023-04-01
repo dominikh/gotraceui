@@ -144,10 +144,7 @@ func (mwin *MainWindow) openSpan(s SpanSelector, tl *Timeline, tr *Track, allEve
 		Trace:      mwin.trace,
 		Label:      label,
 		AllEvents:  allEvents,
-		Container: struct {
-			Timeline *Timeline
-			Track    *Track
-		}{
+		Container: SpanContainer{
 			Timeline: tl,
 			Track:    tr,
 		},
@@ -858,6 +855,16 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 											gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
 											return mwin.ww.Layout(gtx)
 										})
+
+									case "H":
+										hd := HighlightDialog(win, &mwin.canvas.timeline.filter)
+										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+											return theme.Dialog(win.Theme, "Highlight spans").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+												gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
+												gtx.Constraints.Max = gtx.Constraints.Min
+												return hd.Layout(win, gtx)
+											})
+										})
 									}
 								}
 							}
@@ -925,7 +932,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							}
 						}
 
-						key.InputOp{Tag: &shortcuts, Keys: "G"}.Add(gtx.Ops)
+						key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
 
 						if mwin.ww != nil {
 							if item, ok := mwin.ww.Confirmed(); ok {

@@ -134,7 +134,7 @@ func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 type CheckBoxStyle struct {
-	Checkbox        *widget.Bool
+	Checkbox        widget.Boolean
 	Label           string
 	TextSize        unit.Sp
 	ForegroundColor color.NRGBA
@@ -142,7 +142,7 @@ type CheckBoxStyle struct {
 	TextColor       color.NRGBA
 }
 
-func CheckBox(th *Theme, checkbox *widget.Bool, label string) CheckBoxStyle {
+func CheckBox(th *Theme, checkbox widget.Boolean, label string) CheckBoxStyle {
 	return CheckBoxStyle{
 		Checkbox:        checkbox,
 		Label:           label,
@@ -169,7 +169,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 					Width: 1,
 				}.Layout(ngtx, func(gtx layout.Context) layout.Dimensions {
 					paint.FillShape(gtx.Ops, c.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
-					if c.Checkbox.Value {
+					if c.Checkbox.Get() {
 						padding := gtx.Constraints.Min.X / 4
 						if padding == 0 {
 							padding = gtx.Dp(1)
@@ -192,6 +192,144 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 			}),
 		)
 	})
+}
+
+type CheckBoxGroupStyle struct {
+	Clickable       *widget.Clickable
+	Checkboxes      []CheckBoxStyle
+	Label           string
+	TextSize        unit.Sp
+	ForegroundColor color.NRGBA
+	BackgroundColor color.NRGBA
+	TextColor       color.NRGBA
+}
+
+func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string, checkboxes ...CheckBoxStyle) CheckBoxGroupStyle {
+	return CheckBoxGroupStyle{
+		Clickable:       clickable,
+		Checkboxes:      checkboxes,
+		Label:           label,
+		TextColor:       th.Palette.Foreground,
+		ForegroundColor: th.Palette.Foreground,
+		BackgroundColor: rgba(0),
+		TextSize:        th.TextSize,
+	}
+}
+
+func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	const (
+		none = iota
+		noneThenSome
+		some
+		all
+	)
+
+	sm := [...][2]int{
+		none:         {0: noneThenSome, 1: all},
+		all:          {0: some, 1: all},
+		some:         {0: some, 1: some},
+		noneThenSome: {0: noneThenSome, 1: some},
+	}
+
+	var state int
+
+	for i := range chkgrp.Checkboxes {
+		chk := &chkgrp.Checkboxes[i]
+
+		var b int
+		if chk.Checkbox.Get() {
+			b = 1
+		}
+		state = sm[state][b]
+		if state == some {
+			break
+		}
+	}
+
+	if state == noneThenSome {
+		state = none
+	}
+
+	children := make([]layout.FlexChild, len(chkgrp.Checkboxes))
+	for i := range chkgrp.Checkboxes {
+		children[i] = layout.Rigid(Dumb(win, chkgrp.Checkboxes[i].Layout))
+	}
+
+	sizeDp := gtx.Metric.SpToDp(chkgrp.TextSize)
+	sizePx := gtx.Dp(sizeDp)
+
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return chkgrp.Clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						ngtx := gtx
+						ngtx.Constraints = layout.Exact(image.Pt(sizePx, sizePx))
+						return widget.Border{
+							Color: chkgrp.ForegroundColor,
+							Width: 1,
+						}.Layout(ngtx, func(gtx layout.Context) layout.Dimensions {
+							paint.FillShape(gtx.Ops, chkgrp.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
+							switch state {
+							case none:
+							case some:
+								padding := gtx.Constraints.Min.X / 4
+								if padding == 0 {
+									padding = gtx.Dp(1)
+								}
+								minx := padding
+								maxx := gtx.Constraints.Min.X - padding
+
+								miny := minx + padding/2
+								maxy := maxx - padding/2
+
+								paint.FillShape(gtx.Ops, chkgrp.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
+							case all:
+								padding := gtx.Constraints.Min.X / 4
+								if padding == 0 {
+									padding = gtx.Dp(1)
+								}
+								minx := padding
+								miny := minx
+								maxx := gtx.Constraints.Min.X - padding
+								maxy := maxx
+								paint.FillShape(gtx.Ops, chkgrp.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
+							}
+
+							return layout.Dimensions{Size: gtx.Constraints.Min}
+						})
+					}),
+
+					layout.Rigid(layout.Spacer{Width: 3}.Layout),
+
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return widget.TextLine{Color: chkgrp.TextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, chkgrp.TextSize, chkgrp.Label)
+					}),
+				)
+			})
+		}),
+
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: sizeDp + 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+			})
+		}),
+	)
+
+	for {
+		click, ok := chkgrp.Clickable.Clicked()
+		if !ok {
+			break
+		}
+		if click.Button != pointer.ButtonPrimary {
+			continue
+		}
+		for i := range chkgrp.Checkboxes {
+			chkgrp.Checkboxes[i].Checkbox.Set(state == none || state == some)
+		}
+	}
+
+	return dims
 }
 
 func rgba(c uint32) color.NRGBA {
@@ -286,6 +424,7 @@ func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) 
 	size = dims.Size
 
 	if !f.Closed.Value {
+		gtx := gtx
 		defer op.Offset(image.Pt(0, size.Y)).Push(gtx.Ops).Pop()
 		gtx.Constraints.Max.Y -= size.Y
 		dims := contents(win, gtx)
