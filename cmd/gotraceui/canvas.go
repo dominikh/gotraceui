@@ -323,7 +323,7 @@ func (cv *Canvas) unchanged() bool {
 		cv.prevFrame.y == cv.y &&
 		cv.prevFrame.compact == cv.timeline.compact &&
 		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
-		cv.prevFrame.filter == cv.timeline.filter
+		cv.prevFrame.filter.Equal(cv.timeline.filter)
 }
 
 func (cv *Canvas) startZoomSelection(pos f32.Point) {
@@ -961,6 +961,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
 	cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
 	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
+	if !cv.timeline.filter.Equal(cv.prevFrame.filter) {
+		cv.prevFrame.filter = cv.timeline.filter.Copy()
+	}
 
 	cv.clickedSpans = cv.clickedSpans[:0]
 	cv.timeline.hoveredSpans = NoSpan{}

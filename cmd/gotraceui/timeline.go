@@ -198,7 +198,6 @@ type TrackWidget struct {
 		ops         reusableOps
 		call        op.CallOp
 		dims        layout.Dimensions
-		filter      Filter
 
 		dspSpans []struct {
 			dspSpanSel     SpanSelector
@@ -535,8 +534,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		!track.prevFrame.hovered &&
 		cv.unchanged() &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
-		gtx.Constraints == track.prevFrame.constraints &&
-		track.prevFrame.filter == filter {
+		gtx.Constraints == track.prevFrame.constraints {
 
 		track.prevFrame.call.Add(gtx.Ops)
 		debugCaching(gtx)
@@ -545,7 +543,6 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 	track.prevFrame.hovered = track.hover.Hovered()
 	track.prevFrame.constraints = gtx.Constraints
-	track.prevFrame.filter = filter
 
 	origOps := gtx.Ops
 	gtx.Ops = track.prevFrame.ops.get()
