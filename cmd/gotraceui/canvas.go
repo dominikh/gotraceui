@@ -144,6 +144,7 @@ type Canvas struct {
 
 	timeline struct {
 		filter             Filter
+		automaticFilter    Filter
 		displayAllLabels   bool
 		compact            bool
 		displayStackTracks bool
@@ -173,6 +174,7 @@ type Canvas struct {
 		hoveredSpans       SpanSelector
 		width              int
 		filter             Filter
+		automaticFilter    Filter
 	}
 
 	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
@@ -323,7 +325,8 @@ func (cv *Canvas) unchanged() bool {
 		cv.prevFrame.y == cv.y &&
 		cv.prevFrame.compact == cv.timeline.compact &&
 		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
-		cv.prevFrame.filter.Equal(cv.timeline.filter)
+		cv.prevFrame.filter == cv.timeline.filter &&
+		cv.prevFrame.automaticFilter == cv.timeline.automaticFilter
 }
 
 func (cv *Canvas) startZoomSelection(pos f32.Point) {
@@ -961,13 +964,13 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
 	cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
 	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
-	if !cv.timeline.filter.Equal(cv.prevFrame.filter) {
-		cv.prevFrame.filter = cv.timeline.filter.Copy()
-	}
+	cv.prevFrame.filter = cv.timeline.filter
+	cv.prevFrame.automaticFilter = cv.timeline.automaticFilter
 
 	cv.clickedSpans = cv.clickedSpans[:0]
 	cv.timeline.hoveredSpans = NoSpan{}
 	cv.timeline.hoveredTimeline = nil
+	cv.timeline.automaticFilter = Filter{Mode: FilterModeAnd}
 	for _, tl := range cv.prevFrame.displayedTls {
 		if clicked := tl.ClickedSpans(); clicked.Spans.Size() > 0 {
 			var allEvents []ptrace.EventID
@@ -987,8 +990,41 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 		if tl.Hovered() {
 			cv.timeline.hoveredTimeline = tl
-			if spanSel := tl.HoveredSpans(); spanSel.Size() > 0 {
+			spanSel := tl.HoveredSpans()
+			if spanSel.Size() > 0 {
 				cv.timeline.hoveredSpans = spanSel
+			}
+
+			switch hitem := tl.item.(type) {
+			case *ptrace.Goroutine:
+				if spanSel.Size() == 0 {
+					// A goroutine timeline is hovered, but no spans within are.
+					cv.timeline.automaticFilter.Processor.Goroutine = hitem.ID
+				} else {
+					// Highlight processor spans for the same goroutine if they overlap with the highlighted span.
+					cv.timeline.automaticFilter.Processor.Goroutine = hitem.ID
+					cv.timeline.automaticFilter.Processor.StartAfter = cv.timeline.hoveredSpans.At(0).Start
+					cv.timeline.automaticFilter.Processor.EndBefore = cv.timeline.hoveredSpans.At(cv.timeline.hoveredSpans.Size() - 1).End
+				}
+
+			case *ptrace.Processor:
+				if spanSel.Size() == 1 {
+					cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(spanSel.At(0).Event).G
+				}
+
+				cv.timeline.automaticFilter.Machine.Processor = hitem.ID
+
+			case *ptrace.Machine:
+				if spanSel.Size() == 1 {
+					o := spanSel.At(0)
+					if o.State == ptrace.StateRunningG {
+						cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(o.Event).G
+					}
+
+					if o.State == ptrace.StateRunningP {
+						cv.timeline.automaticFilter.Machine.Processor = cv.trace.Event(o.Event).P
+					}
+				}
 			}
 			break
 		}

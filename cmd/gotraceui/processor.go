@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	rtrace "runtime/trace"
-	"sort"
 	"time"
 
 	"honnef.co/go/gotraceui/layout"
@@ -113,82 +112,6 @@ func processorInvalidateCache(tl *Timeline, cv *Canvas) bool {
 	return false
 }
 
-func processorTrackHighlightSpan(spanSel SpanSelector, cv *Canvas) bool {
-	if htl := cv.timeline.hoveredTimeline; htl != nil {
-		target := struct {
-			g          uint64
-			start, end trace.Timestamp
-		}{^uint64(0), -1, -1}
-		switch hitem := htl.item.(type) {
-		case *ptrace.Goroutine:
-			switch cv.timeline.hoveredSpans.Size() {
-			case 0:
-				// A goroutine timeline is hovered, but no spans within are.
-				target.g = hitem.ID
-			case 1:
-				switch cv.timeline.hoveredSpans.At(0).State {
-				case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCFractional, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
-					// A span in a goroutine timeline is hovered. Highlight processor spans for
-					// the same goroutine if they overlap with the highlighted span.
-					target.g = hitem.ID
-					target.start = cv.timeline.hoveredSpans.At(0).Start
-					target.end = cv.timeline.hoveredSpans.At(cv.timeline.hoveredSpans.Size() - 1).End
-				default:
-					// There's no point in looking for a non-runnable state, processor timelines
-					// only show running goroutines.
-				}
-			default:
-				// A merged span in a goroutine timeline is hovered. Highlight processor spans for
-				// the same goroutine if they overlap with the highlighted span.
-				target.g = hitem.ID
-				target.start = cv.timeline.hoveredSpans.At(0).Start
-				target.end = cv.timeline.hoveredSpans.At(cv.timeline.hoveredSpans.Size() - 1).End
-			}
-		case *ptrace.Processor:
-			if cv.timeline.hoveredSpans.Size() != 1 {
-				return false
-			}
-			o := cv.timeline.hoveredSpans.At(0)
-			target.g = cv.trace.Event(o.Event).G
-		case *ptrace.Machine:
-			if cv.timeline.hoveredSpans.Size() != 1 {
-				return false
-			}
-			o := cv.timeline.hoveredSpans.At(0)
-			if o.State != ptrace.StateRunningG {
-				return false
-			}
-			target.g = cv.trace.Event(o.Event).G
-
-		default:
-			return false
-		}
-
-		if target.g == ^uint64(0) {
-			return false
-		}
-
-		spans := spanSel.Spans()
-		off := 0
-		if target.start != -1 {
-			off = sort.Search(len(spans), func(i int) bool {
-				return spans[i].Start >= target.start
-			})
-		}
-		for _, span := range spans[off:] {
-			// OPT(dh): don't be O(n)
-
-			if target.end != -1 && span.Start > target.end {
-				break
-			}
-			if cv.trace.Event(span.Event).G == target.g && (target.start == -1 || ((target.start < span.End) && (target.end >= span.Start))) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func processorTrackSpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
 	if spanSel.Size() != 1 {
 		return out
@@ -251,7 +174,6 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 			for i := range tracks {
 				track := &tracks[i]
 				*track.TrackWidget = TrackWidget{
-					highlightSpan:   processorTrackHighlightSpan,
 					spanLabel:       processorTrackSpanLabel,
 					spanColor:       processorTrackSpanColor,
 					spanTooltip:     processorTrackSpanTooltip,

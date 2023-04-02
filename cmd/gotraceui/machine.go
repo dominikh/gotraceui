@@ -12,34 +12,6 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
-func machineTrack0HighlightSpan(spanSel SpanSelector, cv *Canvas) bool {
-	if htl := cv.timeline.hoveredTimeline; htl != nil {
-		var target int32
-		switch hitem := htl.item.(type) {
-		case *ptrace.Processor:
-			target = hitem.ID
-		case *ptrace.Machine:
-			if cv.timeline.hoveredSpans.Size() != 1 {
-				return false
-			}
-			o := cv.timeline.hoveredSpans.At(0)
-			if o.State != ptrace.StateRunningP {
-				return false
-			}
-			target = cv.trace.Event(o.Event).P
-		default:
-			return false
-		}
-		for _, span := range spanSel.Spans() {
-			// OPT(dh): don't be O(n)
-			if span.State == ptrace.StateRunningP && cv.trace.Event(span.Event).P == target {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func machineTrack0SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
 	if spanSel.Size() != 1 {
 		return out
@@ -99,43 +71,6 @@ func machineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.Men
 	}
 
 	return items
-}
-
-func machineTrack1HighlightSpan(spanSel SpanSelector, cv *Canvas) bool {
-	if htl := cv.timeline.hoveredTimeline; htl != nil {
-		var target uint64
-		switch hitem := htl.item.(type) {
-		case *ptrace.Goroutine:
-			target = hitem.ID
-		case *ptrace.Processor:
-			if cv.timeline.hoveredSpans.Size() != 1 {
-				return false
-			}
-			o := cv.timeline.hoveredSpans.At(0)
-			if o.State != ptrace.StateRunningG {
-				return false
-			}
-			target = cv.trace.Event(o.Event).G
-		case *ptrace.Machine:
-			if cv.timeline.hoveredSpans.Size() != 1 {
-				return false
-			}
-			o := cv.timeline.hoveredSpans.At(0)
-			if o.State != ptrace.StateRunningG {
-				return false
-			}
-			target = cv.trace.Event(o.Event).G
-		default:
-			return false
-		}
-		for _, span := range spanSel.Spans() {
-			// OPT(dh): don't be O(n)
-			if cv.trace.Event(span.Event).G == target {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func machineTrack1SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
@@ -301,14 +236,12 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 				switch i {
 				case 0:
 					*track.TrackWidget = TrackWidget{
-						highlightSpan:   machineTrack0HighlightSpan,
 						spanLabel:       machineTrack0SpanLabel,
 						spanTooltip:     machineTrack0SpanTooltip,
 						spanContextMenu: machineTrack0SpanContextMenu,
 					}
 				case 1:
 					*track.TrackWidget = TrackWidget{
-						highlightSpan:   machineTrack1HighlightSpan,
 						spanLabel:       machineTrack1SpanLabel,
 						spanColor:       machineTrack1SpanColor,
 						spanTooltip:     processorTrackSpanTooltip,

@@ -1,83 +1,203 @@
 package main
 
 import (
+	"sort"
+
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 )
 
+type FilterMode uint8
+
+const (
+	FilterModeOr FilterMode = iota
+	FilterModeAnd
+)
+
 type Filter struct {
+	Mode FilterMode
+
 	// Bitmap of ptrace.SchedulingState
 	States uint64
 
-	And *Filter
-	Or  *Filter
+	// Filters specific to processor timelines
+	Processor struct {
+		// Highlight processor spans for this goroutine
+		Goroutine uint64
+		// StartAfter and EndBefore are ANDed together, not ORed
+		StartAfter trace.Timestamp
+		EndBefore  trace.Timestamp
+	}
+
+	// Filters specific to machine timelines
+	Machine struct {
+		Processor int32
+	}
 }
 
 func (f Filter) HasState(state ptrace.SchedulingState) bool {
 	return f.States&(1<<state) != 0
 }
 
-func (f Filter) Match(spanSel SpanSelector, container SpanContainer) bool {
+func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) {
 	if !f.couldMatch(spanSel, container) {
 		return false
 	}
 
-	var b bool
-	for _, s := range spanSel.Spans() {
-		if f.HasState(s.State) {
-			b = true
-			break
+	steps := []func() (match, skip bool){
+		func() (bool, bool) {
+			if f.States == 0 {
+				return false, true
+			}
+
+			for _, s := range spanSel.Spans() {
+				if f.HasState(s.State) {
+					return true, false
+				}
+			}
+			return false, false
+		},
+
+		func() (bool, bool) {
+			if f.Processor.StartAfter == 0 && f.Processor.EndBefore == 0 {
+				return false, true
+			}
+
+			if _, ok := container.Timeline.item.(*ptrace.Processor); !ok {
+				return false, false
+			}
+
+			var off int
+			spans := spanSel.Spans()
+			if f.Processor.StartAfter != 0 {
+				off = sort.Search(len(spans), func(i int) bool {
+					return spans[i].Start >= f.Processor.StartAfter
+				})
+			}
+
+			if f.Processor.EndBefore == 0 {
+				return off < len(spans), false
+			}
+
+			for _, span := range spans[off:] {
+				// OPT(dh): don't be O(n)
+
+				if span.Start > f.Processor.EndBefore {
+					return false, false
+				}
+
+				if f.Processor.Goroutine != 0 {
+					// We are interested in the intersection of spans that are for the correct goroutine and spans that
+					// fit into the time range. However, the individual filter steps only answer questions for the
+					// merged span as a whole, which means that finding some spans with the right goroutine and some
+					// spans with the time range would allow the merged span to match, even if the two sets of spans
+					// didn't intersect.
+					if container.Timeline.cv.trace.Event(span.Event).G != f.Processor.Goroutine {
+						continue
+					}
+				}
+
+				if span.End <= f.Processor.EndBefore {
+					return true, false
+				}
+			}
+
+			return false, false
+		},
+
+		func() (bool, bool) {
+			if f.Processor.Goroutine != 0 {
+				if _, ok := container.Timeline.item.(*ptrace.Processor); ok {
+					tr := container.Timeline.cv.trace
+					for _, s := range spanSel.Spans() {
+						g := tr.G(tr.Event(s.Event).G)
+						if g.ID == f.Processor.Goroutine {
+							return true, false
+						}
+					}
+				}
+
+				return false, false
+			} else {
+				return false, true
+			}
+		},
+
+		func() (bool, bool) {
+			if f.Machine.Processor != 0 {
+				if _, ok := container.Timeline.item.(*ptrace.Machine); ok {
+					tr := container.Timeline.cv.trace
+					for _, s := range spanSel.Spans() {
+						p := tr.P(tr.Event(s.Event).P)
+						if p.ID == f.Machine.Processor {
+							return true, false
+						}
+					}
+				}
+
+				return false, false
+			} else {
+				return false, true
+			}
+		},
+	}
+
+	switch f.Mode {
+	case FilterModeOr:
+		for _, step := range steps {
+			match, skip := step()
+			if skip {
+				continue
+			}
+			if match {
+				return true
+			}
 		}
-	}
+		return false
 
-	if f.Or != nil {
-		b = b || f.Or.Match(spanSel, container)
+	case FilterModeAnd:
+		for _, step := range steps {
+			match, skip := step()
+			if skip {
+				continue
+			}
+			if !match {
+				return false
+			}
+		}
+		return true
+	default:
+		panic("unreachable")
 	}
-	if f.And != nil {
-		b = b && f.And.Match(spanSel, container)
-	}
-
-	return b
-}
-
-func (f Filter) Copy() Filter {
-	var out Filter
-	out.States = f.States
-	if f.And != nil {
-		and := f.And.Copy()
-		out.And = &and
-	}
-	if f.Or != nil {
-		or := f.Or.Copy()
-		out.Or = &or
-	}
-
-	return out
-}
-
-func (f Filter) Equal(of Filter) bool {
-	return (f.States == of.States) &&
-		((f.And == nil && of.And == nil) || (f.And != nil && of.And != nil && f.And.Equal(*of.And))) &&
-		((f.Or == nil && of.Or == nil) || (f.Or != nil && of.Or != nil && f.Or.Equal(*of.Or)))
 }
 
 // couldMatch checks if the filter could possibly match the spans. It's an optimization to avoid checking impossible
 // combinations.
 func (f Filter) couldMatch(spanSel SpanSelector, container SpanContainer) bool {
-	if f == (Filter{}) {
-		return false
+	{
+		// Unset Mode so we can compare with the empty literal
+		f := f
+		f.Mode = 0
+		if f == (Filter{}) {
+			return false
+		}
 	}
 
 	b := f.couldMatchState(spanSel, container)
-	if f.Or != nil {
-		b = b || f.Or.couldMatch(spanSel, container)
-	}
-	if f.And != nil {
-		b = b && f.And.couldMatch(spanSel, container)
-	}
+	b = b || f.couldMatchProcessor(spanSel, container)
 	return b
+}
+
+func (f Filter) couldMatchProcessor(spanSel SpanSelector, container SpanContainer) bool {
+	switch container.Timeline.item.(type) {
+	case *ptrace.Processor:
+		return true
+	default:
+		return false
+	}
 }
 
 func (f Filter) couldMatchState(spanSel SpanSelector, container SpanContainer) bool {

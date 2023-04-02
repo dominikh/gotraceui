@@ -164,7 +164,6 @@ func newZoomMenuItem(cv *Canvas, spanSel SpanSelector) *theme.MenuItem {
 }
 
 type TrackWidget struct {
-	highlightSpan func(spanSel SpanSelector, cv *Canvas) bool
 	// OPT(dh): pass slice to spanLabel to reuse memory between calls
 	spanLabel       func(spanSel SpanSelector, tr *Trace, out []string) []string
 	spanColor       func(spanSel SpanSelector, tr *Trace) [2]colorIndex
@@ -349,7 +348,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
+		dims := track.Layout(win, gtx, tl, cv.timeline.filter, cv.timeline.automaticFilter, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 		if spans := track.HoveredSpans(); spans.Size() != 0 {
 			tl.hoveredSpans = spans
@@ -490,7 +489,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut SpanSelector
 	return it.spanSel.Slice(startOffset, offset), startPx, endPx, true
 }
 
-func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, filter Filter, labelsOut *[]string) (dims layout.Dimensions) {
+func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, filter Filter, automaticFilter Filter, labelsOut *[]string) (dims layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
 
 	cv := tl.cv
@@ -622,13 +621,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		minP = f32.Pt((max(startPx, 0)), 0)
 		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(trackHeight))
 
-		var highlighted bool
-		if track.highlightSpan != nil {
-			highlighted = track.highlightSpan(dspSpanSel, cv)
-		}
-		if filter.Match(dspSpanSel, SpanContainer{Timeline: tl, Track: track}) {
-			highlighted = true
-		}
+		highlighted := filter.Match(dspSpanSel, SpanContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpanSel, SpanContainer{Timeline: tl, Track: track})
 		if hovered {
 			highlightedPrimaryOutlinesPath.MoveTo(minP)
 			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
