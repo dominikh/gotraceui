@@ -1638,8 +1638,6 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 
 func defaultLink(obj any) Link {
 	switch obj := obj.(type) {
-	case *ptrace.Goroutine:
-		return &GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen}
 	case *ptrace.Processor:
 		// There are no processor panels yet, so we default to scrolling
 		return &ProcessorLink{Processor: obj, Kind: ProcessorLinkKindScroll}
