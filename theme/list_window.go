@@ -9,7 +9,6 @@ import (
 
 	"gioui.org/io/key"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/x/eventx"
 	"honnef.co/go/gotraceui/widget"
@@ -89,12 +88,10 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 
 	var spy *eventx.Spy
 
-	dims := widget.Bordered{Color: w.theme.Palette.Border, Width: w.theme.WindowBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := func() layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		spy, gtx = eventx.Enspy(gtx)
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-
-		paint.Fill(gtx.Ops, w.theme.Palette.Background)
 
 		fn2 := func(gtx layout.Context) layout.Dimensions {
 			return List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
@@ -120,7 +117,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 		editor := Editor(w.theme, &w.input, "")
 		editor.Editor.Focus()
 		return flex.Layout(gtx, layout.Rigid(editor.Layout), layout.Flexed(1, fn2))
-	})
+	}()
 
 	// The editor widget selectively handles the up and down arrow keys, depending on the contents of the text field and
 	// the position of the cursor. This means that our own InputOp won't always be getting all events. But due to the

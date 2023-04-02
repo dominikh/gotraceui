@@ -850,8 +850,10 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 										mwin.ww.SetItems(items)
 										mwin.ww.BuildFilter = newTimelineFilter
 										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-											gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
-											return mwin.ww.Layout(gtx)
+											return theme.Dialog(win.Theme, "Go to timeline").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+												gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
+												return mwin.ww.Layout(gtx)
+											})
 										})
 
 									case "H":
