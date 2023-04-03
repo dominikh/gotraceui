@@ -266,17 +266,25 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return theme.List(win.Theme, &gi.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-				if index != 0 {
-					panic("impossible")
-				}
-				return theme.Foldable(win.Theme, &gi.foldables.stats, "Statistics").Layout(win, gtx, gi.stats.Layout)
+			return theme.Foldable(win.Theme, &gi.foldables.stats, "Statistics").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return theme.List(win.Theme, &gi.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+							if index != 0 {
+								panic("impossible")
+							}
+							return gi.stats.Layout(win, gtx)
+						})
+					}),
+
+					layout.Rigid(layout.Spacer{Height: 1}.Layout),
+
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = 0
+						return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+					}),
+				)
 			})
-		}),
-		layout.Rigid(layout.Spacer{Height: 1}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.X = 0
-			return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
 		}),
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
