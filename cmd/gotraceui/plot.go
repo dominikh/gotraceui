@@ -266,20 +266,20 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 		r := rtrace.StartRegion(context.Background(), "legends")
 		// Print legends
-		m := op.Record(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit))
-		c := m.Stop()
-		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: dims.Size}.Op())
+		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit))
+		})
+		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
 		paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-		c.Add(gtx.Ops)
+		rec.Layout(win, gtx)
 
-		m = op.Record(gtx.Ops)
-		dims = widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, local.Sprintf("%d %s", pl.min, pl.Unit))
-		c = m.Stop()
-		defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-dims.Size.Y)).Push(gtx.Ops).Pop()
-		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: dims.Size}.Op())
+		rec = Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, local.Sprintf("%d %s", pl.min, pl.Unit))
+		})
+		defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-rec.Dimensions.Size.Y)).Push(gtx.Ops).Pop()
+		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
 		paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-		c.Add(gtx.Ops)
+		rec.Layout(win, gtx)
 		r.End()
 	}
 

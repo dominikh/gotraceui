@@ -1297,18 +1297,18 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			rect.IntoPath(&ticksPath)
 		}
 
-		macro := op.Record(gtx.Ops)
+		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
+		})
 		// TODO separate value and unit symbol with a space
-		dims := widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
-		call := macro.Stop()
 
-		if gtrf(subf(start, float32(dims.Size.X/2)), addf(prevLabelEnd, minTickLabelDistance)) || prevLabelEnd == 0 {
+		if gtrf(subf(start, float32(rec.Dimensions.Size.X/2)), addf(prevLabelEnd, minTickLabelDistance)) || prevLabelEnd == 0 {
 			// XXX don't draw label if it's partially off screen. this seems to happen for the left labels, which is
 			// bad, because it might cut off the sign.
-			prevLabelEnd = addf(start, float32(dims.Size.X/2))
-			if start+float32(dims.Size.X/2) <= float32(gtx.Constraints.Max.X) {
-				stack := op.Offset(image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
-				call.Add(gtx.Ops)
+			prevLabelEnd = addf(start, float32(rec.Dimensions.Size.X/2))
+			if start+float32(rec.Dimensions.Size.X/2) <= float32(gtx.Constraints.Max.X) {
+				stack := op.Offset(image.Pt(int(round32(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
+				rec.Layout(win, gtx)
 				stack.Pop()
 			}
 		}
@@ -1338,26 +1338,25 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			rect.IntoPath(&ticksPath)
 		}
 
-		macro := op.Record(gtx.Ops)
+		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			f := text.Font{Weight: text.Bold}
+			label := formatTimestamp(t)
+			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
+		})
 		// TODO separate value and unit symbol with a space
-		f := text.Font{Weight: text.Bold}
-		label := formatTimestamp(t)
-		dims := widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
-		call := macro.Stop()
-
-		labelStart := image.Pt(int(round32(start-float32(dims.Size.X/2))), int(tickHeight))
+		labelStart := image.Pt(int(round32(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))
 		if labelStart.X < 0 {
 			labelStart.X = 0
-		} else if labelStart.X+dims.Size.X > gtx.Constraints.Max.X {
-			labelStart.X = gtx.Constraints.Max.X - dims.Size.X
+		} else if labelStart.X+rec.Dimensions.Size.X > gtx.Constraints.Max.X {
+			labelStart.X = gtx.Constraints.Max.X - rec.Dimensions.Size.X
 		}
 		stack := op.Offset(labelStart).Push(gtx.Ops)
-		call.Add(gtx.Ops)
+		rec.Layout(win, gtx)
 		stack.Pop()
 
 		originLabelExtents = image.Rectangle{
 			Min: image.Pt(labelStart.X, 0),
-			Max: image.Pt(labelStart.X+dims.Size.X, dims.Size.Y),
+			Max: image.Pt(labelStart.X+rec.Dimensions.Size.X, rec.Dimensions.Size.Y),
 		}
 	}
 
