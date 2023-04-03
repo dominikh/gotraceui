@@ -1673,3 +1673,22 @@ func handleLinkClick(win *theme.Window, mwin *MainWindow, ev TextEvent) {
 		}
 	}
 }
+
+type Recording struct {
+	Call       op.CallOp
+	Dimensions layout.Dimensions
+}
+
+func (r Recording) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	r.Call.Add(gtx.Ops)
+	return r.Dimensions
+}
+
+func Record(win *theme.Window, gtx layout.Context, w theme.Widget) Recording {
+	m := op.Record(gtx.Ops)
+	dims := w(win, gtx)
+	c := m.Stop()
+
+	return Recording{c, dims}
+}

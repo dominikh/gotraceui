@@ -14,6 +14,7 @@ import (
 
 	"gioui.org/op/clip"
 	"gioui.org/text"
+	"gioui.org/x/outlay"
 )
 
 type Events struct {
@@ -207,20 +208,33 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		}
 	}
 
+	checkboxes := make([]Recording, 0, 4)
+	var widestCheckbox Recording
+	{
+		gtx := gtx
+		gtx.Constraints.Min = image.Point{}
+
+		checkboxes = append(checkboxes,
+			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoCreate, "Goroutine creations").Layout),
+			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout),
+			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoSysCall, "Syscalls").Layout),
+			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout))
+
+		for _, checkbox := range checkboxes {
+			if checkbox.Dimensions.Size.X > widestCheckbox.Dimensions.Size.X {
+				widestCheckbox = checkbox
+			}
+		}
+	}
+	// add padding
+	widestCheckbox.Dimensions.Size.X += gtx.Dp(10)
+
 	ret := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowGoCreate, "Goroutine creations").Layout)),
-				layout.Rigid(layout.Spacer{Width: 10}.Layout),
-
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout)),
-				layout.Rigid(layout.Spacer{Width: 10}.Layout),
-
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowGoSysCall, "Syscalls").Layout)),
-				layout.Rigid(layout.Spacer{Width: 10}.Layout),
-
-				layout.Rigid(theme.Dumb(win, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout)),
-			)
+			return outlay.FlowWrap{}.Layout(gtx, len(checkboxes), func(gtx layout.Context, i int) layout.Dimensions {
+				checkboxes[i].Layout(win, gtx)
+				return widestCheckbox.Dimensions
+			})
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
