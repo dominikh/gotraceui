@@ -758,8 +758,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						gtx.Constraints.Min = gtx.Constraints.Max
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-								return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, win.Theme.TextSize, mwin.err.Error())
+								return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							})
 						})
 
@@ -770,7 +769,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						var maxNameWidth int
 						for _, name := range mwin.progressStages {
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, name)
+							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							if dims.Size.X > maxNameWidth {
 								maxNameWidth = dims.Size.X
 							}
@@ -779,7 +778,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						maxLabelWidth := maxNameWidth
 						{
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
+							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							maxLabelWidth += dims.Size.X
 							m.Stop()
 						}
@@ -795,8 +794,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 										pct := fmt.Sprintf("%5.2f%%", mwin.progress*100)
 										// Replace space with figure space for correct alignment
 										pct = strings.ReplaceAll(pct, " ", "\u2007")
-										paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(gtx.Ops)
-										return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name))
+										return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))

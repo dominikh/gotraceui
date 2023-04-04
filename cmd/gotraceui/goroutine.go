@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"image"
+	"image/color"
 	rtrace "runtime/trace"
 	"sort"
 	"strings"
@@ -258,7 +259,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 						if len(s) > 0 && s[len(s)-1] == '\n' {
 							s = s[:len(s)-1]
 						}
-						return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s)
+						return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 					})
 			})
 
@@ -423,7 +424,7 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 
 	shape := func(s string, f text.Font) image.Point {
 		m := op.Record(gtx.Ops)
-		dims := widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, f, th.TextSize, s)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, f, th.TextSize, s, widget.ColorTextMaterial(gtx, color.NRGBA{}))
 		m.Stop()
 
 		spanWidth := dims.Size.X
@@ -573,7 +574,7 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 
 		l := statLabels[gs.numberFormat][i]
 		m := op.Record(gtx.Ops)
-		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, l)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 		m.Stop()
 		spanWidth := dims.Size.X
 		spanHeight := dims.Size.Y

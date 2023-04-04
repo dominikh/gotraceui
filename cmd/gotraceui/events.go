@@ -244,6 +244,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			return st.Layout(gtx, len(evs.filteredEvents)+1, func(gtx layout.Context, index int) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						// FIXME(dh): the width depends on the font size and scaling
 						gtx.Constraints.Min.X = 200
 						gtx.Constraints.Max.X = 200
 						dims := cellFn(gtx, index, 0)

@@ -416,9 +416,8 @@ func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) 
 			l = "[O] " + f.Title
 		}
 		gtx.Constraints.Min.Y = 0
-		paint.ColorOp{Color: f.TextColor}.Add(gtx.Ops)
 		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, f.TextSize, l)
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, f.TextSize, l, widget.ColorTextMaterial(gtx, f.TextColor))
 
 	})
 	size = dims.Size
@@ -513,8 +512,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 		var padding = gtx.Dp(bt.Padding)
 
 		macro := op.Record(gtx.Ops)
-		paint.ColorOp{Color: bt.TextColor}.Add(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, bt.TextSize, bt.Text)
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, bt.TextSize, bt.Text, widget.ColorTextMaterial(gtx, bt.TextColor))
 		call := macro.Stop()
 
 		total := clip.Rect{
@@ -572,8 +570,7 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 						return layout.Dimensions{Size: gtx.Constraints.Min}
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-						paint.ColorOp{Color: b.TextColor}.Add(gtx.Ops)
-						return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text)
+						return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, b.TextColor))
 					}),
 				)
 			})

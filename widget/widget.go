@@ -61,6 +61,12 @@ type TextLine struct {
 	Color color.NRGBA
 }
 
+func ColorTextMaterial(gtx layout.Context, c color.NRGBA) op.CallOp {
+	m := op.Record(gtx.Ops)
+	paint.ColorOp{Color: c}.Add(gtx.Ops)
+	return m.Stop()
+}
+
 func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font text.Font, size unit.Sp, label string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.TextLine.Layout").End()
 
@@ -68,8 +74,7 @@ func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font text.Fon
 
 	// Effectively disable widget.Label's word wrapping and sentence truncation.
 	gtx.Constraints.Max.X = 1e6
-	paint.ColorOp{Color: tl.Color}.Add(gtx.Ops)
-	return Label{MaxLines: 1}.Layout(gtx, shaper, font, size, label)
+	return Label{MaxLines: 1}.Layout(gtx, shaper, font, size, label, ColorTextMaterial(gtx, tl.Color))
 }
 
 type Background struct {
