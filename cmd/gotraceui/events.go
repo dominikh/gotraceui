@@ -108,6 +108,24 @@ func (evs *Events) eventMessage(ev *trace.Event) []string {
 	}
 }
 
+var eventsColumns = []theme.TableListColumn{
+	{
+		Name: "Time",
+		// FIXME(dh): the width depends on the font size and scaling
+		MinWidth: 200,
+		MaxWidth: 200,
+	},
+
+	{
+		MinWidth: 20,
+		MaxWidth: 20,
+	},
+
+	{
+		Name: "Message",
+	},
+}
+
 func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Events.Layout").End()
 
@@ -122,16 +140,9 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		evs.UpdateFilter()
 	}
 
-	columns := [...]string{
-		"Time", "", "Message",
-	}
-
 	var txtCnt int
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-		if col == 2 {
-			gtx.Constraints.Min = image.Point{}
-		}
 
 		var txt *Text
 		if txtCnt < evs.texts.Len() {
@@ -144,68 +155,64 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
-		if row == 0 {
-			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, columns[col])
-		} else {
-			ev := evs.Trace.Event(evs.filteredEvents[row-1])
-			// XXX styledtext wraps our spans if the window is too small
+		ev := evs.Trace.Event(evs.filteredEvents[row])
+		// XXX styledtext wraps our spans if the window is too small
 
-			addSpanG := func(gid uint64) {
-				txt.Link(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
-			}
+		addSpanG := func(gid uint64) {
+			txt.Link(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
+		}
 
-			addSpanTs := func(ts trace.Timestamp) {
-				txt.Link(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
-			}
+		addSpanTs := func(ts trace.Timestamp) {
+			txt.Link(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
+		}
 
-			switch col {
-			case 0:
-				addSpanTs(ev.Ts)
-			case 1:
-			case 2:
-				switch ev.Type {
-				case trace.EvGoCreate:
-					txt.Span("Created ")
-					addSpanG(ev.Args[trace.ArgGoCreateG])
-				case trace.EvGoUnblock:
-					txt.Span("Unblocked ")
-					addSpanG(ev.Args[trace.ArgGoUnblockG])
-				case trace.EvGoSysCall:
-					if ev.StkID != 0 {
-						frames := evs.Trace.Stacks[ev.StkID]
-						fn := evs.Trace.PCs[frames[0]].Fn
-						txt.Span("Syscall (")
-						txt.Span(fn)
-						txt.Span(")")
-					} else {
-						txt.Span("Syscall")
-					}
-				case trace.EvUserLog:
-					cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
-					msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
-					if cat != "" {
-						txt.Span("<")
-						txt.Span(cat)
-						txt.Span("> ")
-						txt.Span(msg)
-					} else {
-						txt.Span(msg)
-					}
-				default:
-					panic(fmt.Sprintf("unhandled type %v", ev.Type))
+		switch col {
+		case 0:
+			addSpanTs(ev.Ts)
+		case 1:
+		case 2:
+			switch ev.Type {
+			case trace.EvGoCreate:
+				txt.Span("Created ")
+				addSpanG(ev.Args[trace.ArgGoCreateG])
+			case trace.EvGoUnblock:
+				txt.Span("Unblocked ")
+				addSpanG(ev.Args[trace.ArgGoUnblockG])
+			case trace.EvGoSysCall:
+				if ev.StkID != 0 {
+					frames := evs.Trace.Stacks[ev.StkID]
+					fn := evs.Trace.PCs[frames[0]].Fn
+					txt.Span("Syscall (")
+					txt.Span(fn)
+					txt.Span(")")
+				} else {
+					txt.Span("Syscall")
+				}
+			case trace.EvUserLog:
+				cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
+				msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
+				if cat != "" {
+					txt.Span("<")
+					txt.Span(cat)
+					txt.Span("> ")
+					txt.Span(msg)
+				} else {
+					txt.Span(msg)
 				}
 			default:
-				panic("unreachable")
+				panic(fmt.Sprintf("unhandled type %v", ev.Type))
 			}
-			// TODO(dh): hovering the entry should highlight the corresponding span marker
-			if col == 0 && row != 0 {
-				txt.Alignment = text.End
-			}
-
-			dims := txt.Layout(win, gtx)
-			dims.Size = gtx.Constraints.Constrain(dims.Size)
-			return dims
+		default:
+			panic("unreachable")
 		}
+		// TODO(dh): hovering the entry should highlight the corresponding span marker
+		if col == 0 {
+			txt.Alignment = text.End
+		}
+
+		dims := txt.Layout(win, gtx)
+		dims.Size = gtx.Constraints.Constrain(dims.Size)
+		return dims
 	}
 
 	checkboxes := make([]Recording, 0, 4)
@@ -239,25 +246,12 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
 
-			st := theme.List(win.Theme, &evs.list)
-			st.EnableCrossScrolling = true
-			return st.Layout(gtx, len(evs.filteredEvents)+1, func(gtx layout.Context, index int) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						// FIXME(dh): the width depends on the font size and scaling
-						gtx.Constraints.Min.X = 200
-						gtx.Constraints.Max.X = 200
-						dims := cellFn(gtx, index, 0)
-						return dims
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return layout.Dimensions{Size: image.Pt(20, 0)}
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return cellFn(gtx, index, 2)
-					}),
-				)
-			})
+			tbl := theme.TableListStyle{
+				Columns: eventsColumns,
+				List:    &evs.list,
+			}
+
+			return tbl.Layout(win, gtx, len(evs.filteredEvents), cellFn)
 		}),
 	)
 
