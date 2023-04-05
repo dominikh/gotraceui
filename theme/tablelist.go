@@ -13,8 +13,9 @@ type TableListColumn struct {
 }
 
 type TableListStyle struct {
-	Columns []TableListColumn
-	List    *widget.List
+	Columns       []TableListColumn
+	List          *widget.List
+	ColumnPadding int
 }
 
 func (tbl *TableListStyle) Layout(
@@ -49,7 +50,9 @@ func (tbl *TableListStyle) Layout(
 					gtx.Constraints.Max.X = col.MaxWidth
 				}
 
-				return ourCellFn(gtx, index, i)
+				dims := ourCellFn(gtx, index, i)
+				dims.Size.X += tbl.ColumnPadding
+				return dims
 			})
 		}
 

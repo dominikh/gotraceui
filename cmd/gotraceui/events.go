@@ -117,11 +117,6 @@ var eventsColumns = []theme.TableListColumn{
 	},
 
 	{
-		MinWidth: 20,
-		MaxWidth: 20,
-	},
-
-	{
 		Name: "Message",
 	},
 }
@@ -170,7 +165,6 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		case 0:
 			addSpanTs(ev.Ts)
 		case 1:
-		case 2:
 			switch ev.Type {
 			case trace.EvGoCreate:
 				txt.Span("Created ")
@@ -247,8 +241,9 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			gtx.Constraints.Min = gtx.Constraints.Max
 
 			tbl := theme.TableListStyle{
-				Columns: eventsColumns,
-				List:    &evs.list,
+				Columns:       eventsColumns,
+				List:          &evs.list,
+				ColumnPadding: gtx.Dp(10),
 			}
 
 			return tbl.Layout(win, gtx, len(evs.filteredEvents), cellFn)
