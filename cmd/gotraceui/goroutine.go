@@ -419,6 +419,9 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 	fLabel := font.Collection()[0].Font
 	fLabel.Weight = text.Bold
 	fContent := font.Collection()[0].Font
+	fValue := font.Collection()[0].Font
+	fUnit := font.Collection()[0].Font
+	fUnit.Variant = "Mono"
 
 	var columnSizes [numStatLabels]image.Point
 
@@ -498,8 +501,12 @@ func (gs *GoroutineStats) computeSizes(gtx layout.Context, th *theme.Theme) [num
 				default:
 					panic("unreachable")
 				}
-				if size2 := shape(gs.numberFormat.format(v), fContent); size2.X > size.X {
-					size.X = size2.X
+				value, unit := gs.numberFormat.format(v)
+				s1 := shape(value, fValue)
+				s2 := shape(" ", fValue)
+				s3 := shape(unit, fUnit)
+				if size2 := s1.X + s2.X + s3.X; size2 > size.X {
+					size.X = size2
 				}
 			}
 			columnSizes[i] = size
@@ -625,36 +632,39 @@ func (gs *GoroutineStats) Layout(win *theme.Window, gtx layout.Context) layout.D
 			row--
 			n := gs.mapping[row]
 
-			var l string
+			var value, unit string
 			switch col {
 			case 0:
 				// type
-				l = stateNamesCapitalized[n]
+				value = stateNamesCapitalized[n]
 			case 1:
-				l = local.Sprintf("%d", gs.stats[n].Count)
+				value = local.Sprintf("%d", gs.stats[n].Count)
 				if gs.stats[n].Count == 0 {
 					panic(row)
 				}
 			case 2:
 				// total
-				l = gs.numberFormat.format(gs.stats[n].Total)
+				value, unit = gs.numberFormat.format(gs.stats[n].Total)
 			case 3:
 				// min
-				l = gs.numberFormat.format(gs.stats[n].Min)
+				value, unit = gs.numberFormat.format(gs.stats[n].Min)
 			case 4:
 				// max
-				l = gs.numberFormat.format(gs.stats[n].Max)
+				value, unit = gs.numberFormat.format(gs.stats[n].Max)
 			case 5:
 				// avg
-				l = gs.numberFormat.format(time.Duration(gs.stats[n].Average))
+				value, unit = gs.numberFormat.format(time.Duration(gs.stats[n].Average))
 			case 6:
 				// p50
-				l = gs.numberFormat.format(time.Duration(gs.stats[n].Median))
+				value, unit = gs.numberFormat.format(time.Duration(gs.stats[n].Median))
 			default:
 				panic("unreachable")
 			}
 
-			txt := styledtext.Text(win.Theme.Shaper, span(win.Theme, l))
+			// TODO(dh): explicitly select tabular figures from the font. It's not crucial because most fonts default to
+			// it, anyway.
+			txt := styledtext.Text(win.Theme.Shaper, span(win.Theme, value), span(win.Theme, " "), span(win.Theme, unit))
+			txt.Styles[2].Font.Variant = "Mono"
 			if col != 0 {
 				txt.Alignment = text.End
 			}

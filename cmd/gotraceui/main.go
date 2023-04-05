@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
 	"honnef.co/go/gotraceui/font"
@@ -1031,14 +1032,16 @@ func roundDuration(d time.Duration) time.Duration {
 	}
 }
 
-func (nf durationNumberFormat) format(d time.Duration) string {
+func (nf durationNumberFormat) format(d time.Duration) (value string, unit string) {
 	switch nf {
 	case durationNumberFormatScientific:
-		return scientificDuration(d, 2)
+		return scientificDuration(d, 2), ""
 	case durationNumberFormatSI:
-		return roundDuration(d).String()
+		s := roundDuration(d).String()
+		idx := strings.IndexFunc(s, unicode.IsLetter)
+		return s[:idx], s[idx:]
 	case durationNumberFormatExact:
-		return fmt.Sprintf("%.9f", d.Seconds())
+		return fmt.Sprintf("%.9f", d.Seconds()), ""
 	default:
 		panic("unreachable")
 	}
