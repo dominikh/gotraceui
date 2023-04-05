@@ -1016,7 +1016,8 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 type durationNumberFormat uint8
 
 const (
-	durationNumberFormatSI durationNumberFormat = iota
+	durationNumberFormatSITable durationNumberFormat = iota
+	durationNumberFormatSI
 	durationNumberFormatScientific
 	durationNumberFormatExact
 )
@@ -1040,6 +1041,37 @@ func (nf durationNumberFormat) format(d time.Duration) (value string, unit strin
 		s := roundDuration(d).String()
 		idx := strings.IndexFunc(s, unicode.IsLetter)
 		return s[:idx], s[idx:]
+	case durationNumberFormatSITable:
+		const figureSpace = "\u2007"
+		if d == 0 {
+			return "0.000", " s"
+		}
+
+		s := roundDuration(d).String()
+
+		integer, fraction, found := strings.Cut(s, ".")
+		var unit string
+		if found {
+			idx := strings.IndexFunc(fraction, unicode.IsLetter)
+			fraction, unit = fraction[:idx], fraction[idx:]
+		} else {
+			idx := strings.IndexFunc(integer, unicode.IsLetter)
+			integer, unit = integer[:idx], integer[idx:]
+		}
+
+		if len(unit) == 1 {
+			unit = " " + unit
+		}
+		if len(fraction) < 3 {
+			if unit == "ns" {
+				fraction += strings.Repeat(figureSpace, 3-len(fraction))
+			} else {
+				// We're formatting nanosecond-precision numbers, which means we can pad with zeroes instead of spaces
+				// without suggesting a higher-than-actual precision.
+				fraction += strings.Repeat("0", 3-len(fraction))
+			}
+		}
+		return integer + "." + fraction, unit
 	case durationNumberFormatExact:
 		return fmt.Sprintf("%.9f", d.Seconds()), ""
 	default:

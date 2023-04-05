@@ -338,6 +338,11 @@ var statLabels = [...][numStatLabels * 3]string{
 		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
 		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
 	},
+	durationNumberFormatSITable: [...]string{
+		"State", "Count", "Total", "Min", "Max", "Avg", "p50",
+		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
+		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
+	},
 }
 var stateNames = [ptrace.StateLast]string{
 	ptrace.StateInactive:                "inactive",
