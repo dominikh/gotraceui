@@ -1042,9 +1042,15 @@ func (nf durationNumberFormat) format(d time.Duration) (value string, unit strin
 		idx := strings.IndexFunc(s, unicode.IsLetter)
 		return s[:idx], s[idx:]
 	case durationNumberFormatSITable:
-		const figureSpace = "\u2007"
 		if d == 0 {
 			return "0.000", " s"
+		}
+
+		if d < time.Microsecond {
+			// Format nanoseconds as microseconds so that rows of numbers look neater, without a lot of whitespace to
+			// line up the decimal separator.
+
+			return fmt.Sprintf("0.%03d", d), "µs"
 		}
 
 		s := roundDuration(d).String()
@@ -1063,13 +1069,9 @@ func (nf durationNumberFormat) format(d time.Duration) (value string, unit strin
 			unit = " " + unit
 		}
 		if len(fraction) < 3 {
-			if unit == "ns" {
-				fraction += strings.Repeat(figureSpace, 3-len(fraction))
-			} else {
-				// We're formatting nanosecond-precision numbers, which means we can pad with zeroes instead of spaces
-				// without suggesting a higher-than-actual precision.
-				fraction += strings.Repeat("0", 3-len(fraction))
-			}
+			// We're formatting nanosecond-precision numbers, which means we can pad with zeroes instead of spaces
+			// without suggesting a higher-than-actual precision.
+			fraction += strings.Repeat("0", 3-len(fraction))
 		}
 		return integer + "." + fraction, unit
 	case durationNumberFormatExact:
