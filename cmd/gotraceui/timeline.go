@@ -164,7 +164,6 @@ func newZoomMenuItem(cv *Canvas, spanSel SpanSelector) *theme.MenuItem {
 }
 
 type TrackWidget struct {
-	// OPT(dh): pass slice to spanLabel to reuse memory between calls
 	spanLabel       func(spanSel SpanSelector, tr *Trace, out []string) []string
 	spanColor       func(spanSel SpanSelector, tr *Trace) [2]colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
