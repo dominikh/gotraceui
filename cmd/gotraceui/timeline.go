@@ -765,23 +765,24 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 						continue
 					}
 
-					macro := op.Record(labelsOps)
-					// OPT(dh): cache mapping from label to size. probably put a size limit on the cache, in case users generate millions of unique labels
-					var dims layout.Dimensions
-					{
-						gtx := gtx
-						gtx.Ops = labelsOps
-						gtx.Constraints.Min = image.Point{}
-						dims = widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.ExtraBold}, win.Theme.TextSize, label)
-					}
-					if float32(dims.Size.X) > endPx-startPx {
+					font := text.Font{Weight: text.ExtraBold}
+					n := tl.cv.textLengths.Compute(gtx, label, win.Theme.Shaper, win.Theme.TextSize, font)
+					if float32(n) > endPx-startPx {
 						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise
 						// give up. Truncating labels is almost never a good idea and usually leads to ambiguous text.
-						macro.Stop()
 						continue
 					}
 
-					call := macro.Stop()
+					var dims layout.Dimensions
+					var call op.CallOp
+					{
+						gtx := gtx
+						gtx.Ops = labelsOps
+						m := op.Record(gtx.Ops)
+						gtx.Constraints.Min = image.Point{}
+						dims = widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label)
+						call = m.Stop()
+					}
 					middleOfSpan := startPx + (endPx-startPx)/2
 					left := middleOfSpan - float32(dims.Size.X)/2
 					if left+float32(dims.Size.X) > maxP.X {

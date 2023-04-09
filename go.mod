@@ -5,6 +5,7 @@ go 1.18
 require (
 	gioui.org v0.0.0-20230404125508-ad3db5212d10
 	gioui.org/x v0.0.0-20230403130642-fd712aa4daf5
+	github.com/dgryski/go-tinylfu v0.0.0-20230408121034-c8e5d79bbb04
 	golang.org/x/exp v0.0.0-20221012211006-4de253d81b95
 	golang.org/x/image v0.5.0
 	golang.org/x/text v0.7.0
