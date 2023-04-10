@@ -12,11 +12,11 @@ import (
 	"time"
 	"unsafe"
 
-	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
@@ -29,7 +29,7 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/x/component"
-	"github.com/dgryski/go-tinylfu"
+	"golang.org/x/exp/slices"
 )
 
 type showTooltips uint8
