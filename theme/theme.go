@@ -196,7 +196,6 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 
 type CheckBoxGroupStyle struct {
 	Clickable       *widget.Clickable
-	Checkboxes      []CheckBoxStyle
 	Label           string
 	TextSize        unit.Sp
 	ForegroundColor color.NRGBA
@@ -204,10 +203,9 @@ type CheckBoxGroupStyle struct {
 	TextColor       color.NRGBA
 }
 
-func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string, checkboxes ...CheckBoxStyle) CheckBoxGroupStyle {
+func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string) CheckBoxGroupStyle {
 	return CheckBoxGroupStyle{
 		Clickable:       clickable,
-		Checkboxes:      checkboxes,
 		Label:           label,
 		TextColor:       th.Palette.Foreground,
 		ForegroundColor: th.Palette.Foreground,
@@ -216,7 +214,7 @@ func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string, checkbo
 	}
 }
 
-func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkboxes ...CheckBoxStyle) layout.Dimensions {
 	const (
 		none = iota
 		noneThenSome
@@ -233,8 +231,8 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context) layout.
 
 	var state int
 
-	for i := range chkgrp.Checkboxes {
-		chk := &chkgrp.Checkboxes[i]
+	for i := range checkboxes {
+		chk := &checkboxes[i]
 
 		var b int
 		if chk.Checkbox.Get() {
@@ -250,9 +248,9 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context) layout.
 		state = none
 	}
 
-	children := make([]layout.FlexChild, len(chkgrp.Checkboxes))
-	for i := range chkgrp.Checkboxes {
-		children[i] = layout.Rigid(Dumb(win, chkgrp.Checkboxes[i].Layout))
+	children := make([]layout.FlexChild, len(checkboxes))
+	for i := range checkboxes {
+		children[i] = layout.Rigid(Dumb(win, checkboxes[i].Layout))
 	}
 
 	sizeDp := gtx.Metric.SpToDp(chkgrp.TextSize)
@@ -324,8 +322,8 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context) layout.
 		if click.Button != pointer.ButtonPrimary {
 			continue
 		}
-		for i := range chkgrp.Checkboxes {
-			chkgrp.Checkboxes[i].Checkbox.Set(state == none || state == some)
+		for i := range checkboxes {
+			checkboxes[i].Checkbox.Set(state == none || state == some)
 		}
 	}
 

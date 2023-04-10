@@ -236,7 +236,6 @@ type HighlightDialogStyle struct {
 		states widget.Bool
 	}
 	stateClickables []widget.Clickable
-	stateGroups     []layout.FlexChild
 }
 
 func HighlightDialog(win *theme.Window, f *Filter) HighlightDialogStyle {
@@ -250,44 +249,7 @@ func HighlightDialog(win *theme.Window, f *Filter) HighlightDialogStyle {
 		hd.bits[i].Bit = i
 	}
 
-	groupGeneral := []theme.CheckBoxStyle{
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateInactive], stateNamesCapitalized[ptrace.StateInactive]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateActive], stateNamesCapitalized[ptrace.StateActive]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateStuck], stateNamesCapitalized[ptrace.StateStuck]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateReady], stateNamesCapitalized[ptrace.StateReady]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateCreated], stateNamesCapitalized[ptrace.StateCreated]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateDone], stateNamesCapitalized[ptrace.StateDone]),
-	}
-
-	groupGC := []theme.CheckBoxStyle{
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCIdle], stateNamesCapitalized[ptrace.StateGCIdle]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCDedicated], stateNamesCapitalized[ptrace.StateGCDedicated]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCFractional], stateNamesCapitalized[ptrace.StateGCFractional]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCMarkAssist], stateNamesCapitalized[ptrace.StateGCMarkAssist]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCSweep], stateNamesCapitalized[ptrace.StateGCSweep]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyncTriggeringGC], stateNamesCapitalized[ptrace.StateBlockedSyncTriggeringGC]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedGC], stateNamesCapitalized[ptrace.StateBlockedGC]),
-	}
-
-	groupBlocked := []theme.CheckBoxStyle{
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlocked], stateNamesCapitalized[ptrace.StateBlocked]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSend], stateNamesCapitalized[ptrace.StateBlockedSend]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedRecv], stateNamesCapitalized[ptrace.StateBlockedRecv]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSelect], stateNamesCapitalized[ptrace.StateBlockedSelect]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSync], stateNamesCapitalized[ptrace.StateBlockedSync]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyncOnce], stateNamesCapitalized[ptrace.StateBlockedSyncOnce]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedCond], stateNamesCapitalized[ptrace.StateBlockedCond]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedNet], stateNamesCapitalized[ptrace.StateBlockedNet]),
-		theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyscall], stateNamesCapitalized[ptrace.StateBlockedSyscall]),
-	}
-
 	hd.stateClickables = make([]widget.Clickable, 3)
-
-	hd.stateGroups = []layout.FlexChild{
-		layout.Rigid(theme.Dumb(win, theme.CheckBoxGroup(win.Theme, &hd.stateClickables[0], "General", groupGeneral...).Layout)),
-		layout.Rigid(theme.Dumb(win, theme.CheckBoxGroup(win.Theme, &hd.stateClickables[1], "GC", groupGC...).Layout)),
-		layout.Rigid(theme.Dumb(win, theme.CheckBoxGroup(win.Theme, &hd.stateClickables[2], "Blocked", groupBlocked...).Layout)),
-	}
 
 	return hd
 }
@@ -295,7 +257,42 @@ func HighlightDialog(win *theme.Window, f *Filter) HighlightDialogStyle {
 func (hd *HighlightDialogStyle) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	return theme.List(win.Theme, &hd.list).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 		return theme.Foldable(win.Theme, &hd.foldables.states, "States").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, hd.stateGroups...)
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return theme.CheckBoxGroup(win.Theme, &hd.stateClickables[0], "General").Layout(win, gtx,
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateInactive], stateNamesCapitalized[ptrace.StateInactive]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateActive], stateNamesCapitalized[ptrace.StateActive]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateStuck], stateNamesCapitalized[ptrace.StateStuck]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateReady], stateNamesCapitalized[ptrace.StateReady]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateCreated], stateNamesCapitalized[ptrace.StateCreated]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateDone], stateNamesCapitalized[ptrace.StateDone]),
+					)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return theme.CheckBoxGroup(win.Theme, &hd.stateClickables[1], "GC").Layout(win, gtx,
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCIdle], stateNamesCapitalized[ptrace.StateGCIdle]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCDedicated], stateNamesCapitalized[ptrace.StateGCDedicated]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCFractional], stateNamesCapitalized[ptrace.StateGCFractional]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCMarkAssist], stateNamesCapitalized[ptrace.StateGCMarkAssist]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCSweep], stateNamesCapitalized[ptrace.StateGCSweep]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyncTriggeringGC], stateNamesCapitalized[ptrace.StateBlockedSyncTriggeringGC]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedGC], stateNamesCapitalized[ptrace.StateBlockedGC]),
+					)
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return theme.CheckBoxGroup(win.Theme, &hd.stateClickables[2], "Blocked").Layout(win, gtx,
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlocked], stateNamesCapitalized[ptrace.StateBlocked]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSend], stateNamesCapitalized[ptrace.StateBlockedSend]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedRecv], stateNamesCapitalized[ptrace.StateBlockedRecv]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSelect], stateNamesCapitalized[ptrace.StateBlockedSelect]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSync], stateNamesCapitalized[ptrace.StateBlockedSync]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyncOnce], stateNamesCapitalized[ptrace.StateBlockedSyncOnce]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedCond], stateNamesCapitalized[ptrace.StateBlockedCond]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedNet], stateNamesCapitalized[ptrace.StateBlockedNet]),
+						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyscall], stateNamesCapitalized[ptrace.StateBlockedSyscall]),
+					)
+				}),
+			)
 		})
 	})
 }
