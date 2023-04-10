@@ -612,6 +612,7 @@ func (p *Parser) readRawEvent(flags uint, ev *rawEvent) error {
 			if ln > 1e6 {
 				return fmt.Errorf("string has too large length %d", ln)
 			}
+			// There aren't enough strings in a trace to justify optimizing away this allocation.
 			buf := make([]byte, ln)
 			if !p.readFull(buf) {
 				return fmt.Errorf("failed to read trace: %w", io.ErrUnexpectedEOF)
@@ -818,6 +819,8 @@ func (p *Parser) readStr() (s string, err error) {
 	if sz > 1e6 {
 		return "", fmt.Errorf("string is too large (len=%d)", sz)
 	}
+	// There aren't enough strings in a trace to justify optimizing away this allocation, especially because this
+	// function is only used for a subset of all strings.
 	buf := make([]byte, sz)
 	if !p.readFull(buf) {
 		return "", fmt.Errorf("failed to read trace: %w", io.ErrUnexpectedEOF)

@@ -248,11 +248,6 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 		state = none
 	}
 
-	children := make([]layout.FlexChild, len(checkboxes))
-	for i := range checkboxes {
-		children[i] = layout.Rigid(Dumb(win, checkboxes[i].Layout))
-	}
-
 	sizeDp := gtx.Metric.SpToDp(chkgrp.TextSize)
 	sizePx := gtx.Dp(sizeDp)
 
@@ -308,6 +303,16 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 		}),
 
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			var children []layout.FlexChild
+			if len(checkboxes) <= 16 {
+				// Specifying a constant capacity allows the slice to be stack-allocated.
+				children = make([]layout.FlexChild, len(checkboxes), 16)
+			} else {
+				children = make([]layout.FlexChild, len(checkboxes))
+			}
+			for i := range checkboxes {
+				children[i] = layout.Rigid(Dumb(win, checkboxes[i].Layout))
+			}
 			return layout.Inset{Left: sizeDp + 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 			})
