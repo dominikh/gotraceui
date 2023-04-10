@@ -190,7 +190,7 @@ type Canvas struct {
 }
 
 type textLengther struct {
-	cache *tinylfu.T[int]
+	cache *tinylfu.T[string, int]
 }
 
 func (sl *textLengther) Compute(gtx layout.Context, s string, shaper *text.Shaper, size unit.Sp, font text.Font) int {
@@ -232,7 +232,7 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 
 	cv.timeline.hoveredSpans = NoSpan{}
 
-	cv.textLengths.cache = tinylfu.New[int](200, 200*10)
+	cv.textLengths.cache = tinylfu.New[string, int](200, 200*10)
 }
 
 func (cv *Canvas) End() trace.Timestamp {
