@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"image"
+	rtrace "runtime/trace"
 	"strings"
 	"time"
 
 	"gioui.org/op"
+	"gioui.org/text"
+	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 )
@@ -31,8 +37,11 @@ type SpansInfo struct {
 	AllEvents  []ptrace.EventID
 	Spans      SpanSelector
 	Label      string
-	Events     Events
-	Container  SpanContainer
+
+	EventList EventList
+	SpanList  SpanList
+
+	Container SpanContainer
 
 	initialized bool
 
@@ -42,6 +51,7 @@ type SpansInfo struct {
 	}
 
 	foldables struct {
+		spans  widget.Bool
 		events widget.Bool
 	}
 
@@ -61,16 +71,20 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.initialized = true
 
 		events := si.Spans.Spans().Events(si.AllEvents, si.Trace.Trace)
-		si.Events = Events{
+		si.EventList = EventList{
 			Trace:  si.Trace,
 			Events: events,
 		}
 
-		si.Events.Filter.ShowGoCreate.Value = true
-		si.Events.Filter.ShowGoUnblock.Value = true
-		si.Events.Filter.ShowGoSysCall.Value = true
-		si.Events.Filter.ShowUserLog.Value = true
-		si.Events.UpdateFilter()
+		si.SpanList = SpanList{
+			Spans: si.Spans,
+		}
+
+		si.EventList.Filter.ShowGoCreate.Value = true
+		si.EventList.Filter.ShowGoUnblock.Value = true
+		si.EventList.Filter.ShowGoSysCall.Value = true
+		si.EventList.Filter.ShowUserLog.Value = true
+		si.EventList.UpdateFilter()
 
 		si.description.Reset(win.Theme)
 
@@ -137,7 +151,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
 
-	dims := layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+	parts := []layout.FlexChild{}
+	parts = append(parts,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			type button struct {
 				w     *widget.Clickable
@@ -172,23 +187,36 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			gtx.Constraints.Min = image.Point{}
 			return si.description.Layout(win, gtx)
 		}),
+	)
 
-		layout.Rigid(layout.Spacer{Height: 10}.Layout),
+	if si.Spans.Size() > 1 {
+		parts = append(parts,
+			layout.Rigid(layout.Spacer{Height: 10}.Layout),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min = image.Point{}
+				return theme.Foldable(win.Theme, &si.foldables.spans, "Spans").Layout(win, gtx, si.SpanList.Layout)
+			}),
+		)
+	}
 
+	parts = append(parts,
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
-
-		layout.Rigid(layout.Spacer{Height: 10}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			return theme.Foldable(win.Theme, &si.foldables.events, "Events").Layout(win, gtx, si.Events.Layout)
+			return theme.Foldable(win.Theme, &si.foldables.events, "Events").Layout(win, gtx, si.EventList.Layout)
 		}),
 	)
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, parts...)
 
 	for _, ev := range si.description.Events() {
 		handleLinkClick(win, si.MainWindow, ev)
 	}
 
-	for _, ev := range si.Events.Clicked() {
+	for _, ev := range si.EventList.Clicked() {
+		handleLinkClick(win, si.MainWindow, ev)
+	}
+
+	for _, ev := range si.SpanList.Clicked() {
 		handleLinkClick(win, si.MainWindow, ev)
 	}
 
@@ -263,6 +291,103 @@ func spanTagStrings(tags ptrace.SpanTags) []string {
 	}
 	if tags&ptrace.SpanTagHTTP != 0 {
 		out = append(out, "HTTP")
+	}
+	return out
+}
+
+var spanListColumns = []theme.TableListColumn{
+	{
+		Name: "Time",
+		// XXX the width depends on the font and scaling
+		MinWidth: 200,
+		MaxWidth: 200,
+	},
+
+	{
+		Name: "Duration",
+		// XXX the width depends on the font and scaling
+		MinWidth: 120,
+		MaxWidth: 120,
+	},
+
+	{
+		Name: "State",
+	},
+}
+
+type SpanList struct {
+	Spans SpanSelector
+	list  widget.List
+
+	timestampObjects allocator[trace.Timestamp]
+	texts            allocator[Text]
+}
+
+func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.SpanList.Layout").End()
+
+	spans.list.Axis = layout.Vertical
+	spans.timestampObjects.Reset()
+
+	var txtCnt int
+	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+		var txt *Text
+		if txtCnt < spans.texts.Len() {
+			txt = spans.texts.Ptr(txtCnt)
+		} else {
+			txt = spans.texts.Allocate(Text{})
+		}
+		txtCnt++
+		txt.Reset(win.Theme)
+
+		span := spans.Spans.At(row)
+		switch col {
+		case 0: // Time
+			txt.Link(formatTimestamp(span.Start), spans.timestampObjects.Allocate(span.Start))
+			txt.Alignment = text.End
+		case 1: // Duration
+			value, unit := durationNumberFormatSITable.format(span.Duration())
+			txt.Span(value)
+			txt.Span(" ")
+			txt.Span(unit)
+			txt.styles[len(txt.styles)-1].Font.Variant = "Mono"
+			txt.Alignment = text.End
+		case 2: // State
+			var label string
+			switch span.State {
+			case ptrace.StateUserRegion:
+				fmt.Printf("%T\n", spans.Spans)
+
+			default:
+				label = stateNamesCapitalized[span.State]
+			}
+			txt.Span(label)
+		}
+
+		dims := txt.Layout(win, gtx)
+		dims.Size = gtx.Constraints.Constrain(dims.Size)
+		return dims
+	}
+
+	tbl := theme.TableListStyle{
+		Columns:       spanListColumns,
+		List:          &spans.list,
+		ColumnPadding: gtx.Dp(10),
+	}
+
+	gtx.Constraints.Min = gtx.Constraints.Max
+	return tbl.Layout(win, gtx, spans.Spans.Size(), cellFn)
+}
+
+// Clicked returns all objects of text spans that have been clicked since the last call to Layout.
+func (spans *SpanList) Clicked() []TextEvent {
+	// This only allocates when links have been clicked, which is a very low frequency event.
+	var out []TextEvent
+	for i := 0; i < spans.texts.Len(); i++ {
+		txt := spans.texts.Ptr(i)
+		out = append(out, txt.Events()...)
 	}
 	return out
 }

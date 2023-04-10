@@ -17,7 +17,7 @@ import (
 	"gioui.org/x/outlay"
 )
 
-type Events struct {
+type EventList struct {
 	Trace  *Trace
 	Events []ptrace.EventID
 	Filter struct {
@@ -33,7 +33,7 @@ type Events struct {
 	texts            allocator[Text]
 }
 
-func (evs *Events) UpdateFilter() {
+func (evs *EventList) UpdateFilter() {
 	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
 	//   requires us to check each event.
 	evs.filteredEvents = evs.filteredEvents[:0]
@@ -71,7 +71,7 @@ func (evs *Events) UpdateFilter() {
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.
-func (evs *Events) Clicked() []TextEvent {
+func (evs *EventList) Clicked() []TextEvent {
 	// This only allocates when links have been clicked, which is a very low frequency event.
 	var out []TextEvent
 	for i := 0; i < evs.texts.Len(); i++ {
@@ -81,7 +81,7 @@ func (evs *Events) Clicked() []TextEvent {
 	return out
 }
 
-func (evs *Events) eventMessage(ev *trace.Event) []string {
+func (evs *EventList) eventMessage(ev *trace.Event) []string {
 	switch ev.Type {
 	case trace.EvGoCreate:
 		return []string{"Created goroutine ", local.Sprintf("%d", ev.Args[trace.ArgGoCreateG])}
@@ -108,7 +108,7 @@ func (evs *Events) eventMessage(ev *trace.Event) []string {
 	}
 }
 
-var eventsColumns = []theme.TableListColumn{
+var eventListColumns = []theme.TableListColumn{
 	{
 		Name: "Time",
 		// FIXME(dh): the width depends on the font size and scaling
@@ -121,8 +121,8 @@ var eventsColumns = []theme.TableListColumn{
 	},
 }
 
-func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "main.Events.Layout").End()
+func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.EventList.Layout").End()
 
 	evs.list.Axis = layout.Vertical
 
@@ -164,6 +164,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		switch col {
 		case 0:
 			addSpanTs(ev.Ts)
+			txt.Alignment = text.End
 		case 1:
 			switch ev.Type {
 			case trace.EvGoCreate:
@@ -200,9 +201,6 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			panic("unreachable")
 		}
 		// TODO(dh): hovering the entry should highlight the corresponding span marker
-		if col == 0 {
-			txt.Alignment = text.End
-		}
 
 		dims := txt.Layout(win, gtx)
 		dims.Size = gtx.Constraints.Constrain(dims.Size)
@@ -241,7 +239,7 @@ func (evs *Events) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			gtx.Constraints.Min = gtx.Constraints.Max
 
 			tbl := theme.TableListStyle{
-				Columns:       eventsColumns,
+				Columns:       eventListColumns,
 				List:          &evs.list,
 				ColumnPadding: gtx.Dp(10),
 			}

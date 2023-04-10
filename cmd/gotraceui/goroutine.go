@@ -79,7 +79,7 @@ type GoroutineInfo struct {
 
 	initialized bool
 
-	events Events
+	events EventList
 	stats  *GoroutineStats
 
 	buttons struct {
@@ -117,7 +117,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 
 		gi.stats = NewGoroutineStats(gi.Goroutine)
 
-		gi.events = Events{Trace: gi.Trace}
+		gi.events = EventList{Trace: gi.Trace}
 		gi.events.Filter.ShowGoCreate.Value = true
 		gi.events.Filter.ShowGoUnblock.Value = true
 		gi.events.Filter.ShowGoSysCall.Value = true
@@ -367,6 +367,9 @@ var stateNames = [ptrace.StateLast]string{
 	ptrace.StateDone:                    "done",
 	ptrace.StateGCMarkAssist:            "GC (mark assist)",
 	ptrace.StateGCSweep:                 "GC (sweep assist)",
+	ptrace.StateRunningG:                "active",
+	ptrace.StateUserRegion:              "user region",
+	ptrace.StateStack:                   "stack frame",
 }
 
 var stateNamesCapitalized = [ptrace.StateLast]string{
@@ -392,6 +395,9 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateDone:                    "Done",
 	ptrace.StateGCMarkAssist:            "GC (mark assist)",
 	ptrace.StateGCSweep:                 "GC (sweep assist)",
+	ptrace.StateRunningG:                "Active",
+	ptrace.StateUserRegion:              "User region",
+	ptrace.StateStack:                   "Stack frame",
 }
 
 func NewGoroutineStats(g *ptrace.Goroutine) *GoroutineStats {
