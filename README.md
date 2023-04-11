@@ -39,7 +39,7 @@ Copies of the licenses of all dependencies can be found in LICENSE-THIRD-PARTY.
 All original work is copyrighted by its respective authors (consult the git log.)  
 Parts of the code are derived from Go, © The Go Authors.  
 Parts of the code are derived from Gio, © The Gio authors.  
-Parts of the code are derived from go-tinylfi, © Damian Gryski
+Parts of the code are derived from go-tinylfu, © Damian Gryski
 `font/fallback.ttf` is derived from the DejaVu fonts, © Bitstream, © Tavmjong Bah  
 `doc/manual/images/olive.jpg` is © Charlotte Brandhorst-Satzkorn, photographer and owner of the subject.
 
