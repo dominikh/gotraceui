@@ -538,6 +538,7 @@ type MainMenu struct {
 		ScrollToTop          theme.MenuItem
 		ZoomToFit            theme.MenuItem
 		JumpToBeginning      theme.MenuItem
+		HighlightSpans       theme.MenuItem
 		ToggleCompactDisplay theme.MenuItem
 		ToggleTimelineLabels theme.MenuItem
 		ToggleStackTracks    theme.MenuItem
@@ -565,6 +566,7 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of canvas"), Disabled: notMainDisabled}
 	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible timelines"), Disabled: notMainDisabled}
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
+	m.Display.HighlightSpans = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Highlight spans…"), Disabled: notMainDisabled}
 	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &mwin.canvas.timeline.compact), Disabled: notMainDisabled}
 	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &mwin.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
 	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &mwin.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
@@ -596,6 +598,10 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 
 					theme.MenuDivider(mwin.theme).Layout,
 
+					theme.NewMenuItemStyle(mwin.theme, &m.Display.HighlightSpans).Layout,
+
+					theme.MenuDivider(mwin.theme).Layout,
+
 					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleCompactDisplay).Layout,
 					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleTimelineLabels).Layout,
 					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleStackTracks).Layout,
@@ -622,6 +628,17 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 	}
 
 	return m
+}
+
+func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
+	hd := HighlightDialog(win, filter)
+	win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		return theme.Dialog(win.Theme, "Highlight spans").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
+			gtx.Constraints.Max = gtx.Constraints.Min
+			return hd.Layout(win, gtx)
+		})
+	})
 }
 
 func (mwin *MainWindow) Run(win *app.Window) error {
@@ -856,14 +873,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 										})
 
 									case "H":
-										hd := HighlightDialog(win, &mwin.canvas.timeline.filter)
-										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-											return theme.Dialog(win.Theme, "Highlight spans").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-												gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
-												gtx.Constraints.Max = gtx.Constraints.Min
-												return hd.Layout(win, gtx)
-											})
-										})
+										displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
 									}
 								}
 							}
@@ -884,6 +894,10 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						if mainMenu.Display.JumpToBeginning.Clicked() {
 							win.Menu.Close()
 							mwin.canvas.JumpToBeginning(gtx)
+						}
+						if mainMenu.Display.HighlightSpans.Clicked() {
+							win.Menu.Close()
+							displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
 						}
 						if mainMenu.Display.ToggleCompactDisplay.Clicked() {
 							win.Menu.Close()
