@@ -203,12 +203,12 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				w     *widget.Clickable
 				label string
 			}
-			buttonsLeft := []button{
+			buttonsLeft := [...]button{
 				{&gi.buttons.scrollToGoroutine.Clickable, "Scroll to goroutine"},
 				{&gi.buttons.zoomToGoroutine.Clickable, "Zoom to goroutine"},
 			}
 
-			var children []layout.FlexChild
+			children := make([]layout.FlexChild, 0, len(buttonsLeft)+2)
 			for _, btn := range buttonsLeft {
 				btn := btn
 				children = append(children,
