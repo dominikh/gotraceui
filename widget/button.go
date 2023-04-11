@@ -120,7 +120,11 @@ func (b *Clickable) update(gtx layout.Context) {
 	b.clicks = b.clicks[:n]
 	b.prevClicks = n
 
-	for _, e := range b.click.Events(gtx) {
+	if gtx.Queue == nil {
+		return
+	}
+
+	for _, e := range b.click.Events(gtx.Queue) {
 		switch e.Type {
 		case gesture.TypeClick:
 			b.clicks = append(b.clicks, Click{
