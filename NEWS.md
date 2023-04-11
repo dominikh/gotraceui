@@ -1,4 +1,4 @@
-# v0.2.0 (unreleased)
+# v0.2.0 (2023-04-11)
 
 - Added a button for copying statistics as CSV
 - Added context menu to links to processors
