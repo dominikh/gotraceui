@@ -114,6 +114,7 @@
 % - end of timeline marker
 % - event in span tooltip
 % - highlighting of related spans
+% - highlight spans dialog
 
 \chapter{Introduction}
 
@@ -360,6 +361,7 @@ The plot's context menu offers the following additional features:
 \item[\menu{Set extents to local extrema}] works like the previous command, but only considers the currently visible portion of the trace.
 \item[\menu{Auto-set extents to local extrema}] automatically applies the previous command whenever the currently visible portion of the trace changes.
 \item[\menu{Reset extents}] resets the extents to their default: zero at the bottom and the global maximum at the top.
+  It also disables auto-set extents.
 \end{description}
 
 \subsection{Timelines, tracks, and spans}
@@ -511,12 +513,12 @@ even though in the latter case we still don't know what happened for the first \
 
 \section{Links}
 
-Timestamps and references to goroutines are formatted as clickable links.
+Timestamps and references to goroutines and processors are formatted as clickable links.
 Clicking on a timestamp scrolls the canvas to that point in time.
-Clicking on a goroutine scrolls the canvas to the corresponding timeline.
-Holding \keys{\shortcut} while clicking on a goroutine zooms to it.
-Holding \keys{\shift} while clicking on a goroutine opens a goroutine panel.
-Right-clicking on a goroutine opens a context menu with all navigation options.
+Clicking on a processor or goroutine scrolls the canvas to the corresponding timeline.
+Holding \keys{\shortcut} while clicking on a processor or goroutine zooms to it.
+Holding \keys{\shift} while clicking on a processor or goroutine opens a processor or goroutine panel, respectively.
+Right-clicking on a processor or goroutine opens a context menu with all navigation options.
 
 \section{Panels}\label{panels}
 
@@ -539,6 +541,7 @@ Each section can be collapsed or expanded by clicking on its title.
 Clicking on goroutine labels or goroutine links opens the goroutine panel.
 The stack trace section shows where the goroutine was created, if that information is available.
 The statistics section provides common statistics on a per-state basis, showing how much time the goroutine spent doing what.
+Clicking the \menu{Copy as CSV} button copies the statistics to the clipboard, in \textsc{csv} format.
 The event section lists all events that occurred on the goroutine.
 They can be filtered by type by clicking on the corresponding checkboxes.
 
@@ -550,6 +553,7 @@ Clicking on spans (either merged or unmerged ones) opens the span panel.
 
 Span panels display basic information as well as a list of all events that occured during the spans.
 Events can be filtered by type by clicking on the corresponding checkboxes.
+Furthermore, for merged spans, a list of all individual spans is shown.
 
 Span panels have two additional buttons for scrolling\,\&\,panning and zooming to the spans.
 
@@ -614,6 +618,7 @@ While processor utilization is a good estimate for actual \textsc{cpu} utilizati
   \keys{\shift + Home} & Jump to beginning of trace \\
   \keys{C} & Toggle compact display \\
   \keys{G} & Open timeline selector \\
+  \keys{H} & Open span highlighting dialog \\
   \keys{O} & Toggle \textsc{stw} and \textsc{gc} overlays \\
   \keys{S} & Toggle display of stack tracks \\
   \keys{T} & Toggle displaying tooltips \\
