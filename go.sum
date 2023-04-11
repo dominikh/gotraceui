@@ -10,8 +10,6 @@ gioui.org/x v0.0.0-20230403130642-fd712aa4daf5 h1:Ks31mE4kQd8nWfMVv+KxAL0tO/veB2
 gioui.org/x v0.0.0-20230403130642-fd712aa4daf5/go.mod h1:kUKv6aaVpK6WPXh47hFXHo2EIAZUoVIG5/a+7N8yNT4=
 git.wow.st/gmp/jni v0.0.0-20210610011705-34026c7e22d0 h1:bGG/g4ypjrCJoSvFrP5hafr9PPB5aw8SjcOWWila7ZI=
 git.wow.st/gmp/jni v0.0.0-20210610011705-34026c7e22d0/go.mod h1:+axXBRUTIDlCeE73IKeD/os7LoEnTKdkp8/gQOFjqyo=
-github.com/dgryski/go-tinylfu v0.0.0-20230408121034-c8e5d79bbb04 h1:KfJuUjcn6CWRMluEAcZb/zqhml0P6rsxAHtSTetvqQ8=
-github.com/dgryski/go-tinylfu v0.0.0-20230408121034-c8e5d79bbb04/go.mod h1:f50PMO4C1x0o341KZt49XtmTpf4LP/JXjxzWuRQEMHw=
 github.com/go-text/typesetting v0.0.0-20230329143336-a38d00edd832 h1:yV4rFdcvwZXE0lZZ3EoBWjVysHyVo8DLY8VihDciNN0=
 github.com/go-text/typesetting v0.0.0-20230329143336-a38d00edd832/go.mod h1:zvWM81wAVW6QfVDI6yxfbCuoLnobSYTuMsrXU/u11y8=
 github.com/go-text/typesetting-utils v0.0.0-20230326210548-458646692de6 h1:zAAA1U4ykFwqPbcj6YDxvq3F2g0wc/ngPfLJjkR/8zs=
