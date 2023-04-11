@@ -1047,6 +1047,47 @@ func roundDuration(d time.Duration) time.Duration {
 	}
 }
 
+// fmtFrac formats the fraction of v/10**prec (e.g., ".12345") into the
+// tail of buf, omitting trailing zeros. It omits the decimal
+// point too when the fraction is 0. It returns the index where the
+// output bytes begin and the value v/10**prec.
+func fmtFrac(buf []byte, v uint64, prec int, numSig int) (nw int, nv uint64) {
+	// Omit trailing zeros up to and including decimal point.
+	w := len(buf)
+	print := false
+	for i := 0; i < prec; i++ {
+		digit := v % 10
+		print = prec-i-1 < numSig
+		if print {
+			w--
+			buf[w] = byte(digit) + '0'
+		}
+		v /= 10
+	}
+	if print {
+		w--
+		buf[w] = '.'
+	}
+	return w, v
+}
+
+// fmtInt formats v into the tail of buf.
+// It returns the index where the output begins.
+func fmtInt(buf []byte, v uint64) int {
+	w := len(buf)
+	if v == 0 {
+		w--
+		buf[w] = '0'
+	} else {
+		for v > 0 {
+			w--
+			buf[w] = byte(v%10) + '0'
+			v /= 10
+		}
+	}
+	return w
+}
+
 func (nf durationNumberFormat) format(d time.Duration) (value string, unit string) {
 	switch nf {
 	case durationNumberFormatScientific:
@@ -1056,38 +1097,40 @@ func (nf durationNumberFormat) format(d time.Duration) (value string, unit strin
 		idx := strings.IndexFunc(s, unicode.IsLetter)
 		return s[:idx], s[idx:]
 	case durationNumberFormatSITable:
-		if d == 0 {
-			return "0.000", " s"
-		}
+		// Largest time is 9145440610.000  s
+		var buf [24]byte
+		w := len(buf)
 
-		if d < time.Microsecond {
+		u := uint64(roundDuration(d))
+
+		// Special case: if duration is smaller than a second,
+		// use smaller units, like 1.2ms
+		var prec int
+		w--
+		switch {
+		case u == 0:
+			return "0.000", " s"
+		case u < uint64(time.Microsecond):
 			// Format nanoseconds as microseconds so that rows of numbers look neater, without a lot of whitespace to
 			// line up the decimal separator.
-
-			return fmt.Sprintf("0.%03d", d), "µs"
+			fallthrough
+		case u < uint64(time.Millisecond):
+			// print microseconds
+			prec = 3
+			unit = "µs"
+		case u < uint64(time.Second):
+			// print milliseconds
+			prec = 6
+			unit = "ms"
+		default:
+			// print seconds
+			prec = 9
+			unit = " s"
 		}
+		w, u = fmtFrac(buf[:w], u, prec, 3)
+		w = fmtInt(buf[:w], u)
 
-		s := roundDuration(d).String()
-
-		integer, fraction, found := strings.Cut(s, ".")
-		var unit string
-		if found {
-			idx := strings.IndexFunc(fraction, unicode.IsLetter)
-			fraction, unit = fraction[:idx], fraction[idx:]
-		} else {
-			idx := strings.IndexFunc(integer, unicode.IsLetter)
-			integer, unit = integer[:idx], integer[idx:]
-		}
-
-		if len(unit) == 1 {
-			unit = " " + unit
-		}
-		if len(fraction) < 3 {
-			// We're formatting nanosecond-precision numbers, which means we can pad with zeroes instead of spaces
-			// without suggesting a higher-than-actual precision.
-			fraction += strings.Repeat("0", 3-len(fraction))
-		}
-		return integer + "." + fraction, unit
+		return string(buf[w:]), unit
 	case durationNumberFormatExact:
 		return fmt.Sprintf("%.9f", d.Seconds()), ""
 	default:
