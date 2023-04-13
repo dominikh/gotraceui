@@ -1,0 +1,3 @@
+U+2B05 # leftwards black arrow
+U+27A1 # black rightwards arrow; we'd prefer to use U+B295, but DejaVu Serif doesn't have it
+U+2318 # place of interest sign

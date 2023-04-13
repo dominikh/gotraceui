@@ -1,0 +1,5 @@
+Use
+
+  pyftsubset DejaVuSerif.ttf --unicodes-file=runes.txt --no-ignore-missing-unicodes --output-file=fallback.ttf
+
+to generate the fallback font.

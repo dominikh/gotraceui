@@ -95,6 +95,7 @@
 
           devShells.gotraceui = pkgs.mkShell {
             inputsFrom = builtins.attrValues self.packages.${system};
+            nativeBuildInputs = [ pkgs.python3Packages.fonttools ];
           };
 
           devShells.default = self.devShells.${system}.gotraceui;
