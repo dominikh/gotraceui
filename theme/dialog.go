@@ -50,8 +50,10 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	labelDims := widget.Label{}.Layout(innerGtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, ds.TitleSize, ds.Title, widget.ColorTextMaterial(gtx, ds.TitleColor))
 	labelCall := m.Stop()
 
-	wGtx := innerGtx
-	wGtx.Constraints.Max.Y -= labelDims.Size.Y + 2*gtx.Dp(ds.TitlePadding) + gtx.Dp(ds.BorderWidth) + 2*gtx.Dp(ds.Padding)
+	wGtx := gtx
+	wGtx.Constraints.Max.X -= 2 * gtx.Dp(ds.BorderWidth+ds.Padding)
+	wGtx.Constraints.Max.Y -= 2 * gtx.Dp(ds.BorderWidth+ds.Padding)
+	wGtx.Constraints.Max.Y -= labelDims.Size.Y + 2*gtx.Dp(ds.TitlePadding+ds.BorderWidth)
 	wGtx.Constraints = layout.Normalize(wGtx.Constraints)
 
 	var wDims layout.Dimensions
