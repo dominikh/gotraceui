@@ -88,3 +88,25 @@ func blendDisabledColor(disabled bool, c color.NRGBA) color.NRGBA {
 	}
 	return c
 }
+
+type TextBoxStyle struct {
+	EditorStyle
+	Validate func(s string) bool
+}
+
+func TextBox(th *Theme, editor *widget.Editor, hint string) TextBoxStyle {
+	return TextBoxStyle{EditorStyle: Editor(th, editor, hint)}
+}
+
+func (tb TextBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
+	if tb.Validate != nil && !tb.Validate(tb.Editor.Text()) {
+		tb.Color = color.NRGBA{0xFF, 0, 0, 0xFF}
+	}
+	return widget.Background{Color: color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return widget.Bordered{Color: color.NRGBA{0, 0, 0, 0xFF}, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return tb.EditorStyle.Layout(gtx)
+			})
+		})
+	})
+}
