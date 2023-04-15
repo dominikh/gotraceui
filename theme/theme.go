@@ -707,3 +707,118 @@ func (rs ResizeStyle) Layout(win *Window, gtx layout.Context, w1, w2 Widget) lay
 	}
 	return rs.res.Layout(gtx, Dumb(win, w1), Dumb(win, w2), hnd)
 }
+
+type SwitchStyle struct {
+	State       widget.Boolean
+	Left, Right string
+}
+
+func Switch(b widget.Boolean, left, right string) SwitchStyle {
+	return SwitchStyle{State: b, Left: left, Right: right}
+}
+
+func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	noMin := func(gtx layout.Context) layout.Context {
+		gtx.Constraints.Min = image.Point{}
+		return gtx
+	}
+
+	const padding = 5
+	const borderWidth = 1
+
+	activeForeground := widget.ColorTextMaterial(gtx, color.NRGBA{0, 0, 0, 0xFF})
+	inactiveForeground := widget.ColorTextMaterial(gtx, color.NRGBA{0x3E, 0x3E, 0x3E, 0xFF})
+
+	activeBackground := color.NRGBA{0xDD, 0xDD, 0xFF, 0xFF}
+	inactiveBackground := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+
+	activeFont := text.Font{Weight: text.Bold}
+	inactiveFont := text.Font{}
+
+	activeBorder := color.NRGBA{0xAA, 0xAA, 0xFF, 0xFF}
+	inactiveBorder := color.NRGBA{0xBB, 0xBB, 0xBB, 0xFF}
+
+	var (
+		leftForeground, rightForeground = activeForeground, inactiveForeground
+		leftBackground, rightBackground = activeBackground, inactiveBackground
+		leftFont, rightFont             = activeFont, inactiveFont
+		leftBorder, rightBorder         = activeBorder, inactiveBorder
+	)
+
+	if ss.State.Get() {
+		leftForeground, rightForeground = rightForeground, leftForeground
+		leftBackground, rightBackground = rightBackground, leftBackground
+		leftFont, rightFont = rightFont, leftFont
+		leftBorder, rightBorder = rightBorder, leftBorder
+	}
+
+	// Compute the sizes of the labels. We use the active font for both under the assumption that the active font
+	// results in dimensions >= the inactive font. If we used the actual fonts (one active and one inactive) then the
+	// overall size might change when toggling the switch.
+	m := op.Record(gtx.Ops)
+	dimsLeft := widget.Label{MaxLines: 1}.Layout(noMin(gtx), win.Theme.Shaper, activeFont, 12, ss.Left, leftForeground)
+	m.Stop()
+
+	m = op.Record(gtx.Ops)
+	dimsRight := widget.Label{MaxLines: 1}.Layout(noMin(gtx), win.Theme.Shaper, activeFont, 12, ss.Right, rightForeground)
+	m.Stop()
+
+	var labelWidth int
+	if dimsLeft.Size.X >= dimsRight.Size.X {
+		labelWidth = dimsLeft.Size.X
+	} else {
+		labelWidth = dimsRight.Size.X
+	}
+
+	minWidth := 2*labelWidth + 4*gtx.Dp(padding) + gtx.Dp(borderWidth)
+	gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(minWidth, 0)).X
+
+	return ss.State.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				dims := widget.Border{Color: leftBorder, Width: borderWidth}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return widget.Background{Color: leftBackground}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return widget.Label{MaxLines: 1}.Layout(noMin(gtx), win.Theme.Shaper, leftFont, 12, ss.Left, leftForeground)
+							})
+						})
+					})
+				})
+
+				// Remove right part of the border
+				paint.FillShape(gtx.Ops, leftBackground, clip.Rect{Min: image.Pt(dims.Size.X-gtx.Dp(borderWidth), gtx.Dp(borderWidth)), Max: image.Pt(dims.Size.X, dims.Size.Y-gtx.Dp(borderWidth))}.Op())
+
+				return dims
+			}),
+
+			// The left and right buttons share a single border in the middle.
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				width := gtx.Dp(borderWidth)
+				height := dimsLeft.Size.Y + gtx.Dp(padding)*2
+				size := image.Pt(width, height)
+				paint.FillShape(gtx.Ops, activeBorder, clip.Rect{Max: size}.Op())
+				return layout.Dimensions{Size: size}
+			}),
+
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				dims := widget.Border{Color: rightBorder, Width: borderWidth}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return widget.Background{Color: rightBackground}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return widget.Label{MaxLines: 1}.Layout(noMin(gtx), win.Theme.Shaper, rightFont, 12, ss.Right, rightForeground)
+							})
+						})
+					})
+				})
+
+				// Remove left part of the border
+				paint.FillShape(gtx.Ops, rightBackground, clip.Rect{Min: image.Pt(0, gtx.Dp(borderWidth)), Max: image.Pt(gtx.Dp(borderWidth), dims.Size.Y-gtx.Dp(borderWidth))}.Op())
+
+				return dims
+			}),
+		)
+	})
+}
