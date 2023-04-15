@@ -560,22 +560,19 @@ func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ButtonStyle.Layout").End()
 
-	return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Stack{Alignment: layout.Center}.Layout(gtx,
-					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-						if b.Button.Pressed(pointer.ButtonPrimary) {
-							paint.FillShape(gtx.Ops, b.ActiveBackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
-						} else {
-							paint.FillShape(gtx.Ops, b.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
-						}
-						return layout.Dimensions{Size: gtx.Constraints.Min}
-					}),
-					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-						return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, b.TextColor))
-					}),
-				)
+	var bg color.NRGBA
+	if b.Button.Pressed(pointer.ButtonPrimary) {
+		bg = b.ActiveBackgroundColor
+	} else {
+		bg = b.BackgroundColor
+	}
+
+	return widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, b.TextColor))
+				})
 			})
 		})
 	})
