@@ -35,13 +35,13 @@ type EditorStyle struct {
 
 func Editor(th *Theme, editor *widget.Editor, hint string) EditorStyle {
 	return EditorStyle{
-		Editor:    editor,
-		TextSize:  th.TextSize,
-		Color:     th.Palette.Foreground,
-		shaper:    th.Shaper,
-		Hint:      hint,
-		HintColor: f32color.MulAlpha(th.Palette.Foreground, 0xbb),
-		// SelectionColor: f32color.MulAlpha(th.Palette.ContrastBg, 0x60),
+		Editor:         editor,
+		TextSize:       th.TextSize,
+		Color:          th.Palette.Foreground,
+		shaper:         th.Shaper,
+		Hint:           hint,
+		HintColor:      f32color.MulAlpha(th.Palette.Foreground, 0xbb),
+		SelectionColor: th.Palette.PrimarySelection,
 	}
 }
 
