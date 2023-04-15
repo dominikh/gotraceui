@@ -33,10 +33,11 @@ type Theme struct {
 }
 
 type Palette struct {
-	Background       color.NRGBA
-	Foreground       color.NRGBA
-	Link             color.NRGBA
-	PrimarySelection color.NRGBA
+	Background         color.NRGBA
+	Foreground         color.NRGBA
+	ForegroundDisabled color.NRGBA
+	Link               color.NRGBA
+	PrimarySelection   color.NRGBA
 
 	Border color.NRGBA
 
@@ -55,11 +56,12 @@ type Palette struct {
 }
 
 var DefaultPalette = Palette{
-	Background:       rgba(0xFFFFEAFF),
-	Foreground:       rgba(0x000000FF),
-	Link:             rgba(0x0000FFFF),
-	PrimarySelection: rgba(0xeeee9e99),
-	Border:           rgba(0x000000FF),
+	Background:         rgba(0xFFFFEAFF),
+	Foreground:         rgba(0x000000FF),
+	ForegroundDisabled: rgba(0x727272FF),
+	Link:               rgba(0x0000FFFF),
+	PrimarySelection:   rgba(0xeeee9e99),
+	Border:             rgba(0x000000FF),
 
 	Popup: struct {
 		TitleForeground color.NRGBA
@@ -544,6 +546,7 @@ type ButtonStyle struct {
 	BackgroundColor       color.NRGBA
 	BorderColor           color.NRGBA
 	TextColor             color.NRGBA
+	TextColorDisabled     color.NRGBA
 }
 
 func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
@@ -554,6 +557,7 @@ func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 		BackgroundColor:       rgba(0xFFFFFFFF),
 		BorderColor:           th.Palette.Border,
 		TextColor:             th.Palette.Foreground,
+		TextColorDisabled:     th.Palette.ForegroundDisabled,
 	}
 }
 
@@ -567,11 +571,18 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		bg = b.BackgroundColor
 	}
 
+	var fg color.NRGBA
+	if gtx.Queue != nil {
+		fg = b.TextColor
+	} else {
+		fg = b.TextColorDisabled
+	}
+
 	return widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, b.TextColor))
+					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, fg))
 				})
 			})
 		})
