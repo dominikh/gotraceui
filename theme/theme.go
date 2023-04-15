@@ -550,7 +550,7 @@ func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 	return ButtonStyle{
 		Text:                  txt,
 		Button:                button,
-		ActiveBackgroundColor: rgba(0xFFFF00FF),
+		ActiveBackgroundColor: rgba(0xDDDDFFFF),
 		BackgroundColor:       rgba(0xFFFFFFFF),
 		BorderColor:           th.Palette.Border,
 		TextColor:             th.Palette.Foreground,
