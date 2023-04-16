@@ -726,17 +726,17 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	const padding = 5
 	const borderWidth = 1
 
-	activeForeground := widget.ColorTextMaterial(gtx, color.NRGBA{0, 0, 0, 0xFF})
-	inactiveForeground := widget.ColorTextMaterial(gtx, color.NRGBA{0x3E, 0x3E, 0x3E, 0xFF})
+	activeForeground := widget.ColorTextMaterial(gtx, rgba(0x000000FF))
+	inactiveForeground := widget.ColorTextMaterial(gtx, rgba(0x3E3E3EFF))
 
-	activeBackground := color.NRGBA{0xDD, 0xDD, 0xFF, 0xFF}
-	inactiveBackground := color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}
+	activeBackground := rgba(0xDDDDFFFF)
+	inactiveBackground := rgba(0xFFFFFFFF)
 
 	activeFont := text.Font{Weight: text.Bold}
 	inactiveFont := text.Font{}
 
-	activeBorder := color.NRGBA{0xAA, 0xAA, 0xFF, 0xFF}
-	inactiveBorder := color.NRGBA{0xBB, 0xBB, 0xBB, 0xFF}
+	activeBorder := rgba(0xAAAAFFFF)
+	inactiveBorder := rgba(0xBBBBBBFF)
 
 	var (
 		leftForeground, rightForeground = activeForeground, inactiveForeground
@@ -772,6 +772,9 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 
 	minWidth := 2*labelWidth + 4*gtx.Dp(padding) + gtx.Dp(borderWidth)
 	gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(minWidth, 0)).X
+
+	// FIXME(dh): the way we "remove" parts of the border by drawing over it assumes that our background colors have no
+	// transparency.
 
 	return ss.State.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,

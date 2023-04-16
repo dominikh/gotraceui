@@ -56,10 +56,10 @@ func Histogram(th *Theme, state *HistogramState) HistogramStyle {
 		TextColor:        th.Palette.Foreground,
 		TextSize:         th.TextSize,
 		LineColor:        th.Palette.Border,
-		BinColor:         color.NRGBA{0x17, 0x72, 0xBB, 0xFF},
-		HoveredBinColor:  color.NRGBA{0x27, 0xBB, 0x17, 0xFF},
-		SelectedBinColor: color.NRGBA{0x27, 0xBB, 0x17, 0xFF},
-		OverflowBinColor: color.NRGBA{0xBB, 0x17, 0x17, 0xFF},
+		BinColor:         rgba(0x1772BBFF),
+		HoveredBinColor:  rgba(0x27BB17FF),
+		SelectedBinColor: rgba(0x27BB17FF),
+		OverflowBinColor: rgba(0xBB1717FF),
 	}
 }
 

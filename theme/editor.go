@@ -100,10 +100,10 @@ func TextBox(th *Theme, editor *widget.Editor, hint string) TextBoxStyle {
 
 func (tb TextBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
 	if tb.Validate != nil && !tb.Validate(tb.Editor.Text()) {
-		tb.Color = color.NRGBA{0xFF, 0, 0, 0xFF}
+		tb.Color = rgba(0xFF0000FF)
 	}
-	return widget.Background{Color: color.NRGBA{0xFF, 0xFF, 0xFF, 0xFF}}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return widget.Bordered{Color: color.NRGBA{0, 0, 0, 0xFF}, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return widget.Background{Color: rgba(0xFFFFFFFF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return widget.Bordered{Color: rgba(0x000000FF), Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return tb.EditorStyle.Layout(gtx)
 			})
