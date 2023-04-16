@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"image"
 	rtrace "runtime/trace"
 	"strings"
@@ -355,14 +354,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 			txt.styles[len(txt.styles)-1].Font.Variant = "Mono"
 			txt.Alignment = text.End
 		case 2: // State
-			var label string
-			switch span.State {
-			case ptrace.StateUserRegion:
-				fmt.Printf("%T\n", spans.Spans)
-
-			default:
-				label = stateNamesCapitalized[span.State]
-			}
+			label := stateNamesCapitalized[span.State]
 			txt.Span(label)
 		}
 
