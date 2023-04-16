@@ -41,16 +41,18 @@ func Dialog(th *Theme, title string) DialogStyle {
 }
 
 func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
-	innerGtx := gtx
-	innerGtx.Constraints.Max.X -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)
-	innerGtx.Constraints.Max.Y -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)
-	innerGtx.Constraints = layout.Normalize(innerGtx.Constraints)
+	titleGtx := gtx
+	titleGtx.Constraints.Min.Y = 0
+	titleGtx.Constraints.Max.X -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)
+	titleGtx.Constraints.Max.Y -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)
+	titleGtx.Constraints = layout.Normalize(titleGtx.Constraints)
 
-	m := op.Record(innerGtx.Ops)
-	labelDims := widget.Label{MaxLines: 1}.Layout(innerGtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, ds.TitleSize, ds.Title, widget.ColorTextMaterial(gtx, ds.TitleColor))
+	m := op.Record(titleGtx.Ops)
+	labelDims := widget.Label{MaxLines: 1}.Layout(titleGtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, ds.TitleSize, ds.Title, widget.ColorTextMaterial(gtx, ds.TitleColor))
 	labelCall := m.Stop()
 
 	wGtx := gtx
+	wGtx.Constraints.Min.Y -= labelDims.Size.Y
 	wGtx.Constraints.Max.X -= 2 * gtx.Dp(ds.BorderWidth+ds.Padding)
 	wGtx.Constraints.Max.Y -= 2 * gtx.Dp(ds.BorderWidth+ds.Padding)
 	wGtx.Constraints.Max.Y -= labelDims.Size.Y + 2*gtx.Dp(ds.TitlePadding+ds.BorderWidth)
