@@ -859,7 +859,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
 		key.InputOp{Tag: cv, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
-		key.FocusOp{Tag: cv}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spanSel SpanSelector, c color.NRGBA, height int) {
 			var p clip.Path
