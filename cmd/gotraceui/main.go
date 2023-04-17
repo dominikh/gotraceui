@@ -1788,15 +1788,17 @@ func Record(win *theme.Window, gtx layout.Context, w theme.Widget) Recording {
 
 type Future[T any] struct {
 	result T
-	done   atomic.Bool
+	done   chan struct{}
 }
 
 func NewFuture[T any](win *app.Window, fn func() T) *Future[T] {
-	ft := &Future[T]{}
+	ft := &Future[T]{
+		done: make(chan struct{}),
+	}
 
 	go func() {
 		ft.result = fn()
-		ft.done.Store(true)
+		close(ft.done)
 		win.Invalidate()
 	}()
 
@@ -1804,9 +1806,12 @@ func NewFuture[T any](win *app.Window, fn func() T) *Future[T] {
 }
 
 func (ft *Future[T]) Result() (T, bool) {
-	if ft.done.Load() {
+	t := time.NewTimer(500 * time.Microsecond)
+	defer t.Stop()
+	select {
+	case <-ft.done:
 		return ft.result, true
-	} else {
+	case <-t.C:
 		return *new(T), false
 	}
 }
