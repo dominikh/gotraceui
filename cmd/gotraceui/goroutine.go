@@ -88,11 +88,7 @@ type GoroutineInfo struct {
 		copyAsCSV         widget.PrimaryClickable
 	}
 
-	foldables struct {
-		stacktrace widget.Bool
-		stats      widget.Bool
-		events     widget.Bool
-	}
+	tabbedState theme.TabbedState
 
 	description Text
 
@@ -129,8 +125,6 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			gi.events.Events = append(gi.events.Events, span.Events(gi.Goroutine.Events, gi.Trace.Trace)...)
 		}
 		gi.events.UpdateFilter()
-
-		gi.foldables.stacktrace.Value = true
 
 		start := gi.Goroutine.Spans.Start()
 		end := gi.Goroutine.Spans.End()
@@ -235,18 +229,22 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if gi.Goroutine.Spans[0].State != ptrace.StateCreated {
-				// The goroutine existed before the start of the trace and we do not have the stack trace of where it
-				// was created.
-				return layout.Dimensions{}
-			}
+			tabs := []string{"Statistics", "Events", "Stack trace"}
+			return theme.Tabbed(&gi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				switch tabs[gi.tabbedState.Current] {
+				case "Stack trace":
+					if gi.Goroutine.Spans[0].State != ptrace.StateCreated {
+						// The goroutine existed before the start of the trace and we do not have the stack trace of where it
+						// was created.
 
-			return theme.List(win.Theme, &gi.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-				if index != 0 {
-					panic("impossible")
-				}
-				return theme.Foldable(win.Theme, &gi.foldables.stacktrace, "Creation stack trace").
-					Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						// XXX display some string instead
+						return layout.Dimensions{}
+					}
+
+					return theme.List(win.Theme, &gi.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+						if index != 0 {
+							panic("impossible")
+						}
 						// OPT(dh): compute the string form of the backtrace once, not each frame
 						ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
 						stk := gi.Trace.Stacks[ev.StkID]
@@ -261,37 +259,32 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 						}
 						return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 					})
+
+				case "Statistics":
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return theme.List(win.Theme, &gi.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+								if index != 0 {
+									panic("impossible")
+								}
+								return gi.stats.Layout(win, gtx)
+							})
+						}),
+
+						layout.Rigid(layout.Spacer{Height: 1}.Layout),
+
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min.X = 0
+							return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+						}),
+					)
+				case "Events":
+					return gi.events.Layout(win, gtx)
+
+				default:
+					panic("impossible")
+				}
 			})
-
-		}),
-
-		layout.Rigid(layout.Spacer{Height: 10}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return theme.Foldable(win.Theme, &gi.foldables.stats, "Statistics").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return theme.List(win.Theme, &gi.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-							if index != 0 {
-								panic("impossible")
-							}
-							return gi.stats.Layout(win, gtx)
-						})
-					}),
-
-					layout.Rigid(layout.Spacer{Height: 1}.Layout),
-
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.X = 0
-						return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
-					}),
-				)
-			})
-		}),
-
-		layout.Rigid(layout.Spacer{Height: 10}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			return theme.Foldable(win.Theme, &gi.foldables.events, "Events").Layout(win, gtx, gi.events.Layout)
 		}),
 	)
 

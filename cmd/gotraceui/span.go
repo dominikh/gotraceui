@@ -49,10 +49,7 @@ type SpansInfo struct {
 		zoomToSpan         widget.PrimaryClickable
 	}
 
-	foldables struct {
-		spans  widget.Bool
-		events widget.Bool
-	}
+	tabbedState theme.TabbedState
 
 	description Text
 
@@ -150,8 +147,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
 
-	parts := []layout.FlexChild{}
-	parts = append(parts,
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			type button struct {
 				w     *widget.Clickable
@@ -186,26 +182,22 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			gtx.Constraints.Min = image.Point{}
 			return si.description.Layout(win, gtx)
 		}),
-	)
 
-	if si.Spans.Size() > 1 {
-		parts = append(parts,
-			layout.Rigid(layout.Spacer{Height: 10}.Layout),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min = image.Point{}
-				return theme.Foldable(win.Theme, &si.foldables.spans, "Spans").Layout(win, gtx, si.SpanList.Layout)
-			}),
-		)
-	}
-
-	parts = append(parts,
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			return theme.Foldable(win.Theme, &si.foldables.events, "Events").Layout(win, gtx, si.EventList.Layout)
+			tabs := []string{"Spans", "Events"}
+			return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				switch tabs[si.tabbedState.Current] {
+				case "Spans":
+					return si.SpanList.Layout(win, gtx)
+				case "Events":
+					return si.EventList.Layout(win, gtx)
+				default:
+					panic("unreachable")
+				}
+			})
 		}),
 	)
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, parts...)
 
 	for _, ev := range si.description.Events() {
 		handleLinkClick(win, si.MainWindow, ev)
