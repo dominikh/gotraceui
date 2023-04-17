@@ -88,7 +88,8 @@ type GoroutineInfo struct {
 		copyAsCSV         widget.PrimaryClickable
 	}
 
-	tabbedState theme.TabbedState
+	tabbedState     theme.TabbedState
+	stackSelectable widget.Selectable
 
 	description Text
 
@@ -245,19 +246,23 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 						if index != 0 {
 							panic("impossible")
 						}
-						// OPT(dh): compute the string form of the backtrace once, not each frame
-						ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
-						stk := gi.Trace.Stacks[ev.StkID]
-						sb := strings.Builder{}
-						for _, f := range stk {
-							frame := gi.Trace.PCs[f]
-							fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+						if gi.stackSelectable.Text() == "" {
+							ev := gi.Trace.Events[gi.Goroutine.Spans[0].Event]
+							stk := gi.Trace.Stacks[ev.StkID]
+							sb := strings.Builder{}
+							for _, f := range stk {
+								frame := gi.Trace.PCs[f]
+								fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+							}
+							s := sb.String()
+							if len(s) > 0 && s[len(s)-1] == '\n' {
+								s = s[:len(s)-1]
+							}
+
+							gi.stackSelectable.SetText(s)
 						}
-						s := sb.String()
-						if len(s) > 0 && s[len(s)-1] == '\n' {
-							s = s[:len(s)-1]
-						}
-						return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, s, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+
+						return gi.stackSelectable.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
 					})
 
 				case "Statistics":
