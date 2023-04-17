@@ -35,20 +35,21 @@ type SpanContainer struct {
 }
 
 type SpansInfo struct {
-	MainWindow *MainWindow
-	AllEvents  []ptrace.EventID
-	Goroutine  *ptrace.Goroutine
-	Spans      SpanSelector
-	Label      string
-	Trace      *Trace
+	mwin       *MainWindow
+	allEvents  []ptrace.EventID
+	spanSel    SpanSelector
+	label      string
+	trace      *Trace
+	stacktrace string
+
+	navigations SpansInfoConfigNavigations
+	title       string
 
 	events EventList
 	spans  SpanList
 	stats  *theme.Future[*SpansStats]
 
-	Container SpanContainer
-
-	initialized bool
+	container SpanContainer
 
 	buttons struct {
 		scrollAndPanToSpans widget.PrimaryClickable
@@ -67,148 +68,144 @@ type SpansInfo struct {
 	theme.PanelButtons
 }
 
-func (si *SpansInfo) Title() string {
-	g := si.Goroutine
-	if g == nil {
-		firstSpan := si.Spans.At(0)
-		lastSpan := LastSpan(si.Spans)
-		return local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.Container.Timeline.shortName)
-	} else {
-		if g.Function.Fn != "" {
-			return local.Sprintf("goroutine %d: %s", g.ID, g.Function)
-		} else {
-			return local.Sprintf("goroutine %d", g.ID)
-		}
+type SpansInfoConfig struct {
+	Title       string
+	Label       string
+	Container   SpanContainer
+	Description func(s *Text)
+	Stacktrace  string
+	Statistics  *theme.Future[*SpansStats]
+	Navigations SpansInfoConfigNavigations
+}
+
+type SpansInfoConfigNavigations struct {
+	ScrollLabel string
+	ScrollFn    func() Link
+
+	ZoomLabel string
+	ZoomFn    func() Link
+}
+
+func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans SpanSelector, allEvents []ptrace.EventID) *SpansInfo {
+	si := &SpansInfo{
+		mwin:        mwin,
+		spanSel:     spans,
+		trace:       mwin.trace,
+		allEvents:   allEvents,
+		title:       cfg.Title,
+		label:       cfg.Label,
+		container:   cfg.Container,
+		stacktrace:  cfg.Stacktrace,
+		stats:       cfg.Statistics,
+		navigations: cfg.Navigations,
 	}
+
+	if si.title == "" {
+		firstSpan := si.spanSel.At(0)
+		lastSpan := LastSpan(si.spanSel)
+		si.title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.container.Timeline.shortName)
+	}
+
+	if si.stacktrace == "" && (si.container != SpanContainer{}) && spans.Size() == 1 {
+		ev := si.trace.Events[spans.At(0).Event]
+		stk := si.trace.Stacks[ev.StkID]
+		sb := strings.Builder{}
+		for _, f := range stk {
+			frame := si.trace.PCs[f]
+			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
+		}
+		stacktrace := sb.String()
+		if len(stacktrace) > 0 && stacktrace[len(stacktrace)-1] == '\n' {
+			stacktrace = stacktrace[:len(stacktrace)-1]
+		}
+
+		si.stacktrace = stacktrace
+	}
+
+	if si.stats == nil {
+		si.stats = theme.NewFuture(mwin.twin, func(cancelled <-chan struct{}) *SpansStats {
+			return NewSpansStats(si.spanSel.Spans())
+		})
+	}
+
+	si.spans = SpanList{
+		Spans: si.spanSel,
+	}
+
+	si.events = EventList{Trace: si.trace}
+	si.events.Filter.ShowGoCreate.Value = true
+	si.events.Filter.ShowGoUnblock.Value = true
+	si.events.Filter.ShowGoSysCall.Value = true
+	si.events.Filter.ShowUserLog.Value = true
+	si.events.UpdateFilter()
+
+	si.events.Events = si.spanSel.Spans().Events(si.allEvents, si.trace.Trace)
+	si.events.UpdateFilter()
+
+	si.description.Reset(mwin.twin.Theme)
+	if cfg.Description != nil {
+		cfg.Description(&si.description)
+	} else {
+		si.buildDefaultDescription()
+	}
+
+	return si
+}
+
+func (si *SpansInfo) Title() string {
+	return si.title
+}
+
+func (si *SpansInfo) buildDefaultDescription() {
+	if len(si.label) > 0 {
+		si.description.Bold("Label: ")
+		si.description.Span(si.label)
+		si.description.Span("\n")
+	}
+
+	firstSpan := si.spanSel.At(0)
+	lastSpan := LastSpan(si.spanSel)
+	si.description.Bold("Start: ")
+	si.description.Link(
+		formatTimestamp(firstSpan.Start),
+		firstSpan.Start,
+	)
+	si.description.Span("\n")
+
+	si.description.Bold("End: ")
+	si.description.Link(
+		formatTimestamp(lastSpan.End),
+		lastSpan.End,
+	)
+	si.description.Span("\n")
+
+	si.description.Bold("Duration: ")
+	si.description.Span(SpansDuration(si.spanSel).String())
+	si.description.Span("\n")
+
+	si.description.Bold("State: ")
+	if si.spanSel.Size() == 1 {
+		si.description.Span(stateNames[firstSpan.State])
+	} else {
+		si.description.Span("mixed")
+	}
+	si.description.Span("\n")
+
+	if si.spanSel.Size() == 1 && firstSpan.Tags != 0 {
+		si.description.Bold("Tags: ")
+		tags := spanTagStrings(firstSpan.Tags)
+		si.description.Span(strings.Join(tags, ", "))
+		si.description.Span("\n")
+	}
+
+	si.description.Bold("In: ")
+	si.description.Link(
+		si.container.Timeline.shortName,
+		si.container.Timeline.item,
+	)
 }
 
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	if !si.initialized {
-		si.initialized = true
-
-		si.stats = theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
-			if si.Goroutine != nil {
-				// We special-case goroutines because large ones cache computed statistics
-				return NewGoroutineStats(si.Goroutine)
-			} else {
-				return NewSpansStats(si.Spans.Spans())
-			}
-		})
-
-		si.spans = SpanList{
-			Spans: si.Spans,
-		}
-
-		si.events = EventList{Trace: si.Trace}
-		si.events.Filter.ShowGoCreate.Value = true
-		si.events.Filter.ShowGoUnblock.Value = true
-		si.events.Filter.ShowGoSysCall.Value = true
-		si.events.Filter.ShowUserLog.Value = true
-		si.events.UpdateFilter()
-
-		si.events.Events = si.Spans.Spans().Events(si.AllEvents, si.Trace.Trace)
-		si.events.UpdateFilter()
-
-		start := si.Spans.At(0).Start
-		end := LastSpan(si.Spans).End
-		d := time.Duration(end - start)
-		observedStart := si.Spans.At(0).State == ptrace.StateCreated
-		observedEnd := LastSpan(si.Spans).State == ptrace.StateDone
-
-		si.description.Reset(win.Theme)
-
-		if si.Goroutine == nil {
-			if len(si.Label) > 0 {
-				si.description.Bold("Label: ")
-				si.description.Span(si.Label)
-				si.description.Span("\n")
-			}
-
-			firstSpan := si.Spans.At(0)
-			lastSpan := LastSpan(si.Spans)
-			si.description.Bold("Start: ")
-			si.description.Link(
-				formatTimestamp(firstSpan.Start),
-				firstSpan.Start,
-			)
-			si.description.Span("\n")
-
-			si.description.Bold("End: ")
-			si.description.Link(
-				formatTimestamp(lastSpan.End),
-				lastSpan.End,
-			)
-			si.description.Span("\n")
-
-			si.description.Bold("Duration: ")
-			si.description.Span(SpansDuration(si.Spans).String())
-			si.description.Span("\n")
-
-			si.description.Bold("State: ")
-			if si.Spans.Size() == 1 {
-				si.description.Span(stateNames[firstSpan.State])
-			} else {
-				si.description.Span("mixed")
-			}
-			si.description.Span("\n")
-
-			if si.Spans.Size() == 1 && firstSpan.Tags != 0 {
-				si.description.Bold("Tags: ")
-				tags := spanTagStrings(firstSpan.Tags)
-				si.description.Span(strings.Join(tags, ", "))
-				si.description.Span("\n")
-			}
-
-			si.description.Bold("In: ")
-			si.description.Link(
-				si.Container.Timeline.shortName,
-				si.Container.Timeline.item,
-			)
-		} else {
-			si.description.Bold("Goroutine: ")
-			si.description.Span(local.Sprintf("%d\n", si.Goroutine.ID))
-
-			si.description.Bold("Function: ")
-			si.description.Span(fmt.Sprintf("%s\n", si.Goroutine.Function.Fn))
-
-			if observedStart {
-				si.description.Bold("Created at: ")
-				si.description.Link(
-					fmt.Sprintf("%s\n", formatTimestamp(start)),
-					start,
-				)
-			} else {
-				si.description.Bold("Created at: ")
-				si.description.Link(
-					"before trace start\n",
-					start,
-				)
-			}
-
-			if observedEnd {
-				si.description.Bold("Returned at: ")
-				si.description.Link(
-					fmt.Sprintf("%s\n", formatTimestamp(end)),
-					end,
-				)
-			} else {
-				si.description.Bold("Returned at: ")
-				si.description.Link(
-					"after trace end\n",
-					end,
-				)
-			}
-
-			if observedStart && observedEnd {
-				si.description.Bold("Lifetime: ")
-				si.description.Span(d.String())
-			} else {
-				si.description.Bold("Observed duration: ")
-				si.description.Span(d.String())
-			}
-		}
-	}
-
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
@@ -231,17 +228,15 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				label string
 			}
 
-			var buttonsLeft []button
-			if si.Goroutine == nil {
-				buttonsLeft = []button{
-					{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
-					{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
-				}
-			} else {
-				buttonsLeft = []button{
-					{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll to goroutine"},
-					{&si.buttons.zoomToSpans.Clickable, "Zoom to goroutine"},
-				}
+			buttonsLeft := []button{
+				{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
+				{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
+			}
+			if si.navigations.ScrollLabel != "" {
+				buttonsLeft[0].label = si.navigations.ScrollLabel
+			}
+			if si.navigations.ZoomLabel != "" {
+				buttonsLeft[1].label = si.navigations.ZoomLabel
 			}
 
 			children := make([]layout.FlexChild, 0, len(buttonsLeft)+2)
@@ -275,16 +270,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				switch tabs[si.tabbedState.Current] {
 				case "Stack trace":
-					if si.Goroutine != nil && si.Spans.At(0).State != ptrace.StateCreated {
-						// The goroutine existed before the start of the trace and we do not have the stack trace of where it
-						// was created.
-
-						// XXX display some string instead
-						return layout.Dimensions{}
-					}
-					if si.Goroutine == nil && si.Spans.Size() != 1 {
-						// Multiple spans, no stack trace we can show
-
+					if si.stacktrace == "" {
 						// XXX display some string instead
 						return layout.Dimensions{}
 					}
@@ -294,19 +280,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 							panic("impossible")
 						}
 						if si.stackSelectable.Text() == "" {
-							ev := si.Trace.Events[si.Spans.At(0).Event]
-							stk := si.Trace.Stacks[ev.StkID]
-							sb := strings.Builder{}
-							for _, f := range stk {
-								frame := si.Trace.PCs[f]
-								fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
-							}
-							s := sb.String()
-							if len(s) > 0 && s[len(s)-1] == '\n' {
-								s = s[:len(s)-1]
-							}
-
-							si.stackSelectable.SetText(s)
+							si.stackSelectable.SetText(si.stacktrace)
 						}
 
 						return si.stackSelectable.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
@@ -350,55 +324,47 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 	for si.buttons.copyAsCSV.Clicked() {
 		if stats, ok := si.stats.Result(); ok {
-			si.MainWindow.win.WriteClipboard(statisticsToCSV(&stats.stats))
+			si.mwin.win.WriteClipboard(statisticsToCSV(&stats.stats))
 		}
 	}
 
 	for _, ev := range si.description.Events() {
-		handleLinkClick(win, si.MainWindow, ev)
+		handleLinkClick(win, si.mwin, ev)
 	}
 
 	for _, ev := range si.events.Clicked() {
-		handleLinkClick(win, si.MainWindow, ev)
+		handleLinkClick(win, si.mwin, ev)
 	}
 	for _, ev := range si.spans.Clicked() {
-		handleLinkClick(win, si.MainWindow, ev)
+		handleLinkClick(win, si.mwin, ev)
 	}
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {
-		// TODO(dh): see if we really need both branches
-		if si.Goroutine == nil {
-			si.MainWindow.OpenLink(&SpansLink{
-				Timeline: si.Container.Timeline,
-				Track:    si.Container.Track,
-				Spans:    si.Spans,
+		if si.navigations.ScrollFn != nil {
+			si.mwin.OpenLink(si.navigations.ScrollFn())
+		} else {
+			si.mwin.OpenLink(&SpansLink{
+				Timeline: si.container.Timeline,
+				Track:    si.container.Track,
+				Spans:    si.spanSel,
 				Kind:     SpanLinkKindScrollAndPan,
 			})
-		} else {
-			si.MainWindow.OpenLink(&GoroutineLink{
-				Goroutine: si.Goroutine,
-				Kind:      GoroutineLinkKindScroll},
-			)
 		}
 	}
 	for si.buttons.zoomToSpans.Clicked() {
-		// TODO(dh): see if we really need both branches
-		if si.Goroutine == nil {
-			si.MainWindow.OpenLink(&SpansLink{
-				Timeline: si.Container.Timeline,
-				Track:    si.Container.Track,
-				Spans:    si.Spans,
-				Kind:     SpanLinkKindZoom,
-			})
+		if si.navigations.ZoomFn != nil {
+			si.mwin.OpenLink(si.navigations.ZoomFn())
 		} else {
-			si.MainWindow.OpenLink(&GoroutineLink{
-				Goroutine: si.Goroutine,
-				Kind:      GoroutineLinkKindZoom,
+			si.mwin.OpenLink(&SpansLink{
+				Timeline: si.container.Timeline,
+				Track:    si.container.Track,
+				Spans:    si.spanSel,
+				Kind:     SpanLinkKindZoom,
 			})
 		}
 	}
 	for si.PanelButtons.Backed() {
-		si.MainWindow.prevPanel()
+		si.mwin.prevPanel()
 	}
 
 	return dims

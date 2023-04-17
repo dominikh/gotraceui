@@ -118,13 +118,7 @@ func (rops *reusableOps) get() *op.Ops {
 }
 
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
-	gi := &SpansInfo{
-		MainWindow: mwin,
-		Goroutine:  g,
-		Trace:      mwin.trace,
-		Spans:      SliceToSpanSelector(g.Spans),
-		AllEvents:  g.Events,
-	}
+	gi := NewGoroutineInfo(mwin, g)
 	mwin.openPanel(gi)
 }
 
@@ -137,17 +131,15 @@ func (mwin *MainWindow) openSpan(s SpanSelector, tl *Timeline, tr *Track, allEve
 	if len(labels) > 0 {
 		label = labels[0]
 	}
-	si := &SpansInfo{
-		MainWindow: mwin,
-		Spans:      s,
-		Trace:      mwin.trace,
-		Label:      label,
-		AllEvents:  allEvents,
+
+	cfg := SpansInfoConfig{
+		Label: label,
 		Container: SpanContainer{
 			Timeline: tl,
 			Track:    tr,
 		},
 	}
+	si := NewSpansInfo(cfg, mwin, s, allEvents)
 	mwin.openPanel(si)
 }
 
