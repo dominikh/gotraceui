@@ -118,10 +118,12 @@ func (rops *reusableOps) get() *op.Ops {
 }
 
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
-	gi := &GoroutineInfo{
+	gi := &SpansInfo{
 		MainWindow: mwin,
 		Goroutine:  g,
 		Trace:      mwin.trace,
+		Spans:      SliceToSpanSelector(g.Spans),
+		AllEvents:  g.Events,
 	}
 	mwin.openPanel(gi)
 }

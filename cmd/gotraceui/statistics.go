@@ -26,6 +26,31 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+const numStatLabels = 7
+
+var statLabels = [...][numStatLabels * 3]string{
+	durationNumberFormatScientific: [...]string{
+		"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
+		"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
+		"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
+	},
+	durationNumberFormatExact: [...]string{
+		"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
+		"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
+		"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
+	},
+	durationNumberFormatSI: [...]string{
+		"State", "Count", "Total", "Min", "Max", "Avg", "p50",
+		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
+		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
+	},
+	durationNumberFormatSITable: [...]string{
+		"State", "Count", "Total", "Min", "Max", "Avg", "p50",
+		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
+		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
+	},
+}
+
 type SpansStats struct {
 	stats ptrace.Statistics
 	// mapping maps from indices of displayed statistics to indices in the stats field
