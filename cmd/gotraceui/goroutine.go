@@ -80,6 +80,7 @@ type GoroutineInfo struct {
 	initialized bool
 
 	events EventList
+	spans  SpanList
 	stats  *GoroutineStats
 
 	buttons struct {
@@ -113,6 +114,10 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		gi.initialized = true
 
 		gi.stats = NewGoroutineStats(gi.Goroutine)
+
+		gi.spans = SpanList{
+			Spans: SliceToSpanSelector(gi.Goroutine.Spans),
+		}
 
 		gi.events = EventList{Trace: gi.Trace}
 		gi.events.Filter.ShowGoCreate.Value = true
@@ -230,7 +235,7 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			tabs := []string{"Statistics", "Events", "Stack trace"}
+			tabs := []string{"Statistics", "Spans", "Events", "Stack trace"}
 			return theme.Tabbed(&gi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				switch tabs[gi.tabbedState.Current] {
 				case "Stack trace":
@@ -283,6 +288,10 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 							return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
 						}),
 					)
+
+				case "Spans":
+					return gi.spans.Layout(win, gtx)
+
 				case "Events":
 					return gi.events.Layout(win, gtx)
 
@@ -302,6 +311,9 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	}
 
 	for _, ev := range gi.events.Clicked() {
+		handleLinkClick(win, gi.MainWindow, ev)
+	}
+	for _, ev := range gi.spans.Clicked() {
 		handleLinkClick(win, gi.MainWindow, ev)
 	}
 
