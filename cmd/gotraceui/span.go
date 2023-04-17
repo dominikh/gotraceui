@@ -67,12 +67,12 @@ type SpansInfo struct {
 	theme.PanelButtons
 }
 
-func (gi *SpansInfo) Title() string {
-	g := gi.Goroutine
+func (si *SpansInfo) Title() string {
+	g := si.Goroutine
 	if g == nil {
-		firstSpan := gi.Spans.At(0)
-		lastSpan := LastSpan(gi.Spans)
-		return local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, gi.Container.Timeline.shortName)
+		firstSpan := si.Spans.At(0)
+		lastSpan := LastSpan(si.Spans)
+		return local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.Container.Timeline.shortName)
 	} else {
 		if g.Function.Fn != "" {
 			return local.Sprintf("goroutine %d: %s", g.ID, g.Function)
@@ -82,129 +82,129 @@ func (gi *SpansInfo) Title() string {
 	}
 }
 
-func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	if !gi.initialized {
-		gi.initialized = true
+func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	if !si.initialized {
+		si.initialized = true
 
-		gi.stats = theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
-			if gi.Goroutine != nil {
+		si.stats = theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
+			if si.Goroutine != nil {
 				// We special-case goroutines because large ones cache computed statistics
-				return NewGoroutineStats(gi.Goroutine)
+				return NewGoroutineStats(si.Goroutine)
 			} else {
-				return NewSpansStats(gi.Spans.Spans())
+				return NewSpansStats(si.Spans.Spans())
 			}
 		})
 
-		gi.spans = SpanList{
-			Spans: gi.Spans,
+		si.spans = SpanList{
+			Spans: si.Spans,
 		}
 
-		gi.events = EventList{Trace: gi.Trace}
-		gi.events.Filter.ShowGoCreate.Value = true
-		gi.events.Filter.ShowGoUnblock.Value = true
-		gi.events.Filter.ShowGoSysCall.Value = true
-		gi.events.Filter.ShowUserLog.Value = true
-		gi.events.UpdateFilter()
+		si.events = EventList{Trace: si.Trace}
+		si.events.Filter.ShowGoCreate.Value = true
+		si.events.Filter.ShowGoUnblock.Value = true
+		si.events.Filter.ShowGoSysCall.Value = true
+		si.events.Filter.ShowUserLog.Value = true
+		si.events.UpdateFilter()
 
-		gi.events.Events = gi.Spans.Spans().Events(gi.AllEvents, gi.Trace.Trace)
-		gi.events.UpdateFilter()
+		si.events.Events = si.Spans.Spans().Events(si.AllEvents, si.Trace.Trace)
+		si.events.UpdateFilter()
 
-		start := gi.Spans.At(0).Start
-		end := LastSpan(gi.Spans).End
+		start := si.Spans.At(0).Start
+		end := LastSpan(si.Spans).End
 		d := time.Duration(end - start)
-		observedStart := gi.Spans.At(0).State == ptrace.StateCreated
-		observedEnd := LastSpan(gi.Spans).State == ptrace.StateDone
+		observedStart := si.Spans.At(0).State == ptrace.StateCreated
+		observedEnd := LastSpan(si.Spans).State == ptrace.StateDone
 
-		gi.description.Reset(win.Theme)
+		si.description.Reset(win.Theme)
 
-		if gi.Goroutine == nil {
-			if len(gi.Label) > 0 {
-				gi.description.Bold("Label: ")
-				gi.description.Span(gi.Label)
-				gi.description.Span("\n")
+		if si.Goroutine == nil {
+			if len(si.Label) > 0 {
+				si.description.Bold("Label: ")
+				si.description.Span(si.Label)
+				si.description.Span("\n")
 			}
 
-			firstSpan := gi.Spans.At(0)
-			lastSpan := LastSpan(gi.Spans)
-			gi.description.Bold("Start: ")
-			gi.description.Link(
+			firstSpan := si.Spans.At(0)
+			lastSpan := LastSpan(si.Spans)
+			si.description.Bold("Start: ")
+			si.description.Link(
 				formatTimestamp(firstSpan.Start),
 				firstSpan.Start,
 			)
-			gi.description.Span("\n")
+			si.description.Span("\n")
 
-			gi.description.Bold("End: ")
-			gi.description.Link(
+			si.description.Bold("End: ")
+			si.description.Link(
 				formatTimestamp(lastSpan.End),
 				lastSpan.End,
 			)
-			gi.description.Span("\n")
+			si.description.Span("\n")
 
-			gi.description.Bold("Duration: ")
-			gi.description.Span(SpansDuration(gi.Spans).String())
-			gi.description.Span("\n")
+			si.description.Bold("Duration: ")
+			si.description.Span(SpansDuration(si.Spans).String())
+			si.description.Span("\n")
 
-			gi.description.Bold("State: ")
-			if gi.Spans.Size() == 1 {
-				gi.description.Span(stateNames[firstSpan.State])
+			si.description.Bold("State: ")
+			if si.Spans.Size() == 1 {
+				si.description.Span(stateNames[firstSpan.State])
 			} else {
-				gi.description.Span("mixed")
+				si.description.Span("mixed")
 			}
-			gi.description.Span("\n")
+			si.description.Span("\n")
 
-			if gi.Spans.Size() == 1 && firstSpan.Tags != 0 {
-				gi.description.Bold("Tags: ")
+			if si.Spans.Size() == 1 && firstSpan.Tags != 0 {
+				si.description.Bold("Tags: ")
 				tags := spanTagStrings(firstSpan.Tags)
-				gi.description.Span(strings.Join(tags, ", "))
-				gi.description.Span("\n")
+				si.description.Span(strings.Join(tags, ", "))
+				si.description.Span("\n")
 			}
 
-			gi.description.Bold("In: ")
-			gi.description.Link(
-				gi.Container.Timeline.shortName,
-				gi.Container.Timeline.item,
+			si.description.Bold("In: ")
+			si.description.Link(
+				si.Container.Timeline.shortName,
+				si.Container.Timeline.item,
 			)
 		} else {
-			gi.description.Bold("Goroutine: ")
-			gi.description.Span(local.Sprintf("%d\n", gi.Goroutine.ID))
+			si.description.Bold("Goroutine: ")
+			si.description.Span(local.Sprintf("%d\n", si.Goroutine.ID))
 
-			gi.description.Bold("Function: ")
-			gi.description.Span(fmt.Sprintf("%s\n", gi.Goroutine.Function.Fn))
+			si.description.Bold("Function: ")
+			si.description.Span(fmt.Sprintf("%s\n", si.Goroutine.Function.Fn))
 
 			if observedStart {
-				gi.description.Bold("Created at: ")
-				gi.description.Link(
+				si.description.Bold("Created at: ")
+				si.description.Link(
 					fmt.Sprintf("%s\n", formatTimestamp(start)),
 					start,
 				)
 			} else {
-				gi.description.Bold("Created at: ")
-				gi.description.Link(
+				si.description.Bold("Created at: ")
+				si.description.Link(
 					"before trace start\n",
 					start,
 				)
 			}
 
 			if observedEnd {
-				gi.description.Bold("Returned at: ")
-				gi.description.Link(
+				si.description.Bold("Returned at: ")
+				si.description.Link(
 					fmt.Sprintf("%s\n", formatTimestamp(end)),
 					end,
 				)
 			} else {
-				gi.description.Bold("Returned at: ")
-				gi.description.Link(
+				si.description.Bold("Returned at: ")
+				si.description.Link(
 					"after trace end\n",
 					end,
 				)
 			}
 
 			if observedStart && observedEnd {
-				gi.description.Bold("Lifetime: ")
-				gi.description.Span(d.String())
+				si.description.Bold("Lifetime: ")
+				si.description.Span(d.String())
 			} else {
-				gi.description.Bold("Observed duration: ")
-				gi.description.Span(d.String())
+				si.description.Bold("Observed duration: ")
+				si.description.Span(d.String())
 			}
 		}
 	}
@@ -232,15 +232,15 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			}
 
 			var buttonsLeft []button
-			if gi.Goroutine == nil {
+			if si.Goroutine == nil {
 				buttonsLeft = []button{
-					{&gi.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
-					{&gi.buttons.zoomToSpans.Clickable, "Zoom to spans"},
+					{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
+					{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
 				}
 			} else {
 				buttonsLeft = []button{
-					{&gi.buttons.scrollAndPanToSpans.Clickable, "Scroll to goroutine"},
-					{&gi.buttons.zoomToSpans.Clickable, "Zoom to goroutine"},
+					{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll to goroutine"},
+					{&si.buttons.zoomToSpans.Clickable, "Zoom to goroutine"},
 				}
 			}
 
@@ -255,7 +255,7 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				)
 			}
 			children = append(children, layout.Flexed(1, nothing))
-			children = append(children, layout.Rigid(theme.Dumb(win, gi.PanelButtons.Layout)))
+			children = append(children, layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)))
 
 			// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
 			// panel contents, nor the infinite width of a possible surrounding list.
@@ -266,39 +266,39 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			return gi.description.Layout(win, gtx)
+			return si.description.Layout(win, gtx)
 		}),
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			tabs := []string{"Statistics", "Spans", "Events", "Stack trace"}
-			return theme.Tabbed(&gi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				switch tabs[gi.tabbedState.Current] {
+			return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				switch tabs[si.tabbedState.Current] {
 				case "Stack trace":
-					if gi.Goroutine != nil && gi.Spans.At(0).State != ptrace.StateCreated {
+					if si.Goroutine != nil && si.Spans.At(0).State != ptrace.StateCreated {
 						// The goroutine existed before the start of the trace and we do not have the stack trace of where it
 						// was created.
 
 						// XXX display some string instead
 						return layout.Dimensions{}
 					}
-					if gi.Goroutine == nil && gi.Spans.Size() != 1 {
+					if si.Goroutine == nil && si.Spans.Size() != 1 {
 						// Multiple spans, no stack trace we can show
 
 						// XXX display some string instead
 						return layout.Dimensions{}
 					}
 
-					return theme.List(win.Theme, &gi.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+					return theme.List(win.Theme, &si.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 						if index != 0 {
 							panic("impossible")
 						}
-						if gi.stackSelectable.Text() == "" {
-							ev := gi.Trace.Events[gi.Spans.At(0).Event]
-							stk := gi.Trace.Stacks[ev.StkID]
+						if si.stackSelectable.Text() == "" {
+							ev := si.Trace.Events[si.Spans.At(0).Event]
+							stk := si.Trace.Stacks[ev.StkID]
 							sb := strings.Builder{}
 							for _, f := range stk {
-								frame := gi.Trace.PCs[f]
+								frame := si.Trace.PCs[f]
 								fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
 							}
 							s := sb.String()
@@ -306,20 +306,20 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								s = s[:len(s)-1]
 							}
 
-							gi.stackSelectable.SetText(s)
+							si.stackSelectable.SetText(s)
 						}
 
-						return gi.stackSelectable.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
+						return si.stackSelectable.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
 					})
 
 				case "Statistics":
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return theme.List(win.Theme, &gi.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+							return theme.List(win.Theme, &si.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 								if index != 0 {
 									panic("impossible")
 								}
-								if stats, ok := gi.stats.Result(); ok {
+								if stats, ok := si.stats.Result(); ok {
 									return stats.Layout(win, gtx)
 								} else {
 									return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
@@ -331,15 +331,15 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							gtx.Constraints.Min.X = 0
-							return theme.Button(win.Theme, &gi.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+							return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
 						}),
 					)
 
 				case "Spans":
-					return gi.spans.Layout(win, gtx)
+					return si.spans.Layout(win, gtx)
 
 				case "Events":
-					return gi.events.Layout(win, gtx)
+					return si.events.Layout(win, gtx)
 
 				default:
 					panic("impossible")
@@ -348,57 +348,57 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		}),
 	)
 
-	for gi.buttons.copyAsCSV.Clicked() {
-		if stats, ok := gi.stats.Result(); ok {
-			gi.MainWindow.win.WriteClipboard(statisticsToCSV(&stats.stats))
+	for si.buttons.copyAsCSV.Clicked() {
+		if stats, ok := si.stats.Result(); ok {
+			si.MainWindow.win.WriteClipboard(statisticsToCSV(&stats.stats))
 		}
 	}
 
-	for _, ev := range gi.description.Events() {
-		handleLinkClick(win, gi.MainWindow, ev)
+	for _, ev := range si.description.Events() {
+		handleLinkClick(win, si.MainWindow, ev)
 	}
 
-	for _, ev := range gi.events.Clicked() {
-		handleLinkClick(win, gi.MainWindow, ev)
+	for _, ev := range si.events.Clicked() {
+		handleLinkClick(win, si.MainWindow, ev)
 	}
-	for _, ev := range gi.spans.Clicked() {
-		handleLinkClick(win, gi.MainWindow, ev)
+	for _, ev := range si.spans.Clicked() {
+		handleLinkClick(win, si.MainWindow, ev)
 	}
 
-	for gi.buttons.scrollAndPanToSpans.Clicked() {
+	for si.buttons.scrollAndPanToSpans.Clicked() {
 		// TODO(dh): see if we really need both branches
-		if gi.Goroutine == nil {
-			gi.MainWindow.OpenLink(&SpansLink{
-				Timeline: gi.Container.Timeline,
-				Track:    gi.Container.Track,
-				Spans:    gi.Spans,
+		if si.Goroutine == nil {
+			si.MainWindow.OpenLink(&SpansLink{
+				Timeline: si.Container.Timeline,
+				Track:    si.Container.Track,
+				Spans:    si.Spans,
 				Kind:     SpanLinkKindScrollAndPan,
 			})
 		} else {
-			gi.MainWindow.OpenLink(&GoroutineLink{
-				Goroutine: gi.Goroutine,
+			si.MainWindow.OpenLink(&GoroutineLink{
+				Goroutine: si.Goroutine,
 				Kind:      GoroutineLinkKindScroll},
 			)
 		}
 	}
-	for gi.buttons.zoomToSpans.Clicked() {
+	for si.buttons.zoomToSpans.Clicked() {
 		// TODO(dh): see if we really need both branches
-		if gi.Goroutine == nil {
-			gi.MainWindow.OpenLink(&SpansLink{
-				Timeline: gi.Container.Timeline,
-				Track:    gi.Container.Track,
-				Spans:    gi.Spans,
+		if si.Goroutine == nil {
+			si.MainWindow.OpenLink(&SpansLink{
+				Timeline: si.Container.Timeline,
+				Track:    si.Container.Track,
+				Spans:    si.Spans,
 				Kind:     SpanLinkKindZoom,
 			})
 		} else {
-			gi.MainWindow.OpenLink(&GoroutineLink{
-				Goroutine: gi.Goroutine,
+			si.MainWindow.OpenLink(&GoroutineLink{
+				Goroutine: si.Goroutine,
 				Kind:      GoroutineLinkKindZoom,
 			})
 		}
 	}
-	for gi.PanelButtons.Backed() {
-		gi.MainWindow.prevPanel()
+	for si.PanelButtons.Backed() {
+		si.MainWindow.prevPanel()
 	}
 
 	return dims
