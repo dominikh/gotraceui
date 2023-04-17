@@ -63,9 +63,9 @@ func debugCaching(gtx layout.Context) {
    - [X] stack of where it was created
    - Link to span that created it
    - [X] First, last timestamp, duration
-   - Per-state statistics (how long blocked, waiting, etc, number of state transitions)
-   - List of all spans
-   - List of all events of all spans
+   - [X] Per-state statistics (how long blocked, waiting, etc, number of state transitions)
+   - [X] List of all spans
+   - [X] List of all events of all spans
      - Syscalls
      - Outgoing unblocks
      - Incoming unblocks
@@ -80,8 +80,6 @@ func debugCaching(gtx layout.Context) {
 // TODO(dh): disable navigation keybindings such as Home when we're dragging
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
-// OPT(dh): the goroutine span tooltip should cache the stats. for the bgsweep goroutine in the staticcheck-std trace,
-//   rendering the tooltip alone takes ~16ms
 // TODO(dh): allow computing statistics for a selectable region of time
 // TODO(dh): use the GC-purple color in the GC and STW timelines
 // TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
