@@ -238,9 +238,7 @@ func shortenFunctionName(s string) string {
 type Command func(*MainWindow, layout.Context)
 
 type MainWindow struct {
-	canvas Canvas
-	// TODO(dh): remove theme, it is redundant with twin.Theme
-	theme           *theme.Theme
+	canvas          Canvas
 	trace           *Trace
 	commands        chan Command
 	explorer        *explorer.Explorer
@@ -269,7 +267,6 @@ type MainWindow struct {
 
 func NewMainWindow() *MainWindow {
 	mwin := &MainWindow{
-		theme:       theme.NewTheme(font.Collection()),
 		commands:    make(chan Command, 128),
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
@@ -556,7 +553,7 @@ type MainMenu struct {
 	menu *theme.Menu
 }
 
-func NewMainMenu(mwin *MainWindow) *MainMenu {
+func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 	m := &MainMenu{}
 
 	m.File.OpenTrace = theme.MenuItem{Label: PlainLabel("Open trace")}
@@ -581,31 +578,31 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 			{
 				Label: "File",
 				Items: []theme.Widget{
-					theme.NewMenuItemStyle(mwin.theme, &m.File.OpenTrace).Layout,
-					theme.NewMenuItemStyle(mwin.theme, &m.File.Quit).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.File.OpenTrace).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.File.Quit).Layout,
 				},
 			},
 			{
 				Label: "Display",
 				Items: []theme.Widget{
 					// TODO(dh): disable Undo menu item when there are no more undo steps
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.UndoNavigation).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.UndoNavigation).Layout,
 
-					theme.MenuDivider(mwin.theme).Layout,
+					theme.MenuDivider(win.Theme).Layout,
 
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.ScrollToTop).Layout,
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.ZoomToFit).Layout,
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.JumpToBeginning).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ScrollToTop).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ZoomToFit).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.JumpToBeginning).Layout,
 
-					theme.MenuDivider(mwin.theme).Layout,
+					theme.MenuDivider(win.Theme).Layout,
 
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.HighlightSpans).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.HighlightSpans).Layout,
 
-					theme.MenuDivider(mwin.theme).Layout,
+					theme.MenuDivider(win.Theme).Layout,
 
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleCompactDisplay).Layout,
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleTimelineLabels).Layout,
-					theme.NewMenuItemStyle(mwin.theme, &m.Display.ToggleStackTracks).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleCompactDisplay).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleTimelineLabels).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleStackTracks).Layout,
 					// TODO(dh): add items for STW and GC overlays
 					// TODO(dh): add item for tooltip display
 				},
@@ -613,7 +610,7 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 			{
 				Label: "Analyze",
 				Items: []theme.Widget{
-					theme.NewMenuItemStyle(mwin.theme, &m.Analyze.OpenHeatmap).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenHeatmap).Layout,
 				},
 			},
 		},
@@ -623,7 +620,7 @@ func NewMainMenu(mwin *MainWindow) *MainMenu {
 		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
 			Label: "Debug",
 			Items: []theme.Widget{
-				theme.NewMenuItemStyle(mwin.theme, &m.Debug.Memprofile).Layout,
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.Memprofile).Layout,
 			},
 		})
 	}
@@ -643,7 +640,8 @@ func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 }
 
 func (mwin *MainWindow) Run(win *app.Window) error {
-	mainMenu := NewMainMenu(mwin)
+	mwin.twin = theme.NewWindow(win)
+	mainMenu := NewMainMenu(mwin, mwin.twin)
 	mwin.win = win
 	mwin.explorer = explorer.NewExplorer(win)
 
@@ -652,7 +650,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var shortcuts int
 
 	var commands []Command
-	mwin.twin = theme.NewWindow(win)
 	mwin.twin.Menu = mainMenu.menu
 
 	resize := component.Resize{
@@ -736,7 +733,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 					// Fill background
-					paint.Fill(gtx.Ops, mwin.theme.Palette.Background)
+					paint.Fill(gtx.Ops, mwin.twin.Theme.Palette.Background)
 
 					if mainMenu.File.Quit.Clicked() {
 						win.Menu.Close()
@@ -775,18 +772,18 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						gtx.Constraints.Min = gtx.Constraints.Max
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+								return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							})
 						})
 
 					case "loadingTrace":
-						paint.ColorOp{Color: mwin.theme.Palette.Foreground}.Add(gtx.Ops)
+						paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
 
 						// OPT(dh): cache this computation
 						var maxNameWidth int
 						for _, name := range mwin.progressStages {
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, mwin.twin.Theme.TextSize, name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							if dims.Size.X > maxNameWidth {
 								maxNameWidth = dims.Size.X
 							}
@@ -795,7 +792,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						maxLabelWidth := maxNameWidth
 						{
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							maxLabelWidth += dims.Size.X
 							m.Stop()
 						}
@@ -811,12 +808,12 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 										pct := fmt.Sprintf("%5.2f%%", mwin.progress*100)
 										// Replace space with figure space for correct alignment
 										pct = strings.ReplaceAll(pct, " ", "\u2007")
-										return widget.Label{}.Layout(gtx, mwin.theme.Shaper, text.Font{}, mwin.theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+										return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
 										gtx.Constraints.Max = gtx.Constraints.Min
-										return theme.ProgressBar(mwin.theme, float32(mwin.progress)).Layout(gtx)
+										return theme.ProgressBar(mwin.twin.Theme, float32(mwin.progress)).Layout(gtx)
 									}))
 							})
 						})
@@ -828,7 +825,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 								if ev.State == key.Press && mwin.ww == nil {
 									switch ev.Name {
 									case "G":
-										mwin.ww = theme.NewListWindow(mwin.theme)
+										mwin.ww = theme.NewListWindow(mwin.twin.Theme)
 										items := make([]theme.ListWindowItem, 0, len(mwin.canvas.timelines))
 										items = append(items,
 											theme.ListWindowItem{
