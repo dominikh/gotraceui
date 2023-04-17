@@ -44,7 +44,7 @@ type SpansInfo struct {
 
 	events EventList
 	spans  SpanList
-	stats  *Future[*SpansStats]
+	stats  *theme.Future[*SpansStats]
 
 	Container SpanContainer
 
@@ -86,7 +86,7 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	if !gi.initialized {
 		gi.initialized = true
 
-		gi.stats = NewFuture(win.AppWindow, func() *SpansStats {
+		gi.stats = theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
 			if gi.Goroutine != nil {
 				// We special-case goroutines because large ones cache computed statistics
 				return NewGoroutineStats(gi.Goroutine)

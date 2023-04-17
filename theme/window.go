@@ -7,17 +7,20 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
+	"honnef.co/go/gotraceui/font"
+	"honnef.co/go/gotraceui/layout"
+
 	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"honnef.co/go/gotraceui/layout"
 )
 
 type Window struct {
 	AppWindow *app.Window
+	Futures   *Futures
 	Theme     *Theme
 	Menu      *Menu
 	// The current frame number
@@ -33,6 +36,16 @@ type Window struct {
 	}
 	notification notification
 	windowFrameState
+}
+
+func NewWindow(win *app.Window) *Window {
+	return &Window{
+		AppWindow: win,
+		Theme:     NewTheme(font.Collection()),
+		Futures: &Futures{
+			win: win,
+		},
+	}
 }
 
 type windowFrameState struct {

@@ -184,7 +184,7 @@ type PanelWindow struct {
 
 func (pwin *PanelWindow) Run(win *app.Window) error {
 	var ops op.Ops
-	tWin := &theme.Window{AppWindow: win, Theme: theme.NewTheme(font.Collection())}
+	tWin := theme.NewWindow(win)
 
 	for e := range win.Events() {
 		switch ev := e.(type) {
@@ -238,7 +238,8 @@ func shortenFunctionName(s string) string {
 type Command func(*MainWindow, layout.Context)
 
 type MainWindow struct {
-	canvas          Canvas
+	canvas Canvas
+	// TODO(dh): remove theme, it is redundant with twin.Theme
 	theme           *theme.Theme
 	trace           *Trace
 	commands        chan Command
@@ -651,11 +652,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var shortcuts int
 
 	var commands []Command
-	mwin.twin = &theme.Window{
-		AppWindow: win,
-		Theme:     mwin.theme,
-		Menu:      mainMenu.menu,
-	}
+	mwin.twin = theme.NewWindow(win)
+	mwin.twin.Menu = mainMenu.menu
 
 	resize := component.Resize{
 		Axis:  layout.Horizontal,
@@ -988,6 +986,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					op.InvalidateOp{}.Add(&ops)
 				}
 				ev.Frame(&ops)
+
+				mwin.twin.Futures.Sweep()
 			}
 		}
 	}
@@ -1784,34 +1784,4 @@ func Record(win *theme.Window, gtx layout.Context, w theme.Widget) Recording {
 	c := m.Stop()
 
 	return Recording{c, dims}
-}
-
-type Future[T any] struct {
-	result T
-	done   chan struct{}
-}
-
-func NewFuture[T any](win *app.Window, fn func() T) *Future[T] {
-	ft := &Future[T]{
-		done: make(chan struct{}),
-	}
-
-	go func() {
-		ft.result = fn()
-		close(ft.done)
-		win.Invalidate()
-	}()
-
-	return ft
-}
-
-func (ft *Future[T]) Result() (T, bool) {
-	t := time.NewTimer(500 * time.Microsecond)
-	defer t.Stop()
-	select {
-	case <-ft.done:
-		return ft.result, true
-	case <-t.C:
-		return *new(T), false
-	}
 }

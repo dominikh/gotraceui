@@ -10,7 +10,6 @@ import (
 	"time"
 
 	myclip "honnef.co/go/gotraceui/clip"
-	"honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -321,7 +320,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 
 	var useLinear widget.Bool
 	var ops op.Ops
-	tWin := &theme.Window{AppWindow: win, Theme: theme.NewTheme(font.Collection())}
+	tWin := theme.NewWindow(win)
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
