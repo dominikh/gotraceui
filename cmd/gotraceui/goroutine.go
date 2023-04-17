@@ -170,7 +170,7 @@ func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr 
 		// duration is a guess
 		//
 		// TODO(dh): don't do this for the stacks of blocking events, we know their exact duration
-		label += fmt.Sprintf("Duration: up to %s", roundDuration(Duration(state.spanSel)))
+		label += fmt.Sprintf("Duration: up to %s", roundDuration(SpansDuration(state.spanSel)))
 		return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 	}
 }
@@ -441,8 +441,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		}
 	}
 
-	if state.spanSel.At(state.spanSel.Size()-1).State != ptrace.StateDone {
-		label += fmt.Sprintf("Duration: %s\n", roundDuration(Duration(state.spanSel)))
+	if LastSpan(state.spanSel).State != ptrace.StateDone {
+		label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spanSel)))
 	}
 
 	if len(state.events) > 0 {
@@ -509,7 +509,7 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spanSel)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 

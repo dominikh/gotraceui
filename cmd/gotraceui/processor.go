@@ -76,7 +76,7 @@ func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace,
 		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 	}
 	// OPT(dh): don't materialize all spans just to compute the duration
-	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spanSel)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 

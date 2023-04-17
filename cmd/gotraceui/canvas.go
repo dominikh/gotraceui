@@ -502,7 +502,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 			if t := track.spans.At(0).Start; t < first || first == -1 {
 				first = t
 			}
-			if t := track.spans.At(track.spans.Size() - 1).End; t > last {
+			if t := LastSpan(track.spans).End; t > last {
 				last = t
 			}
 		}
@@ -819,7 +819,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	for _, tl := range cv.prevFrame.displayedTls {
 		if spanSel := tl.NavigatedSpans(); spanSel.Size() > 0 {
 			start := spanSel.At(0).Start
-			end := spanSel.At(spanSel.Size() - 1).End
+			end := LastSpan(spanSel).End
 			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 			break
 		}
@@ -1036,7 +1036,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					// Highlight processor spans for the same goroutine if they overlap with the highlighted span.
 					cv.timeline.automaticFilter.Processor.Goroutine = hitem.ID
 					cv.timeline.automaticFilter.Processor.StartAfter = cv.timeline.hoveredSpans.At(0).Start
-					cv.timeline.automaticFilter.Processor.EndBefore = cv.timeline.hoveredSpans.At(cv.timeline.hoveredSpans.Size() - 1).End
+					cv.timeline.automaticFilter.Processor.EndBefore = LastSpan(cv.timeline.hoveredSpans).End
 				}
 
 			case *ptrace.Processor:

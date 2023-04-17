@@ -98,13 +98,6 @@ type Track struct {
 	*TrackWidget
 }
 
-func Duration(spanSel SpanSelector) time.Duration {
-	if spanSel.Size() == 0 {
-		return 0
-	}
-	return time.Duration(spanSel.At(spanSel.Size()-1).End - spanSel.At(0).Start)
-}
-
 type SpanSelector interface {
 	Spans() ptrace.Spans
 	Size() int
@@ -157,7 +150,7 @@ func newZoomMenuItem(cv *Canvas, spanSel SpanSelector) *theme.MenuItem {
 		Shortcut: key.ModShortcut.String() + "+LMB",
 		Do: func(gtx layout.Context) {
 			start := spanSel.At(0).Start
-			end := spanSel.At(spanSel.Size() - 1).End
+			end := LastSpan(spanSel).End
 			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 		},
 	}
@@ -852,7 +845,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				// If the last displayed span is also the last overall span, display an indicator that the
 				// goroutine/processor is dead.
 				dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
-				if dspLast.dspSpanSel.At(dspLast.dspSpanSel.Size()-1) == track.spans.At(track.spans.Size()-1) {
+				if LastSpan(dspLast.dspSpanSel) == LastSpan(track.spans) {
 					start := dspLast.endPx
 					deadFromPx = start
 				}
@@ -861,7 +854,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
 				// between spans (for processor tracks).
 				born := track.spans.At(0).Start
-				died := track.spans.At(track.spans.Size() - 1).End
+				died := LastSpan(track.spans).End
 
 				if cv.start >= died {
 					// The goroutine is dead

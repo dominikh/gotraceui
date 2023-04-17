@@ -23,6 +23,9 @@ func LastSpan(sel SpanSelector) ptrace.Span {
 }
 
 func SpansDuration(sel SpanSelector) time.Duration {
+	if sel.Size() == 0 {
+		return 0
+	}
 	return time.Duration(LastSpan(sel).End - sel.At(0).Start)
 }
 
@@ -68,7 +71,7 @@ func (gi *SpansInfo) Title() string {
 	g := gi.Goroutine
 	if g == nil {
 		firstSpan := gi.Spans.At(0)
-		lastSpan := gi.Spans.At(gi.Spans.Size() - 1)
+		lastSpan := LastSpan(gi.Spans)
 		return local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, gi.Container.Timeline.shortName)
 	} else {
 		if g.Function.Fn != "" {
@@ -107,10 +110,10 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		gi.events.UpdateFilter()
 
 		start := gi.Spans.At(0).Start
-		end := gi.Spans.At(gi.Spans.Size() - 1).End
+		end := LastSpan(gi.Spans).End
 		d := time.Duration(end - start)
 		observedStart := gi.Spans.At(0).State == ptrace.StateCreated
-		observedEnd := gi.Spans.At(gi.Spans.Size()-1).State == ptrace.StateDone
+		observedEnd := LastSpan(gi.Spans).State == ptrace.StateDone
 
 		gi.description.Reset(win.Theme)
 

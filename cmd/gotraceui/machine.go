@@ -45,7 +45,7 @@ func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, 
 	} else {
 		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(Duration(state.spanSel)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spanSel)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
