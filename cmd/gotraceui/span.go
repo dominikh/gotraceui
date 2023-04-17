@@ -275,9 +275,15 @@ func (gi *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			return theme.Tabbed(&gi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				switch tabs[gi.tabbedState.Current] {
 				case "Stack trace":
-					if gi.Spans.At(0).State != ptrace.StateCreated {
+					if gi.Goroutine != nil && gi.Spans.At(0).State != ptrace.StateCreated {
 						// The goroutine existed before the start of the trace and we do not have the stack trace of where it
 						// was created.
+
+						// XXX display some string instead
+						return layout.Dimensions{}
+					}
+					if gi.Goroutine == nil && gi.Spans.Size() != 1 {
+						// Multiple spans, no stack trace we can show
 
 						// XXX display some string instead
 						return layout.Dimensions{}
