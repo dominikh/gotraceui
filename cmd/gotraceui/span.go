@@ -39,6 +39,7 @@ type SpansInfo struct {
 
 	EventList EventList
 	SpanList  SpanList
+	stats     *SpansStats
 
 	Container SpanContainer
 
@@ -47,11 +48,14 @@ type SpansInfo struct {
 	buttons struct {
 		scrollAndPanToSpan widget.PrimaryClickable
 		zoomToSpan         widget.PrimaryClickable
+		copyAsCSV          widget.PrimaryClickable
 	}
 
 	tabbedState theme.TabbedState
 
 	description Text
+
+	statsList widget.List
 
 	theme.PanelButtons
 }
@@ -65,6 +69,8 @@ func (si *SpansInfo) Title() string {
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	if !si.initialized {
 		si.initialized = true
+
+		si.stats = NewSpansStats(si.Spans.Spans())
 
 		events := si.Spans.Spans().Events(si.AllEvents, si.Trace.Trace)
 		si.EventList = EventList{
@@ -185,9 +191,27 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			tabs := []string{"Spans", "Events"}
+			tabs := []string{"Statistics", "Spans", "Events"}
 			return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				switch tabs[si.tabbedState.Current] {
+				case "Statistics":
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return theme.List(win.Theme, &si.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+								if index != 0 {
+									panic("impossible")
+								}
+								return si.stats.Layout(win, gtx)
+							})
+						}),
+
+						layout.Rigid(layout.Spacer{Height: 1}.Layout),
+
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min.X = 0
+							return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+						}),
+					)
 				case "Spans":
 					return si.SpanList.Layout(win, gtx)
 				case "Events":
@@ -199,6 +223,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		}),
 	)
 
+	for si.buttons.copyAsCSV.Clicked() {
+		si.MainWindow.win.WriteClipboard(statisticsToCSV(&si.stats.stats))
+	}
 	for _, ev := range si.description.Events() {
 		handleLinkClick(win, si.MainWindow, ev)
 	}

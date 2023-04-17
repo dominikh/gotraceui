@@ -231,15 +231,7 @@ func computeGoroutineStatistics(gs []*Goroutine, progress func(float64)) {
 	}
 }
 
-func (g *Goroutine) Statistics() Statistics {
-	// XXX only compute statistics for goroutines where it'd be too slow to do just in time. on this system we need
-	// about 168ns per span. let's round that up to 400ns and go for a 5ms target. this would mean any goroutine with
-	// >=12500 spans is too big.
-
-	if g.cachedStatistics != nil {
-		return *g.cachedStatistics
-	}
-
+func ComputeStatistics(spans []Span) Statistics {
 	var values [StateLast][]time.Duration
 
 	var stats Statistics
@@ -248,8 +240,8 @@ func (g *Goroutine) Statistics() Statistics {
 		values[i] = values[i][:0]
 	}
 
-	for i := range g.Spans {
-		s := &g.Spans[i]
+	for i := range spans {
+		s := &spans[i]
 		stat := &stats[s.State]
 		stat.Count++
 		d := s.Duration()
@@ -285,6 +277,14 @@ func (g *Goroutine) Statistics() Statistics {
 	}
 
 	return stats
+}
+
+func (g *Goroutine) Statistics() Statistics {
+	if g.cachedStatistics != nil {
+		return *g.cachedStatistics
+	}
+
+	return ComputeStatistics(g.Spans)
 }
 
 func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
