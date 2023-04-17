@@ -39,7 +39,7 @@ type SpansInfo struct {
 
 	EventList EventList
 	SpanList  SpanList
-	stats     *SpansStats
+	stats     *Future[*SpansStats]
 
 	Container SpanContainer
 
@@ -70,7 +70,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	if !si.initialized {
 		si.initialized = true
 
-		si.stats = NewSpansStats(si.Spans.Spans())
+		si.stats = NewFuture(win.AppWindow, func() *SpansStats {
+			return NewSpansStats(si.Spans.Spans())
+		})
 
 		events := si.Spans.Spans().Events(si.AllEvents, si.Trace.Trace)
 		si.EventList = EventList{
@@ -201,15 +203,24 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								if index != 0 {
 									panic("impossible")
 								}
-								return si.stats.Layout(win, gtx)
+								if stats, ok := si.stats.Result(); ok {
+									return stats.Layout(win, gtx)
+								} else {
+									return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+								}
 							})
 						}),
 
 						layout.Rigid(layout.Spacer{Height: 1}.Layout),
 
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = 0
-							return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+							if _, ok := si.stats.Result(); ok {
+								gtx := gtx
+								gtx.Constraints.Min.X = 0
+								return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+							} else {
+								return layout.Dimensions{Size: gtx.Constraints.Min}
+							}
 						}),
 					)
 				case "Spans":
@@ -224,7 +235,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	)
 
 	for si.buttons.copyAsCSV.Clicked() {
-		si.MainWindow.win.WriteClipboard(statisticsToCSV(&si.stats.stats))
+		if stats, ok := si.stats.Result(); ok {
+			si.MainWindow.win.WriteClipboard(statisticsToCSV(&stats.stats))
+		}
 	}
 	for _, ev := range si.description.Events() {
 		handleLinkClick(win, si.MainWindow, ev)

@@ -27,7 +27,7 @@ type GoroutineInfo struct {
 
 	events EventList
 	spans  SpanList
-	stats  *SpansStats
+	stats  *Future[*SpansStats]
 
 	buttons struct {
 		scrollToGoroutine widget.PrimaryClickable
@@ -59,7 +59,9 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	if !gi.initialized {
 		gi.initialized = true
 
-		gi.stats = NewGoroutineStats(gi.Goroutine)
+		gi.stats = NewFuture(win.AppWindow, func() *SpansStats {
+			return NewGoroutineStats(gi.Goroutine)
+		})
 
 		gi.spans = SpanList{
 			Spans: SliceToSpanSelector(gi.Goroutine.Spans),
@@ -223,7 +225,11 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 								if index != 0 {
 									panic("impossible")
 								}
-								return gi.stats.Layout(win, gtx)
+								if stats, ok := gi.stats.Result(); ok {
+									return stats.Layout(win, gtx)
+								} else {
+									return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+								}
 							})
 						}),
 
@@ -249,7 +255,9 @@ func (gi *GoroutineInfo) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	)
 
 	for gi.buttons.copyAsCSV.Clicked() {
-		gi.MainWindow.win.WriteClipboard(statisticsToCSV(&gi.stats.stats))
+		if stats, ok := gi.stats.Result(); ok {
+			gi.MainWindow.win.WriteClipboard(statisticsToCSV(&stats.stats))
+		}
 	}
 
 	for _, ev := range gi.description.Events() {

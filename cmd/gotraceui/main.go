@@ -184,7 +184,7 @@ type PanelWindow struct {
 
 func (pwin *PanelWindow) Run(win *app.Window) error {
 	var ops op.Ops
-	tWin := &theme.Window{Theme: theme.NewTheme(font.Collection())}
+	tWin := &theme.Window{AppWindow: win, Theme: theme.NewTheme(font.Collection())}
 
 	for e := range win.Events() {
 		switch ev := e.(type) {
@@ -652,8 +652,9 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 
 	var commands []Command
 	mwin.twin = &theme.Window{
-		Theme: mwin.theme,
-		Menu:  mainMenu.menu,
+		AppWindow: win,
+		Theme:     mwin.theme,
+		Menu:      mainMenu.menu,
 	}
 
 	resize := component.Resize{
@@ -1783,4 +1784,29 @@ func Record(win *theme.Window, gtx layout.Context, w theme.Widget) Recording {
 	c := m.Stop()
 
 	return Recording{c, dims}
+}
+
+type Future[T any] struct {
+	result T
+	done   atomic.Bool
+}
+
+func NewFuture[T any](win *app.Window, fn func() T) *Future[T] {
+	ft := &Future[T]{}
+
+	go func() {
+		ft.result = fn()
+		ft.done.Store(true)
+		win.Invalidate()
+	}()
+
+	return ft
+}
+
+func (ft *Future[T]) Result() (T, bool) {
+	if ft.done.Load() {
+		return ft.result, true
+	} else {
+		return *new(T), false
+	}
 }

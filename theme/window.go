@@ -7,6 +7,7 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
+	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
@@ -16,8 +17,9 @@ import (
 )
 
 type Window struct {
-	Theme *Theme
-	Menu  *Menu
+	AppWindow *app.Window
+	Theme     *Theme
+	Menu      *Menu
 	// The current frame number
 	Frame       uint64
 	contextMenu []*MenuItem
