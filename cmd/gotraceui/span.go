@@ -266,7 +266,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			tabs := []string{"Statistics", "Spans", "Events"}
+			tabs := []string{"Statistics", "Spans"}
+			if len(si.events.Events) != 0 {
+				tabs = append(tabs, "Events")
+			}
 			if si.stacktrace != "" {
 				tabs = append(tabs, "Stack trace")
 			}
