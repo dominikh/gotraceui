@@ -122,6 +122,11 @@ func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
 	mwin.openPanel(gi)
 }
 
+func (mwin *MainWindow) openFunction(fn *ptrace.Function) {
+	fi := NewFunctionInfo(mwin, fn)
+	mwin.openPanel(fi)
+}
+
 func (mwin *MainWindow) openSpan(s SpanSelector, tl *Timeline, tr *Track, allEvents []ptrace.EventID) {
 	var labels []string
 	var label string
@@ -479,6 +484,9 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				panic(l.Kind)
 			}
 
+		case *FunctionLink:
+			mwin.openFunction(l.Fn)
+
 		case *TimestampLink:
 			d := mwin.canvas.End() - mwin.canvas.start
 			mwin.canvas.navigateTo(gtx, l.Ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.y)
@@ -494,6 +502,7 @@ func (mwin *MainWindow) OpenLink(l Link) {
 				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
 				mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 			}
+
 		default:
 			panic(fmt.Sprintf("unsupported type: %T", l))
 		}
@@ -1730,6 +1739,8 @@ func defaultLink(obj any) Link {
 		return &TimestampLink{Ts: *obj}
 	case trace.Timestamp:
 		return &TimestampLink{Ts: obj}
+	case *ptrace.Function:
+		return &FunctionLink{Fn: obj}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}

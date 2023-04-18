@@ -784,7 +784,7 @@ func NewGoroutineInfo(mwin *MainWindow, g *ptrace.Goroutine) *SpansInfo {
 			text.Span(local.Sprintf("%d\n", g.ID))
 
 			text.Bold("Function: ")
-			text.Span(fmt.Sprintf("%s\n", g.Function.Fn))
+			text.Link(fmt.Sprintf("%s\n", g.Function.Fn), g.Function)
 
 			if observedStart {
 				text.Bold("Created at: ")

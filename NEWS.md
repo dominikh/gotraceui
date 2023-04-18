@@ -7,6 +7,7 @@
 - Added list of spans to goroutine panel
 - Added statistics to spans panel
 - Added individual spans' stack traces in spans panel
+- Added function panel
 
 
 # v0.2.0 (2023-04-11)
