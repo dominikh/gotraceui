@@ -1137,13 +1137,16 @@ type Window interface {
 	Run(win *app.Window) error
 }
 
+type Link interface{ isLink() }
+
+type aLink struct{}
+
+func (aLink) isLink() {}
+
 type TimestampLink struct {
+	aLink
 	Ts trace.Timestamp
 }
-
-func (*TimestampLink) isLink() {}
-
-type Link interface{ isLink() }
 
 type GoroutineLinkKind uint8
 
@@ -1724,9 +1727,9 @@ func defaultLink(obj any) Link {
 		// There are no processor panels yet, so we default to scrolling
 		return &ProcessorLink{Processor: obj, Kind: ProcessorLinkKindScroll}
 	case *trace.Timestamp:
-		return &TimestampLink{*obj}
+		return &TimestampLink{Ts: *obj}
 	case trace.Timestamp:
-		return &TimestampLink{obj}
+		return &TimestampLink{Ts: obj}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}

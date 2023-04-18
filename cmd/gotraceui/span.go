@@ -379,10 +379,6 @@ type SpansLink struct {
 	Kind     SpanLinkKind
 }
 
-type aLink struct{}
-
-func (aLink) isLink() {}
-
 type SpanLinkKind uint8
 
 const (
