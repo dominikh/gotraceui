@@ -417,7 +417,13 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		for i, bin := range hist.Bins {
 			x0, x1 := binXCoordinates(i, barWidth)
 			y0 := gtx.Constraints.Min.Y
-			y1 := int(roundf(float32(gtx.Constraints.Min.Y) - float32(gtx.Constraints.Min.Y)*(float32(bin)/float32(hist.MaxBinValue))))
+			var y1 int
+			if hist.MaxBinValue == 0 {
+				// Don't draw bars for zero bins, even if all bins are zero
+				y1 = y0
+			} else {
+				y1 = int(roundf(float32(gtx.Constraints.Min.Y) - float32(gtx.Constraints.Min.Y)*(float32(bin)/float32(hist.MaxBinValue))))
+			}
 
 			rect := clip.Rect{
 				Min: image.Pt(x0, y1),

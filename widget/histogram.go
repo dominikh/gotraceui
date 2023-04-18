@@ -204,6 +204,10 @@ func NewHistogram(cfg *HistogramConfig, values []time.Duration) *Histogram {
 
 		for _, v := range values {
 			v := FloatDuration(v)
+			if v < start || v > lastFittingValue {
+				// The user provided values that are out of range for start and end. Reject these values.
+				continue
+			}
 			// Truncate, don't round, to find the bucket
 			curBin := int((v - start) / binWidth)
 			if curBin == len(hist.Bins) {
