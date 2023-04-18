@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"runtime"
+	"path/filepath"
 	rtrace "runtime/trace"
 	"strings"
 	"time"
@@ -54,8 +54,6 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 
 	// Build description
 	{
-		goroot := runtime.GOROOT()
-
 		fi.description.Reset(mwin.twin.Theme)
 
 		fi.description.Bold("Function: ")
@@ -64,15 +62,31 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 
 		fi.description.Bold("Location: ")
 		// TODO(dh): make file link clickable
-		l := fn.File
-		if strings.HasPrefix(l, goroot) {
-			// TODO(dh): support windows path
-			// TODO(dh): support configurable GOROOT for traces from other systems
-			// TODO(dh): we can auto-detect GOROOT from the trace because we know which files are in the standard library
-			// TODO(dh): support GOPATH
-			l = "$GOROOT" + strings.TrimPrefix(l, goroot)
+		displayPath := fn.File
+		if goroot := mwin.trace.GOROOT; goroot != "" && strings.HasPrefix(fn.File, goroot) {
+			displayPath = filepath.Join("$GOROOT", strings.TrimPrefix(fn.File, goroot))
+		} else if gopath := mwin.trace.GOPATH; gopath != "" && strings.HasPrefix(fn.File, gopath) {
+			displayPath = filepath.Join("$GOPATH", strings.TrimPrefix(fn.File, gopath))
+		} else if goroot == "" && gopath == "" {
+			// We couldn't detect goroot, which makes it very likely that the executable had paths trimmed. Detect if
+			// the trimmed path is in GOROOT or GOPATH based on if the first path element has a dot in it or not. Module
+			// paths without dots are reserved for the standard library. This has a small but negligible chance of false
+			// positives.
+
+			left, _, ok := strings.Cut(fn.File, "/")
+			if ok {
+				if strings.Contains(left, ".") {
+					if strings.Contains(fn.File, "@v") {
+						displayPath = filepath.Join("$GOPATH", "pkg", "mod", fn.File)
+					} else {
+						displayPath = filepath.Join("$GOPATH", "src", fn.File)
+					}
+				} else {
+					displayPath = filepath.Join("$GOROOT", "src", fn.File)
+				}
+			}
 		}
-		fi.description.Span(fmt.Sprintf("%s:%d", l, fn.Line))
+		fi.description.Span(fmt.Sprintf("%s:%d", displayPath, fn.Line))
 		fi.description.Span("\n")
 
 		fi.description.Bold("# of goroutines: ")
