@@ -25,6 +25,9 @@ var reasonByEventType = [256]reason{
 type Trace struct {
 	*ptrace.Trace
 
+	GOROOT string
+	GOPATH string
+
 	allGoroutineSpanLabels   [][]string
 	allProcessorSpanLabels   [][]string
 	allGoroutineFilterLabels [][]string

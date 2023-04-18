@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	rdebug "runtime/debug"
@@ -1539,6 +1540,48 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 			Color:  colors[colorStateBlockedGC],
 		},
 	)
+
+	var goroot, gopath string
+	for _, fn := range tr.Functions {
+		if strings.HasPrefix(fn.Fn, "runtime.") && strings.Count(fn.Fn, ".") == 1 && strings.Contains(fn.File, filepath.Join("go", "src", "runtime")) && !strings.ContainsRune(fn.Fn, os.PathSeparator) {
+			idx := strings.LastIndex(fn.File, filepath.Join("go", "src", "runtime"))
+			goroot = fn.File[0 : idx+len("go")]
+			break
+		}
+	}
+
+	// goroot will be empty for executables with trimmed paths. In that case we cannot detect GOPATH, either.
+	if goroot != "" {
+		// We detect GOROOT and GOPATH separately because we make use of GOROOT to reliably detect GOPATH.
+		candidates := map[string]int{}
+		for _, fn := range tr.Functions {
+			if !strings.HasPrefix(fn.File, goroot) && strings.ContainsRune(fn.Fn, os.PathSeparator) {
+				// TODO(dh): support Windows paths
+				dir, pkgAndFn, _ := strings.Cut(fn.Fn, string(os.PathSeparator))
+				pkg, _, _ := strings.Cut(pkgAndFn, ".")
+				idx := strings.LastIndex(fn.File, filepath.Join("src", dir, pkg))
+				if idx == -1 {
+					idx = strings.LastIndex(fn.File, filepath.Join("pkg", "mod", dir))
+					if idx == -1 {
+						continue
+					}
+				}
+				p := fn.File[:idx]
+				candidates[p]++
+			}
+		}
+
+		var max int
+		for c, n := range candidates {
+			if n > max {
+				gopath = c
+				max = n
+			}
+		}
+	}
+
+	tr.GOROOT = goroot
+	tr.GOPATH = gopath
 
 	return loadTraceResult{
 		trace:     tr,
