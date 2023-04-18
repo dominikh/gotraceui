@@ -1,3 +1,14 @@
+# v0.3.0 (unreleased)
+
+- Improved the formatting of durations in statistics
+- Made minor improvements to visual appearance
+- Replaced foldables with a tabbed interface
+- Allow selecting and copying stack traces
+- Added list of spans to goroutine panel
+- Added statistics to spans panel
+- Added individual spans' stack traces in spans panel
+
+
 # v0.2.0 (2023-04-11)
 
 - Added a button for copying statistics as CSV
