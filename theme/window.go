@@ -79,8 +79,8 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 
 	for _, item := range win.contextMenu {
 		if item.Clicked() {
-			item.Do(gtx)
 			win.CloseModal()
+			item.Do(gtx)
 			win.contextMenu = nil
 		}
 	}
