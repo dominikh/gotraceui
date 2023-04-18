@@ -266,15 +266,13 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			tabs := []string{"Statistics", "Spans", "Events", "Stack trace"}
+			tabs := []string{"Statistics", "Spans", "Events"}
+			if si.stacktrace != "" {
+				tabs = append(tabs, "Stack trace")
+			}
 			return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				switch tabs[si.tabbedState.Current] {
 				case "Stack trace":
-					if si.stacktrace == "" {
-						// XXX display some string instead
-						return layout.Dimensions{}
-					}
-
 					return theme.List(win.Theme, &si.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 						if index != 0 {
 							panic("impossible")
