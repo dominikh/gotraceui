@@ -36,9 +36,10 @@ type FunctionInfo struct {
 	tabbedState   theme.TabbedState
 	goroutineList GoroutineList
 
-	histState theme.HistogramState
-	hist      *theme.Future[*widget.Histogram]
-	histClick widget.Clickable
+	histState         theme.HistogramState
+	hist              *theme.Future[*widget.Histogram]
+	histSettingsState HistogramSettingsState
+	histClick         widget.Clickable
 
 	theme.PanelButtons
 }
@@ -104,7 +105,9 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 	}
 
 	// Build histogram
-	fi.computeHistogram(mwin.twin, 0, 0)
+	cfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
+	fi.computeHistogram(mwin.twin, cfg)
+	fi.histSettingsState.Reset(cfg)
 
 	return fi
 }
@@ -170,7 +173,11 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		Start widget.FloatDuration
 		End   widget.FloatDuration
 	}{}) {
-		fi.computeHistogram(win, fi.histState.Activated.Start, fi.histState.Activated.End)
+		hist, _ := fi.hist.Result()
+		cfg := *hist.Config
+		cfg.Start = fi.histState.Activated.Start
+		cfg.End = fi.histState.Activated.End
+		fi.computeHistogram(win, &cfg)
 	}
 
 	for _, ev := range fi.goroutineList.Clicked() {
@@ -196,20 +203,49 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 
 		menu := []*theme.MenuItem{
 			{
+				Label: PlainLabel("Change settings"),
+				Do: func(gtx layout.Context) {
+					win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
+						gtx.Constraints.Max = gtx.Constraints.Min
+						return theme.Dialog(win.Theme, "Histogram settings").Layout(win, gtx, HistogramSettings(&fi.histSettingsState).Layout)
+					})
+				},
+			},
+
+			{
 				// TODO disable when there is nothing to zoom out to
 				Label: PlainLabel("Zoom out"),
 				Do: func(gtx layout.Context) {
-					fi.computeHistogram(win, 0, 0)
+					hist, _ := fi.hist.Result()
+					cfg := *hist.Config
+					cfg.Start = 0
+					cfg.End = 0
+					fi.computeHistogram(win, &cfg)
 				},
 			},
 		}
 		win.SetContextMenu(menu)
 	}
 
+	if fi.histSettingsState.Saved() {
+		hist, _ := fi.hist.Result()
+		cfg := *hist.Config
+		cfg.Bins = fi.histSettingsState.NumBins()
+		cfg.RejectOutliers = fi.histSettingsState.RejectOutliers()
+		fi.computeHistogram(win, &cfg)
+		win.CloseModal()
+	}
+	if fi.histSettingsState.Cancelled() {
+		hist, _ := fi.hist.Result()
+		fi.histSettingsState.Reset(hist.Config)
+		win.CloseModal()
+	}
+
 	return dims
 }
 
-func (fi *FunctionInfo) computeHistogram(win *theme.Window, start, end widget.FloatDuration) {
+func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
 	var goroutineDurations []time.Duration
 
 	for _, g := range fi.fn.Goroutines {
@@ -217,12 +253,8 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, start, end widget.Fl
 		goroutineDurations = append(goroutineDurations, d)
 	}
 
-	var cfg widget.HistogramConfig
-	cfg.Start = start
-	cfg.End = end
-	cfg.RejectOutliers = true
 	fi.hist = theme.NewFuture(win, func(cancelled <-chan struct{}) *widget.Histogram {
-		return widget.NewHistogram(&cfg, goroutineDurations)
+		return widget.NewHistogram(cfg, goroutineDurations)
 	})
 }
 

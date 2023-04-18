@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const DefaultHistogramBins = 100
+
 type FloatDuration float64
 
 func (d FloatDuration) Floor() time.Duration {
@@ -75,7 +77,6 @@ type HistogramConfig struct {
 }
 
 func NewHistogram(cfg *HistogramConfig, values []time.Duration) *Histogram {
-	const defaultBins = 100
 
 	var (
 		start, end     FloatDuration
@@ -85,7 +86,7 @@ func NewHistogram(cfg *HistogramConfig, values []time.Duration) *Histogram {
 
 	if cfg != nil {
 		if cfg.Bins == 0 {
-			cfg.Bins = defaultBins
+			cfg.Bins = DefaultHistogramBins
 		}
 		start, end = cfg.Start, cfg.End
 		rejectOutliers = cfg.RejectOutliers
@@ -93,7 +94,7 @@ func NewHistogram(cfg *HistogramConfig, values []time.Duration) *Histogram {
 	}
 
 	if bins == 0 {
-		bins = defaultBins
+		bins = DefaultHistogramBins
 	}
 
 	if end != 0 {
