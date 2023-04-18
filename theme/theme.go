@@ -856,46 +856,55 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	const lineThickness = 1
 	const activeLineThickness = 3
 
-	var lineHeight int
-	defer op.Offset(image.Pt(0, gtx.Dp(padding))).Push(gtx.Ops).Pop()
-	func() {
-		gtx := gtx
-		for i, tab := range ts.Tabs {
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		// Tabs
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			dims := ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
-				dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, 12, tab, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
-				stack.Pop()
+			var lineHeight int
+			for i, tab := range ts.Tabs {
+				dims := ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
 
-				dims.Size.X += 2 * gtx.Dp(padding)
-				dims.Size.Y += gtx.Dp(padding)
+					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, 12, tab, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+					stack.Pop()
 
-				if i == ts.State.Current {
-					x0 := 0
-					x1 := dims.Size.X
-					y0 := dims.Size.Y - gtx.Dp(activeLineThickness)
-					y1 := y0 + gtx.Dp(activeLineThickness)
-					paint.FillShape(gtx.Ops, rgba(0x9696FFFF), clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
-				}
+					dims.Size.X += 2 * gtx.Dp(padding)
+					dims.Size.Y += gtx.Dp(padding)
 
-				return dims
-			})
+					if i == ts.State.Current {
+						x0 := 0
+						x1 := dims.Size.X
+						y0 := dims.Size.Y - gtx.Dp(activeLineThickness)
+						y1 := y0 + gtx.Dp(activeLineThickness)
+						paint.FillShape(gtx.Ops, rgba(0x9696FFFF), clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
+					}
 
-			defer op.Offset(image.Pt(dims.Size.X, 0)).Push(gtx.Ops).Pop()
-			lineHeight = dims.Size.Y
-		}
-	}()
+					return dims
+				})
 
-	paint.FillShape(gtx.Ops, rgba(0x000000FF), clip.Rect{Min: image.Pt(0, lineHeight), Max: image.Pt(gtx.Constraints.Min.X, lineHeight+gtx.Dp(lineThickness))}.Op())
+				defer op.Offset(image.Pt(dims.Size.X, 0)).Push(gtx.Ops).Pop()
+				lineHeight = dims.Size.Y
+			}
 
-	heightHeader := lineHeight + gtx.Dp(padding) + gtx.Dp(lineThickness) + gtx.Dp(padding)
-	defer op.Offset(image.Pt(0, heightHeader)).Push(gtx.Ops).Pop()
-	gtx.Constraints.Max.Y -= heightHeader
-	gtx.Constraints = layout.Normalize(gtx.Constraints)
+			// The X size is bogus, but nobody cares.
+			return layout.Dimensions{Size: image.Pt(0, lineHeight)}
+		}),
 
-	dims := w(win, gtx)
+		// Line
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			r := clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, gtx.Dp(lineThickness))}
+			paint.FillShape(gtx.Ops, rgba(0x000000FF), r.Op())
+			return layout.Dimensions{Size: r.Max}
+		}),
 
-	dims.Size.Y += heightHeader
+		// Padding
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: padding}.Layout(gtx) }),
+
+		// Content
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return w(win, gtx)
+		}),
+	)
 
 	for i := range ts.State.clickables {
 		for ts.State.clickables[i].Clicked() {
@@ -903,7 +912,5 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 		}
 	}
 
-	return layout.Dimensions{
-		Size: dims.Size,
-	}
+	return dims
 }
