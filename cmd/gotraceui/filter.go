@@ -42,8 +42,8 @@ func (f Filter) HasState(state ptrace.SchedulingState) bool {
 	return f.States&(1<<state) != 0
 }
 
-func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) {
-	if !f.couldMatch(spanSel, container) {
+func (f Filter) Match(spans ptrace.Spans, container SpanContainer) (out bool) {
+	if !f.couldMatch(spans, container) {
 		return false
 	}
 
@@ -53,7 +53,8 @@ func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) 
 				return false, true
 			}
 
-			for _, s := range spanSel.Spans() {
+			for i := 0; i < spans.Len(); i++ {
+				s := spans.At(i)
 				if f.HasState(s.State) {
 					return true, false
 				}
@@ -71,18 +72,19 @@ func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) 
 			}
 
 			var off int
-			spans := spanSel.Spans()
+			spans := spans
 			if f.Processor.StartAfter != 0 {
-				off = sort.Search(len(spans), func(i int) bool {
-					return spans[i].Start >= f.Processor.StartAfter
+				off = sort.Search(spans.Len(), func(i int) bool {
+					return spans.At(i).Start >= f.Processor.StartAfter
 				})
 			}
 
 			if f.Processor.EndBefore == 0 {
-				return off < len(spans), false
+				return off < spans.Len(), false
 			}
 
-			for _, span := range spans[off:] {
+			for i := off; i < spans.Len(); i++ {
+				span := spans.At(i)
 				// OPT(dh): don't be O(n)
 
 				if span.Start > f.Processor.EndBefore {
@@ -112,7 +114,8 @@ func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) 
 			if f.Processor.Goroutine != 0 {
 				if _, ok := container.Timeline.item.(*ptrace.Processor); ok {
 					tr := container.Timeline.cv.trace
-					for _, s := range spanSel.Spans() {
+					for i := 0; i < spans.Len(); i++ {
+						s := spans.At(i)
 						g := tr.G(tr.Event(s.Event).G)
 						if g.ID == f.Processor.Goroutine {
 							return true, false
@@ -130,7 +133,8 @@ func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) 
 			if f.Machine.Processor != 0 {
 				if _, ok := container.Timeline.item.(*ptrace.Machine); ok {
 					tr := container.Timeline.cv.trace
-					for _, s := range spanSel.Spans() {
+					for i := 0; i < spans.Len(); i++ {
+						s := spans.At(i)
 						p := tr.P(tr.Event(s.Event).P)
 						if p.ID == f.Machine.Processor {
 							return true, false
@@ -176,7 +180,7 @@ func (f Filter) Match(spanSel SpanSelector, container SpanContainer) (out bool) 
 
 // couldMatch checks if the filter could possibly match the spans. It's an optimization to avoid checking impossible
 // combinations.
-func (f Filter) couldMatch(spanSel SpanSelector, container SpanContainer) bool {
+func (f Filter) couldMatch(spans ptrace.Spans, container SpanContainer) bool {
 	{
 		// Unset Mode so we can compare with the empty literal
 		f := f
@@ -186,12 +190,12 @@ func (f Filter) couldMatch(spanSel SpanSelector, container SpanContainer) bool {
 		}
 	}
 
-	b := f.couldMatchState(spanSel, container)
-	b = b || f.couldMatchProcessor(spanSel, container)
+	b := f.couldMatchState(spans, container)
+	b = b || f.couldMatchProcessor(spans, container)
 	return b
 }
 
-func (f Filter) couldMatchProcessor(spanSel SpanSelector, container SpanContainer) bool {
+func (f Filter) couldMatchProcessor(spans ptrace.Spans, container SpanContainer) bool {
 	switch container.Timeline.item.(type) {
 	case *ptrace.Processor:
 		return true
@@ -200,7 +204,7 @@ func (f Filter) couldMatchProcessor(spanSel SpanSelector, container SpanContaine
 	}
 }
 
-func (f Filter) couldMatchState(spanSel SpanSelector, container SpanContainer) bool {
+func (f Filter) couldMatchState(spans ptrace.Spans, container SpanContainer) bool {
 	switch item := container.Timeline.item.(type) {
 	case *ptrace.Processor:
 		return f.HasState(ptrace.StateRunningG)

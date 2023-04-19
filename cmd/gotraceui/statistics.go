@@ -115,7 +115,7 @@ func NewStats(stats ptrace.Statistics) *SpansStats {
 	return gst
 }
 
-func NewSpansStats(spans []ptrace.Span) *SpansStats {
+func NewSpansStats(spans ptrace.Spans) *SpansStats {
 	return NewStats(ptrace.ComputeStatistics(spans))
 }
 

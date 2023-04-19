@@ -69,11 +69,11 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateStack:                   "Stack frame",
 }
 
-func goroutineTrack0SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
-	if spanSel.Size() != 1 {
+func goroutineTrack0SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+	if spans.Len() != 1 {
 		return out
 	}
-	span := spanSel.At(0)
+	span := spans.At(0)
 	state := span.State
 	if state == ptrace.StateBlockedSyscall {
 		ev := tr.Event(span.Event)
@@ -90,30 +90,30 @@ func goroutineTrack0SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []s
 	return append(out, spanStateLabels[state]...)
 }
 
-func goroutineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.MenuItem {
+func goroutineTrack0SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spanSel))
+	items = append(items, newZoomMenuItem(cv, spans))
 
-	if spanSel.Size() == 1 {
-		switch spanSel.At(0).State {
+	if spans.Len() == 1 {
+		switch spans.At(0).State {
 		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCFractional, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
 			// These are the states that are actually on-CPU
-			pid := cv.trace.Event((spanSel.At(0).Event)).P
+			pid := cv.trace.Event((spans.At(0).Event)).P
 			items = append(items, &theme.MenuItem{
 				Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
 				Do: func(gtx layout.Context) {
-					cv.scrollToTimeline(gtx, cv.trace.P(cv.trace.Event((spanSel.At(0).Event)).P))
+					cv.scrollToTimeline(gtx, cv.trace.P(cv.trace.Event((spans.At(0).Event)).P))
 				},
 			})
 
 		case ptrace.StateBlocked, ptrace.StateBlockedSend, ptrace.StateBlockedRecv, ptrace.StateBlockedSelect, ptrace.StateBlockedSync,
 			ptrace.StateBlockedSyncOnce, ptrace.StateBlockedSyncTriggeringGC, ptrace.StateBlockedCond, ptrace.StateBlockedNet, ptrace.StateBlockedGC:
-			gid, ok := unblockedByGoroutine(cv.trace, spanSel.At(0))
+			gid, ok := unblockedByGoroutine(cv.trace, spans.At(0))
 			if ok {
 				items = append(items, &theme.MenuItem{
 					Label: PlainLabel(local.Sprintf("Scroll to unblocking goroutine %d", gid)),
 					Do: func(gtx layout.Context) {
-						gid, _ := unblockedByGoroutine(cv.trace, spanSel.At(0))
+						gid, _ := unblockedByGoroutine(cv.trace, spans.At(0))
 						cv.scrollToTimeline(gtx, cv.trace.G(gid))
 					},
 				})
@@ -124,20 +124,20 @@ func goroutineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.M
 	return items
 }
 
-func userRegionSpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
-	if spanSel.Size() != 1 {
+func userRegionSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+	if spans.Len() != 1 {
 		return out
 	}
 	// OPT(dh): avoid this allocation
-	s := tr.Strings[tr.Events[spanSel.At(0).Event].Args[trace.ArgUserRegionTypeID]]
+	s := tr.Strings[tr.Events[spans.At(0).Event].Args[trace.ArgUserRegionTypeID]]
 	return append(out, s)
 }
 
-func stackSpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
-	if spanSel.Size() != 1 {
+func stackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+	if spans.Len() != 1 {
 		return out
 	}
-	pc := spanSel.(MetadataSelector[stackSpanMeta]).MetadataAt(0).pc
+	pc := spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0).pc
 	f := tr.PCs[pc]
 
 	short := shortenFunctionName(f.Fn)
@@ -153,24 +153,24 @@ func stackSpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
 func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	return func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 		var label string
-		if state.spanSel.Size() == 1 {
-			meta := state.spanSel.(MetadataSelector[stackSpanMeta]).MetadataAt(0)
+		if state.spans.Len() == 1 {
+			meta := state.spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0)
 			pc := meta.pc
 			f := tr.PCs[pc]
 			label = local.Sprintf("Function: %s\n", f.Fn)
 			// TODO(dh): for truncated stacks we should display a relative depth instead
 			label += local.Sprintf("Call depth: %d\n", level)
-			if state.spanSel.At(0).State == ptrace.StateCPUSample {
+			if state.spans.At(0).State == ptrace.StateCPUSample {
 				label += local.Sprintf("Samples: %d\n", meta.num)
 			}
 		} else {
-			label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
+			label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
 		}
 		// We round the duration, in addition to saying "up to", to make it more obvious that the
 		// duration is a guess
 		//
 		// TODO(dh): don't do this for the stacks of blocking events, we know their exact duration
-		label += fmt.Sprintf("Duration: up to %s", roundDuration(SpansDuration(state.spanSel)))
+		label += fmt.Sprintf("Duration: up to %s", roundDuration(SpansDuration(state.spans)))
 		return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 	}
 }
@@ -184,7 +184,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 
 	tl := &Timeline{
 		tracks: []Track{{
-			spans:  SliceToSpanSelector(g.Spans),
+			spans:  (g.Spans),
 			events: g.Events,
 		}},
 		buildTrackWidgets: func(tracks []Track) {
@@ -232,7 +232,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	}
 
 	for _, ug := range g.UserRegions {
-		tl.tracks = append(tl.tracks, Track{spans: SliceToSpanSelector(ug), kind: TrackKindUserRegions})
+		tl.tracks = append(tl.tracks, Track{spans: (ug), kind: TrackKindUserRegions})
 	}
 
 	addStackTracks(tl, g, tr)
@@ -273,8 +273,8 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		args = append(args, tt.g.ID)
 	}
 
-	observedStart := tt.g.Spans[0].State == ptrace.StateCreated
-	observedEnd := tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone
+	observedStart := tt.g.Spans.At(0).State == ptrace.StateCreated
+	observedEnd := tt.g.Spans.At((tt.g.Spans.Len())-1).State == ptrace.StateDone
 	if observedStart {
 		fmts = append(fmts, "Created at: %s")
 		args = append(args, formatTimestamp(start))
@@ -298,7 +298,7 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	}
 
 	fmts = append(fmts, "Spans: %d")
-	args = append(args, len(tt.g.Spans))
+	args = append(args, (tt.g.Spans.Len()))
 
 	fmts = append(fmts, "Time in blocked states: %s (%.2f%%)")
 	args = append(args, roundDuration(blocked), blockedPct)
@@ -342,13 +342,13 @@ func unblockedByGoroutine(tr *Trace, s ptrace.Span) (uint64, bool) {
 func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if debug {
-		label += local.Sprintf("Event ID: %d\n", state.spanSel.At(0).Event)
-		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spanSel.At(0).Event).Type)
+		label += local.Sprintf("Event ID: %d\n", state.spans.At(0).Event)
+		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spans.At(0).Event).Type)
 	}
 	label += "State: "
 	var at string
-	if state.spanSel.Size() == 1 {
-		s := state.spanSel.At(0)
+	if state.spans.Len() == 1 {
+		s := state.spans.At(0)
 		ev := tr.Event(s.Event)
 		if at == "" && ev.StkID > 0 {
 			at = tr.PCs[tr.Stacks[ev.StkID][s.At]].Fn
@@ -418,12 +418,12 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += local.Sprintf("\nUnblocked by goroutine %d (%s)", g, tr.G(g).Function)
 		}
 	} else {
-		label += local.Sprintf("mixed (%d spans)", state.spanSel.Size())
+		label += local.Sprintf("mixed (%d spans)", state.spans.Len())
 	}
 	label += "\n"
 
-	if state.spanSel.Size() == 1 {
-		if reason := reasonLabels[tr.Reason(state.spanSel.At(0))]; reason != "" {
+	if state.spans.Len() == 1 {
+		if reason := reasonLabels[tr.Reason(state.spans.At(0))]; reason != "" {
 			label += "Reason: " + reason + "\n"
 		}
 	}
@@ -433,16 +433,16 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		// state. We try to pattern match away the runtime when it makes sense.
 		label += fmt.Sprintf("In: %s\n", at)
 	}
-	if state.spanSel.Size() == 1 {
-		switch state.spanSel.At(0).State {
+	if state.spans.Len() == 1 {
+		switch state.spans.At(0).State {
 		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
-			pid := tr.Event(state.spanSel.At(0).Event).P
+			pid := tr.Event(state.spans.At(0).Event).P
 			label += local.Sprintf("On: processor %d\n", pid)
 		}
 	}
 
-	if LastSpan(state.spanSel).State != ptrace.StateDone {
-		label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spanSel)))
+	if LastSpan(state.spans).State != ptrace.StateDone {
+		label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spans)))
 	}
 
 	if len(state.events) > 0 {
@@ -493,8 +493,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 
 func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
-	if state.spanSel.Size() == 1 {
-		s := state.spanSel.At(0)
+	if state.spans.Len() == 1 {
+		s := state.spans.At(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateUserRegion {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -507,9 +507,9 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]])
 		}
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
+		label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spanSel)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
@@ -555,19 +555,19 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	}
 
 	var stackTracks []Track
-	var trackSpans []ptrace.Spans
+	var trackSpans [][]ptrace.Span
 	var spanMeta [][]stackSpanMeta
 	offSpans := 0
 	offSamples := 0
 	cpuSamples := tr.CPUSamples[g.ID]
 
 	nextEvent := func(advance bool) (ptrace.EventID, bool, bool) {
-		if offSpans == len(g.Spans) && offSamples == len(cpuSamples) {
+		if offSpans == (g.Spans.Len()) && offSamples == len(cpuSamples) {
 			return 0, false, false
 		}
 
-		if offSpans < len(g.Spans) {
-			id := g.Spans[offSpans].Event
+		if offSpans < (g.Spans.Len()) {
+			id := g.Spans.At(offSpans).Event
 			if offSamples < len(cpuSamples) {
 				oid := cpuSamples[offSamples]
 				if id <= oid {
@@ -693,7 +693,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	for i := range stackTracks {
 		stackTracks[i].kind = TrackKindStack
 		stackTracks[i].spans = spanAndMetadataSlices[stackSpanMeta]{
-			spans: trackSpans[i],
+			spans: ptrace.ToSpans(trackSpans[i]),
 			meta:  spanMeta[i],
 		}
 	}
@@ -732,7 +732,7 @@ func NewGoroutineInfo(mwin *MainWindow, g *ptrace.Goroutine) *SpansInfo {
 		title = local.Sprintf("goroutine %d", g.ID)
 	}
 
-	spans := SliceToSpanSelector(g.Spans)
+	spans := (g.Spans)
 
 	var stacktrace string
 	tr := mwin.trace

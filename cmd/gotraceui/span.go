@@ -18,12 +18,12 @@ import (
 	"honnef.co/go/gotraceui/widget"
 )
 
-func LastSpan(sel SpanSelector) ptrace.Span {
-	return sel.At(sel.Size() - 1)
+func LastSpan(sel ptrace.Spans) ptrace.Span {
+	return sel.At(sel.Len() - 1)
 }
 
-func SpansDuration(sel SpanSelector) time.Duration {
-	if sel.Size() == 0 {
+func SpansDuration(sel ptrace.Spans) time.Duration {
+	if sel.Len() == 0 {
 		return 0
 	}
 	return time.Duration(LastSpan(sel).End - sel.At(0).Start)
@@ -37,7 +37,7 @@ type SpanContainer struct {
 type SpansInfo struct {
 	mwin       *MainWindow
 	allEvents  []ptrace.EventID
-	spanSel    SpanSelector
+	spans      ptrace.Spans
 	label      string
 	trace      *Trace
 	stacktrace string
@@ -45,9 +45,9 @@ type SpansInfo struct {
 	navigations SpansInfoConfigNavigations
 	title       string
 
-	events EventList
-	spans  SpanList
-	stats  *theme.Future[*SpansStats]
+	events    EventList
+	spansList SpanList
+	stats     *theme.Future[*SpansStats]
 
 	container SpanContainer
 
@@ -86,10 +86,10 @@ type SpansInfoConfigNavigations struct {
 	ZoomFn    func() Link
 }
 
-func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans SpanSelector, allEvents []ptrace.EventID) *SpansInfo {
+func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans ptrace.Spans, allEvents []ptrace.EventID) *SpansInfo {
 	si := &SpansInfo{
 		mwin:        mwin,
-		spanSel:     spans,
+		spans:       spans,
 		trace:       mwin.trace,
 		allEvents:   allEvents,
 		title:       cfg.Title,
@@ -101,12 +101,12 @@ func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans SpanSelector, all
 	}
 
 	if si.title == "" {
-		firstSpan := si.spanSel.At(0)
-		lastSpan := LastSpan(si.spanSel)
+		firstSpan := si.spans.At(0)
+		lastSpan := LastSpan(si.spans)
 		si.title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.container.Timeline.shortName)
 	}
 
-	if si.stacktrace == "" && (si.container != SpanContainer{}) && spans.Size() == 1 {
+	if si.stacktrace == "" && (si.container != SpanContainer{}) && spans.Len() == 1 {
 		ev := si.trace.Events[spans.At(0).Event]
 		stk := si.trace.Stacks[ev.StkID]
 		sb := strings.Builder{}
@@ -124,12 +124,12 @@ func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans SpanSelector, all
 
 	if si.stats == nil {
 		si.stats = theme.NewFuture(mwin.twin, func(cancelled <-chan struct{}) *SpansStats {
-			return NewSpansStats(si.spanSel.Spans())
+			return NewSpansStats(si.spans)
 		})
 	}
 
-	si.spans = SpanList{
-		Spans: si.spanSel,
+	si.spansList = SpanList{
+		Spans: si.spans,
 	}
 
 	si.events = EventList{Trace: si.trace}
@@ -139,7 +139,7 @@ func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans SpanSelector, all
 	si.events.Filter.ShowUserLog.Value = true
 	si.events.UpdateFilter()
 
-	si.events.Events = si.spanSel.Spans().Events(si.allEvents, si.trace.Trace)
+	si.events.Events = si.spans.Events(si.allEvents, si.trace.Trace)
 	si.events.UpdateFilter()
 
 	si.description.Reset(mwin.twin.Theme)
@@ -163,8 +163,8 @@ func (si *SpansInfo) buildDefaultDescription() {
 		si.description.Span("\n")
 	}
 
-	firstSpan := si.spanSel.At(0)
-	lastSpan := LastSpan(si.spanSel)
+	firstSpan := si.spans.At(0)
+	lastSpan := LastSpan(si.spans)
 	si.description.Bold("Start: ")
 	si.description.Link(
 		formatTimestamp(firstSpan.Start),
@@ -180,18 +180,18 @@ func (si *SpansInfo) buildDefaultDescription() {
 	si.description.Span("\n")
 
 	si.description.Bold("Duration: ")
-	si.description.Span(SpansDuration(si.spanSel).String())
+	si.description.Span(SpansDuration(si.spans).String())
 	si.description.Span("\n")
 
 	si.description.Bold("State: ")
-	if si.spanSel.Size() == 1 {
+	if si.spans.Len() == 1 {
 		si.description.Span(stateNames[firstSpan.State])
 	} else {
 		si.description.Span("mixed")
 	}
 	si.description.Span("\n")
 
-	if si.spanSel.Size() == 1 && firstSpan.Tags != 0 {
+	if si.spans.Len() == 1 && firstSpan.Tags != 0 {
 		si.description.Bold("Tags: ")
 		tags := spanTagStrings(firstSpan.Tags)
 		si.description.Span(strings.Join(tags, ", "))
@@ -311,7 +311,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					)
 
 				case "Spans":
-					return si.spans.Layout(win, gtx)
+					return si.spansList.Layout(win, gtx)
 
 				case "Events":
 					return si.events.Layout(win, gtx)
@@ -336,7 +336,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	for _, ev := range si.events.Clicked() {
 		handleLinkClick(win, si.mwin, ev)
 	}
-	for _, ev := range si.spans.Clicked() {
+	for _, ev := range si.spansList.Clicked() {
 		handleLinkClick(win, si.mwin, ev)
 	}
 
@@ -347,7 +347,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.mwin.OpenLink(&SpansLink{
 				Timeline: si.container.Timeline,
 				Track:    si.container.Track,
-				Spans:    si.spanSel,
+				Spans:    si.spans,
 				Kind:     SpanLinkKindScrollAndPan,
 			})
 		}
@@ -359,7 +359,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.mwin.OpenLink(&SpansLink{
 				Timeline: si.container.Timeline,
 				Track:    si.container.Track,
-				Spans:    si.spanSel,
+				Spans:    si.spans,
 				Kind:     SpanLinkKindZoom,
 			})
 		}
@@ -376,7 +376,7 @@ type SpansLink struct {
 
 	Timeline *Timeline
 	Track    *Track
-	Spans    SpanSelector
+	Spans    ptrace.Spans
 	Kind     SpanLinkKind
 }
 
@@ -438,7 +438,7 @@ var spanListColumns = []theme.TableListColumn{
 }
 
 type SpanList struct {
-	Spans SpanSelector
+	Spans ptrace.Spans
 	list  widget.List
 
 	timestampObjects allocator[trace.Timestamp]
@@ -493,7 +493,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 	}
 
 	gtx.Constraints.Min = gtx.Constraints.Max
-	return tbl.Layout(win, gtx, spans.Spans.Size(), cellFn)
+	return tbl.Layout(win, gtx, spans.Spans.Len(), cellFn)
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.

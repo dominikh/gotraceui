@@ -12,11 +12,11 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
-func machineTrack0SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
-	if spanSel.Size() != 1 {
+func machineTrack0SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+	if spans.Len() != 1 {
 		return out
 	}
-	s := spanSel.At(0)
+	s := spans.At(0)
 	switch s.State {
 	case ptrace.StateRunningP:
 		p := tr.P(tr.Event(s.Event).P)
@@ -31,8 +31,8 @@ func machineTrack0SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []str
 
 func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
-	if state.spanSel.Size() == 1 {
-		s := state.spanSel.At(0)
+	if state.spans.Len() == 1 {
+		s := state.spans.At(0)
 		ev := tr.Event(s.Event)
 		switch s.State {
 		case ptrace.StateRunningP:
@@ -43,18 +43,18 @@ func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, 
 			panic(fmt.Sprintf("unexpected state %d", s.State))
 		}
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
+		label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spanSel)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
-func machineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.MenuItem {
+func machineTrack0SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spanSel))
+	items = append(items, newZoomMenuItem(cv, spans))
 
-	if spanSel.Size() == 1 {
-		s := spanSel.At(0)
+	if spans.Len() == 1 {
+		s := spans.At(0)
 		switch s.State {
 		case ptrace.StateRunningP:
 			pid := cv.trace.Event(s.Event).P
@@ -73,16 +73,16 @@ func machineTrack0SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.Men
 	return items
 }
 
-func machineTrack1SpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
-	if spanSel.Size() != 1 {
+func machineTrack1SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+	if spans.Len() != 1 {
 		return out
 	}
-	g := tr.G(tr.Event(spanSel.At(0).Event).G)
+	g := tr.G(tr.Event(spans.At(0).Event).G)
 	labels := tr.goroutineSpanLabels(g)
 	return append(out, labels...)
 }
 
-func machineTrack1SpanColor(spanSel SpanSelector, tr *Trace) [2]colorIndex {
+func machineTrack1SpanColor(spans ptrace.Spans, tr *Trace) [2]colorIndex {
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		gid := tr.Events[s.Event].G
 		g := tr.G(gid)
@@ -94,12 +94,12 @@ func machineTrack1SpanColor(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 		}
 	}
 
-	if spanSel.Size() == 1 {
-		return [2]colorIndex{do(spanSel.At(0), tr), 0}
+	if spans.Len() == 1 {
+		return [2]colorIndex{do(spans.At(0), tr), 0}
 	} else {
-		spans := spanSel.Spans()
-		c := do(spans[0], tr)
-		for _, s := range spans[1:] {
+		c := do(spans.At(0), tr)
+		for i := 1; i < spans.Len(); i++ {
+			s := spans.At(i)
 			// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
 			// with the same color.
 			cc := do(s, tr)
@@ -111,12 +111,12 @@ func machineTrack1SpanColor(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 	}
 }
 
-func machineTrack1SpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.MenuItem {
+func machineTrack1SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spanSel))
+	items = append(items, newZoomMenuItem(cv, spans))
 
-	if spanSel.Size() == 1 {
-		s := spanSel.At(0)
+	if spans.Len() == 1 {
+		s := spans.At(0)
 		switch s.State {
 		case ptrace.StateRunningG:
 			gid := cv.trace.Event(s.Event).G
@@ -139,18 +139,18 @@ func machineInvalidateCache(tl *Timeline, cv *Canvas) bool {
 		return true
 	}
 
-	if cv.prevFrame.hoveredSpans.Size() == 0 && cv.timeline.hoveredSpans.Size() == 0 {
+	if cv.prevFrame.hoveredSpans.Len() == 0 && cv.timeline.hoveredSpans.Len() == 0 {
 		// Nothing hovered in either frame.
 		return false
 	}
 
-	if cv.prevFrame.hoveredSpans.Size() > 1 && cv.timeline.hoveredSpans.Size() > 1 {
+	if cv.prevFrame.hoveredSpans.Len() > 1 && cv.timeline.hoveredSpans.Len() > 1 {
 		// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 		// frames, then nothing changes for rendering.
 		return false
 	}
 
-	if cv.prevFrame.hoveredSpans.Size() != cv.timeline.hoveredSpans.Size() {
+	if cv.prevFrame.hoveredSpans.Len() != cv.timeline.hoveredSpans.Len() {
 		// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 		// previously highlighted.
 		//
@@ -180,8 +180,8 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
 
 	var procD, syscallD time.Duration
-	for i := range tt.m.Spans {
-		s := &tt.m.Spans[i]
+	for i := 0; i < tt.m.Spans.Len(); i++ {
+		s := tt.m.Spans.AtPtr(i)
 		d := s.Duration()
 
 		ev := tr.Events[s.Event]
@@ -207,7 +207,7 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			"Time blocked in syscalls: %[5]s (%.2[6]f%%)\n"+
 			"Time inactive: %[7]s (%.2[8]f%%)",
 		tt.m.ID,
-		len(tt.m.Spans),
+		(tt.m.Spans.Len()),
 		roundDuration(procD), procPct,
 		roundDuration(syscallD), syscallPct,
 		roundDuration(inactiveD), inactivePct,
@@ -223,8 +223,8 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	l := local.Sprintf("Machine %d", m.ID)
 	return &Timeline{
 		tracks: []Track{
-			{spans: SliceToSpanSelector(m.Spans)},
-			{spans: SliceToSpanSelector(m.Goroutines)},
+			{spans: (m.Spans)},
+			{spans: (m.Goroutines)},
 		},
 		item:      m,
 		label:     l,

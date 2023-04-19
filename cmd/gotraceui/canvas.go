@@ -79,7 +79,7 @@ type Canvas struct {
 
 	clickedGoroutineTimelines []*ptrace.Goroutine
 	clickedSpans              []struct {
-		Spans     SpanSelector
+		Spans     ptrace.Spans
 		AllEvents []ptrace.EventID
 		Timeline  *Timeline
 		Track     *Track
@@ -157,7 +157,7 @@ type Canvas struct {
 		showGCOverlays showGCOverlays
 
 		hoveredTimeline *Timeline
-		hoveredSpans    SpanSelector
+		hoveredSpans    ptrace.Spans
 		hover           gesture.Hover
 	}
 
@@ -174,7 +174,7 @@ type Canvas struct {
 		displayStackTracks bool
 		displayedTls       []*Timeline
 		hoveredTimeline    *Timeline
-		hoveredSpans       SpanSelector
+		hoveredSpans       ptrace.Spans
 		width              int
 		filter             Filter
 		automaticFilter    Filter
@@ -462,22 +462,21 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (cv *Canvas) visibleSpans(spanSel SpanSelector) SpanSelector {
+func (cv *Canvas) visibleSpans(spans ptrace.Spans) ptrace.Spans {
 	// Visible spans have to end after cv.Start and begin before cv.End
-	spans := spanSel.Spans()
-	start := sort.Search(len(spans), func(i int) bool {
-		s := spans[i]
+	start := sort.Search((spans.Len()), func(i int) bool {
+		s := spans.At(i)
 		return s.End > cv.start
 	})
-	if start == len(spans) {
+	if start == (spans.Len()) {
 		return NoSpan{}
 	}
-	end := sort.Search(len(spans), func(i int) bool {
-		s := spans[i]
+	end := sort.Search((spans.Len()), func(i int) bool {
+		s := spans.At(i)
 		return s.Start >= cv.End()
 	})
 
-	return spanSel.Slice(start, end)
+	return spans.Slice(start, end)
 }
 
 //gcassert:inline
@@ -495,7 +494,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	start, end := cv.visibleTimelines(gtx)
 	for _, tl := range cv.timelines[start:end] {
 		for _, track := range tl.tracks {
-			if track.spans.Size() == 0 || (track.kind == TrackKindStack && !cv.timeline.displayStackTracks) {
+			if track.spans.Len() == 0 || (track.kind == TrackKindStack && !cv.timeline.displayStackTracks) {
 				continue
 			}
 
@@ -817,9 +816,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	}
 
 	for _, tl := range cv.prevFrame.displayedTls {
-		if spanSel := tl.NavigatedSpans(); spanSel.Size() > 0 {
-			start := spanSel.At(0).Start
-			end := LastSpan(spanSel).End
+		if spans := tl.NavigatedSpans(); spans.Len() > 0 {
+			start := spans.At(0).Start
+			end := LastSpan(spans).End
 			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 			break
 		}
@@ -860,10 +859,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 		key.InputOp{Tag: cv, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
 
-		drawRegionOverlays := func(spanSel SpanSelector, c color.NRGBA, height int) {
+		drawRegionOverlays := func(spans ptrace.Spans, c color.NRGBA, height int) {
 			var p clip.Path
 			p.Begin(gtx.Ops)
-			for _, s := range cv.visibleSpans(spanSel).Spans() {
+			visible := cv.visibleSpans(spans)
+			for i := 0; i < visible.Len(); i++ {
+				s := visible.At(i)
 				start := s.Start
 				end := s.End
 
@@ -899,8 +900,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				// Draw STW and GC regions
 				// TODO(dh): make this be optional
 				tickHeight := gtx.Dp(tickHeightDp)
-				drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), colors[colorStateGC], tickHeight)
-				drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), colors[colorStateBlocked], tickHeight)
+				drawRegionOverlays((cv.trace.GC), colors[colorStateGC], tickHeight)
+				drawRegionOverlays((cv.trace.STW), colors[colorStateBlocked], tickHeight)
 
 				dims := cv.axis.Layout(win, gtx)
 
@@ -971,12 +972,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
 			c := colors[colorStateGC]
 			c.A = 0x33
-			drawRegionOverlays(SliceToSpanSelector(cv.trace.GC), c, gtx.Constraints.Max.Y)
+			drawRegionOverlays((cv.trace.GC), c, gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
 			c := colors[colorStateSTW]
 			c.A = 0x33
-			drawRegionOverlays(SliceToSpanSelector(cv.trace.STW), c, gtx.Constraints.Max.Y)
+			drawRegionOverlays((cv.trace.STW), c, gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
@@ -1004,7 +1005,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.timeline.hoveredTimeline = nil
 	cv.timeline.automaticFilter = Filter{Mode: FilterModeAnd}
 	for _, tl := range cv.prevFrame.displayedTls {
-		if clicked := tl.ClickedSpans(); clicked.Spans.Size() > 0 {
+		if clicked := tl.ClickedSpans(); clicked.Spans.Len() > 0 {
 			var allEvents []ptrace.EventID
 			switch item := tl.item.(type) {
 			case *ptrace.Goroutine:
@@ -1014,7 +1015,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				// a list of types here.
 			}
 			cv.clickedSpans = append(cv.clickedSpans, struct {
-				Spans     SpanSelector
+				Spans     ptrace.Spans
 				AllEvents []ptrace.EventID
 				Timeline  *Timeline
 				Track     *Track
@@ -1022,14 +1023,14 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 		if tl.Hovered() {
 			cv.timeline.hoveredTimeline = tl
-			spanSel := tl.HoveredSpans()
-			if spanSel.Size() > 0 {
-				cv.timeline.hoveredSpans = spanSel
+			spans := tl.HoveredSpans()
+			if spans.Len() > 0 {
+				cv.timeline.hoveredSpans = spans
 			}
 
 			switch hitem := tl.item.(type) {
 			case *ptrace.Goroutine:
-				if spanSel.Size() == 0 {
+				if spans.Len() == 0 {
 					// A goroutine timeline is hovered, but no spans within are.
 					cv.timeline.automaticFilter.Processor.Goroutine = hitem.ID
 				} else {
@@ -1040,15 +1041,15 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				}
 
 			case *ptrace.Processor:
-				if spanSel.Size() == 1 {
-					cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(spanSel.At(0).Event).G
+				if spans.Len() == 1 {
+					cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(spans.At(0).Event).G
 				}
 
 				cv.timeline.automaticFilter.Machine.Processor = hitem.ID
 
 			case *ptrace.Machine:
-				if spanSel.Size() == 1 {
-					o := spanSel.At(0)
+				if spans.Len() == 1 {
+					o := spans.At(0)
 					if o.State == ptrace.StateRunningG {
 						cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(o.Event).G
 					}

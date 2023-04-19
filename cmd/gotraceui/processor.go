@@ -26,8 +26,8 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
 
 	var userD, gcD time.Duration
-	for i := range tt.p.Spans {
-		s := &tt.p.Spans[i]
+	for i := 0; i < tt.p.Spans.Len(); i++ {
+		s := tt.p.Spans.AtPtr(i)
 		d := s.Duration()
 
 		ev := tr.Events[s.Event]
@@ -53,7 +53,7 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 			"Time running GC workers: %[5]s (%.2[6]f%%)\n"+
 			"Time inactive: %[7]s (%.2[8]f%%)",
 		tt.p.ID,
-		len(tt.p.Spans),
+		(tt.p.Spans.Len()),
 		roundDuration(userD), userPct,
 		roundDuration(gcD), gcPct,
 		roundDuration(inactiveD), inactivePct,
@@ -64,8 +64,8 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 
 func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
-	if state.spanSel.Size() == 1 {
-		s := state.spanSel.At(0)
+	if state.spans.Len() == 1 {
+		s := state.spans.At(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateRunningG {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -73,10 +73,10 @@ func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace,
 		g := tr.G(ev.G)
 		label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.Function)
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", state.spanSel.Size())
+		label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
 	}
 	// OPT(dh): don't materialize all spans just to compute the duration
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spanSel)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
@@ -85,18 +85,18 @@ func processorInvalidateCache(tl *Timeline, cv *Canvas) bool {
 		return true
 	}
 
-	if cv.prevFrame.hoveredSpans.Size() == 0 && cv.timeline.hoveredSpans.Size() == 0 {
+	if cv.prevFrame.hoveredSpans.Len() == 0 && cv.timeline.hoveredSpans.Len() == 0 {
 		// Nothing hovered in either frame.
 		return false
 	}
 
-	if cv.prevFrame.hoveredSpans.Size() > 1 && cv.timeline.hoveredSpans.Size() > 1 {
+	if cv.prevFrame.hoveredSpans.Len() > 1 && cv.timeline.hoveredSpans.Len() > 1 {
 		// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
 		// frames, then nothing changes for rendering.
 		return false
 	}
 
-	if cv.prevFrame.hoveredSpans.Size() != cv.timeline.hoveredSpans.Size() {
+	if cv.prevFrame.hoveredSpans.Len() != cv.timeline.hoveredSpans.Len() {
 		// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
 		// previously highlighted.
 		//
@@ -112,16 +112,16 @@ func processorInvalidateCache(tl *Timeline, cv *Canvas) bool {
 	return false
 }
 
-func processorTrackSpanLabel(spanSel SpanSelector, tr *Trace, out []string) []string {
-	if spanSel.Size() != 1 {
+func processorTrackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+	if spans.Len() != 1 {
 		return out
 	}
-	g := tr.G(tr.Event(spanSel.At(0).Event).G)
+	g := tr.G(tr.Event(spans.At(0).Event).G)
 	labels := tr.goroutineSpanLabels(g)
 	return append(out, labels...)
 }
 
-func processorTrackSpanColor(spanSel SpanSelector, tr *Trace) [2]colorIndex {
+func processorTrackSpanColor(spans ptrace.Spans, tr *Trace) [2]colorIndex {
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		if s.Tags&ptrace.SpanTagGC != 0 {
 			return colorStateGC
@@ -131,12 +131,12 @@ func processorTrackSpanColor(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 		}
 	}
 
-	if spanSel.Size() == 1 {
-		return [2]colorIndex{do(spanSel.At(0), tr), 0}
+	if spans.Len() == 1 {
+		return [2]colorIndex{do(spans.At(0), tr), 0}
 	} else {
-		spans := spanSel.Spans()
-		c := do(spans[0], tr)
-		for _, s := range spans[1:] {
+		c := do(spans.At(0), tr)
+		for i := 1; i < spans.Len(); i++ {
+			s := spans.At(i)
 			// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
 			// with the same color.
 			cc := do(s, tr)
@@ -148,12 +148,12 @@ func processorTrackSpanColor(spanSel SpanSelector, tr *Trace) [2]colorIndex {
 	}
 }
 
-func processorTrackSpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.MenuItem {
+func processorTrackSpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spanSel))
+	items = append(items, newZoomMenuItem(cv, spans))
 
-	if spanSel.Size() == 1 {
-		gid := cv.trace.Event((spanSel.At(0).Event)).G
+	if spans.Len() == 1 {
+		gid := cv.trace.Event((spans.At(0).Event)).G
 		items = append(items, &theme.MenuItem{
 			Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 			Do: func(gtx layout.Context) {
@@ -168,7 +168,7 @@ func processorTrackSpanContextMenu(spanSel SpanSelector, cv *Canvas) []*theme.Me
 func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
 	l := local.Sprintf("Processor %d", p.ID)
 	return &Timeline{
-		tracks: []Track{{spans: SliceToSpanSelector(p.Spans)}},
+		tracks: []Track{{spans: (p.Spans)}},
 
 		buildTrackWidgets: func(tracks []Track) {
 			for i := range tracks {

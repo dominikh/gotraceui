@@ -221,7 +221,7 @@ func computeGoroutineStatistics(gs []*Goroutine, progress func(float64)) {
 		if (i+1)%10_000 == 0 {
 			progress(float64(i) / float64(len(gs)))
 		}
-		if len(g.Spans) < 12500 {
+		if g.Spans.Len() < 12500 {
 			continue
 		}
 
@@ -231,7 +231,7 @@ func computeGoroutineStatistics(gs []*Goroutine, progress func(float64)) {
 	}
 }
 
-func ComputeStatistics(spans []Span) Statistics {
+func ComputeStatistics(spans Spans) Statistics {
 	var values [StateLast][]time.Duration
 
 	var stats Statistics
@@ -240,8 +240,8 @@ func ComputeStatistics(spans []Span) Statistics {
 		values[i] = values[i][:0]
 	}
 
-	for i := range spans {
-		s := &spans[i]
+	for i := 0; i < spans.Len(); i++ {
+		s := spans.AtPtr(i)
 		stat := &stats[s.State]
 		stat.Count++
 		d := s.Duration()
@@ -295,6 +295,8 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		psByID:     map[int32]*Processor{},
 		msByID:     map[int32]*Machine{},
 		CPUSamples: map[uint64][]EventID{},
+		GC:         make(spansSlice, 0),
+		STW:        make(spansSlice, 0),
 	}
 
 	makeProgresser := func(stage int, numStages int) func(float64) {
@@ -425,14 +427,14 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 		eventsPerG[gid]++
 	}
 	for gid, n := range eventsPerG {
-		getG(gid).Spans = make(Spans, 0, n)
+		getG(gid).Spans = spansSlice(make([]Span, 0, n))
 	}
 	for pid, n := range eventsPerP {
-		getP(pid).Spans = make(Spans, 0, n)
+		getP(pid).Spans = spansSlice(make([]Span, 0, n))
 	}
 	if supportMachineTimelines {
 		for mid, n := range eventsPerM {
-			getM(mid).Spans = make(Spans, 0, n)
+			getM(mid).Spans = spansSlice(make([]Span, 0, n))
 		}
 	}
 
@@ -593,7 +595,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 				if mid, ok := blockingSyscallMPerG[ev.G]; ok {
 					delete(blockingSyscallMPerG, ev.G)
 					m := getM(mid)
-					span := &m.Spans[len(m.Spans)-1]
+					span := m.Spans.AtPtr(m.Spans.Len() - 1)
 					switch span.State {
 					case StateBlockedSyscall:
 						// We didn't see an EvProcStart for this M
@@ -604,7 +606,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 						// span's start time.
 
 						// XXX guard against malformed traces
-						pspan := &m.Spans[len(m.Spans)-2]
+						pspan := m.Spans.AtPtr(m.Spans.Len() - 2)
 						if pspan.State != StateBlockedSyscall {
 							return errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
 						}
@@ -619,19 +621,19 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			if supportMachineTimelines {
 				mid := ev.Args[0]
 				m := getM(int32(mid))
-				m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateRunningP, Event: EventID(evID)})
+				m.Spans = append(m.Spans.(spansSlice), Span{Start: ev.Ts, End: -1, State: StateRunningP, Event: EventID(evID)})
 				lastMPerP[ev.P] = m.ID
 			}
 			continue
 		case trace.EvProcStop:
 			if supportMachineTimelines {
 				m := getM(lastMPerP[ev.P])
-				span := &m.Spans[len(m.Spans)-1]
+				span := m.Spans.AtPtr(m.Spans.Len() - 1)
 				span.End = ev.Ts
 
 				if sevID, ok := blockingSyscallPerP[ev.P]; ok {
 					delete(blockingSyscallPerP, ev.P)
-					m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateBlockedSyscall, Event: sevID})
+					m.Spans = append(m.Spans.(spansSlice), Span{Start: ev.Ts, End: -1, State: StateBlockedSyscall, Event: sevID})
 				}
 			}
 
@@ -685,22 +687,22 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			state = StateActive
 
 		case trace.EvGCStart:
-			tr.GC = append(tr.GC, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
+			tr.GC = append(tr.GC.(spansSlice), Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
 			continue
 
 		case trace.EvGCSTWStart:
-			tr.STW = append(tr.STW, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
+			tr.STW = append(tr.STW.(spansSlice), Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
 			continue
 
 		case trace.EvGCDone:
 			// XXX verify that index isn't out of bounds
-			tr.GC[len(tr.GC)-1].End = ev.Ts
+			tr.GC.AtPtr(tr.GC.Len() - 1).End = ev.Ts
 			continue
 
 		case trace.EvGCSTWDone:
 			// Even though STW happens as part of GC, we can see EvGCSTWDone after EvGCDone.
 			// XXX verify that index isn't out of bounds
-			tr.STW[len(tr.STW)-1].End = ev.Ts
+			tr.STW.AtPtr(tr.STW.Len() - 1).End = ev.Ts
 			continue
 
 		case trace.EvHeapAlloc:
@@ -754,7 +756,10 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 						g.UserRegions = s
 					}
 				}
-				g.UserRegions[depth] = append(g.UserRegions[depth], s)
+				if g.UserRegions[depth] == nil {
+					g.UserRegions[depth] = make(spansSlice, 0)
+				}
+				g.UserRegions[depth] = append(g.UserRegions[depth].(spansSlice), s)
 				userRegionDepths[gid]++
 			} else {
 				d := userRegionDepths[gid] - 1
@@ -781,13 +786,13 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 		}
 
 		if debug {
-			if s := getG(gid).Spans; len(s) > 0 {
-				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].State == StateInactive {
+			if s := getG(gid).Spans; s.Len() > 0 {
+				if s.Len() == 1 && ev.Type == trace.EvGoWaiting && s.At(0).State == StateInactive {
 					// The execution trace emits GoCreate + GoWaiting for goroutines that already exist at the start of
 					// tracing if they're in a blocked state. This causes a transition from inactive to blocked, which we
 					// wouldn't normally permit.
 				} else {
-					prevState := s[len(s)-1].State
+					prevState := s.At(s.Len() - 1).State
 					if !legalStateTransitions[prevState][state] {
 						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, time %d", prevState, state, gid, ev.Ts))
 					}
@@ -808,35 +813,35 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			if len(g.Events) > 0 {
 				sysEvID := g.Events[len(g.Events)-1]
 				if sysEv := tr.Events[sysEvID]; sysEv.Type == trace.EvGoSysCall {
-					g.Spans[len(g.Spans)-1].End = sysEv.Ts
+					g.Spans.AtPtr(g.Spans.Len() - 1).End = sysEv.Ts
 					s.Start = sysEv.Ts
 				}
 			}
 
 		}
 
-		getG(gid).Spans = append(getG(gid).Spans, s)
+		getG(gid).Spans = append(getG(gid).Spans.(spansSlice), s)
 
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			p.Spans = append(p.Spans, Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID)})
+			p.Spans = append(p.Spans.(spansSlice), Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID)})
 			if supportMachineTimelines {
 				mid := lastMPerP[p.ID]
 				m := getM(mid)
-				m.Goroutines = append(m.Goroutines, Span{Start: ev.Ts, Event: EventID(evID), State: StateRunningG})
+				m.Goroutines = append(m.Goroutines.(spansSlice), Span{Start: ev.Ts, Event: EventID(evID), State: StateRunningG})
 			}
 		case pStopG:
 			// XXX guard against malformed traces
 			p := getP(ev.P)
-			p.Spans[len(p.Spans)-1].End = ev.Ts
+			p.Spans.AtPtr(p.Spans.Len() - 1).End = ev.Ts
 			if supportMachineTimelines {
 				mid := lastMPerP[p.ID]
 				m := getM(mid)
-				if len(m.Goroutines) == 0 {
+				if m.Goroutines.Len() == 0 {
 					return fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
 				}
-				m.Goroutines[len(m.Goroutines)-1].End = ev.Ts
+				m.Goroutines.AtPtr(m.Goroutines.Len() - 1).End = ev.Ts
 			}
 		}
 	}
@@ -847,9 +852,10 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 func postProcessSpans(tr *Trace, progress func(float64)) {
 	var wg sync.WaitGroup
 	doG := func(g *Goroutine) {
-		for i, s := range g.Spans {
-			if i != len(g.Spans)-1 {
-				s.End = g.Spans[i+1].Start
+		for i := 0; i < g.Spans.Len(); i++ {
+			s := g.Spans.At(i)
+			if i != g.Spans.Len()-1 {
+				s.End = g.Spans.At(i + 1).Start
 			}
 
 			stack := tr.Stacks[tr.Events[s.Event].StkID]
@@ -860,31 +866,32 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 				s.At++
 			}
 
-			g.Spans[i] = s
+			*g.Spans.AtPtr(i) = s
 		}
 
-		if len(g.Spans) != 0 {
-			last := g.Spans[len(g.Spans)-1]
+		if g.Spans.Len() != 0 {
+			last := g.Spans.At(g.Spans.Len() - 1)
 			if last.State == StateDone {
 				// The goroutine has ended. We encode this as a zero length span.
-				s := &g.Spans[len(g.Spans)-1]
+				s := g.Spans.AtPtr(g.Spans.Len() - 1)
 				s.End = s.Start
 			} else {
-				g.Spans[len(g.Spans)-1].End = tr.Events[len(tr.Events)-1].Ts
+				g.Spans.AtPtr(g.Spans.Len() - 1).End = tr.Events[len(tr.Events)-1].Ts
 			}
 		}
 
 		for depth, spans := range g.UserRegions {
-			if len(spans) != 0 {
-				if last := &spans[len(spans)-1]; last.End == -1 {
+			if spans.Len() != 0 {
+				if last := spans.AtPtr(spans.Len() - 1); last.End == -1 {
 					// The user region wasn't closed before the trace ended; give it the maximum length possible,
 					// that of the parent user region, or the goroutine if this is the top-most user region.
 
 					if depth == 0 {
-						last.End = g.Spans.End()
+						last.End = g.Spans.At(g.Spans.Len() - 1).End
 					} else {
 						// OPT(dh): use binary search
-						for _, parent := range g.UserRegions[depth-1] {
+						for i := 0; i < g.UserRegions[depth-1].Len(); i++ {
+							parent := g.UserRegions[depth-1].At(i)
 							// The first parent user region that ends after our region starts has to be our parent.
 							if parent.End >= last.Start {
 								last.End = parent.End
@@ -936,15 +943,15 @@ evLoop:
 			// This goroutine already existed at the beginning of the trace. Merge the first two spans, of which the
 			// first span is a GoCreate span that's not true, as the goroutine had already existed.
 			g := tr.G(ev.Args[0])
-			if len(g.Spans) > 1 {
-				if g.Spans[0].State != StateCreated {
-					panic(fmt.Sprintf("unexpected state %v", g.Spans[0].State))
+			if g.Spans.Len() > 1 {
+				if g.Spans.At(0).State != StateCreated {
+					panic(fmt.Sprintf("unexpected state %v", g.Spans.At(0).State))
 				}
 				// We set the second span's start time to 0, instead of the first span's start time, because the
 				// timestamp of the GoCreate event for existing goroutines doesn't matter, it's only non-zero because
 				// the tracer can't emit the state for all existing goroutines at once.
-				g.Spans[1].Start = 0
-				g.Spans = g.Spans[1:]
+				g.Spans.AtPtr(1).Start = 0
+				g.Spans = g.Spans.Slice(1, g.Spans.Len())
 			}
 		case trace.EvProcStart, trace.EvHeapAlloc, trace.EvGomaxprocs:
 			// These are the events we know to occur at the end of the STW phase of starting a trace.
@@ -957,7 +964,7 @@ func populateObjects(tr *Trace, progress func(float64)) {
 	// Note: There is no point populating gs and ps in parallel, because ps only contains a handful of items.
 	tr.Goroutines = make([]*Goroutine, 0, len(tr.gsByID))
 	for _, g := range tr.gsByID {
-		if len(g.Spans) != 0 {
+		if g.Spans.Len() != 0 {
 			tr.Goroutines = append(tr.Goroutines, g)
 		}
 	}
@@ -972,8 +979,8 @@ func populateObjects(tr *Trace, progress func(float64)) {
 	for _, m := range tr.msByID {
 		// OPT(dh): preallocate ms
 		tr.Machines = append(tr.Machines, m)
-		if len(m.Spans) > 0 {
-			if last := &m.Spans[len(m.Spans)-1]; last.End == -1 {
+		if m.Spans.Len() > 0 {
+			if last := m.Spans.AtPtr(m.Spans.Len() - 1); last.End == -1 {
 				last.End = tr.Events[len(tr.Events)-1].Ts
 			}
 		}
@@ -1116,37 +1123,61 @@ func blockedIsInactive(fn string) bool {
 	}
 }
 
-type Spans []Span
+type Spans interface {
+	Len() int
+	At(int) Span
+	AtPtr(int) *Span
+	Slice(start, end int) Spans
 
-func (spans Spans) Start() trace.Timestamp {
-	if len(spans) == 0 {
+	Start() trace.Timestamp
+	End() trace.Timestamp
+	Events(all []EventID, tr *Trace) []EventID
+}
+
+func ToSpans(spans []Span) Spans {
+	return spansSlice(spans)
+}
+
+type spansSlice []Span
+
+func (spans spansSlice) Len() int                                  { return len(spans) }
+func (spans spansSlice) At(idx int) Span                           { return spans[idx] }
+func (spans spansSlice) AtPtr(idx int) *Span                       { return &spans[idx] }
+func (spans spansSlice) Slice(start, end int) Spans                { return spans[start:end] }
+func (spans spansSlice) Start() trace.Timestamp                    { return Start(spans) }
+func (spans spansSlice) End() trace.Timestamp                      { return End(spans) }
+func (spans spansSlice) Duration() time.Duration                   { return Duration(spans) }
+func (spans spansSlice) Events(all []EventID, tr *Trace) []EventID { return Events(spans, all, tr) }
+
+func Start(spans Spans) trace.Timestamp {
+	if spans.Len() == 0 {
 		return 0
 	}
-	return spans[0].Start
+	return spans.At(0).Start
 }
 
-func (spans Spans) End() trace.Timestamp {
-	if len(spans) == 0 {
+func End(spans Spans) trace.Timestamp {
+	if spans.Len() == 0 {
 		return 0
 	}
-	return spans[len(spans)-1].End
+	return spans.At(spans.Len() - 1).End
 }
 
-func (spans Spans) Duration() time.Duration {
-	return time.Duration(spans.End() - spans.Start())
+func Duration(spans Spans) time.Duration {
+	return time.Duration(End(spans) - Start(spans))
 }
 
-func (spans Spans) Events(all []EventID, tr *Trace) []EventID {
+func Events(spans Spans, all []EventID, tr *Trace) []EventID {
 	if len(all) == 0 {
 		return nil
 	}
 
 	end := sort.Search(len(all), func(i int) bool {
 		ev := all[i]
-		return tr.Event(ev).Ts >= spans.End()
+		return tr.Event(ev).Ts >= End(spans)
 	})
 
-	sTs := spans.Start()
+	sTs := Start(spans)
 
 	start := sort.Search(len(all[:end]), func(i int) bool {
 		ev := all[i]

@@ -128,7 +128,7 @@ func (mwin *MainWindow) openFunction(fn *ptrace.Function) {
 	mwin.openPanel(fi)
 }
 
-func (mwin *MainWindow) openSpan(s SpanSelector, tl *Timeline, tr *Track, allEvents []ptrace.EventID) {
+func (mwin *MainWindow) openSpan(s ptrace.Spans, tl *Timeline, tr *Track, allEvents []ptrace.EventID) {
 	var labels []string
 	var label string
 	if tr.spanLabel != nil {
@@ -1417,14 +1417,14 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 	mwin.SetProgressStage(2)
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
 	for i, proc := range pt.Processors {
-		for j := range proc.Spans {
-			fn := pt.G(pt.Events[proc.Spans[j].Event].G).Function
+		for j := 0; j < proc.Spans.Len(); j++ {
+			fn := pt.G(pt.Events[proc.Spans.At(j).Event].G).Function
 			if fn == nil {
 				continue
 			}
 			switch fn.Fn {
 			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
-				proc.Spans[j].Tags |= ptrace.SpanTagGC
+				proc.Spans.AtPtr(j).Tags |= ptrace.SpanTagGC
 			}
 		}
 		mwin.SetProgressLossy(float64(i+1) / float64(len(pt.Processors)))
