@@ -1,9 +1,10 @@
 package theme
 
 import (
-	"gioui.org/layout"
-	"gioui.org/text"
 	"honnef.co/go/gotraceui/widget"
+
+	"gioui.org/font"
+	"gioui.org/layout"
 )
 
 type TableListColumn struct {
@@ -30,7 +31,7 @@ func (tbl *TableListStyle) Layout(
 	ourCellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
 			return widget.TextLine{Color: win.Theme.Palette.Foreground}.
-				Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, win.Theme.TextSize, tbl.Columns[col].Name)
+				Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, win.Theme.TextSize, tbl.Columns[col].Name)
 		} else {
 			return cellFn(gtx, row-1, col)
 		}

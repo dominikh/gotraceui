@@ -11,6 +11,7 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
+	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/paint"
 	"gioui.org/text"
@@ -18,7 +19,7 @@ import (
 )
 
 type EditorStyle struct {
-	Font     text.Font
+	Font     font.Font
 	TextSize unit.Sp
 	// Color is the text color.
 	Color color.NRGBA

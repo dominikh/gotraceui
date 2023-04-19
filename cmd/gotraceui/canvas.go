@@ -22,6 +22,7 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
@@ -193,7 +194,7 @@ type textLengther struct {
 	cache *tinylfu.T[string, int]
 }
 
-func (sl *textLengther) Compute(gtx layout.Context, s string, shaper *text.Shaper, size unit.Sp, font text.Font) int {
+func (sl *textLengther) Compute(gtx layout.Context, s string, shaper *text.Shaper, size unit.Sp, font font.Font) int {
 	b := new(strings.Builder)
 
 	// This assumes that people use string literals whose addresses don't change when specifying text.Font
@@ -1331,7 +1332,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		}
 
 		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
+			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label)
 		})
 		// TODO separate value and unit symbol with a space
 
@@ -1372,7 +1373,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		}
 
 		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			f := text.Font{Weight: text.Bold}
+			f := font.Font{Weight: font.Bold}
 			label := formatTimestamp(t)
 			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
 		})

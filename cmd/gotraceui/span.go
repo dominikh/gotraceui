@@ -8,14 +8,16 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/op"
-	"gioui.org/text"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
+
+	"gioui.org/font"
+	"gioui.org/op"
+	"gioui.org/text"
 )
 
 func LastSpan(sel ptrace.Spans) ptrace.Span {
@@ -284,7 +286,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 							si.stackSelectable.SetText(si.stacktrace)
 						}
 
-						return si.stackSelectable.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
+						return si.stackSelectable.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
 					})
 
 				case "Statistics":
@@ -297,7 +299,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								if stats, ok := si.stats.Result(); ok {
 									return stats.Layout(win, gtx)
 								} else {
-									return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 								}
 							})
 						}),

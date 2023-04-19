@@ -18,11 +18,11 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 )
 
@@ -294,7 +294,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				labelGtx := gtx
 				labelGtx.Constraints.Min = image.Point{}
-				labelDims := widget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, tl.label)
+				labelDims := widget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, tl.label)
 				stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 				pointer.CursorPointer.Add(gtx.Ops)
 				stack.Pop()
@@ -752,7 +752,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 						continue
 					}
 
-					font := text.Font{Weight: text.ExtraBold}
+					font := font.Font{Weight: font.ExtraBold}
 					n := tl.cv.textLengths.Compute(gtx, label, win.Theme.Shaper, win.Theme.TextSize, font)
 					if float32(n) > endPx-startPx {
 						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise

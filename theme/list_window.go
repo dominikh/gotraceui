@@ -6,12 +6,12 @@ import (
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/widget"
 
+	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/op/clip"
-	"gioui.org/text"
 	"gioui.org/x/eventx"
-	"honnef.co/go/gotraceui/widget"
 )
 
 type ListWindowItem struct {
@@ -106,7 +106,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						c = rgba(0x000000FF)
 					}
-					return widget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, text.Font{}, w.theme.TextSize, item.Label)
+					return widget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, font.Font{}, w.theme.TextSize, item.Label)
 				})
 			})
 		}

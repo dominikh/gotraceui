@@ -7,13 +7,14 @@ import (
 	"math"
 	"time"
 
-	"honnef.co/go/gotraceui/font"
+	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -59,7 +60,7 @@ func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensio
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = 0
 				paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-				return widget.Label{Alignment: text.Middle}.Layout(gtx, th.Shaper, text.Font{}, 12, g.title, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+				return widget.Label{Alignment: text.Middle}.Layout(gtx, th.Shaper, font.Font{}, 12, g.title, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 			}),
 
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -91,7 +92,7 @@ func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensio
 					}
 				}
 
-				widget.Label{}.Layout(gtx, th.Shaper, text.Font{}, 12, local.Sprintf("Min: %f\nMax: %f\nCurrent: %f", min, max, cur), widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+				widget.Label{}.Layout(gtx, th.Shaper, font.Font{}, 12, local.Sprintf("Min: %f\nMax: %f\nCurrent: %f", min, max, cur), widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 
 				if g.fixedZero {
 					min = 0
@@ -215,7 +216,7 @@ func (dwin *DebugWindow) Run(win *app.Window) error {
 			gtx := layout.NewContext(&ops, ev)
 			// gtx.Constraints.Min = image.Point{}
 
-			th := theme.NewTheme(font.Collection())
+			th := theme.NewTheme(ourfont.Collection())
 
 			themeWidget := func(fn func(gtx layout.Context, th *theme.Theme) layout.Dimensions) layout.Widget {
 				return func(gtx layout.Context) layout.Dimensions { return fn(gtx, th) }

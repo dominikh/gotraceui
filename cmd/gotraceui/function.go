@@ -17,6 +17,7 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
+	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/text"
@@ -160,7 +161,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 							return thist.Layout(win, gtx, hist)
 						})
 					} else {
-						return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, "Computing histogram…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+						return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing histogram…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 					}
 				default:
 					panic("unreachable")
@@ -350,12 +351,12 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	r0 := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Pt(99999, 99999)
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, 12, goroutineListColumns[0].Name, widget.ColorTextMaterial(gtx, color.NRGBA{}))
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, goroutineListColumns[0].Name, widget.ColorTextMaterial(gtx, color.NRGBA{}))
 	})
 	r1 := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Pt(99999, 99999)
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
 	})
 	w := r0.Dimensions.Size.X
 	if x := r1.Dimensions.Size.X; x > w {

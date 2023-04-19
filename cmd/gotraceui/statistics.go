@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
-	"honnef.co/go/gotraceui/font"
+	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
+	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/text"
@@ -130,16 +131,16 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 	//
 	// We assume that all lines have the same height. This is an assumption shared by outlay.Grid.
 
-	fLabel := font.Collection()[0].Font
-	fLabel.Weight = text.Bold
-	fContent := font.Collection()[0].Font
-	fValue := font.Collection()[0].Font
-	fUnit := font.Collection()[0].Font
+	fLabel := ourfont.Collection()[0].Font
+	fLabel.Weight = font.Bold
+	fContent := ourfont.Collection()[0].Font
+	fValue := ourfont.Collection()[0].Font
+	fUnit := ourfont.Collection()[0].Font
 	fUnit.Variant = "Mono"
 
 	var columnSizes [numStatLabels]image.Point
 
-	shape := func(s string, f text.Font) image.Point {
+	shape := func(s string, f font.Font) image.Point {
 		m := op.Record(gtx.Ops)
 		dims := widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, f, th.TextSize, s, widget.ColorTextMaterial(gtx, color.NRGBA{}))
 		m.Stop()
@@ -290,8 +291,8 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 	// contents.)
 	var labelSizes [3]image.Point
 	for i := numStatLabels; i < 2*numStatLabels; i++ {
-		f := font.Collection()[0].Font
-		f.Weight = text.Bold
+		f := ourfont.Collection()[0].Font
+		f.Weight = font.Bold
 
 		l := statLabels[gs.numberFormat][i]
 		m := op.Record(gtx.Ops)
@@ -335,7 +336,7 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 			}
 
 			s := spanWith(win.Theme, l, func(ss styledtext.SpanStyle) styledtext.SpanStyle {
-				ss.Font.Weight = text.Bold
+				ss.Font.Weight = font.Bold
 				return ss
 			})
 			gs.columnClicks[col].Layout(gtx, func(gtx layout.Context) layout.Dimensions {

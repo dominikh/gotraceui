@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	"gioui.org/font"
 	"gioui.org/font/gofont"
 	"gioui.org/font/opentype"
-	"gioui.org/text"
 )
 
 //go:embed fallback.ttf
@@ -15,10 +15,10 @@ var fallback []byte
 
 var (
 	once       sync.Once
-	collection []text.FontFace
+	collection []font.FontFace
 )
 
-func Collection() []text.FontFace {
+func Collection() []font.FontFace {
 	once.Do(func() {
 		c := gofont.Collection()
 
@@ -27,8 +27,8 @@ func Collection() []text.FontFace {
 			panic(fmt.Errorf("failed to parse fallback font: %s", err))
 		}
 
-		fc := text.FontFace{
-			Font: text.Font{
+		fc := font.FontFace{
+			Font: font.Font{
 				Typeface: "Fallback",
 			},
 			Face: face,

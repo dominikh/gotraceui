@@ -12,6 +12,7 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -87,7 +88,7 @@ var DefaultPalette = Palette{
 	},
 }
 
-func NewTheme(fontCollection []text.FontFace) *Theme {
+func NewTheme(fontCollection []font.FontFace) *Theme {
 	return &Theme{
 		Palette:       DefaultPalette,
 		Shaper:        text.NewShaper(fontCollection),
@@ -191,7 +192,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 			layout.Rigid(layout.Spacer{Width: 3}.Layout),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widget.TextLine{Color: c.TextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, c.TextSize, c.Label)
+				return widget.TextLine{Color: c.TextColor}.Layout(gtx, win.Theme.Shaper, font.Font{}, c.TextSize, c.Label)
 			}),
 		)
 	})
@@ -299,7 +300,7 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 					layout.Rigid(layout.Spacer{Width: 3}.Layout),
 
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return widget.TextLine{Color: chkgrp.TextColor}.Layout(gtx, win.Theme.Shaper, text.Font{}, chkgrp.TextSize, chkgrp.Label)
+						return widget.TextLine{Color: chkgrp.TextColor}.Layout(gtx, win.Theme.Shaper, font.Font{}, chkgrp.TextSize, chkgrp.Label)
 					}),
 				)
 			})
@@ -423,7 +424,7 @@ func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) 
 		}
 		gtx.Constraints.Min.Y = 0
 		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, f.TextSize, l, widget.ColorTextMaterial(gtx, f.TextColor))
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, f.TextSize, l, widget.ColorTextMaterial(gtx, f.TextColor))
 
 	})
 	size = dims.Size
@@ -518,7 +519,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 		var padding = gtx.Dp(bt.Padding)
 
 		macro := op.Record(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, bt.TextSize, bt.Text, widget.ColorTextMaterial(gtx, bt.TextColor))
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, bt.TextSize, bt.Text, widget.ColorTextMaterial(gtx, bt.TextColor))
 		call := macro.Stop()
 
 		total := clip.Rect{
@@ -583,7 +584,7 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, fg))
+					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, fg))
 				})
 			})
 		})
@@ -733,8 +734,8 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	activeBackground := rgba(0xDDDDFFFF)
 	inactiveBackground := rgba(0xFFFFFFFF)
 
-	activeFont := text.Font{Weight: text.Bold}
-	inactiveFont := text.Font{}
+	activeFont := font.Font{Weight: font.Bold}
+	inactiveFont := font.Font{}
 
 	activeBorder := rgba(0xAAAAFFFF)
 	inactiveBorder := rgba(0xBBBBBBFF)
@@ -865,7 +866,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 				dims := ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
 
-					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, 12, tab, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, tab, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 					stack.Pop()
 
 					dims.Size.X += 2 * gtx.Dp(padding)

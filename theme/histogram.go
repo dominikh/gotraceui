@@ -13,6 +13,7 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
@@ -146,7 +147,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		gtx := gtx
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Point{9999, 9999}
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, "9.99E+99", textColor)
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, "9.99E+99", textColor)
 		m.Stop()
 		lineHeight = dims.Size.Y
 
@@ -177,18 +178,18 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			// Draw top Y tick label
 			gtx := gtx
 			gtx.Constraints.Min.X = yAxisWidth - tickLength
-			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, fmt.Sprintf("%.2e", float64(hist.MaxBinValue)), textColor)
+			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, fmt.Sprintf("%.2e", float64(hist.MaxBinValue)), textColor)
 
 			// Draw bottom Y tick label
 			defer op.Offset(image.Pt(0, plotHeight-lineHeight)).Push(gtx.Ops).Pop()
-			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, "0", textColor)
+			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, "0", textColor)
 		}()
 
 		// Draw Y label
 		m = op.Record(gtx.Ops)
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Point{9999, 9999}
-		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, hs.YLabel, textColor)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hs.YLabel, textColor)
 		c := m.Stop()
 
 		aff := f32.Affine2D{}.
@@ -245,7 +246,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		{
 			gtx := gtx
 			gtx.Constraints.Min.X = 0
-			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, hist.Start.Ceil().String(), textColor)
+			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hist.Start.Ceil().String(), textColor)
 			availableWidth -= dims.Size.X
 			firstXTickLabelWidth = dims.Size.X
 		}
@@ -255,14 +256,14 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			gtx := gtx
 			m := op.Record(gtx.Ops)
 			gtx.Constraints.Min.X = 0
-			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, end.Ceil().String(), textColor)
+			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, end.Ceil().String(), textColor)
 			m.Stop()
 			availableWidth -= dims.Size.X
 
 		}
 
 		// Layout last X axis tick
-		widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, end.Ceil().String(), textColor)
+		widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, end.Ceil().String(), textColor)
 
 		// Measure X axis info
 		var line string
@@ -272,13 +273,13 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 
 			m := op.Record(gtx.Ops)
 			line = fmt.Sprintf("⬅ %d×~%s = %s ➡", numBins, hist.BinWidth.Floor(), (end - hist.Start).Ceil())
-			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, line, textColor)
+			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, textColor)
 			m.Stop()
 			if dims.Size.X > availableWidth {
 				line = fmt.Sprintf("⬅ %s ➡", (end - hist.Start).Ceil())
 
 				m := op.Record(gtx.Ops)
-				dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, line, textColor)
+				dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, textColor)
 				m.Stop()
 				if dims.Size.X > availableWidth {
 					line = ""
@@ -290,13 +291,13 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			stack := op.Offset(image.Pt(firstXTickLabelWidth, 0)).Push(gtx.Ops)
 			gtx.Constraints.Min.X = availableWidth
 			gtx.Constraints.Max.X = gtx.Constraints.Min.X
-			widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, line, textColor)
+			widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, textColor)
 			stack.Pop()
 		}
 
 		// Draw X label
 		defer op.Offset(image.Pt(0, lineHeight+padding)).Push(gtx.Ops).Pop()
-		widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, text.Font{}, hs.TextSize, hs.XLabel, textColor)
+		widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hs.XLabel, textColor)
 	}()
 
 	// Draw plot

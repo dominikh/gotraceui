@@ -7,10 +7,10 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
+	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 )
 
@@ -48,7 +48,7 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	titleGtx.Constraints = layout.Normalize(titleGtx.Constraints)
 
 	m := op.Record(titleGtx.Ops)
-	labelDims := widget.Label{MaxLines: 1}.Layout(titleGtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, ds.TitleSize, ds.Title, widget.ColorTextMaterial(gtx, ds.TitleColor))
+	labelDims := widget.Label{MaxLines: 1}.Layout(titleGtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, ds.TitleSize, ds.Title, widget.ColorTextMaterial(gtx, ds.TitleColor))
 	labelCall := m.Stop()
 
 	wGtx := gtx

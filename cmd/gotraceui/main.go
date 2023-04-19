@@ -22,7 +22,7 @@ import (
 	"unicode"
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
-	"honnef.co/go/gotraceui/font"
+	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -32,6 +32,7 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/profile"
@@ -785,7 +786,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						gtx.Constraints.Min = gtx.Constraints.Max
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+								return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							})
 						})
 
@@ -796,7 +797,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						var maxNameWidth int
 						for _, name := range mwin.progressStages {
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, mwin.twin.Theme.TextSize, name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							if dims.Size.X > maxNameWidth {
 								maxNameWidth = dims.Size.X
 							}
@@ -805,7 +806,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						maxLabelWidth := maxNameWidth
 						{
 							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 							maxLabelWidth += dims.Size.X
 							m.Stop()
 						}
@@ -821,7 +822,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 										pct := fmt.Sprintf("%5.2f%%", mwin.progress*100)
 										// Replace space with figure space for correct alignment
 										pct = strings.ReplaceAll(pct, " ", "\u2007")
-										return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, text.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+										return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
@@ -1203,7 +1204,7 @@ func span(th *theme.Theme, text string) styledtext.SpanStyle {
 		Content: text,
 		Size:    th.TextSize,
 		Color:   th.Palette.Foreground,
-		Font:    font.Collection()[0].Font,
+		Font:    ourfont.Collection()[0].Font,
 	}
 }
 
@@ -1698,7 +1699,7 @@ func (txt *Text) Span(label string) *TextSpan {
 		Content: label,
 		Size:    txt.theme.TextSize,
 		Color:   txt.theme.Palette.Foreground,
-		Font:    font.Collection()[0].Font,
+		Font:    ourfont.Collection()[0].Font,
 	}
 	txt.styles = append(txt.styles, style)
 	s := TextSpan{
@@ -1716,7 +1717,7 @@ func (txt *Text) SpanWith(label string, fn func(s *TextSpan)) *TextSpan {
 
 func (txt *Text) Bold(label string) *TextSpan {
 	s := txt.Span(label)
-	s.Font.Weight = text.Bold
+	s.Font.Weight = font.Bold
 	return s
 }
 

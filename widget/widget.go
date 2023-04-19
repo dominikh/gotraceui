@@ -8,6 +8,7 @@ import (
 
 	"honnef.co/go/gotraceui/layout"
 
+	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -67,7 +68,7 @@ func ColorTextMaterial(gtx layout.Context, c color.NRGBA) op.CallOp {
 	return m.Stop()
 }
 
-func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font text.Font, size unit.Sp, label string) layout.Dimensions {
+func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font font.Font, size unit.Sp, label string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.TextLine.Layout").End()
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()

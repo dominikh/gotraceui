@@ -6,10 +6,10 @@ import (
 	"image/color"
 	rtrace "runtime/trace"
 
+	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 )
@@ -119,7 +119,7 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 				dims := widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return g.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return widget.TextLine{Color: m.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, g.Label)
+							return widget.TextLine{Color: m.Foreground}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, g.Label)
 						})
 					})
 				})
@@ -235,7 +235,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 		return item.Item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				l := func(gtx layout.Context) layout.Dimensions {
-					dims := widget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Item.Label())
+					dims := widget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, item.Item.Label())
 					if item.Item.Shortcut != "" {
 						// add padding between label and shortcut
 						dims.Size.X += gtx.Dp(10)
@@ -246,7 +246,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 					if item.Item.Shortcut == "" {
 						return layout.Dimensions{}
 					} else {
-						return widget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, text.Font{}, 12, item.Item.Shortcut)
+						return widget.TextLine{Color: fg}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, item.Item.Shortcut)
 					}
 				}
 				return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceBetween}.Layout(gtx, layout.Rigid(l), layout.Rigid(r))

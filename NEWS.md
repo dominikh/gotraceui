@@ -9,6 +9,7 @@
 - Added individual spans' stack traces in spans panel
 - Added function panel
 - Navigating to timestamps now places them at the configured axis origin
+- Update Gio dependency, fixing ctrl+scroll zooming on Windows
 
 
 # v0.2.0 (2023-04-11)

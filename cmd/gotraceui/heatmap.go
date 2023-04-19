@@ -17,13 +17,13 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 )
 
 type heatmapCacheKey struct {
@@ -380,7 +380,7 @@ func (hwin *HeatmapWindow) Run(win *app.Window) error {
 							}
 							label = local.Sprintf("time [%s, %s), range [%d, %d%c, count: %d", b.XStart, b.XEnd, b.YStart, b.YEnd, close, b.Count)
 						}
-						return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, text.Font{}, win.Theme.TextSize, label)
+						return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and

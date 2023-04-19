@@ -9,7 +9,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/text"
+	"gioui.org/font"
 )
 
 type HistogramSettingsState struct {
@@ -75,7 +75,7 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 	settingLabel := func(s string) layout.Dimensions {
 		gtx := gtx
 		gtx.Constraints.Min.Y = 0
-		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, text.Font{Weight: text.Bold}, 12, s, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, s, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 	}
 
 	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
