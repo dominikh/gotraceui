@@ -490,7 +490,18 @@ func (mwin *MainWindow) OpenLink(l Link) {
 
 		case *TimestampLink:
 			d := mwin.canvas.End() - mwin.canvas.start
-			mwin.canvas.navigateTo(gtx, l.Ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.y)
+			var off trace.Timestamp
+			switch mwin.canvas.axis.anchor {
+			case AxisAnchorNone:
+				off = mwin.canvas.pxToTs(mwin.canvas.axis.position) - mwin.canvas.start
+			case AxisAnchorStart:
+				off = 0
+			case AxisAnchorCenter:
+				off = d / 2
+			case AxisAnchorEnd:
+				off = d
+			}
+			mwin.canvas.navigateTo(gtx, l.Ts-off, mwin.canvas.nsPerPx, mwin.canvas.y)
 
 		case *SpansLink:
 			switch l.Kind {

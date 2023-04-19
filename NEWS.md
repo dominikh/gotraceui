@@ -8,6 +8,7 @@
 - Added statistics to spans panel
 - Added individual spans' stack traces in spans panel
 - Added function panel
+- Navigating to timestamps now places them at the configured axis origin
 
 
 # v0.2.0 (2023-04-11)
