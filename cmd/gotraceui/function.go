@@ -49,11 +49,8 @@ type FunctionInfo struct {
 
 func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 	fi := &FunctionInfo{
-		fn:   fn,
-		mwin: mwin,
-		goroutineList: GoroutineList{
-			Goroutines: fn.Goroutines,
-		},
+		fn:             fn,
+		mwin:           mwin,
 		histGoroutines: fn.Goroutines,
 	}
 
@@ -158,7 +155,15 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 							return theme.CheckBox(win.Theme, &fi.filterGoroutines, "Filter list to range of durations selected in histogram").Layout(win, gtx)
 						}),
 
-						layout.Flexed(1, theme.Dumb(win, fi.goroutineList.Layout)),
+						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							var gs []*ptrace.Goroutine
+							if fi.filterGoroutines.Value {
+								gs = fi.histGoroutines
+							} else {
+								gs = fi.fn.Goroutines
+							}
+							return fi.goroutineList.Layout(win, gtx, gs)
+						}),
 					)
 				case "Histogram":
 					hist, ok := fi.hist.Result()
@@ -179,14 +184,6 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		}),
 	)
 
-	if fi.filterGoroutines.Changed() {
-		if fi.filterGoroutines.Value {
-			fi.goroutineList.Goroutines = fi.histGoroutines
-		} else {
-			fi.goroutineList.Goroutines = fi.fn.Goroutines
-		}
-	}
-
 	if fi.histState.Activated != (struct {
 		Start widget.FloatDuration
 		End   widget.FloatDuration
@@ -196,9 +193,6 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		cfg.Start = fi.histState.Activated.Start
 		cfg.End = fi.histState.Activated.End
 		fi.histGoroutines = fi.computeHistogram(win, &cfg)
-		if fi.filterGoroutines.Value {
-			fi.goroutineList.Goroutines = fi.histGoroutines
-		}
 	}
 
 	for _, ev := range fi.goroutineList.Clicked() {
@@ -243,9 +237,6 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 					cfg.Start = 0
 					cfg.End = 0
 					fi.histGoroutines = fi.computeHistogram(win, &cfg)
-					if fi.filterGoroutines.Value {
-						fi.goroutineList.Goroutines = fi.histGoroutines
-					}
 				},
 			},
 		}
@@ -289,14 +280,13 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.Histogra
 }
 
 type GoroutineList struct {
-	Goroutines []*ptrace.Goroutine
-	list       widget.List
+	list widget.List
 
 	timestampObjects allocator[trace.Timestamp]
 	texts            allocator[Text]
 }
 
-func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutines []*ptrace.Goroutine) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineList.Layout").End()
 
 	gs.list.Axis = layout.Vertical
@@ -315,7 +305,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		txtCnt++
 		txt.Reset(win.Theme)
 
-		g := gs.Goroutines[row]
+		g := goroutines[row]
 		switch col {
 		case 0: // ID
 			txt.Link(local.Sprintf("%d", g.ID), g)
@@ -365,14 +355,14 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	}
 
 	// Find space needed for largest goroutine ID
-	n := len(gs.Goroutines)
+	n := len(goroutines)
 	s := n - 32
 	if s < 0 {
 		s = 0
 	}
 	var maxID uint64
 	// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
-	for _, g := range gs.Goroutines[s:n] {
+	for _, g := range goroutines[s:n] {
 		if g.ID > maxID {
 			maxID = g.ID
 		}
@@ -401,7 +391,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	}
 
 	gtx.Constraints.Min = gtx.Constraints.Max
-	return tbl.Layout(win, gtx, len(gs.Goroutines), cellFn)
+	return tbl.Layout(win, gtx, len(goroutines), cellFn)
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.
