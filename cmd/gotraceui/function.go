@@ -37,6 +37,8 @@ type FunctionInfo struct {
 	tabbedState   theme.TabbedState
 	goroutineList GoroutineList
 
+	filterGoroutines  widget.Bool
+	histGoroutines    []*ptrace.Goroutine
 	histState         theme.HistogramState
 	hist              *theme.Future[*widget.Histogram]
 	histSettingsState HistogramSettingsState
@@ -52,6 +54,7 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 		goroutineList: GoroutineList{
 			Goroutines: fn.Goroutines,
 		},
+		histGoroutines: fn.Goroutines,
 	}
 
 	// Build description
@@ -150,7 +153,13 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 			return theme.Tabbed(&fi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				switch tabs[fi.tabbedState.Current] {
 				case "Goroutines":
-					return fi.goroutineList.Layout(win, gtx)
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return theme.CheckBox(win.Theme, &fi.filterGoroutines, "Filter list to range of durations selected in histogram").Layout(win, gtx)
+						}),
+
+						layout.Flexed(1, theme.Dumb(win, fi.goroutineList.Layout)),
+					)
 				case "Histogram":
 					hist, ok := fi.hist.Result()
 					if ok {
@@ -170,6 +179,14 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		}),
 	)
 
+	if fi.filterGoroutines.Changed() {
+		if fi.filterGoroutines.Value {
+			fi.goroutineList.Goroutines = fi.histGoroutines
+		} else {
+			fi.goroutineList.Goroutines = fi.fn.Goroutines
+		}
+	}
+
 	if fi.histState.Activated != (struct {
 		Start widget.FloatDuration
 		End   widget.FloatDuration
@@ -178,7 +195,10 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		cfg := *hist.Config
 		cfg.Start = fi.histState.Activated.Start
 		cfg.End = fi.histState.Activated.End
-		fi.computeHistogram(win, &cfg)
+		fi.histGoroutines = fi.computeHistogram(win, &cfg)
+		if fi.filterGoroutines.Value {
+			fi.goroutineList.Goroutines = fi.histGoroutines
+		}
 	}
 
 	for _, ev := range fi.goroutineList.Clicked() {
@@ -222,7 +242,10 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 					cfg := *hist.Config
 					cfg.Start = 0
 					cfg.End = 0
-					fi.computeHistogram(win, &cfg)
+					fi.histGoroutines = fi.computeHistogram(win, &cfg)
+					if fi.filterGoroutines.Value {
+						fi.goroutineList.Goroutines = fi.histGoroutines
+					}
 				},
 			},
 		}
@@ -246,17 +269,23 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	return dims
 }
 
-func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
+func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) []*ptrace.Goroutine {
 	var goroutineDurations []time.Duration
 
+	var gs []*ptrace.Goroutine
 	for _, g := range fi.fn.Goroutines {
 		d := time.Duration(g.Spans.At((g.Spans.Len())-1).End - g.Spans.At(0).Start)
-		goroutineDurations = append(goroutineDurations, d)
+		if fd := widget.FloatDuration(d); fd >= cfg.Start && (cfg.End == 0 || fd <= cfg.End) {
+			goroutineDurations = append(goroutineDurations, d)
+			gs = append(gs, g)
+		}
 	}
 
 	fi.hist = theme.NewFuture(win, func(cancelled <-chan struct{}) *widget.Histogram {
 		return widget.NewHistogram(cfg, goroutineDurations)
 	})
+
+	return gs
 }
 
 type GoroutineList struct {
