@@ -27,6 +27,13 @@ type future interface {
 	cancel()
 }
 
+func Immediate[T any](value T) *Future[T] {
+	return &Future[T]{
+		res:    value,
+		resSet: true,
+	}
+}
+
 func NewFuture[T any](win *Window, fn func(cancelled <-chan struct{}) T) *Future[T] {
 	ft := &Future[T]{
 		cancelled: make(chan struct{}),

@@ -750,6 +750,66 @@ func NewGoroutineInfo(mwin *MainWindow, g *ptrace.Goroutine) *SpansInfo {
 		}
 	}
 
+	var desc Description
+	var attrs []DescriptionAttribute
+	value := func(s *TextSpan) *theme.Future[TextSpan] {
+		return theme.Immediate(*s)
+	}
+	tb := TextBuilder{Theme: mwin.twin.Theme}
+
+	start := spans.At(0).Start
+	end := LastSpan(spans).End
+	d := time.Duration(end - start)
+	observedStart := spans.At(0).State == ptrace.StateCreated
+	observedEnd := LastSpan(spans).State == ptrace.StateDone
+
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Goroutine",
+		Value: value(tb.Span(local.Sprintf("%d\n", g.ID))),
+	})
+
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Function",
+		Value: value(tb.Link(fmt.Sprintf("%s", g.Function.Fn), g.Function)),
+	})
+
+	if observedStart {
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Created at",
+			Value: value(tb.Link(fmt.Sprintf("%s", formatTimestamp(start)), start)),
+		})
+	} else {
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Created at",
+			Value: value(tb.Link("before trace start", start)),
+		})
+	}
+
+	if observedEnd {
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Returned at",
+			Value: value(tb.Link(fmt.Sprintf("%s", formatTimestamp(end)), end)),
+		})
+	} else {
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Returned at",
+			Value: value(tb.Link("after trace end", end)),
+		})
+	}
+
+	if observedStart && observedEnd {
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Lifetime",
+			Value: value(tb.Span(d.String())),
+		})
+	} else {
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Observed duration",
+			Value: value(tb.Span(d.String())),
+		})
+	}
+	desc.Attributes = attrs
+
 	cfg := SpansInfoConfig{
 		Title:      title,
 		Stacktrace: stacktrace,
@@ -773,55 +833,7 @@ func NewGoroutineInfo(mwin *MainWindow, g *ptrace.Goroutine) *SpansInfo {
 		Statistics: theme.NewFuture(mwin.twin, func(cancelled <-chan struct{}) *SpansStats {
 			return NewGoroutineStats(g)
 		}),
-		Description: func(text *Text) {
-			start := spans.At(0).Start
-			end := LastSpan(spans).End
-			d := time.Duration(end - start)
-			observedStart := spans.At(0).State == ptrace.StateCreated
-			observedEnd := LastSpan(spans).State == ptrace.StateDone
-
-			text.Bold("Goroutine: ")
-			text.Span(local.Sprintf("%d\n", g.ID))
-
-			text.Bold("Function: ")
-			text.Link(fmt.Sprintf("%s\n", g.Function.Fn), g.Function)
-
-			if observedStart {
-				text.Bold("Created at: ")
-				text.Link(
-					fmt.Sprintf("%s\n", formatTimestamp(start)),
-					start,
-				)
-			} else {
-				text.Bold("Created at: ")
-				text.Link(
-					"before trace start\n",
-					start,
-				)
-			}
-
-			if observedEnd {
-				text.Bold("Returned at: ")
-				text.Link(
-					fmt.Sprintf("%s\n", formatTimestamp(end)),
-					end,
-				)
-			} else {
-				text.Bold("Returned at: ")
-				text.Link(
-					"after trace end\n",
-					end,
-				)
-			}
-
-			if observedStart && observedEnd {
-				text.Bold("Lifetime: ")
-				text.Span(d.String())
-			} else {
-				text.Bold("Observed duration: ")
-				text.Span(d.String())
-			}
-		},
+		Description: &desc,
 	}
 
 	return NewSpansInfo(cfg, mwin, spans, g.Events)

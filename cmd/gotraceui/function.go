@@ -33,7 +33,7 @@ type FunctionInfo struct {
 	fn            *ptrace.Function
 	mwin          *MainWindow
 	title         string
-	description   Text
+	description   Description
 	tabbedState   theme.TabbedState
 	goroutineList GoroutineList
 
@@ -56,13 +56,17 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 
 	// Build description
 	{
-		fi.description.Reset(mwin.twin.Theme)
+		value := func(s *TextSpan) *theme.Future[TextSpan] {
+			return theme.Immediate(*s)
+		}
+		tb := TextBuilder{Theme: mwin.twin.Theme}
+		var attrs []DescriptionAttribute
 
-		fi.description.Bold("Function: ")
-		fi.description.Span(fn.Fn)
-		fi.description.Span("\n")
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Function",
+			Value: value(tb.Span(fn.Fn)),
+		})
 
-		fi.description.Bold("Location: ")
 		// TODO(dh): make file link clickable
 		displayPath := fn.File
 		if goroot := mwin.trace.GOROOT; goroot != "" && strings.HasPrefix(fn.File, goroot) {
@@ -88,12 +92,15 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 				}
 			}
 		}
-		fi.description.Span(fmt.Sprintf("%s:%d", displayPath, fn.Line))
-		fi.description.Span("\n")
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Location",
+			Value: value(tb.Span(fmt.Sprintf("%s:%d", displayPath, fn.Line))),
+		})
 
-		fi.description.Bold("# of goroutines: ")
-		fi.description.Span(local.Sprintf("%d", len(fn.Goroutines)))
-		fi.description.Span("\n")
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "# of goroutines",
+			Value: value(tb.Span(local.Sprintf("%d", len(fn.Goroutines)))),
+		})
 
 		var total time.Duration
 		for _, g := range fn.Goroutines {
@@ -101,8 +108,12 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 			total += d
 		}
 
-		fi.description.Bold("Total time: ")
-		fi.description.Span(total.String())
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Total time",
+			Value: value(tb.Span(total.String())),
+		})
+
+		fi.description.Attributes = attrs
 	}
 
 	// Build histogram
@@ -321,8 +332,8 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 			value, unit := durationNumberFormatSITable.format(d)
 			txt.Span(value)
 			txt.Span(" ")
-			txt.Span(unit)
-			txt.styles[len(txt.styles)-1].Font.Variant = "Mono"
+			s := txt.Span(unit)
+			s.Font.Variant = "Mono"
 			txt.Alignment = text.End
 		}
 

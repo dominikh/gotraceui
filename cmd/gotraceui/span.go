@@ -62,7 +62,7 @@ type SpansInfo struct {
 	tabbedState     theme.TabbedState
 	stackSelectable widget.Selectable
 
-	description Text
+	description Description
 
 	stacktraceList widget.List
 	statsList      widget.List
@@ -74,7 +74,7 @@ type SpansInfoConfig struct {
 	Title       string
 	Label       string
 	Container   SpanContainer
-	Description func(s *Text)
+	Description *Description
 	Stacktrace  string
 	Statistics  *theme.Future[*SpansStats]
 	Navigations SpansInfoConfigNavigations
@@ -144,9 +144,8 @@ func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans ptrace.Spans, all
 	si.events.Events = si.spans.Events(si.allEvents, si.trace.Trace)
 	si.events.UpdateFilter()
 
-	si.description.Reset(mwin.twin.Theme)
 	if cfg.Description != nil {
-		cfg.Description(&si.description)
+		si.description = *cfg.Description
 	} else {
 		si.buildDefaultDescription()
 	}
@@ -159,52 +158,63 @@ func (si *SpansInfo) Title() string {
 }
 
 func (si *SpansInfo) buildDefaultDescription() {
-	if len(si.label) > 0 {
-		si.description.Bold("Label: ")
-		si.description.Span(si.label)
-		si.description.Span("\n")
+	value := func(s *TextSpan) *theme.Future[TextSpan] {
+		return theme.Immediate(*s)
+	}
+
+	// OPT(dh): there's no need to store the spans in a slice, so TextBuilder isn't what we want
+	tb := TextBuilder{Theme: si.mwin.twin.Theme}
+	var attrs []DescriptionAttribute
+	if si.label != "" {
+		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: value(tb.Span(si.label))})
 	}
 
 	firstSpan := si.spans.At(0)
 	lastSpan := LastSpan(si.spans)
-	si.description.Bold("Start: ")
-	si.description.Link(
-		formatTimestamp(firstSpan.Start),
-		firstSpan.Start,
-	)
-	si.description.Span("\n")
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Start",
+		Value: value(tb.Link(formatTimestamp(firstSpan.Start), firstSpan.Start)),
+	})
 
-	si.description.Bold("End: ")
-	si.description.Link(
-		formatTimestamp(lastSpan.End),
-		lastSpan.End,
-	)
-	si.description.Span("\n")
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "End",
+		Value: value(tb.Link(formatTimestamp(lastSpan.End), lastSpan.End)),
+	})
 
-	si.description.Bold("Duration: ")
-	si.description.Span(SpansDuration(si.spans).String())
-	si.description.Span("\n")
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Duration",
+		Value: value(tb.Span(SpansDuration(si.spans).String())),
+	})
 
-	si.description.Bold("State: ")
-	if si.spans.Len() == 1 {
-		si.description.Span(stateNames[firstSpan.State])
-	} else {
-		si.description.Span("mixed")
-	}
-	si.description.Span("\n")
+	attrs = append(attrs, DescriptionAttribute{
+		Key: "State",
+		Value: theme.NewFuture(si.mwin.twin, func(cancelled <-chan struct{}) TextSpan {
+			state := stateNames[firstSpan.State]
+			for i := 1; i < si.spans.Len(); i++ {
+				s := si.spans.At(i).State
+				if s != firstSpan.State {
+					state = "mixed"
+					break
+				}
+			}
+			return *tb.Span(state)
+		}),
+	})
 
 	if si.spans.Len() == 1 && firstSpan.Tags != 0 {
-		si.description.Bold("Tags: ")
 		tags := spanTagStrings(firstSpan.Tags)
-		si.description.Span(strings.Join(tags, ", "))
-		si.description.Span("\n")
+		attrs = append(attrs, DescriptionAttribute{
+			Key:   "Tags",
+			Value: value(tb.Span(strings.Join(tags, ", "))),
+		})
 	}
 
-	si.description.Bold("In: ")
-	si.description.Link(
-		si.container.Timeline.shortName,
-		si.container.Timeline.item,
-	)
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "In",
+		Value: value(tb.Link(si.container.Timeline.shortName, si.container.Timeline.item)),
+	})
+
+	si.description.Attributes = attrs
 }
 
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -475,8 +485,8 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 			value, unit := durationNumberFormatSITable.format(span.Duration())
 			txt.Span(value)
 			txt.Span(" ")
-			txt.Span(unit)
-			txt.styles[len(txt.styles)-1].Font.Variant = "Mono"
+			s := txt.Span(unit)
+			s.Font.Variant = "Mono"
 			txt.Alignment = text.End
 		case 2: // State
 			label := stateNamesCapitalized[span.State]

@@ -1669,10 +1669,9 @@ type Text struct {
 	// theme provided to it, to avoid race conditions when texts transition from widgets to independent windows.
 	//
 	// The theme must be reset in Reset.
-	theme     *theme.Theme
 	styles    []styledtext.SpanStyle
-	Spans     []TextSpan
 	Alignment text.Alignment
+	TextBuilder
 
 	events []TextEvent
 
@@ -1682,58 +1681,62 @@ type Text struct {
 	clickables []*gesture.Click
 }
 
+type TextBuilder struct {
+	Theme *theme.Theme
+	Spans []TextSpan
+}
+
 type TextEvent struct {
 	Span  *TextSpan
 	Event gesture.ClickEvent
 }
 
 type TextSpan struct {
-	*styledtext.SpanStyle
+	styledtext.SpanStyle
 	Object any
 
 	Click *gesture.Click
 }
 
-func (txt *Text) Span(label string) *TextSpan {
+func (txt *TextBuilder) Span(label string) *TextSpan {
 	style := styledtext.SpanStyle{
 		Content: label,
-		Size:    txt.theme.TextSize,
-		Color:   txt.theme.Palette.Foreground,
+		Size:    txt.Theme.TextSize,
+		Color:   txt.Theme.Palette.Foreground,
 		Font:    ourfont.Collection()[0].Font,
 	}
-	txt.styles = append(txt.styles, style)
 	s := TextSpan{
-		SpanStyle: &txt.styles[len(txt.styles)-1],
+		SpanStyle: style,
 	}
 	txt.Spans = append(txt.Spans, s)
 	return &txt.Spans[len(txt.Spans)-1]
 }
 
-func (txt *Text) SpanWith(label string, fn func(s *TextSpan)) *TextSpan {
+func (txt *TextBuilder) SpanWith(label string, fn func(s *TextSpan)) *TextSpan {
 	s := txt.Span(label)
 	fn(s)
 	return s
 }
 
-func (txt *Text) Bold(label string) *TextSpan {
+func (txt *TextBuilder) Bold(label string) *TextSpan {
 	s := txt.Span(label)
 	s.Font.Weight = font.Bold
 	return s
 }
 
-func (txt *Text) Link(label string, obj any) *TextSpan {
+func (txt *TextBuilder) Link(label string, obj any) *TextSpan {
 	s := txt.Span(label)
-	s.Color = txt.theme.Palette.Link
+	s.Color = txt.Theme.Palette.Link
 	s.Object = obj
 	return s
 }
 
 func (txt *Text) Reset(th *theme.Theme) {
+	txt.Theme = th
 	txt.events = txt.events[:0]
 	txt.styles = txt.styles[:0]
 	txt.Spans = txt.Spans[:0]
 	txt.Alignment = 0
-	txt.theme = th
 }
 
 func (txt *Text) Events() []TextEvent {
@@ -1770,6 +1773,10 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 		}
 	}
 
+	txt.styles = txt.styles[:0]
+	for _, s := range txt.Spans {
+		txt.styles = append(txt.styles, s.SpanStyle)
+	}
 	ptxt := styledtext.Text(win.Theme.Shaper, txt.styles...)
 	ptxt.Alignment = txt.Alignment
 	if txt.Alignment == text.Start {
@@ -1842,4 +1849,41 @@ func Record(win *theme.Window, gtx layout.Context, w theme.Widget) Recording {
 	c := m.Stop()
 
 	return Recording{c, dims}
+}
+
+type Description struct {
+	Attributes []DescriptionAttribute
+	text       Text
+}
+
+type DescriptionAttribute struct {
+	Key   string
+	Value *theme.Future[TextSpan]
+}
+
+func (desc *Description) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	desc.text.Reset(win.Theme)
+	for _, attr := range desc.Attributes {
+		desc.text.Bold(fmt.Sprintf("%s: ", attr.Key))
+		if s, ok := attr.Value.Result(); ok {
+			desc.text.Spans = append(desc.text.Spans, s)
+		} else {
+			switch (gtx.Now.UnixMilli() / 500) % 3 {
+			case 0:
+				desc.text.Span(".")
+			case 1:
+				desc.text.Span("..")
+			case 2:
+				desc.text.Span("...")
+			}
+			op.InvalidateOp{}.Add(gtx.Ops)
+		}
+		desc.text.Span("\n")
+	}
+
+	return desc.text.Layout(win, gtx)
+}
+
+func (desc *Description) Events() []TextEvent {
+	return desc.text.Events()
 }
