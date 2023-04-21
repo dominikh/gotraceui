@@ -1,8 +1,10 @@
 package theme
 
 import (
+	"context"
 	"image"
 	"image/color"
+	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
@@ -41,6 +43,8 @@ func Dialog(th *Theme, title string) DialogStyle {
 }
 
 func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.DialogStyle.Layout").End()
+
 	titleGtx := gtx
 	titleGtx.Constraints.Min.Y = 0
 	titleGtx.Constraints.Max.X -= 2 * gtx.Dp(ds.BorderWidth+ds.TitlePadding)

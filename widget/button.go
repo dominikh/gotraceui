@@ -1,7 +1,9 @@
 package widget
 
 import (
+	"context"
 	"image"
+	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
@@ -88,6 +90,8 @@ func (b *Clickable) Clicks() []Click {
 
 // Layout and update the button state
 func (b *Clickable) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.Clickable.Layout").End()
+
 	b.update(gtx)
 	m := op.Record(gtx.Ops)
 	dims := w(gtx)
@@ -194,5 +198,6 @@ func (b *PrimaryClickable) Pressed() bool { return b.Clickable.Pressed(pointer.B
 func (b *PrimaryClickable) Focus()        { b.Clickable.Focus() }
 func (b *PrimaryClickable) Focused() bool { return b.Clickable.Focused() }
 func (b *PrimaryClickable) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.PrimaryClickable.Layout").End()
 	return b.Clickable.Layout(gtx, w)
 }

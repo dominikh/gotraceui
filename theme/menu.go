@@ -58,7 +58,7 @@ type MenuStyle struct {
 }
 
 func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.Menu.Layout").End()
+	defer rtrace.StartRegion(context.Background(), "theme.MenuStyle.Layout").End()
 
 	// TODO(dh): open a group on press, not on click. allow the user to keep the button pressed, move onto an item, and
 	// release the button, to select a menu item with a single click.
@@ -163,7 +163,7 @@ func NewMenuGroupStyle(th *Theme, group *MenuGroup) MenuGroupStyle {
 }
 
 func (g MenuGroupStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.MenuGroup.Layout").End()
+	defer rtrace.StartRegion(context.Background(), "theme.MenuGroupStyle.Layout").End()
 
 	// Render the menu in two passes. First we find the widest element, then we render for real with that width
 	// set as the minimum constraint.
@@ -220,7 +220,7 @@ func NewMenuItemStyle(th *Theme, item *MenuItem) MenuItemStyle {
 }
 
 func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.MenuItem.Layout").End()
+	defer rtrace.StartRegion(context.Background(), "theme.MenuItemStyle.Layout").End()
 
 	fg := item.Foreground
 	disabled := item.Item.Disabled != nil && item.Item.Disabled()
@@ -275,7 +275,7 @@ func MenuDivider(th *Theme) MenuDividerStyle {
 }
 
 func (mds MenuDividerStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.MenuDivider.Layout").End()
+	defer rtrace.StartRegion(context.Background(), "theme.MenuDividerStyle.Layout").End()
 
 	// XXX use font's line height
 	height := 15

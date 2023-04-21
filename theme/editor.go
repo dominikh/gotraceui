@@ -100,6 +100,8 @@ func TextBox(th *Theme, editor *widget.Editor, hint string) TextBoxStyle {
 }
 
 func (tb TextBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TextBoxStyle.Layout").End()
+
 	if tb.Validate != nil && !tb.Validate(tb.Editor.Text()) {
 		tb.Color = rgba(0xFF0000FF)
 	}

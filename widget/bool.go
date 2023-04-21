@@ -1,6 +1,9 @@
 package widget
 
 import (
+	"context"
+	rtrace "runtime/trace"
+
 	"honnef.co/go/gotraceui/layout"
 
 	"gioui.org/io/semantic"
@@ -41,6 +44,8 @@ func (b *Bool) Focused() bool {
 }
 
 func (b *Bool) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.Bool.Layout").End()
+
 	dims := b.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		for b.clk.Clicked() {
 			b.Value = !b.Value
@@ -96,6 +101,8 @@ func (bit *BackedBit[T]) Focused() bool {
 }
 
 func (bit *BackedBit[T]) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "widget.BackedBit.Layout").End()
+
 	dims := bit.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		for bit.clk.Clicked() {
 			bit.Set(!bit.Get())

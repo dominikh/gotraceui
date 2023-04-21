@@ -1,10 +1,12 @@
 package theme
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -65,6 +67,8 @@ func Histogram(th *Theme, state *HistogramState) HistogramStyle {
 }
 
 func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Histogram) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.HistogramStyle.Layout").End()
+
 	roundf := func(f float32) float32 {
 		return float32(math.Round(float64(f)))
 	}

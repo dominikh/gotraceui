@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image"
+	rtrace "runtime/trace"
 	"strconv"
 	"time"
 
@@ -41,6 +43,8 @@ func (hist *InteractiveHistogram) Changed() bool {
 }
 
 func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.InteractiveHistogram.Layout").End()
+
 	whist, ok := hist.widget.Result()
 	if ok {
 		thist := theme.Histogram(win.Theme, &hist.state)
@@ -163,6 +167,8 @@ func HistogramSettings(state *HistogramSettingsState) HistogramSettingsStyle {
 }
 
 func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.HistogramSettingsStyle.Layout").End()
+
 	hs.State.saved = false
 	hs.State.cancelled = false
 

@@ -229,6 +229,8 @@ func (si *SpansInfo) buildDefaultDescription() {
 }
 
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
+
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))

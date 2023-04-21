@@ -1,6 +1,9 @@
 package theme
 
 import (
+	"context"
+	rtrace "runtime/trace"
+
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 )
@@ -44,6 +47,8 @@ func (pb *PanelButtons) Backed() bool {
 }
 
 func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.PanelButtons.Layout").End()
+
 	type button struct {
 		w     *widget.PrimaryClickable
 		label string
@@ -84,5 +89,7 @@ type WidgetPanel struct {
 }
 
 func (wp *WidgetPanel) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.WidgetPanel.Layout").End()
+
 	return layout.Flex{}.Layout(gtx, layout.Rigid(Dumb(win, wp.PanelButtons.Layout)), layout.Rigid(Dumb(win, wp.w)))
 }

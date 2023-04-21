@@ -124,6 +124,8 @@ func (fi *FunctionInfo) Title() string {
 }
 
 func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.FunctionInfo.Layout").End()
+
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	rtrace "runtime/trace"
 	"sort"
 
 	"honnef.co/go/gotraceui/layout"
@@ -259,6 +261,8 @@ func HighlightDialog(win *theme.Window, f *Filter) HighlightDialogStyle {
 }
 
 func (hd *HighlightDialogStyle) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.HighlightDialogStyle.Layout").End()
+
 	return theme.List(win.Theme, &hd.list).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 		return theme.Foldable(win.Theme, &hd.foldables.states, "States").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,

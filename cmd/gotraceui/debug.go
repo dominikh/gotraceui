@@ -43,6 +43,8 @@ func (g *debugGraph) addValue(ts time.Time, val float64) {
 }
 
 func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.debugGraph.Layout").End()
+
 	// OPT(dh): this function allocates a fair amount. It's only debug code, but even then we want to keep memory usage
 	// low, so as not to affect debugging of other memory usage issues. The expensive part is drawing all that text that
 	// is constantly changing.

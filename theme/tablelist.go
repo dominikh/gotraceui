@@ -1,6 +1,9 @@
 package theme
 
 import (
+	"context"
+	rtrace "runtime/trace"
+
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
@@ -25,6 +28,8 @@ func (tbl *TableListStyle) Layout(
 	numItems int,
 	cellFn func(gtx layout.Context, row, col int) layout.Dimensions,
 ) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TableListStyle.Layout").End()
+
 	st := List(win.Theme, tbl.List)
 	st.EnableCrossScrolling = true
 

@@ -1,7 +1,9 @@
 package layout
 
 import (
+	"context"
 	"image"
+	rtrace "runtime/trace"
 
 	"gioui.org/op"
 	"gioui.org/x/outlay"
@@ -14,6 +16,8 @@ type SmallGrid struct {
 }
 
 func (sg SmallGrid) Layout(gtx Context, rows, cols int, sizeEstimator outlay.Cell, cellFunc outlay.Cell) Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.SmallGrid.Layout").End()
+
 	colWidths := make([]int, cols)
 	// Storing dims isn't strictly necessarily, since we only need to know the row height (which Grid assumes is the
 	// same for each row) and the column widths, as outlay.Grid passes an exact constraint to the cell function with
@@ -66,6 +70,8 @@ type PixelInset struct {
 }
 
 func (in PixelInset) Layout(gtx Context, w Widget) Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.PixelInset.Layout").End()
+
 	top := (in.Top)
 	right := (in.Right)
 	bottom := (in.Bottom)

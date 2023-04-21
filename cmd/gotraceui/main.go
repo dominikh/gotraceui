@@ -1840,6 +1840,8 @@ type Recording struct {
 }
 
 func (r Recording) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Recording.Layout").End()
+
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	r.Call.Add(gtx.Ops)
 	return r.Dimensions

@@ -219,6 +219,8 @@ func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string) CheckBo
 }
 
 func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkboxes ...CheckBoxStyle) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.CheckBoxGroupStyle.Layout").End()
+
 	const (
 		none = iota
 		noneThenSome
@@ -511,6 +513,8 @@ func BorderedText(th *Theme, s string) BorderedTextStyle {
 }
 
 func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.BorderedTextStyle.Layout").End()
+
 	return widget.Bordered{Color: bt.BorderColor, Width: bt.BorderSize}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
@@ -609,6 +613,8 @@ func Grid(th *Theme, state *component.GridState) GridStyle {
 
 // Layout will draw a grid, using fixed column widths and row height.
 func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay.Dimensioner, cellFunc outlay.Cell) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.GridStyle.Layout").End()
+
 	// Determine how much space the scrollbars occupy when present.
 	hBarWidth := gtx.Dp(g.HScrollbarStyle.Width())
 	vBarWidth := gtx.Dp(g.VScrollbarStyle.Width())
@@ -688,6 +694,8 @@ func Resize(th *Theme, state *component.Resize) ResizeStyle {
 }
 
 func (rs ResizeStyle) Layout(win *Window, gtx layout.Context, w1, w2 Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.ResizeStyle.Layout").End()
+
 	var hnd layout.Widget
 	switch rs.res.Axis {
 	case layout.Horizontal:
@@ -720,6 +728,8 @@ func Switch(b widget.Boolean, left, right string) SwitchStyle {
 }
 
 func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.SwitchStyle.Layout").End()
+
 	noMin := func(gtx layout.Context) layout.Context {
 		gtx.Constraints.Min = image.Point{}
 		return gtx
@@ -846,6 +856,8 @@ func Tabbed(state *TabbedState, tabs []string) TabbedStyle {
 }
 
 func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TabbedStyle.Layout").End()
+
 	if ts.State.Current >= len(ts.Tabs) {
 		ts.State.Current = len(ts.Tabs) - 1
 	}
