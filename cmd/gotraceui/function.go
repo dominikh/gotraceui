@@ -18,7 +18,6 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
-	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/text"
 )
@@ -37,12 +36,9 @@ type FunctionInfo struct {
 	tabbedState   theme.TabbedState
 	goroutineList GoroutineList
 
-	filterGoroutines  widget.Bool
-	histGoroutines    []*ptrace.Goroutine
-	histState         theme.HistogramState
-	hist              *theme.Future[*widget.Histogram]
-	histSettingsState HistogramSettingsState
-	histClick         widget.Clickable
+	filterGoroutines widget.Bool
+	histGoroutines   []*ptrace.Goroutine
+	hist             InteractiveHistogram
 
 	theme.PanelButtons
 }
@@ -119,7 +115,6 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 	// Build histogram
 	cfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
 	fi.computeHistogram(mwin.twin, cfg)
-	fi.histSettingsState.Reset(cfg)
 
 	return fi
 }
@@ -177,34 +172,13 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 						}),
 					)
 				case "Histogram":
-					hist, ok := fi.hist.Result()
-					if ok {
-						thist := theme.Histogram(win.Theme, &fi.histState)
-						thist.XLabel = "Duration"
-						thist.YLabel = "Count"
-						return fi.histClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return thist.Layout(win, gtx, hist)
-						})
-					} else {
-						return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing histogram…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
-					}
+					return fi.hist.Layout(win, gtx)
 				default:
 					panic("unreachable")
 				}
 			})
 		}),
 	)
-
-	if fi.histState.Activated != (struct {
-		Start widget.FloatDuration
-		End   widget.FloatDuration
-	}{}) {
-		hist, _ := fi.hist.Result()
-		cfg := *hist.Config
-		cfg.Start = fi.histState.Activated.Start
-		cfg.End = fi.histState.Activated.End
-		fi.histGoroutines = fi.computeHistogram(win, &cfg)
-	}
 
 	for _, ev := range fi.goroutineList.Clicked() {
 		handleLinkClick(win, fi.mwin, ev)
@@ -218,54 +192,8 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		fi.mwin.prevPanel()
 	}
 
-	for {
-		click, ok := fi.histClick.Clicked()
-		if !ok {
-			break
-		}
-		if click.Button != pointer.ButtonSecondary {
-			continue
-		}
-
-		menu := []*theme.MenuItem{
-			{
-				Label: PlainLabel("Change settings"),
-				Do: func(gtx layout.Context) {
-					win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
-						gtx.Constraints.Max = gtx.Constraints.Min
-						return theme.Dialog(win.Theme, "Histogram settings").Layout(win, gtx, HistogramSettings(&fi.histSettingsState).Layout)
-					})
-				},
-			},
-
-			{
-				// TODO disable when there is nothing to zoom out to
-				Label: PlainLabel("Zoom out"),
-				Do: func(gtx layout.Context) {
-					hist, _ := fi.hist.Result()
-					cfg := *hist.Config
-					cfg.Start = 0
-					cfg.End = 0
-					fi.histGoroutines = fi.computeHistogram(win, &cfg)
-				},
-			},
-		}
-		win.SetContextMenu(menu)
-	}
-
-	if fi.histSettingsState.Saved() {
-		hist, _ := fi.hist.Result()
-		cfg := *hist.Config
-		cfg.Bins = fi.histSettingsState.NumBins()
-		cfg.RejectOutliers = fi.histSettingsState.RejectOutliers()
-		fi.computeHistogram(win, &cfg)
-		win.CloseModal()
-	}
-	if fi.histSettingsState.Cancelled() {
-		hist, _ := fi.hist.Result()
-		fi.histSettingsState.Reset(hist.Config)
-		win.CloseModal()
+	if fi.hist.Changed() {
+		fi.histGoroutines = fi.computeHistogram(win, &fi.hist.Config)
 	}
 
 	return dims
@@ -283,9 +211,7 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.Histogra
 		}
 	}
 
-	fi.hist = theme.NewFuture(win, func(cancelled <-chan struct{}) *widget.Histogram {
-		return widget.NewHistogram(cfg, goroutineDurations)
-	})
+	fi.hist.Set(win, goroutineDurations)
 
 	return gs
 }

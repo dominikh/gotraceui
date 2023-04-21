@@ -4,13 +4,111 @@ import (
 	"fmt"
 	"image"
 	"strconv"
+	"time"
 
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
+	"gioui.org/io/pointer"
 )
+
+type InteractiveHistogram struct {
+	XLabel        string
+	YLabel        string
+	Config        widget.HistogramConfig
+	widget        *theme.Future[*widget.Histogram]
+	state         theme.HistogramState
+	settingsState HistogramSettingsState
+	click         widget.Clickable
+	changed       bool
+}
+
+func (hist *InteractiveHistogram) Set(win *theme.Window, data []time.Duration) {
+	hist.widget = theme.NewFuture(win, func(cancelled <-chan struct{}) *widget.Histogram {
+		whist := widget.NewHistogram(&hist.Config, data)
+		// Call Reset after creating the histogram so that NewHistogram can update the config with default values.
+		hist.settingsState.Reset(hist.Config)
+		return whist
+	})
+}
+
+func (hist *InteractiveHistogram) Changed() bool {
+	b := hist.changed
+	hist.changed = false
+	return b
+}
+
+func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	whist, ok := hist.widget.Result()
+	if ok {
+		thist := theme.Histogram(win.Theme, &hist.state)
+		thist.XLabel = "Duration"
+		thist.YLabel = "Count"
+		dims := hist.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return thist.Layout(win, gtx, whist)
+		})
+
+		if hist.state.Activated != (struct {
+			Start widget.FloatDuration
+			End   widget.FloatDuration
+		}{}) {
+			hist.Config.Start = hist.state.Activated.Start
+			hist.Config.End = hist.state.Activated.End
+			hist.changed = true
+		}
+
+		for {
+			click, ok := hist.click.Clicked()
+			if !ok {
+				break
+			}
+			if click.Button != pointer.ButtonSecondary {
+				continue
+			}
+
+			menu := []*theme.MenuItem{
+				{
+					Label: PlainLabel("Change settings"),
+					Do: func(gtx layout.Context) {
+						win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
+							gtx.Constraints.Max = gtx.Constraints.Min
+							return theme.Dialog(win.Theme, "Histogram settings").Layout(win, gtx, HistogramSettings(&hist.settingsState).Layout)
+						})
+					},
+				},
+
+				{
+					// TODO disable when there is nothing to zoom out to
+					Label: PlainLabel("Zoom out"),
+					Do: func(gtx layout.Context) {
+						hist.Config.Start = 0
+						hist.Config.End = 0
+						hist.changed = true
+					},
+				},
+			}
+			win.SetContextMenu(menu)
+		}
+
+		if hist.settingsState.Saved() {
+			hist.Config.Bins = hist.settingsState.NumBins()
+			hist.Config.RejectOutliers = hist.settingsState.RejectOutliers()
+			hist.changed = true
+			win.CloseModal()
+		}
+		if hist.settingsState.Cancelled() {
+			hist.settingsState.Reset(hist.Config)
+			win.CloseModal()
+		}
+
+		return dims
+	} else {
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing histogram…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+	}
+}
 
 type HistogramSettingsState struct {
 	saved, cancelled bool
@@ -49,7 +147,7 @@ type HistogramSettingsStyle struct {
 	State *HistogramSettingsState
 }
 
-func (s *HistogramSettingsState) Reset(cfg *widget.HistogramConfig) {
+func (s *HistogramSettingsState) Reset(cfg widget.HistogramConfig) {
 	s.filterOutliers.Set(cfg.RejectOutliers)
 	numBinsStr := fmt.Sprintf("%d", cfg.Bins)
 	s.numBinsEditor.SetText(numBinsStr)
