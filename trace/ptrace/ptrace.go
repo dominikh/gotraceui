@@ -1125,8 +1125,8 @@ func blockedIsInactive(fn string) bool {
 
 type Spans interface {
 	Len() int
-	At(int) Span
-	AtPtr(int) *Span
+	At(idx int) Span
+	AtPtr(idx int) *Span
 	Slice(start, end int) Spans
 
 	Start() trace.Timestamp

@@ -514,6 +514,8 @@ func (mwin *MainWindow) OpenLink(l Link) {
 			case SpanLinkKindZoom:
 				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
 				mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
+			default:
+				panic(l.Kind)
 			}
 
 		default:
