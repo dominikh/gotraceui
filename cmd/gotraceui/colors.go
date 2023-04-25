@@ -3,37 +3,57 @@ package main
 import (
 	"image/color"
 
+	mycolor "honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
-var colors = [...]color.NRGBA{
-	colorStateInactive: rgba(0x888888FF),
-	colorStateActive:   rgba(0x448844FF),
+var colors [colorLast]color.NRGBA
 
-	colorStateBlocked:              rgba(0xBA4141FF),
-	colorStateBlockedHappensBefore: rgba(0xBB6363FF),
-	colorStateBlockedNet:           rgba(0xBB5D5DFF),
-	colorStateBlockedGC:            rgba(0x9C6FD6FF),
-	colorStateBlockedSyscall:       rgba(0xBA4F41FF),
-	colorStateGC:                   rgba(0x9C6FD6FF),
-	colorStateSTW:                  rgba(0xBA4141FF),
+func init() {
+	// Our base lightness is 56.51, and our base chroma is 0.122
+	const l = 58.51
+	const c = 0.122
+	const lStep1 = 15
+	const lStep2 = 10
 
-	colorStateReady:      rgba(0x4BACB8FF),
-	colorStateStuck:      rgba(0x000000FF),
-	colorStateMerged:     rgba(0xB9BB63FF),
-	colorStateUnknown:    rgba(0xFFFF00FF),
-	colorStateUserRegion: rgba(0xF2A2E8FF),
-	colorStateCPUSample:  rgba(0x98D597FF),
-	colorStateStack:      rgba(0x79B579FF),
+	var cs [colorLast]mycolor.Oklch
+	cs[colorStateActive] = oklch(l, c, 143.74) // Manually chosen
+	cs[colorStateStack] = oklchDelta(cs[colorStateActive], lStep1, -0.01, 0)
+	cs[colorStateCPUSample] = oklchDelta(cs[colorStateStack], lStep2, -0.01, 0)
 
-	colorStateDone: rgba(0x000000FF),
+	cs[colorStateReady] = oklch(l, c, 206.35) // Manually chosen
+	cs[colorStateInactive] = oklch(l, 0, 0)
 
-	colorTimelineLabel:  rgba(0x888888FF),
-	colorTimelineBorder: rgba(0xDDDDDDFF),
+	cs[colorStateUserRegion] = oklch(l+lStep1+lStep2, c, 331.18) // Manually chosen
 
-	// TODO(dh): find a nice color for this
-	colorSpanHighlightedPrimaryOutline:   rgba(0xFF00FFFF),
-	colorSpanHighlightedSecondaryOutline: rgba(0x6FFF00FF),
+	// Manually chosen. This is the rarest blocked state, so we darken it to have more range for the other states.
+	cs[colorStateBlocked] = oklch(l-5, c, 23.89)
+	cs[colorStateBlockedSyscall] = oklch(l, c, 23.89)
+	cs[colorStateBlockedNet] = oklch(l+6, c-0.01, 23.89)
+	cs[colorStateBlockedHappensBefore] = oklch(l+lStep2, c, 23.89)
+	cs[colorStateBlockedGC] = oklch(l, c, 0) // a blend of colorStateGC and red
+
+	cs[colorStateGC] = oklch(l, c, 302.36)
+	cs[colorStateSTW] = oklch(l, c+0.072, 23.89) // STW is the most severe form of blocking, hence the increased chroma
+
+	cs[colorTimelineLabel] = oklch(62.68, 0, 0)
+	cs[colorTimelineBorder] = oklch(89.75, 0, 0)
+
+	// 	// TODO(dh): find a nice color for this
+	// We don't use the l constant for thse colors because they're independent from the span colors
+	cs[colorSpanHighlightedPrimaryOutline] = oklch(70.71, 0.322, 328.36)
+	cs[colorSpanHighlightedSecondaryOutline] = oklch(88.44, 0.27, 137.68)
+
+	cs[colorStateMerged] = oklch(l+lStep1, c, 109.91) // Manually chosen, made brighter so it stands out in gradients
+
+	cs[colorStateStuck] = oklch(0, 0, 0)
+	cs[colorStateDone] = oklch(0, 0, 0)
+
+	for i, c := range cs {
+		colors[i] = color.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(color.NRGBA)
+	}
+
+	colors[colorStateUnknown] = rgba(0xFFFF00FF)
 }
 
 type colorIndex uint8
@@ -67,6 +87,8 @@ const (
 
 	colorSpanHighlightedPrimaryOutline
 	colorSpanHighlightedSecondaryOutline
+
+	colorLast
 )
 
 var stateColors = [256]colorIndex{
@@ -102,6 +124,26 @@ var stateColors = [256]colorIndex{
 
 	// per-M states
 	ptrace.StateRunningP: colorStateActive,
+}
+
+func oklch(l, c, h float32) mycolor.Oklch {
+	return mycolor.Oklch{L: l / 100, C: c, H: h, Alpha: 1}
+}
+
+func oklchDelta(b mycolor.Oklch, l, c, h float32) mycolor.Oklch {
+	b.L += l / 100
+	b.C += c
+	b.H += h
+	if b.L < 0 {
+		b.L = 0
+	}
+	if b.L > 1 {
+		b.L = 1
+	}
+	if b.C < 0 {
+		b.C = 0
+	}
+	return b
 }
 
 func rgba(c uint32) color.NRGBA {
