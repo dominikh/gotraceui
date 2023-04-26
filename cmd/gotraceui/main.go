@@ -120,13 +120,13 @@ func (rops *reusableOps) get() *op.Ops {
 }
 
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
-	gi := NewGoroutineInfo(mwin, g)
-	mwin.openPanel(gi)
+	gi := NewGoroutineInfo(mwin.trace, mwin, g, mwin.canvas.timelines)
+	mwin.OpenPanel(gi)
 }
 
 func (mwin *MainWindow) openFunction(fn *ptrace.Function) {
-	fi := NewFunctionInfo(mwin, fn)
-	mwin.openPanel(fi)
+	fi := NewFunctionInfo(mwin.trace, mwin, fn)
+	mwin.OpenPanel(fi)
 }
 
 func (mwin *MainWindow) openSpan(s ptrace.Spans, tl *Timeline, tr *Track, allEvents []ptrace.EventID) {
@@ -146,11 +146,11 @@ func (mwin *MainWindow) openSpan(s ptrace.Spans, tl *Timeline, tr *Track, allEve
 			Track:    tr,
 		},
 	}
-	si := NewSpansInfo(cfg, mwin, s, allEvents)
-	mwin.openPanel(si)
+	si := NewSpansInfo(cfg, mwin.trace, mwin, s, mwin.canvas.timelines, allEvents)
+	mwin.OpenPanel(si)
 }
 
-func (mwin *MainWindow) openPanel(p theme.Panel) {
+func (mwin *MainWindow) OpenPanel(p theme.Panel) {
 	if mwin.panel != nil {
 		mwin.panelHistory = append(mwin.panelHistory, mwin.panel)
 		if len(mwin.panelHistory) == 101 {
@@ -162,7 +162,7 @@ func (mwin *MainWindow) openPanel(p theme.Panel) {
 	mwin.panel = p
 }
 
-func (mwin *MainWindow) prevPanel() bool {
+func (mwin *MainWindow) PrevPanel() bool {
 	if len(mwin.panelHistory) == 0 {
 		return false
 	}
@@ -172,12 +172,12 @@ func (mwin *MainWindow) prevPanel() bool {
 	return true
 }
 
-func (mwin *MainWindow) closePanel() {
+func (mwin *MainWindow) ClosePanel() {
 	mwin.panel = nil
 }
 
 type PanelWindow struct {
-	MainWindow *MainWindow
+	MainWindow MainWindowIface
 	Panel      theme.Panel
 }
 
@@ -198,7 +198,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			if pwin.Panel.Closed() {
 				win.Perform(system.ActionClose)
 			} else if pwin.Panel.Attached() {
-				pwin.MainWindow.openPanel(pwin.Panel)
+				pwin.MainWindow.OpenPanel(pwin.Panel)
 				win.Perform(system.ActionClose)
 			}
 
@@ -363,7 +363,7 @@ func (mwin *MainWindow) OpenTrace(r io.Reader) {
 	rdebug.SetMemoryLimit(-1)
 
 	mwin.SetState("loadingTrace")
-	res, err := loadTrace(r, mwin)
+	res, err := loadTrace(r, mwin, &mwin.canvas)
 	if memprofileLoad != "" {
 		writeMemprofile(memprofileLoad)
 	}
@@ -950,10 +950,10 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 
 						if mwin.panel != nil {
 							if mwin.panel.Closed() {
-								mwin.closePanel()
+								mwin.ClosePanel()
 							} else if mwin.panel.Detached() {
 								mwin.openPanelWindow(mwin.panel)
-								mwin.closePanel()
+								mwin.ClosePanel()
 							}
 						}
 
@@ -1159,6 +1159,15 @@ func scientificDuration(d time.Duration, digits int) string {
 
 type Window interface {
 	Run(win *app.Window) error
+	Invalidate()
+}
+
+// XXX find a less embarassing name
+type MainWindowIface interface {
+	OpenLink(l Link)
+	PrevPanel() bool
+	OpenPanel(p theme.Panel)
+	ClosePanel()
 }
 
 type Link interface{ isLink() }
@@ -1388,7 +1397,13 @@ type loadTraceResult struct {
 	timelines  []*Timeline
 }
 
-func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
+type progresser interface {
+	SetProgressStages(names []string)
+	SetProgressStage(stage int)
+	SetProgressLossy(p float64)
+}
+
+func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	names := []string{
 		"Parsing trace",
 		"Parsing trace",
@@ -1400,10 +1415,10 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 		"Processing",
 	}
 
-	mwin.SetProgressStages(names)
+	p.SetProgressStages(names)
 
-	mwin.SetProgressStage(0)
-	t, err := trace.Parse(f, mwin.SetProgressLossy)
+	p.SetProgressStage(0)
+	t, err := trace.Parse(f, p.SetProgressLossy)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
@@ -1411,13 +1426,13 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 		return loadTraceResult{}, errExitAfterParsing
 	}
 
-	mwin.SetProgressStage(1)
-	pt, err := ptrace.Parse(t, mwin.SetProgressLossy)
+	p.SetProgressStage(1)
+	pt, err := ptrace.Parse(t, p.SetProgressLossy)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
 
-	mwin.SetProgressStage(2)
+	p.SetProgressStage(2)
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
 	for i, proc := range pt.Processors {
 		for j := 0; j < proc.Spans.Len(); j++ {
@@ -1430,10 +1445,10 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 				proc.Spans.AtPtr(j).Tags |= ptrace.SpanTagGC
 			}
 		}
-		mwin.SetProgressLossy(float64(i+1) / float64(len(pt.Processors)))
+		p.SetProgressLossy(float64(i+1) / float64(len(pt.Processors)))
 	}
 
-	mwin.SetProgressStage(3)
+	p.SetProgressStage(3)
 	tr := &Trace{Trace: pt}
 	if len(pt.Goroutines) != 0 {
 		tr.allGoroutineSpanLabels = make([][]string, len(pt.Goroutines))
@@ -1473,11 +1488,11 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 				"goroutine", // allow queries like "goroutine 1234" to work
 			}
 			tr.allGoroutineFilterLabels[g.SeqID] = filterLabels
-			mwin.SetProgressLossy(float64(seqID+1) / float64(len(pt.Goroutines)))
+			p.SetProgressLossy(float64(seqID+1) / float64(len(pt.Goroutines)))
 		}
 	}
 
-	mwin.SetProgressStage(4)
+	p.SetProgressStage(4)
 	if len(pt.Processors) != 0 {
 		tr.allProcessorSpanLabels = make([][]string, len(pt.Processors))
 		tr.allProcessorFilterLabels = make([][]string, len(pt.Processors))
@@ -1498,31 +1513,31 @@ func loadTrace(f io.Reader, mwin *MainWindow) (loadTraceResult, error) {
 				"processor", // allow queries like "processor 1234" to work
 			}
 			tr.allProcessorFilterLabels[proc.SeqID] = filterLabels
-			mwin.SetProgressLossy(float64(seqID+1) / float64(len(pt.Processors)))
+			p.SetProgressLossy(float64(seqID+1) / float64(len(pt.Processors)))
 		}
 	}
 
 	// TODO(dh): preallocate
 	var timelines []*Timeline
 
-	mwin.SetProgressStage(5)
+	p.SetProgressStage(5)
 	if supportMachineTimelines {
 		for i, m := range tr.Machines {
-			timelines = append(timelines, NewMachineTimeline(tr, &mwin.canvas, m))
-			mwin.SetProgressLossy(float64(i+1) / float64(len(tr.Machines)))
+			timelines = append(timelines, NewMachineTimeline(tr, cv, m))
+			p.SetProgressLossy(float64(i+1) / float64(len(tr.Machines)))
 		}
 	}
 
-	mwin.SetProgressStage(6)
+	p.SetProgressStage(6)
 	for i, proc := range tr.Processors {
-		timelines = append(timelines, NewProcessorTimeline(tr, &mwin.canvas, proc))
-		mwin.SetProgressLossy(float64(i+1) / float64(len(tr.Processors)))
+		timelines = append(timelines, NewProcessorTimeline(tr, cv, proc))
+		p.SetProgressLossy(float64(i+1) / float64(len(tr.Processors)))
 	}
 
-	mwin.SetProgressStage(7)
+	p.SetProgressStage(7)
 	for i, g := range tr.Goroutines {
-		timelines = append(timelines, NewGoroutineTimeline(tr, &mwin.canvas, g))
-		mwin.SetProgressLossy(float64(i+1) / float64(len(tr.Goroutines)))
+		timelines = append(timelines, NewGoroutineTimeline(tr, cv, g))
+		p.SetProgressLossy(float64(i+1) / float64(len(tr.Goroutines)))
 	}
 
 	// We no longer need this.
@@ -1810,7 +1825,7 @@ func defaultLink(obj any) Link {
 	}
 }
 
-func handleLinkClick(win *theme.Window, mwin *MainWindow, ev TextEvent) {
+func handleLinkClick(win *theme.Window, mwin MainWindowIface, ev TextEvent) {
 	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
 		if obj, ok := ev.Span.Object.(*ptrace.Goroutine); ok {
 			switch ev.Event.Modifiers {

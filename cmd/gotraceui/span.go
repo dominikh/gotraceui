@@ -6,6 +6,7 @@ import (
 	"image"
 	rtrace "runtime/trace"
 	"strings"
+	"sync"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -37,10 +38,11 @@ type SpanContainer struct {
 }
 
 type SpansInfo struct {
-	mwin      *MainWindow
+	mwin      MainWindowIface
 	allEvents []ptrace.EventID
 	spans     ptrace.Spans
 	trace     *Trace
+	timelines []*Timeline
 
 	cfg SpansInfoConfig
 
@@ -57,25 +59,29 @@ type SpansInfo struct {
 	tabbedState     theme.TabbedState
 	stackSelectable widget.Selectable
 
-	description Description
+	descriptionBuilder func(win *theme.Window) Description
+	description        Description
 
 	stacktraceList widget.List
 	statsList      widget.List
 
-	hist InteractiveHistogram
+	statistics *theme.Future[*SpansStats]
+	hist       InteractiveHistogram
+
+	initOnce sync.Once
 
 	theme.PanelButtons
 }
 
 type SpansInfoConfig struct {
-	Title         string
-	Label         string
-	Container     SpanContainer
-	Description   *Description
-	Stacktrace    string
-	Statistics    *theme.Future[*SpansStats]
-	Navigations   SpansInfoConfigNavigations
-	ShowHistogram bool
+	Title              string
+	Label              string
+	Container          SpanContainer
+	DescriptionBuilder func(win *theme.Window) Description
+	Stacktrace         string
+	Statistics         func(win *theme.Window) *theme.Future[*SpansStats]
+	Navigations        SpansInfoConfigNavigations
+	ShowHistogram      bool
 }
 
 type SpansInfoConfigNavigations struct {
@@ -86,13 +92,14 @@ type SpansInfoConfigNavigations struct {
 	ZoomFn    func() Link
 }
 
-func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans ptrace.Spans, allEvents []ptrace.EventID) *SpansInfo {
+func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans ptrace.Spans, timelines []*Timeline, allEvents []ptrace.EventID) *SpansInfo {
 	si := &SpansInfo{
 		mwin:      mwin,
 		spans:     spans,
-		trace:     mwin.trace,
+		trace:     tr,
 		allEvents: allEvents,
 		cfg:       cfg,
+		timelines: timelines,
 	}
 
 	if si.cfg.Title == "" {
@@ -118,9 +125,11 @@ func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans ptrace.Spans, all
 	}
 
 	if si.cfg.Statistics == nil {
-		si.cfg.Statistics = theme.NewFuture(mwin.twin, func(cancelled <-chan struct{}) *SpansStats {
-			return NewSpansStats(si.spans)
-		})
+		si.cfg.Statistics = func(win *theme.Window) *theme.Future[*SpansStats] {
+			return theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
+				return NewSpansStats(si.spans)
+			})
+		}
 	}
 
 	si.spansList = SpanList{
@@ -137,16 +146,20 @@ func NewSpansInfo(cfg SpansInfoConfig, mwin *MainWindow, spans ptrace.Spans, all
 	si.events.Events = si.spans.Events(si.allEvents, si.trace.Trace)
 	si.events.UpdateFilter()
 
-	if cfg.Description != nil {
-		si.description = *cfg.Description
+	if cfg.DescriptionBuilder != nil {
+		si.descriptionBuilder = cfg.DescriptionBuilder
 	} else {
-		si.buildDefaultDescription()
+		si.descriptionBuilder = si.buildDefaultDescription
 	}
 
-	histCfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
-	si.computeHistogram(mwin.twin, histCfg)
-
 	return si
+}
+
+func (si *SpansInfo) init(win *theme.Window) {
+	si.statistics = si.cfg.Statistics(win)
+	histCfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
+	si.computeHistogram(win, histCfg)
+	si.description = si.descriptionBuilder(win)
 }
 
 func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
@@ -164,13 +177,13 @@ func (si *SpansInfo) Title() string {
 	return si.cfg.Title
 }
 
-func (si *SpansInfo) buildDefaultDescription() {
+func (si *SpansInfo) buildDefaultDescription(win *theme.Window) Description {
 	value := func(s *TextSpan) *theme.Future[TextSpan] {
 		return theme.Immediate(*s)
 	}
 
 	// OPT(dh): there's no need to store the spans in a slice, so TextBuilder isn't what we want
-	tb := TextBuilder{Theme: si.mwin.twin.Theme}
+	tb := TextBuilder{Theme: win.Theme}
 	var attrs []DescriptionAttribute
 	if si.cfg.Label != "" {
 		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: value(tb.Span(si.cfg.Label))})
@@ -197,7 +210,7 @@ func (si *SpansInfo) buildDefaultDescription() {
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key: "State",
-		Value: theme.NewFuture(si.mwin.twin, func(cancelled <-chan struct{}) TextSpan {
+		Value: theme.NewFuture(win, func(cancelled <-chan struct{}) TextSpan {
 			state := stateNames[firstSpan.State]
 			for i := 1; i < si.spans.Len(); i++ {
 				s := si.spans.At(i).State
@@ -225,11 +238,13 @@ func (si *SpansInfo) buildDefaultDescription() {
 		})
 	}
 
-	si.description.Attributes = attrs
+	return Description{Attributes: attrs}
 }
 
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
+
+	si.initOnce.Do(func() { si.init(win) })
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
@@ -332,7 +347,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								if index != 0 {
 									panic("impossible")
 								}
-								if stats, ok := si.cfg.Statistics.Result(); ok {
+								if stats, ok := si.statistics.Result(); ok {
 									return stats.Layout(win, gtx)
 								} else {
 									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
@@ -365,8 +380,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	)
 
 	for si.buttons.copyAsCSV.Clicked() {
-		if stats, ok := si.cfg.Statistics.Result(); ok {
-			si.mwin.win.WriteClipboard(statisticsToCSV(&stats.stats))
+		if stats, ok := si.statistics.Result(); ok {
+			win.AppWindow.WriteClipboard(statisticsToCSV(&stats.stats))
 		}
 	}
 
@@ -406,12 +421,12 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		}
 	}
 	for si.PanelButtons.Backed() {
-		si.mwin.prevPanel()
+		si.mwin.PrevPanel()
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(si.spans.At(0).Event).Args[2]]
 		var out MergedSpans
-		for _, tl := range si.mwin.canvas.timelines {
+		for _, tl := range si.timelines {
 			for _, track := range tl.tracks {
 				if track.kind != TrackKindUserRegions {
 					continue
@@ -430,7 +445,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		si.mwin.openPanel(NewSpansInfo(cfg, si.mwin, out, nil))
+		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.timelines, nil))
 	}
 
 	if si.hist.Changed() {

@@ -192,7 +192,7 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 	}
 }
 
-func processorLinkContextMenu(mwin *MainWindow, obj *ptrace.Processor) []*theme.MenuItem {
+func processorLinkContextMenu(mwin MainWindowIface, obj *ptrace.Processor) []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to processor"),

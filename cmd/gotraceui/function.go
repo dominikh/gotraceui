@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	rtrace "runtime/trace"
 	"strings"
+	"sync"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -29,8 +30,9 @@ type FunctionLink struct {
 }
 
 type FunctionInfo struct {
+	mwin          MainWindowIface
 	fn            *ptrace.Function
-	mwin          *MainWindow
+	trace         *Trace
 	title         string
 	description   Description
 	tabbedState   theme.TabbedState
@@ -40,66 +42,73 @@ type FunctionInfo struct {
 	histGoroutines   []*ptrace.Goroutine
 	hist             InteractiveHistogram
 
+	initOnce sync.Once
+
 	theme.PanelButtons
 }
 
-func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
+func NewFunctionInfo(tr *Trace, mwin MainWindowIface, fn *ptrace.Function) *FunctionInfo {
 	fi := &FunctionInfo{
 		fn:             fn,
 		mwin:           mwin,
 		histGoroutines: fn.Goroutines,
+		trace:          tr,
 	}
 
+	return fi
+}
+
+func (fi *FunctionInfo) init(win *theme.Window) {
 	// Build description
 	{
 		value := func(s *TextSpan) *theme.Future[TextSpan] {
 			return theme.Immediate(*s)
 		}
-		tb := TextBuilder{Theme: mwin.twin.Theme}
+		tb := TextBuilder{Theme: win.Theme}
 		var attrs []DescriptionAttribute
 
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Function",
-			Value: value(tb.Span(fn.Fn)),
+			Value: value(tb.Span(fi.fn.Fn)),
 		})
 
 		// TODO(dh): make file link clickable
-		displayPath := fn.File
-		if goroot := mwin.trace.GOROOT; goroot != "" && strings.HasPrefix(fn.File, goroot) {
-			displayPath = filepath.Join("$GOROOT", strings.TrimPrefix(fn.File, goroot))
-		} else if gopath := mwin.trace.GOPATH; gopath != "" && strings.HasPrefix(fn.File, gopath) {
-			displayPath = filepath.Join("$GOPATH", strings.TrimPrefix(fn.File, gopath))
+		displayPath := fi.fn.File
+		if goroot := fi.trace.GOROOT; goroot != "" && strings.HasPrefix(fi.fn.File, goroot) {
+			displayPath = filepath.Join("$GOROOT", strings.TrimPrefix(fi.fn.File, goroot))
+		} else if gopath := fi.trace.GOPATH; gopath != "" && strings.HasPrefix(fi.fn.File, gopath) {
+			displayPath = filepath.Join("$GOPATH", strings.TrimPrefix(fi.fn.File, gopath))
 		} else if goroot == "" && gopath == "" {
 			// We couldn't detect goroot, which makes it very likely that the executable had paths trimmed. Detect if
 			// the trimmed path is in GOROOT or GOPATH based on if the first path element has a dot in it or not. Module
 			// paths without dots are reserved for the standard library. This has a small but negligible chance of false
 			// positives.
 
-			left, _, ok := strings.Cut(fn.File, "/")
+			left, _, ok := strings.Cut(fi.fn.File, "/")
 			if ok {
 				if strings.Contains(left, ".") {
-					if strings.Contains(fn.File, "@v") {
-						displayPath = filepath.Join("$GOPATH", "pkg", "mod", fn.File)
+					if strings.Contains(fi.fn.File, "@v") {
+						displayPath = filepath.Join("$GOPATH", "pkg", "mod", fi.fn.File)
 					} else {
-						displayPath = filepath.Join("$GOPATH", "src", fn.File)
+						displayPath = filepath.Join("$GOPATH", "src", fi.fn.File)
 					}
 				} else {
-					displayPath = filepath.Join("$GOROOT", "src", fn.File)
+					displayPath = filepath.Join("$GOROOT", "src", fi.fn.File)
 				}
 			}
 		}
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Location",
-			Value: value(tb.Span(fmt.Sprintf("%s:%d", displayPath, fn.Line))),
+			Value: value(tb.Span(fmt.Sprintf("%s:%d", displayPath, fi.fn.Line))),
 		})
 
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "# of goroutines",
-			Value: value(tb.Span(local.Sprintf("%d", len(fn.Goroutines)))),
+			Value: value(tb.Span(local.Sprintf("%d", len(fi.fn.Goroutines)))),
 		})
 
 		var total time.Duration
-		for _, g := range fn.Goroutines {
+		for _, g := range fi.fn.Goroutines {
 			d := time.Duration(g.Spans.At((g.Spans.Len())-1).End - g.Spans.At(0).Start)
 			total += d
 		}
@@ -114,9 +123,7 @@ func NewFunctionInfo(mwin *MainWindow, fn *ptrace.Function) *FunctionInfo {
 
 	// Build histogram
 	cfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
-	fi.computeHistogram(mwin.twin, cfg)
-
-	return fi
+	fi.computeHistogram(win, cfg)
 }
 
 func (fi *FunctionInfo) Title() string {
@@ -125,6 +132,8 @@ func (fi *FunctionInfo) Title() string {
 
 func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.FunctionInfo.Layout").End()
+
+	fi.initOnce.Do(func() { fi.init(win) })
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
@@ -191,7 +200,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	}
 
 	for fi.PanelButtons.Backed() {
-		fi.mwin.prevPanel()
+		fi.mwin.PrevPanel()
 	}
 
 	if fi.hist.Changed() {
