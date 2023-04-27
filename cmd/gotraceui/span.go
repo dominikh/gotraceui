@@ -59,14 +59,16 @@ type SpansInfo struct {
 	tabbedState     theme.TabbedState
 	stackSelectable widget.Selectable
 
-	descriptionBuilder func(win *theme.Window) Description
-	description        Description
+	descriptionBuilder func(win *theme.Window, gtx layout.Context) Description
+	descriptionText    Text
 
 	stacktraceList widget.List
 	statsList      widget.List
 
 	statistics *theme.Future[*SpansStats]
 	hist       InteractiveHistogram
+
+	state *theme.Future[string]
 
 	initOnce sync.Once
 
@@ -77,7 +79,7 @@ type SpansInfoConfig struct {
 	Title              string
 	Label              string
 	Container          SpanContainer
-	DescriptionBuilder func(win *theme.Window) Description
+	DescriptionBuilder func(win *theme.Window, gtx layout.Context) Description
 	Stacktrace         string
 	Statistics         func(win *theme.Window) *theme.Future[*SpansStats]
 	Navigations        SpansInfoConfigNavigations
@@ -158,8 +160,21 @@ func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans pt
 func (si *SpansInfo) init(win *theme.Window) {
 	si.statistics = si.cfg.Statistics(win)
 	histCfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
+	// XXX computeHistogram looks at all spans before starting a future; that part should probably be concurrent, too.
 	si.computeHistogram(win, histCfg)
-	si.description = si.descriptionBuilder(win)
+
+	si.state = theme.NewFuture(win, func(cancelled <-chan struct{}) string {
+		firstSpan := si.spans.At(0)
+		state := stateNames[firstSpan.State]
+		for i := 1; i < si.spans.Len(); i++ {
+			s := si.spans.At(i).State
+			if s != firstSpan.State {
+				state = "mixed"
+				break
+			}
+		}
+		return state
+	})
 }
 
 func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
@@ -177,64 +192,70 @@ func (si *SpansInfo) Title() string {
 	return si.cfg.Title
 }
 
-func (si *SpansInfo) buildDefaultDescription(win *theme.Window) Description {
-	value := func(s *TextSpan) *theme.Future[TextSpan] {
-		return theme.Immediate(*s)
+func textSpinner(now time.Time) string {
+	switch (now.UnixMilli() / 500) % 3 {
+	case 0:
+		return "."
+	case 1:
+		return ".."
+	case 2:
+		return "..."
+	default:
+		panic("unreachable")
 	}
+}
 
+func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Context) Description {
 	// OPT(dh): there's no need to store the spans in a slice, so TextBuilder isn't what we want
+	// OPT(dh): reuse memory
 	tb := TextBuilder{Theme: win.Theme}
 	var attrs []DescriptionAttribute
 	if si.cfg.Label != "" {
-		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: value(tb.Span(si.cfg.Label))})
+		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: *tb.Span(si.cfg.Label)})
 	}
 
 	firstSpan := si.spans.At(0)
 	lastSpan := LastSpan(si.spans)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
-		Value: value(tb.Link(formatTimestamp(firstSpan.Start), firstSpan.Start)),
+		Value: *tb.Link(formatTimestamp(firstSpan.Start), firstSpan.Start),
 	})
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "End",
-		Value: value(tb.Link(formatTimestamp(lastSpan.End), lastSpan.End)),
+		Value: *tb.Link(formatTimestamp(lastSpan.End), lastSpan.End),
 	})
 
 	// XXX reconsider this. for goroutines and possibly merged spans it makes sense to define duration as end-start. but
 	// for filtered spans we probably want to compute the sum instead.
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Duration",
-		Value: value(tb.Span(SpansDuration(si.spans).String())),
+		Value: *tb.Span(SpansDuration(si.spans).String()),
 	})
 
-	attrs = append(attrs, DescriptionAttribute{
+	a := DescriptionAttribute{
 		Key: "State",
-		Value: theme.NewFuture(win, func(cancelled <-chan struct{}) TextSpan {
-			state := stateNames[firstSpan.State]
-			for i := 1; i < si.spans.Len(); i++ {
-				s := si.spans.At(i).State
-				if s != firstSpan.State {
-					state = "mixed"
-					break
-				}
-			}
-			return *tb.Span(state)
-		}),
-	})
+	}
+	if v, ok := si.state.Result(); ok {
+		a.Value = *tb.Span(v)
+	} else {
+		a.Value = *tb.Span(textSpinner(gtx.Now))
+		op.InvalidateOp{}.Add(gtx.Ops)
+	}
+	attrs = append(attrs, a)
 
 	if si.spans.Len() == 1 && firstSpan.Tags != 0 {
 		tags := spanTagStrings(firstSpan.Tags)
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Tags",
-			Value: value(tb.Span(strings.Join(tags, ", "))),
+			Value: *(tb.Span(strings.Join(tags, ", "))),
 		})
 	}
 
 	if si.cfg.Container.Timeline != nil {
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
-			Value: value(tb.Link(si.cfg.Container.Timeline.shortName, si.cfg.Container.Timeline.item)),
+			Value: *tb.Link(si.cfg.Container.Timeline.shortName, si.cfg.Container.Timeline.item),
 		})
 	}
 
@@ -304,7 +325,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			return si.description.Layout(win, gtx)
+			si.descriptionText.Reset(win.Theme)
+			return si.descriptionBuilder(win, gtx).Layout(win, gtx, &si.descriptionText)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if si.spans.Len() == 1 && si.spans.At(0).State == ptrace.StateUserRegion {
@@ -385,7 +407,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		}
 	}
 
-	for _, ev := range si.description.Events() {
+	for _, ev := range si.descriptionText.Events() {
 		handleLinkClick(win, si.mwin, ev)
 	}
 
@@ -536,9 +558,11 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 	spans.timestampObjects.Reset()
 
 	var txtCnt int
+	// OPT(dh): reuse memory
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
+		tb := TextBuilder{Theme: win.Theme}
 		var txt *Text
 		if txtCnt < spans.texts.Len() {
 			txt = spans.texts.Ptr(txtCnt)
@@ -551,21 +575,21 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		span := spans.Spans.At(row)
 		switch col {
 		case 0: // Time
-			txt.Link(formatTimestamp(span.Start), spans.timestampObjects.Allocate(span.Start))
+			tb.Link(formatTimestamp(span.Start), spans.timestampObjects.Allocate(span.Start))
 			txt.Alignment = text.End
 		case 1: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())
-			txt.Span(value)
-			txt.Span(" ")
-			s := txt.Span(unit)
+			tb.Span(value)
+			tb.Span(" ")
+			s := tb.Span(unit)
 			s.Font.Variant = "Mono"
 			txt.Alignment = text.End
 		case 2: // State
 			label := stateNamesCapitalized[span.State]
-			txt.Span(label)
+			tb.Span(label)
 		}
 
-		dims := txt.Layout(win, gtx)
+		dims := txt.Layout(win, gtx, tb.Spans)
 		dims.Size = gtx.Constraints.Constrain(dims.Size)
 		return dims
 	}

@@ -34,13 +34,14 @@ type FunctionInfo struct {
 	fn            *ptrace.Function
 	trace         *Trace
 	title         string
-	description   Description
 	tabbedState   theme.TabbedState
 	goroutineList GoroutineList
 
 	filterGoroutines widget.Bool
 	histGoroutines   []*ptrace.Goroutine
 	hist             InteractiveHistogram
+
+	descriptionText Text
 
 	initOnce sync.Once
 
@@ -58,69 +59,66 @@ func NewFunctionInfo(tr *Trace, mwin MainWindowIface, fn *ptrace.Function) *Func
 	return fi
 }
 
-func (fi *FunctionInfo) init(win *theme.Window) {
-	// Build description
-	{
-		value := func(s *TextSpan) *theme.Future[TextSpan] {
-			return theme.Immediate(*s)
-		}
-		tb := TextBuilder{Theme: win.Theme}
-		var attrs []DescriptionAttribute
+func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) Description {
+	tb := TextBuilder{Theme: win.Theme}
+	var attrs []DescriptionAttribute
 
-		attrs = append(attrs, DescriptionAttribute{
-			Key:   "Function",
-			Value: value(tb.Span(fi.fn.Fn)),
-		})
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Function",
+		Value: *(tb.Span(fi.fn.Fn)),
+	})
 
-		// TODO(dh): make file link clickable
-		displayPath := fi.fn.File
-		if goroot := fi.trace.GOROOT; goroot != "" && strings.HasPrefix(fi.fn.File, goroot) {
-			displayPath = filepath.Join("$GOROOT", strings.TrimPrefix(fi.fn.File, goroot))
-		} else if gopath := fi.trace.GOPATH; gopath != "" && strings.HasPrefix(fi.fn.File, gopath) {
-			displayPath = filepath.Join("$GOPATH", strings.TrimPrefix(fi.fn.File, gopath))
-		} else if goroot == "" && gopath == "" {
-			// We couldn't detect goroot, which makes it very likely that the executable had paths trimmed. Detect if
-			// the trimmed path is in GOROOT or GOPATH based on if the first path element has a dot in it or not. Module
-			// paths without dots are reserved for the standard library. This has a small but negligible chance of false
-			// positives.
+	// TODO(dh): make file link clickable
+	displayPath := fi.fn.File
+	if goroot := fi.trace.GOROOT; goroot != "" && strings.HasPrefix(fi.fn.File, goroot) {
+		displayPath = filepath.Join("$GOROOT", strings.TrimPrefix(fi.fn.File, goroot))
+	} else if gopath := fi.trace.GOPATH; gopath != "" && strings.HasPrefix(fi.fn.File, gopath) {
+		displayPath = filepath.Join("$GOPATH", strings.TrimPrefix(fi.fn.File, gopath))
+	} else if goroot == "" && gopath == "" {
+		// We couldn't detect goroot, which makes it very likely that the executable had paths trimmed. Detect if
+		// the trimmed path is in GOROOT or GOPATH based on if the first path element has a dot in it or not. Module
+		// paths without dots are reserved for the standard library. This has a small but negligible chance of false
+		// positives.
 
-			left, _, ok := strings.Cut(fi.fn.File, "/")
-			if ok {
-				if strings.Contains(left, ".") {
-					if strings.Contains(fi.fn.File, "@v") {
-						displayPath = filepath.Join("$GOPATH", "pkg", "mod", fi.fn.File)
-					} else {
-						displayPath = filepath.Join("$GOPATH", "src", fi.fn.File)
-					}
+		left, _, ok := strings.Cut(fi.fn.File, "/")
+		if ok {
+			if strings.Contains(left, ".") {
+				if strings.Contains(fi.fn.File, "@v") {
+					displayPath = filepath.Join("$GOPATH", "pkg", "mod", fi.fn.File)
 				} else {
-					displayPath = filepath.Join("$GOROOT", "src", fi.fn.File)
+					displayPath = filepath.Join("$GOPATH", "src", fi.fn.File)
 				}
+			} else {
+				displayPath = filepath.Join("$GOROOT", "src", fi.fn.File)
 			}
 		}
-		attrs = append(attrs, DescriptionAttribute{
-			Key:   "Location",
-			Value: value(tb.Span(fmt.Sprintf("%s:%d", displayPath, fi.fn.Line))),
-		})
+	}
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Location",
+		Value: *(tb.Span(fmt.Sprintf("%s:%d", displayPath, fi.fn.Line))),
+	})
 
-		attrs = append(attrs, DescriptionAttribute{
-			Key:   "# of goroutines",
-			Value: value(tb.Span(local.Sprintf("%d", len(fi.fn.Goroutines)))),
-		})
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "# of goroutines",
+		Value: *(tb.Span(local.Sprintf("%d", len(fi.fn.Goroutines)))),
+	})
 
-		var total time.Duration
-		for _, g := range fi.fn.Goroutines {
-			d := time.Duration(g.Spans.At((g.Spans.Len())-1).End - g.Spans.At(0).Start)
-			total += d
-		}
-
-		attrs = append(attrs, DescriptionAttribute{
-			Key:   "Total time",
-			Value: value(tb.Span(total.String())),
-		})
-
-		fi.description.Attributes = attrs
+	var total time.Duration
+	for _, g := range fi.fn.Goroutines {
+		d := time.Duration(g.Spans.At((g.Spans.Len())-1).End - g.Spans.At(0).Start)
+		total += d
 	}
 
+	attrs = append(attrs, DescriptionAttribute{
+		Key:   "Total time",
+		Value: *(tb.Span(total.String())),
+	})
+
+	desc := Description{Attributes: attrs}
+	return desc
+}
+
+func (fi *FunctionInfo) init(win *theme.Window) {
 	// Build histogram
 	cfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
 	fi.computeHistogram(win, cfg)
@@ -159,7 +157,8 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
-			return fi.description.Layout(win, gtx)
+			fi.descriptionText.Reset(win.Theme)
+			return fi.buildDescription(win, gtx).Layout(win, gtx, &fi.descriptionText)
 		}),
 
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) }),
@@ -195,7 +194,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		handleLinkClick(win, fi.mwin, ev)
 	}
 
-	for _, ev := range fi.description.Events() {
+	for _, ev := range fi.descriptionText.Events() {
 		handleLinkClick(win, fi.mwin, ev)
 	}
 
@@ -241,6 +240,8 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 	gs.timestampObjects.Reset()
 
 	var txtCnt int
+	// OPT(dh): reuse memory
+	tb := TextBuilder{Theme: win.Theme}
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -256,25 +257,25 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		g := goroutines[row]
 		switch col {
 		case 0: // ID
-			txt.Link(local.Sprintf("%d", g.ID), g)
+			tb.Link(local.Sprintf("%d", g.ID), g)
 			txt.Alignment = text.End
 		case 1: // Time
 			start := g.Spans.At(0).Start
-			txt.Link(formatTimestamp(start), gs.timestampObjects.Allocate(start))
+			tb.Link(formatTimestamp(start), gs.timestampObjects.Allocate(start))
 			txt.Alignment = text.End
 		case 2: // Duration
 			start := g.Spans.At(0).Start
 			end := g.Spans.At((g.Spans.Len()) - 1).End
 			d := time.Duration(end - start)
 			value, unit := durationNumberFormatSITable.format(d)
-			txt.Span(value)
-			txt.Span(" ")
-			s := txt.Span(unit)
+			tb.Span(value)
+			tb.Span(" ")
+			s := tb.Span(unit)
 			s.Font.Variant = "Mono"
 			txt.Alignment = text.End
 		}
 
-		dims := txt.Layout(win, gtx)
+		dims := txt.Layout(win, gtx, tb.Spans)
 		dims.Size = gtx.Constraints.Constrain(dims.Size)
 		return dims
 	}

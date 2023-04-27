@@ -1688,7 +1688,6 @@ type Text struct {
 	// The theme must be reset in Reset.
 	styles    []styledtext.SpanStyle
 	Alignment text.Alignment
-	TextBuilder
 
 	events []TextEvent
 
@@ -1713,6 +1712,10 @@ type TextSpan struct {
 	Object any
 
 	Click *gesture.Click
+}
+
+func (txt *TextBuilder) Add(s TextSpan) {
+	txt.Spans = append(txt.Spans, s)
 }
 
 func (txt *TextBuilder) Span(label string) *TextSpan {
@@ -1749,10 +1752,8 @@ func (txt *TextBuilder) Link(label string, obj any) *TextSpan {
 }
 
 func (txt *Text) Reset(th *theme.Theme) {
-	txt.Theme = th
 	txt.events = txt.events[:0]
 	txt.styles = txt.styles[:0]
-	txt.Spans = txt.Spans[:0]
 	txt.Alignment = 0
 }
 
@@ -1760,12 +1761,12 @@ func (txt *Text) Events() []TextEvent {
 	return txt.events
 }
 
-func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Text.Layout").End()
 
 	var clickableIdx int
-	for i := range txt.Spans {
-		s := &txt.Spans[i]
+	for i := range spans {
+		s := &spans[i]
 		if s.Object != nil {
 			var clk *gesture.Click
 			if clickableIdx < len(txt.clickables) {
@@ -1781,8 +1782,8 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	}
 
 	txt.events = txt.events[:0]
-	for i := range txt.Spans {
-		s := &txt.Spans[i]
+	for i := range spans {
+		s := &spans[i]
 		if s.Click != nil {
 			for _, ev := range s.Click.Events(gtx.Queue) {
 				txt.events = append(txt.events, TextEvent{s, ev})
@@ -1791,7 +1792,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	}
 
 	txt.styles = txt.styles[:0]
-	for _, s := range txt.Spans {
+	for _, s := range spans {
 		txt.styles = append(txt.styles, s.SpanStyle)
 	}
 	ptxt := styledtext.Text(win.Theme.Shaper, txt.styles...)
@@ -1801,7 +1802,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions
 	}
 	return ptxt.Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
 		defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
-		s := &txt.Spans[i]
+		s := &spans[i]
 		if s.Object != nil {
 			s.Click.Add(gtx.Ops)
 			pointer.CursorPointer.Add(gtx.Ops)
@@ -1872,37 +1873,22 @@ func Record(win *theme.Window, gtx layout.Context, w theme.Widget) Recording {
 
 type Description struct {
 	Attributes []DescriptionAttribute
-	text       Text
 }
 
 type DescriptionAttribute struct {
 	Key   string
-	Value *theme.Future[TextSpan]
+	Value TextSpan
 }
 
-func (desc *Description) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	desc.text.Reset(win.Theme)
+func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text) layout.Dimensions {
+	txt.Reset(win.Theme)
+	// OPT(dh): reuse space
+	tb := TextBuilder{Theme: win.Theme}
 	for _, attr := range desc.Attributes {
-		desc.text.Bold(fmt.Sprintf("%s: ", attr.Key))
-		if s, ok := attr.Value.Result(); ok {
-			desc.text.Spans = append(desc.text.Spans, s)
-		} else {
-			switch (gtx.Now.UnixMilli() / 500) % 3 {
-			case 0:
-				desc.text.Span(".")
-			case 1:
-				desc.text.Span("..")
-			case 2:
-				desc.text.Span("...")
-			}
-			op.InvalidateOp{}.Add(gtx.Ops)
-		}
-		desc.text.Span("\n")
+		tb.Bold(fmt.Sprintf("%s: ", attr.Key))
+		tb.Add(attr.Value)
+		tb.Span("\n")
 	}
 
-	return desc.text.Layout(win, gtx)
-}
-
-func (desc *Description) Events() []TextEvent {
-	return desc.text.Events()
+	return txt.Layout(win, gtx, tb.Spans)
 }

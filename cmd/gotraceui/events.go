@@ -148,17 +148,19 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		txtCnt++
 		txt.Reset(win.Theme)
 
+		tb := TextBuilder{Theme: win.Theme}
+
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
 		ev := evs.Trace.Event(evs.filteredEvents[row])
 		// XXX styledtext wraps our spans if the window is too small
 
 		addSpanG := func(gid uint64) {
-			txt.Link(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
+			tb.Link(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
 		}
 
 		addSpanTs := func(ts trace.Timestamp) {
-			txt.Link(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
+			tb.Link(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
 		}
 
 		switch col {
@@ -168,31 +170,31 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		case 1:
 			switch ev.Type {
 			case trace.EvGoCreate:
-				txt.Span("Created ")
+				tb.Span("Created ")
 				addSpanG(ev.Args[trace.ArgGoCreateG])
 			case trace.EvGoUnblock:
-				txt.Span("Unblocked ")
+				tb.Span("Unblocked ")
 				addSpanG(ev.Args[trace.ArgGoUnblockG])
 			case trace.EvGoSysCall:
 				if ev.StkID != 0 {
 					frames := evs.Trace.Stacks[ev.StkID]
 					fn := evs.Trace.PCs[frames[0]].Fn
-					txt.Span("Syscall (")
-					txt.Span(fn)
-					txt.Span(")")
+					tb.Span("Syscall (")
+					tb.Span(fn)
+					tb.Span(")")
 				} else {
-					txt.Span("Syscall")
+					tb.Span("Syscall")
 				}
 			case trace.EvUserLog:
 				cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
 				msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
 				if cat != "" {
-					txt.Span("<")
-					txt.Span(cat)
-					txt.Span("> ")
-					txt.Span(msg)
+					tb.Span("<")
+					tb.Span(cat)
+					tb.Span("> ")
+					tb.Span(msg)
 				} else {
-					txt.Span(msg)
+					tb.Span(msg)
 				}
 			default:
 				panic(fmt.Sprintf("unhandled type %v", ev.Type))
@@ -202,7 +204,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		}
 		// TODO(dh): hovering the entry should highlight the corresponding span marker
 
-		dims := txt.Layout(win, gtx)
+		dims := txt.Layout(win, gtx, tb.Spans)
 		dims.Size = gtx.Constraints.Constrain(dims.Size)
 		return dims
 	}

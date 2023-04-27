@@ -755,11 +755,9 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		}
 	}
 
-	buildDescription := func(win *theme.Window) Description {
+	buildDescription := func(win *theme.Window, gtx layout.Context) Description {
 		var attrs []DescriptionAttribute
-		value := func(s *TextSpan) *theme.Future[TextSpan] {
-			return theme.Immediate(*s)
-		}
+		// OPT(dh): we don't need TextBuilder to collect the spans in this case.
 		tb := TextBuilder{Theme: win.Theme}
 
 		start := spans.At(0).Start
@@ -770,47 +768,47 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Goroutine",
-			Value: value(tb.Span(local.Sprintf("%d\n", g.ID))),
+			Value: *tb.Span(local.Sprintf("%d\n", g.ID)),
 		})
 
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Function",
-			Value: value(tb.Link(fmt.Sprintf("%s", g.Function.Fn), g.Function)),
+			Value: *(tb.Link(g.Function.Fn, g.Function)),
 		})
 
 		if observedStart {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
-				Value: value(tb.Link(fmt.Sprintf("%s", formatTimestamp(start)), start)),
+				Value: *(tb.Link(formatTimestamp(start), start)),
 			})
 		} else {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
-				Value: value(tb.Link("before trace start", start)),
+				Value: *(tb.Link("before trace start", start)),
 			})
 		}
 
 		if observedEnd {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
-				Value: value(tb.Link(fmt.Sprintf("%s", formatTimestamp(end)), end)),
+				Value: *(tb.Link(formatTimestamp(end), end)),
 			})
 		} else {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
-				Value: value(tb.Link("after trace end", end)),
+				Value: *(tb.Link("after trace end", end)),
 			})
 		}
 
 		if observedStart && observedEnd {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Lifetime",
-				Value: value(tb.Span(d.String())),
+				Value: *(tb.Span(d.String())),
 			})
 		} else {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Observed duration",
-				Value: value(tb.Span(d.String())),
+				Value: *(tb.Span(d.String())),
 			})
 		}
 		var desc Description
