@@ -795,22 +795,18 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					case "loadingTrace":
 						paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
 
-						// OPT(dh): cache this computation
+						// OPT(dh): only compute this once
 						var maxNameWidth int
 						for _, name := range mwin.progressStages {
-							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-							if dims.Size.X > maxNameWidth {
-								maxNameWidth = dims.Size.X
+							width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, name)
+							if width > maxNameWidth {
+								maxNameWidth = width
 							}
-							m.Stop()
 						}
 						maxLabelWidth := maxNameWidth
 						{
-							m := op.Record(gtx.Ops)
-							dims := widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-							maxLabelWidth += dims.Size.X
-							m.Stop()
+							width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
+							maxLabelWidth += width
 						}
 
 						gtx.Constraints.Min = gtx.Constraints.Max

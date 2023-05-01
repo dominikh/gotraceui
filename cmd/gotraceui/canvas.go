@@ -8,15 +8,12 @@ import (
 	"math"
 	rtrace "runtime/trace"
 	"sort"
-	"strings"
 	"time"
-	"unsafe"
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
@@ -27,7 +24,6 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/x/component"
 	"golang.org/x/exp/slices"
@@ -187,34 +183,6 @@ type Canvas struct {
 
 	timelineWidgetsCache Cache[TimelineWidget]
 	trackWidgetsCache    Cache[TrackWidget]
-	textLengths          textLengther
-}
-
-type textLengther struct {
-	cache *tinylfu.T[string, int]
-}
-
-func (sl *textLengther) Compute(gtx layout.Context, s string, shaper *text.Shaper, size unit.Sp, font font.Font) int {
-	b := new(strings.Builder)
-
-	// This assumes that people use string literals whose addresses don't change when specifying text.Font
-	b.Write((*[unsafe.Sizeof(font)]byte)(unsafe.Pointer(&font))[:])
-	b.Write((*[unsafe.Sizeof(shaper)]byte)(unsafe.Pointer(&shaper))[:])
-	b.Write((*[unsafe.Sizeof(gtx.Metric.PxPerSp)]byte)(unsafe.Pointer(&gtx.Metric.PxPerSp))[:])
-	b.Write((*[unsafe.Sizeof(size)]byte)(unsafe.Pointer(&size))[:])
-	b.WriteString(s)
-	key := b.String()
-
-	if n, ok := sl.cache.Get(key); ok {
-		return n
-	}
-
-	gtx.Constraints.Min = image.Point{}
-	m := op.Record(gtx.Ops)
-	dims := widget.TextLine{}.Layout(gtx, shaper, font, size, s)
-	m.Stop()
-	sl.cache.Add(key, dims.Size.X)
-	return dims.Size.X
 }
 
 func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
@@ -232,8 +200,6 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.timelines[1] = NewSTWTimeline(cv, t, t.STW)
 
 	cv.timeline.hoveredSpans = NoSpan{}
-
-	cv.textLengths.cache = tinylfu.New[string, int](200, 200*10)
 }
 
 func (cv *Canvas) End() trace.Timestamp {

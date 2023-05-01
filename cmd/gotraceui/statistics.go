@@ -315,8 +315,6 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		}
 	}
 
-	// There is probably no need to cache the sizes between frames. The window only redraws when it's being interacted
-	// with, which may even change the sizes.
 	sizes := gs.computeSizes(gtx, win.Theme)
 	sizer := func(gtx layout.Context, row, col int) layout.Dimensions {
 		return layout.Dimensions{Size: sizes[col]}

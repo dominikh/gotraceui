@@ -753,7 +753,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 					}
 
 					font := font.Font{Weight: font.ExtraBold}
-					n := tl.cv.textLengths.Compute(gtx, label, win.Theme.Shaper, win.Theme.TextSize, font)
+					n := win.TextLength(gtx, widget.Label{}, font, win.Theme.TextSize, label)
 					if float32(n) > endPx-startPx {
 						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise
 						// give up. Truncating labels is almost never a good idea and usually leads to ambiguous text.

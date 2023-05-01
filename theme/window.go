@@ -5,17 +5,23 @@ import (
 	"image"
 	"image/color"
 	rtrace "runtime/trace"
+	"strings"
 	"time"
+	"unsafe"
 
-	"honnef.co/go/gotraceui/font"
+	myfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/tinylfu"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/app"
 	"gioui.org/f32"
+	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
+	"gioui.org/unit"
 )
 
 type Window struct {
@@ -36,15 +42,43 @@ type Window struct {
 	}
 	notification notification
 	windowFrameState
+
+	textLengths *tinylfu.T[string, layout.Dimensions]
+}
+
+func (win *Window) TextLength(gtx layout.Context, l widget.Label, font font.Font, size unit.Sp, s string) int {
+	return win.TextDimensions(gtx, l, font, size, s).Size.X
+}
+
+func (win *Window) TextDimensions(gtx layout.Context, l widget.Label, font font.Font, size unit.Sp, s string) layout.Dimensions {
+	b := new(strings.Builder)
+
+	// This assumes that people use string literals whose addresses don't change when specifying text.Font
+	b.Write((*[unsafe.Sizeof(font)]byte)(unsafe.Pointer(&font))[:])
+	b.Write((*[unsafe.Sizeof(win.Theme.Shaper)]byte)(unsafe.Pointer(&win.Theme.Shaper))[:])
+	b.Write((*[unsafe.Sizeof(gtx.Metric.PxPerSp)]byte)(unsafe.Pointer(&gtx.Metric.PxPerSp))[:])
+	b.Write((*[unsafe.Sizeof(size)]byte)(unsafe.Pointer(&size))[:])
+	b.WriteString(s)
+	key := b.String()
+
+	if dims, ok := win.textLengths.Get(key); ok {
+		return dims
+	}
+
+	gtx.Constraints.Min = image.Point{}
+	dims := labelDimensions(gtx, l, win.Theme.Shaper, font, size, s)
+	win.textLengths.Add(key, dims)
+	return dims
 }
 
 func NewWindow(win *app.Window) *Window {
 	return &Window{
 		AppWindow: win,
-		Theme:     NewTheme(font.Collection()),
+		Theme:     NewTheme(myfont.Collection()),
 		Futures: &Futures{
 			win: win,
 		},
+		textLengths: tinylfu.New[string, layout.Dimensions](1024, 1024*10),
 	}
 }
 

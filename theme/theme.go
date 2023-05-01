@@ -383,6 +383,13 @@ func max(a, b int) int {
 	}
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // clamp1 limits v to range [0..1].
 func clamp1(v float32) float32 {
 	if v >= 1 {
