@@ -4,11 +4,13 @@ package ptrace
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/trace"
@@ -434,7 +436,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 		getG(gid).Spans = spansSlice(make([]Span, 0, n))
 	}
 	for pid, n := range eventsPerP {
-		getP(pid).Spans = spansSlice(make([]Span, 0, n))
+		getP(pid).Spans = processorSpans(make([]Span, 0, n))
 	}
 	if supportMachineTimelines {
 		for mid, n := range eventsPerM {
@@ -841,7 +843,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 		switch pState {
 		case pRunG:
 			p := getP(ev.P)
-			p.Spans = append(p.Spans.(spansSlice), Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID)})
+			p.Spans = append(p.Spans.(processorSpans), Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID)})
 			if supportMachineTimelines {
 				mid := lastMPerP[p.ID]
 				m := getM(mid)
@@ -1154,8 +1156,38 @@ type Spans interface {
 	Events(all []EventID, tr *Trace) []EventID
 }
 
+type HashableSpans interface {
+	Hash() uint64
+}
+
 func ToSpans(spans []Span) Spans {
 	return spansSlice(spans)
+}
+
+// processorSpans are used by processor timelines. The type implies that spans aren't being filtered, which means that
+// (pid, start, end) forms a unique cache key.
+type processorSpans []Span
+
+func (spans processorSpans) Len() int                                  { return len(spans) }
+func (spans processorSpans) At(idx int) Span                           { return spans[idx] }
+func (spans processorSpans) AtPtr(idx int) *Span                       { return &spans[idx] }
+func (spans processorSpans) Slice(start, end int) Spans                { return spans[start:end] }
+func (spans processorSpans) Start() trace.Timestamp                    { return Start(spans) }
+func (spans processorSpans) End() trace.Timestamp                      { return End(spans) }
+func (spans processorSpans) Duration() time.Duration                   { return Duration(spans) }
+func (spans processorSpans) Events(all []EventID, tr *Trace) []EventID { return Events(spans, all, tr) }
+func (spans processorSpans) Hash() uint64 {
+	if len(spans) == 0 {
+		return 0
+	}
+	h := fnv.New64()
+	d := [...]uint64{
+		uint64(spans[0].Event),
+		uint64(spans[0].Start),
+		uint64(spans[len(spans)-1].End),
+	}
+	h.Write((*[unsafe.Sizeof(d)]byte)(unsafe.Pointer(&d))[:])
+	return h.Sum64()
 }
 
 type spansSlice []Span

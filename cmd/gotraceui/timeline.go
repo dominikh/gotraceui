@@ -13,6 +13,7 @@ import (
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
@@ -61,6 +62,8 @@ type TimelineWidget struct {
 	cv          *Canvas
 	labelClick  widget.PrimaryClickable
 	labelClicks int
+
+	spanColorCache *tinylfu.T[uint64, [2]colorIndex]
 
 	hover gesture.Hover
 
@@ -151,7 +154,7 @@ func newZoomMenuItem(cv *Canvas, spans ptrace.Spans) *theme.MenuItem {
 
 type TrackWidget struct {
 	spanLabel       func(spans ptrace.Spans, tr *Trace, out []string) []string
-	spanColor       func(spans ptrace.Spans, tr *Trace) [2]colorIndex
+	spanColor       func(tl *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
 	spanContextMenu func(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem
 
@@ -259,7 +262,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	if tl.TimelineWidget == nil {
 		rtrace.Logf(context.Background(), "", "loading timeline widget %q", tl.label)
 		tl.TimelineWidget = cv.timelineWidgetsCache.Get()
-		*tl.TimelineWidget = TimelineWidget{cv: cv}
+		*tl.TimelineWidget = TimelineWidget{cv: cv, spanColorCache: tinylfu.New[uint64, [2]colorIndex](1024, 1024*10)}
 	}
 
 	tl.hover.Update(gtx.Queue)
@@ -593,7 +596,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 		var cs [2]colorIndex
 		if track.spanColor != nil {
-			cs = track.spanColor(dspSpans, tr)
+			cs = track.spanColor(tl, dspSpans, tr)
 		} else {
 			cs = defaultSpanColor(dspSpans)
 		}
@@ -914,8 +917,8 @@ func singleSpanLabel(label string, showForMerged bool) func(spans ptrace.Spans, 
 	}
 }
 
-func singleSpanColor(c colorIndex) func(spans ptrace.Spans, tr *Trace) [2]colorIndex {
-	return func(spans ptrace.Spans, tr *Trace) [2]colorIndex {
+func singleSpanColor(c colorIndex) func(_ *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex {
+	return func(_ *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex {
 		if spans.Len() == 1 {
 			return [2]colorIndex{c, 0}
 		} else {

@@ -121,7 +121,17 @@ func processorTrackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []stri
 	return append(out, labels...)
 }
 
-func processorTrackSpanColor(spans ptrace.Spans, tr *Trace) [2]colorIndex {
+func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [2]colorIndex) {
+	if spans, ok := spans.(ptrace.HashableSpans); ok {
+		h := spans.Hash()
+		if c, ok := tl.spanColorCache.Get(h); ok {
+			return c
+		}
+		defer func() {
+			tl.spanColorCache.Add(h, out)
+		}()
+	}
+
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		if s.Tags&ptrace.SpanTagGC != 0 {
 			return colorStateGC
@@ -130,6 +140,10 @@ func processorTrackSpanColor(spans ptrace.Spans, tr *Trace) [2]colorIndex {
 			return stateColors[s.State]
 		}
 	}
+
+	// OPT(dh): implement a cache with ordered keys. If the spans [start, end] had a single merged color, then
+	// increasing start or decreasing end can't change that, as it only eliminates individual spans, not adds any (as
+	// long as new start <= end and new end >= start.)
 
 	if spans.Len() == 1 {
 		return [2]colorIndex{do(spans.At(0), tr), 0}

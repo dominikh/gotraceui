@@ -82,7 +82,8 @@ func machineTrack1SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []strin
 	return append(out, labels...)
 }
 
-func machineTrack1SpanColor(spans ptrace.Spans, tr *Trace) [2]colorIndex {
+func machineTrack1SpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex {
+	// OPT(dh): implement caching
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		gid := tr.Events[s.Event].G
 		g := tr.G(gid)
