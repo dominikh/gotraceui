@@ -1371,7 +1371,7 @@ func readValFrom(buf []byte) (v uint64, rem []byte, ok bool) {
 func (ev *Event) String() string {
 	desc := &EventDescriptions[ev.Type]
 	w := new(bytes.Buffer)
-	fmt.Fprintf(w, "%d %s p=%d g=%d", ev.Ts, desc.Name, ev.P, ev.G)
+	fmt.Fprintf(w, "%d %s p=%d g=%d stk=%d", ev.Ts, desc.Name, ev.P, ev.G, ev.StkID)
 	for i, a := range desc.Args {
 		fmt.Fprintf(w, " %s=%d", a, ev.Args[i])
 	}
