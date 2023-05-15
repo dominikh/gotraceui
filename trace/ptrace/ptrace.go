@@ -192,6 +192,10 @@ type Task struct {
 	Event EventID
 }
 
+func (t *Task) Stub() bool {
+	return t.Event == 0
+}
+
 type Span struct {
 	// The Span type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
 	// collector won't have to scan any memory of our millions of events.
@@ -761,6 +765,18 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 				}
 				g.UserRegions[depth] = append(g.UserRegions[depth].(spansSlice), s)
 				userRegionDepths[gid]++
+
+				if taskID := ev.Args[trace.ArgUserRegionTaskID]; taskID != 0 {
+					idx, ok := tr.task(taskID)
+					if !ok {
+						// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
+						// was created before tracing began.
+						task := &Task{
+							ID: taskID,
+						}
+						tr.Tasks = slices.Insert(tr.Tasks, idx, task)
+					}
+				}
 			} else {
 				d := userRegionDepths[gid] - 1
 				if d > 0 {
@@ -1030,7 +1046,15 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 }
 
 func (t *Trace) Task(id uint64) *Task {
-	idx, found := sort.Find(len(t.Tasks), func(i int) int {
+	idx, ok := t.task(id)
+	if !ok {
+		panic("couldn't find task")
+	}
+	return t.Tasks[idx]
+}
+
+func (t *Trace) task(id uint64) (int, bool) {
+	return sort.Find(len(t.Tasks), func(i int) int {
 		oid := t.Tasks[i].ID
 		if id == oid {
 			return 0
@@ -1040,10 +1064,6 @@ func (t *Trace) Task(id uint64) *Task {
 			return 1
 		}
 	})
-	if !found {
-		panic("couldn't find task")
-	}
-	return t.Tasks[idx]
 }
 
 func (tr *Trace) G(gid uint64) *Goroutine {

@@ -500,8 +500,14 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 			panic(fmt.Sprintf("unexpected state %d", s.State))
 		}
 		if taskID := ev.Args[trace.ArgUserRegionTaskID]; taskID != 0 {
-			label = local.Sprintf("User region: %s\nTask: %s\n",
-				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]], tr.Task(taskID).Name)
+			task := tr.Task(taskID)
+			if task.Stub() {
+				label = local.Sprintf("User region: %s\nTask: %d\n",
+					tr.Strings[ev.Args[trace.ArgUserRegionTypeID]], taskID)
+			} else {
+				label = local.Sprintf("User region: %s\nTask: %s\n",
+					tr.Strings[ev.Args[trace.ArgUserRegionTypeID]], task.Name)
+			}
 		} else {
 			label = local.Sprintf("User region: %s\n",
 				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]])
