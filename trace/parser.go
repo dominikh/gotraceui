@@ -30,12 +30,12 @@ type Event struct {
 	// for GCStart: the GCStop
 	// for GCSTWStart: the GCSTWDone
 	// for GCSweepStart: the GCSweepDone
-	// for GoCreate: first GoStart of the created goroutine
+	// for GoCreate: first GoStart, GoWaiting, or GoInSyscall of the created goroutine
 	// for GoStart/GoStartLabel: the associated GoEnd, GoBlock or other blocking event
 	// for GoSched/GoPreempt: the next GoStart
 	// for GoBlock and other blocking events: the unblock event
 	// for GoUnblock: the associated GoStart
-	// for blocking GoSysCall: the associated GoSysExit
+	// for GoInSyscall and blocking GoSysCall: the associated GoSysExit
 	// for GoSysExit: the next GoStart
 	// for GCMarkAssistStart: the associated GCMarkAssistDone
 	// for UserTaskCreate: the UserTaskEnd
@@ -1104,6 +1104,9 @@ func (p *Parser) postProcessTrace(events []Event, progress func(float64)) error 
 			if g.state != gRunnable {
 				return fmt.Errorf("g %d is not runnable before EvGoWaiting (time %d)", ev.G, ev.Ts)
 			}
+			if g.ev != nil {
+				g.ev.Link = int32(evIdx)
+			}
 			g.state = gWaiting
 			g.ev = ev
 
@@ -1112,6 +1115,9 @@ func (p *Parser) postProcessTrace(events []Event, progress func(float64)) error 
 			g := gs[ev.G]
 			if g.state != gRunnable {
 				return fmt.Errorf("g %d is not runnable before EvGoInSyscall (time %d)", ev.G, ev.Ts)
+			}
+			if g.ev != nil {
+				g.ev.Link = int32(evIdx)
 			}
 			g.state = gWaiting
 			g.ev = ev
@@ -1237,7 +1243,7 @@ func (p *Parser) postProcessTrace(events []Event, progress func(float64)) error 
 			if g.state != gWaiting {
 				return fmt.Errorf("g %d is not waiting during syscall exit (time %d)", ev.G, ev.Ts)
 			}
-			if g.ev != nil && g.ev.Type == EvGoSysCall {
+			if g.ev != nil && (g.ev.Type == EvGoSysCall || g.ev.Type == EvGoInSyscall) {
 				g.ev.Link = int32(evIdx)
 			}
 			g.state = gRunnable
