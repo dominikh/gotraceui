@@ -390,9 +390,9 @@ func (mwin *MainWindow) OpenTrace(r io.Reader) {
 	// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
 	// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
 	//
-	// There are only two cases in which this memory limit could lead to the GC running to often: if our set of
+	// There are only two cases in which this memory limit could lead to the GC running too often: if our set of
 	// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
-	// former would be a bug, and the former would ultimately lead to bad performance, anyway.
+	// former would be a bug, and the latter would ultimately lead to bad performance, anyway.
 	runtime.GC()
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
