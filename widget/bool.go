@@ -12,7 +12,7 @@ import (
 type Bool struct {
 	Value bool
 
-	clk PrimaryClickable
+	clk PrimaryActivatable
 
 	changed bool
 }
@@ -62,7 +62,7 @@ type BackedBit[T uint8 | uint16 | uint32 | uint64] struct {
 	Bits *T
 	Bit  int
 
-	clk PrimaryClickable
+	clk PrimaryActivatable
 
 	changed bool
 }
