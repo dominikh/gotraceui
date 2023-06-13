@@ -30,9 +30,8 @@ func labelDimensions(gtx layout.Context, l widget.Label, lt *text.Shaper, font f
 	}, txt)
 	viewport := image.Rectangle{Max: cs.Max}
 	it := textIterator{
-		viewport:                  viewport,
-		maxLines:                  l.MaxLines,
-		abortOnImmediateTruncator: l.HideIfEntirelyTruncated,
+		viewport: viewport,
+		maxLines: l.MaxLines,
 	}
 	for g, ok := lt.NextGlyph(); ok; g, ok = lt.NextGlyph() {
 		if _, ok := it.processGlyph(g, true); !ok {
@@ -53,8 +52,7 @@ type textIterator struct {
 	// trying to fill with text.
 	viewport image.Rectangle
 	// maxLines is the maximum number of text lines that should be displayed.
-	maxLines                  int
-	abortOnImmediateTruncator bool
+	maxLines int
 
 	// linesSeen tracks the quantity of line endings this iterator has seen.
 	linesSeen int
@@ -75,7 +73,7 @@ type textIterator struct {
 // processGlyph checks whether the glyph is visible within the iterator's configured
 // viewport and (if so) updates the iterator's text dimensions to include the glyph.
 func (it *textIterator) processGlyph(g text.Glyph, ok bool) (_ text.Glyph, visibleOrBefore bool) {
-	if !it.first && it.abortOnImmediateTruncator && g.Flags&text.FlagTruncator != 0 {
+	if !it.first && g.Flags&text.FlagTruncator != 0 {
 		return g, false
 	}
 
