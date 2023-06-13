@@ -651,93 +651,99 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
+	win.AddShortcut(theme.Shortcut{Name: key.NameHome})
+	win.AddShortcut(theme.Shortcut{Name: key.NameHome, Modifiers: key.ModShortcut})
+	win.AddShortcut(theme.Shortcut{Name: key.NameHome, Modifiers: key.ModShift})
+	win.AddShortcut(theme.Shortcut{Name: "S"})
+	win.AddShortcut(theme.Shortcut{Name: "Z", Modifiers: key.ModShortcut})
+	win.AddShortcut(theme.Shortcut{Name: "X"})
+	win.AddShortcut(theme.Shortcut{Name: "C"})
+	win.AddShortcut(theme.Shortcut{Name: "T"})
+	win.AddShortcut(theme.Shortcut{Name: "O"})
+
+	for _, s := range win.PressedShortcuts() {
+		switch s {
+		case theme.Shortcut{Name: key.NameHome, Modifiers: 0}:
+			cv.ScrollToTop(gtx)
+
+		case theme.Shortcut{Name: key.NameHome, Modifiers: key.ModShortcut}:
+			cv.ZoomToFitCurrentView(gtx)
+
+		case theme.Shortcut{Name: key.NameHome, Modifiers: key.ModShift}:
+			cv.JumpToBeginning(gtx)
+
+		case theme.Shortcut{Name: "S"}:
+			cv.ToggleStackTracks()
+			if h := cv.timeline.hoveredTimeline; h != nil {
+				cv.cancelNavigation()
+				y := cv.timelineY(gtx, h.item)
+				offset := h.hover.Pointer().Y
+				if !cv.timeline.displayStackTracks {
+					// We're going from stacks to no stacks. This shrinks the timeline and the cursor might end
+					// up on the next timeline. Prevent that.
+					if h.hover.Pointer().Y > float32(h.Height(gtx, cv)) {
+						offset -= h.hover.Pointer().Y - float32(h.Height(gtx, cv))
+					}
+				}
+				cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
+			}
+
+		case theme.Shortcut{Name: "Z", Modifiers: key.ModShortcut}:
+			cv.UndoNavigation(gtx)
+
+		case theme.Shortcut{Name: "X"}:
+			cv.ToggleTimelineLabels()
+
+		case theme.Shortcut{Name: "C"}:
+			cv.ToggleCompactDisplay()
+			if h := cv.timeline.hoveredTimeline; h != nil {
+				cv.cancelNavigation()
+				y := cv.timelineY(gtx, h.item)
+
+				offset := h.hover.Pointer().Y
+				if cv.timeline.compact {
+					// We're going from expanded to compact. This reduces the offset from the top of the
+					// timeline to the first track to zero.
+					offset -= float32(gtx.Dp(timelineLabelHeightDp))
+					if h.hover.Pointer().Y < float32(gtx.Dp(timelineLabelHeightDp)) {
+						// The cursor is above the first track; adjust the offset so that the cursor lands on the first track
+						offset += float32(gtx.Dp(timelineLabelHeightDp)) - h.hover.Pointer().Y
+					}
+				}
+
+				cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
+			}
+
+		case theme.Shortcut{Name: "T"}:
+			cv.timeline.showTooltips = (cv.timeline.showTooltips + 1) % (showTooltipsNone + 1)
+			var s string
+			switch cv.timeline.showTooltips {
+			case showTooltipsBoth:
+				s = "Showing all tooltips"
+			case showTooltipsSpans:
+				s = "Showing span tooltips only"
+			case showTooltipsNone:
+				s = "Showing no tooltips"
+			}
+			win.ShowNotification(gtx, s)
+
+		case theme.Shortcut{Name: "O"}:
+			cv.timeline.showGCOverlays = (cv.timeline.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
+			var s string
+			switch cv.timeline.showGCOverlays {
+			case showGCOverlaysBoth:
+				s = "Showing STW and GC overlays"
+			case showGCOverlaysSTW:
+				s = "Showing STW overlays"
+			case showGCOverlaysNone:
+				s = "Showing no overlays"
+			}
+			win.ShowNotification(gtx, s)
+		}
+	}
+
 	for _, ev := range gtx.Events(cv) {
 		switch ev := ev.(type) {
-		case key.Event:
-			if ev.State == key.Press {
-				switch ev.Name {
-				case key.NameHome:
-					switch {
-					case ev.Modifiers == key.ModShortcut:
-						cv.ZoomToFitCurrentView(gtx)
-					case ev.Modifiers == key.ModShift:
-						cv.JumpToBeginning(gtx)
-					case ev.Modifiers == 0:
-						cv.ScrollToTop(gtx)
-					}
-
-				case "S":
-					cv.ToggleStackTracks()
-					if h := cv.timeline.hoveredTimeline; h != nil {
-						cv.cancelNavigation()
-						y := cv.timelineY(gtx, h.item)
-						offset := h.hover.Pointer().Y
-						if !cv.timeline.displayStackTracks {
-							// We're going from stacks to no stacks. This shrinks the timeline and the cursor might end
-							// up on the next timeline. Prevent that.
-							if h.hover.Pointer().Y > float32(h.Height(gtx, cv)) {
-								offset -= h.hover.Pointer().Y - float32(h.Height(gtx, cv))
-							}
-						}
-						cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
-					}
-
-				case "Z":
-					if ev.Modifiers.Contain(key.ModShortcut) {
-						cv.UndoNavigation(gtx)
-					}
-
-				case "X":
-					cv.ToggleTimelineLabels()
-
-				case "C":
-					cv.ToggleCompactDisplay()
-					if h := cv.timeline.hoveredTimeline; h != nil {
-						cv.cancelNavigation()
-						y := cv.timelineY(gtx, h.item)
-
-						offset := h.hover.Pointer().Y
-						if cv.timeline.compact {
-							// We're going from expanded to compact. This reduces the offset from the top of the
-							// timeline to the first track to zero.
-							offset -= float32(gtx.Dp(timelineLabelHeightDp))
-							if h.hover.Pointer().Y < float32(gtx.Dp(timelineLabelHeightDp)) {
-								// The cursor is above the first track; adjust the offset so that the cursor lands on the first track
-								offset += float32(gtx.Dp(timelineLabelHeightDp)) - h.hover.Pointer().Y
-							}
-						}
-
-						cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
-					}
-
-				case "T":
-					cv.timeline.showTooltips = (cv.timeline.showTooltips + 1) % (showTooltipsNone + 1)
-					var s string
-					switch cv.timeline.showTooltips {
-					case showTooltipsBoth:
-						s = "Showing all tooltips"
-					case showTooltipsSpans:
-						s = "Showing span tooltips only"
-					case showTooltipsNone:
-						s = "Showing no tooltips"
-					}
-					win.ShowNotification(gtx, s)
-
-				case "O":
-					cv.timeline.showGCOverlays = (cv.timeline.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
-					var s string
-					switch cv.timeline.showGCOverlays {
-					case showGCOverlaysBoth:
-						s = "Showing STW and GC overlays"
-					case showGCOverlaysSTW:
-						s = "Showing STW overlays"
-					case showGCOverlaysNone:
-						s = "Showing no overlays"
-					}
-					win.ShowNotification(gtx, s)
-
-				}
-			}
 		case pointer.Event:
 			switch ev.Type {
 			case pointer.Scroll:
@@ -824,7 +830,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if cv.drag.active {
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
-		key.InputOp{Tag: cv, Keys: "Short-Z|C|S|O|T|X|(Shift)-(Short)-" + key.NameHome}.Add(gtx.Ops)
 
 		drawRegionOverlays := func(spans ptrace.Spans, c color.NRGBA, height int) {
 			var p clip.Path

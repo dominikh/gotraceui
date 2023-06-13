@@ -663,7 +663,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 
 	profileTag := new(int)
 	var ops op.Ops
-	var shortcuts int
 
 	var commands []Command
 	mwin.twin.Menu = mainMenu.menu
@@ -831,59 +830,57 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						})
 
 					case "main":
-						for _, ev := range gtx.Events(&shortcuts) {
-							switch ev := ev.(type) {
-							case key.Event:
-								if ev.State == key.Press && mwin.ww == nil {
-									switch ev.Name {
-									case "G":
-										mwin.ww = theme.NewListWindow(mwin.twin.Theme)
-										items := make([]theme.ListWindowItem, 0, len(mwin.canvas.timelines))
-										items = append(items,
-											theme.ListWindowItem{
-												Item:  mwin.canvas.timelines[0].item,
-												Label: mwin.canvas.timelines[0].label,
-											},
+						win.AddShortcut(theme.Shortcut{Name: "G"})
+						win.AddShortcut(theme.Shortcut{Name: "H"})
 
-											theme.ListWindowItem{
-												Item:  mwin.canvas.timelines[1].item,
-												Label: mwin.canvas.timelines[1].label,
-											},
-										)
-										for _, p := range mwin.trace.Processors {
-											items = append(items, theme.ListWindowItem{
-												Item:         p,
-												Label:        local.Sprintf("processor %d", p.ID),
-												FilterLabels: mwin.trace.processorFilterLabels(p),
-											})
-										}
-										for _, g := range mwin.trace.Goroutines {
-											var label string
-											if g.Function.Fn == "" {
-												// At least GCSweepStart can happen on g0
-												label = local.Sprintf("goroutine %d", g.ID)
-											} else {
-												label = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
-											}
-											items = append(items, theme.ListWindowItem{
-												Item:         g,
-												Label:        label,
-												FilterLabels: mwin.trace.goroutineFilterLabels(g),
-											})
-										}
-										mwin.ww.SetItems(items)
-										mwin.ww.BuildFilter = newTimelineFilter
-										win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-											return theme.Dialog(win.Theme, "Go to timeline").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-												gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
-												return mwin.ww.Layout(gtx)
-											})
-										})
+						for _, s := range win.PressedShortcuts() {
+							switch s {
+							case theme.Shortcut{Name: "G"}:
+								mwin.ww = theme.NewListWindow(mwin.twin.Theme)
+								items := make([]theme.ListWindowItem, 0, len(mwin.canvas.timelines))
+								items = append(items,
+									theme.ListWindowItem{
+										Item:  mwin.canvas.timelines[0].item,
+										Label: mwin.canvas.timelines[0].label,
+									},
 
-									case "H":
-										displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-									}
+									theme.ListWindowItem{
+										Item:  mwin.canvas.timelines[1].item,
+										Label: mwin.canvas.timelines[1].label,
+									},
+								)
+								for _, p := range mwin.trace.Processors {
+									items = append(items, theme.ListWindowItem{
+										Item:         p,
+										Label:        local.Sprintf("processor %d", p.ID),
+										FilterLabels: mwin.trace.processorFilterLabels(p),
+									})
 								}
+								for _, g := range mwin.trace.Goroutines {
+									var label string
+									if g.Function.Fn == "" {
+										// At least GCSweepStart can happen on g0
+										label = local.Sprintf("goroutine %d", g.ID)
+									} else {
+										label = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
+									}
+									items = append(items, theme.ListWindowItem{
+										Item:         g,
+										Label:        label,
+										FilterLabels: mwin.trace.goroutineFilterLabels(g),
+									})
+								}
+								mwin.ww.SetItems(items)
+								mwin.ww.BuildFilter = newTimelineFilter
+								win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+									return theme.Dialog(win.Theme, "Go to timeline").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+										gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
+										return mwin.ww.Layout(gtx)
+									})
+								})
+
+							case theme.Shortcut{Name: "H"}:
+								displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
 							}
 						}
 
@@ -952,8 +949,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 								mwin.ClosePanel()
 							}
 						}
-
-						key.InputOp{Tag: &shortcuts, Keys: "G|H"}.Add(gtx.Ops)
 
 						if mwin.ww != nil {
 							if item, ok := mwin.ww.Confirmed(); ok {

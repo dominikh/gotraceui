@@ -17,6 +17,7 @@ import (
 	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/font"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/system"
 	"gioui.org/op"
@@ -30,8 +31,10 @@ type Window struct {
 	Theme     *Theme
 	Menu      *Menu
 	// The current frame number
-	Frame       uint64
-	contextMenu []*MenuItem
+	Frame            uint64
+	contextMenu      []*MenuItem
+	shortcuts        map[Shortcut]struct{}
+	pressedShortcuts []Shortcut
 
 	pointerAt f32.Point
 
@@ -79,6 +82,7 @@ func NewWindow(win *app.Window) *Window {
 			win: win,
 		},
 		textLengths: tinylfu.New[string, layout.Dimensions](1024, 1024*10),
+		shortcuts:   map[Shortcut]struct{}{},
 	}
 }
 
@@ -94,6 +98,22 @@ func Dumb(win *Window, w Widget) layout.Widget {
 	}
 }
 
+type Shortcut struct {
+	Modifiers key.Modifiers
+	Name      string
+}
+
+// AddShortcut adds a new shortcut. The shortcut will only remain registered until the next call to Render.
+func (win *Window) AddShortcut(s Shortcut) {
+	win.shortcuts[s] = struct{}{}
+}
+
+// PressedShortcuts returns the shortcuts that have been pressed since the last call to Render. The slice is only valid
+// until the next call to Render.
+func (win *Window) PressedShortcuts() []Shortcut {
+	return win.pressedShortcuts
+}
+
 func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
 	win.Frame++
@@ -101,14 +121,29 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 
 	win.windowFrameState = windowFrameState{}
 
+	win.pressedShortcuts = win.pressedShortcuts[:0]
 	for _, ev := range gtx.Events(win) {
 		switch ev := ev.(type) {
+		case key.Event:
+			if ev.State != key.Press {
+				continue
+			}
+			key := Shortcut{ev.Modifiers, ev.Name}
+			if _, ok := win.shortcuts[key]; ok {
+				win.pressedShortcuts = append(win.pressedShortcuts, key)
+			}
 		case pointer.Event:
 			win.pointerAt = ev.Position
 		}
 	}
 
+	for k := range win.shortcuts {
+		delete(win.shortcuts, k)
+	}
+
 	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+	// Handle all keyboard input that wasn't handled by the window contents
+	key.InputOp{Tag: win}.Add(gtx.Ops)
 	pointer.InputOp{Tag: win, Types: 0xFF}.Add(gtx.Ops)
 
 	for _, item := range win.contextMenu {
