@@ -1457,7 +1457,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 				spanLabels = append(spanLabels, localPrefixedID+": "+g.Function.Fn)
 				if short != g.Function.Fn {
 					spanLabels = append(spanLabels, localPrefixedID+": ."+short)
-					spanLabels = append(spanLabels, localPrefixedID)
 				} else {
 					// This branch is probably impossible; all functions should be fully qualified.
 					spanLabels = append(spanLabels, localPrefixedID)

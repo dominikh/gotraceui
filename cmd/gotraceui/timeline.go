@@ -24,6 +24,7 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 )
 
@@ -750,7 +751,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			//
 			// We don't try to render a label for very small spans.
 			if *labelsOut = track.spanLabel(dspSpans, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
-				for _, label := range *labelsOut {
+				for i, label := range *labelsOut {
 					if label == "" {
 						continue
 					}
@@ -758,9 +759,11 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 					font := font.Font{Weight: font.ExtraBold}
 					n := win.TextLength(gtx, widget.Label{}, font, win.Theme.TextSize, label)
 					if float32(n) > endPx-startPx {
-						// This label doesn't fit. If the callback provided more labels, try those instead, otherwise
-						// give up. Truncating labels is almost never a good idea and usually leads to ambiguous text.
-						continue
+						// This label doesn't fit. If the callback provided more labels, try those instead. If it is the
+						// last label, use it and let Gio truncate it, appending a truncation indicator if necessary.
+						if i < len(*labelsOut)-1 {
+							continue
+						}
 					}
 
 					var dims layout.Dimensions
@@ -770,7 +773,9 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 						gtx.Ops = labelsOps
 						m := op.Record(gtx.Ops)
 						gtx.Constraints.Min = image.Point{}
-						dims = widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label)
+						gtx.Constraints.Max = image.Pt(int(round32(maxP.X-minP.X)), int(round32(maxP.Y-minP.Y)))
+						dims = widget.Label{MaxLines: 1, Truncator: "…", WrapPolicy: text.WrapGraphemes}.
+							Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 						call = m.Stop()
 					}
 					middleOfSpan := startPx + (endPx-startPx)/2
