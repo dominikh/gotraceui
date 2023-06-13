@@ -994,9 +994,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 				if invalidateFrames {
 					op.InvalidateOp{}.Add(&ops)
 				}
-				ev.Frame(&ops)
 
-				mwin.twin.Futures.Sweep()
+				ev.Frame(&ops)
 			}
 		}
 	}

@@ -213,6 +213,8 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 			})
 		})
 	}
+
+	win.Futures.Sweep()
 }
 
 func (win *Window) SetContextMenu(items []*MenuItem) {
