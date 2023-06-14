@@ -6,6 +6,7 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
+	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -122,16 +123,6 @@ func processorTrackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []stri
 }
 
 func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [2]colorIndex) {
-	if spans, ok := spans.(ptrace.HashableSpans); ok {
-		h := spans.Hash()
-		if c, ok := tl.spanColorCache.Get(h); ok {
-			return c
-		}
-		defer func() {
-			tl.spanColorCache.Add(h, out)
-		}()
-	}
-
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		if s.Tags&ptrace.SpanTagGC != 0 {
 			return colorStateGC
@@ -141,25 +132,67 @@ func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [
 		}
 	}
 
-	// OPT(dh): implement a cache with ordered keys. If the spans [start, end] had a single merged color, then
-	// increasing start or decreasing end can't change that, as it only eliminates individual spans, not adds any (as
-	// long as new start <= end and new end >= start.)
-
 	if spans.Len() == 1 {
 		return [2]colorIndex{do(spans.At(0), tr), 0}
-	} else {
-		c := do(spans.At(0), tr)
-		for i := 1; i < spans.Len(); i++ {
-			s := spans.At(i)
-			// OPT(dh): this can get very expensive; imagine a merged span with millions of spans, all
-			// with the same color.
-			cc := do(s, tr)
-			if cc != c {
-				return [2]colorIndex{colorStateMerged, 0}
-			}
-		}
-		return [2]colorIndex{c, colorStateMerged}
 	}
+
+	if _, ok := spans.(ptrace.ContiguousSpans); ok {
+		var (
+			cached [2]colorIndex
+			found  bool
+		)
+
+		tl.spanColorCache.FindIter(spans.Start(), spans.End(), func(node *container.RBNode[container.Interval[trace.Timestamp], container.Value[trace.Timestamp, [2]colorIndex]]) bool {
+			ival := container.Interval[trace.Timestamp]{spans.Start(), spans.End()}
+			if node.Key.SupersetOf(ival) {
+				if node.Value.Value[1] != 0 {
+					cached = node.Value.Value
+					found = true
+					return true
+				}
+			}
+			if ival.SupersetOf(node.Key) {
+				if node.Value.Value[1] == 0 {
+					cached = node.Value.Value
+					found = true
+					return true
+				}
+			}
+			return false
+		})
+
+		if found {
+			return cached
+		}
+	}
+
+	// Analyzing 500 spans takes around 10 μs, which is the amount of CPU time we're willing to spend on analyzing
+	// merged spans. Caching these would not be worth it from a CPU/memory tradeoff perspective.
+	const minCachedSize = 500
+
+	c := do(spans.At(0), tr)
+	for i := 1; i < spans.Len(); i++ {
+		s := spans.At(i)
+		cc := do(s, tr)
+		if cc != c {
+			if i > minCachedSize {
+				// Store a cache entry for the non-mixed-state prefix
+				// OPT(dh): don't store it if a superset of it already exists
+				tl.spanColorCache.Insert(spans.Start(), spans.At(i-1).End, [2]colorIndex{c, colorStateMerged})
+			}
+
+			// Store a cache entry for the non-mixed to mixed transition.
+			tl.spanColorCache.Insert(spans.At(i-1).Start, spans.At(i).End, [2]colorIndex{colorStateMerged, 0})
+
+			return [2]colorIndex{colorStateMerged, 0}
+		}
+	}
+
+	if spans.Len() > minCachedSize {
+		// Store a cache entry for the full non-mixed-state merged span
+		tl.spanColorCache.Insert(spans.Start(), spans.End(), [2]colorIndex{c, colorStateMerged})
+	}
+	return [2]colorIndex{c, colorStateMerged}
 }
 
 func processorTrackSpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
@@ -195,6 +228,8 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 				}
 			}
 		},
+
+		spanColorCache: container.NewIntervalTree[trace.Timestamp, [2]colorIndex](),
 
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return ProcessorTooltip{p, cv.trace}.Layout(win, gtx)

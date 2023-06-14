@@ -4,13 +4,11 @@ package ptrace
 import (
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/trace"
@@ -1156,8 +1154,8 @@ type Spans interface {
 	Events(all []EventID, tr *Trace) []EventID
 }
 
-type HashableSpans interface {
-	Hash() uint64
+type ContiguousSpans interface {
+	isContiguous()
 }
 
 func ToSpans(spans []Span) Spans {
@@ -1176,19 +1174,7 @@ func (spans processorSpans) Start() trace.Timestamp                    { return 
 func (spans processorSpans) End() trace.Timestamp                      { return End(spans) }
 func (spans processorSpans) Duration() time.Duration                   { return Duration(spans) }
 func (spans processorSpans) Events(all []EventID, tr *Trace) []EventID { return Events(spans, all, tr) }
-func (spans processorSpans) Hash() uint64 {
-	if len(spans) == 0 {
-		return 0
-	}
-	h := fnv.New64()
-	d := [...]uint64{
-		uint64(spans[0].Event),
-		uint64(spans[0].Start),
-		uint64(spans[len(spans)-1].End),
-	}
-	h.Write((*[unsafe.Sizeof(d)]byte)(unsafe.Pointer(&d))[:])
-	return h.Sum64()
-}
+func (spans processorSpans) isContiguous()                             {}
 
 type spansSlice []Span
 

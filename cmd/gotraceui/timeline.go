@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
@@ -56,6 +56,11 @@ type Timeline struct {
 	// Set to true by Timeline.Layout. This is used to track which timelines have been shown during a frame.
 	displayed bool
 
+	// This cache is stored per timeline, not per timeline widget, because 1) only processors use it 2) it's expensive
+	// to populate. There aren't enough processors or items in the cache to worry about its permanent memory usage, but
+	// we definitely care about the poor performance of the first few frames rendered with an unpopulated cache.
+	spanColorCache *container.IntervalTree[trace.Timestamp, [2]colorIndex]
+
 	*TimelineWidget
 }
 
@@ -63,8 +68,6 @@ type TimelineWidget struct {
 	cv          *Canvas
 	labelClick  widget.PrimaryClickable
 	labelClicks int
-
-	spanColorCache *tinylfu.T[uint64, [2]colorIndex]
 
 	hover gesture.Hover
 
@@ -263,7 +266,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	if tl.TimelineWidget == nil {
 		rtrace.Logf(context.Background(), "", "loading timeline widget %q", tl.label)
 		tl.TimelineWidget = cv.timelineWidgetsCache.Get()
-		*tl.TimelineWidget = TimelineWidget{cv: cv, spanColorCache: tinylfu.New[uint64, [2]colorIndex](1024, 1024*10)}
+		*tl.TimelineWidget = TimelineWidget{cv: cv}
 	}
 
 	tl.hover.Update(gtx.Queue)
