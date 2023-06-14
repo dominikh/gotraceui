@@ -288,9 +288,3 @@ func (c LinearSRGB) SRGB() SRGB {
 
 	return SRGB{t(c.R), t(c.G), t(c.B), c.A}
 }
-
-func main() {
-}
-
-// $ go run .
-// 0.7010589 0.10060555 159.08318 1
