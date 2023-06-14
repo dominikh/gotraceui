@@ -35,8 +35,8 @@ func (tbl *TableListStyle) Layout(
 
 	ourCellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		if row == 0 {
-			return widget.TextLine{Color: win.Theme.Palette.Foreground}.
-				Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, win.Theme.TextSize, tbl.Columns[col].Name)
+			return widget.Label{MaxLines: 1}.
+				Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, win.Theme.TextSize, tbl.Columns[col].Name, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 		} else {
 			return cellFn(gtx, row-1, col)
 		}

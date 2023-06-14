@@ -192,7 +192,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 			layout.Rigid(layout.Spacer{Width: 3}.Layout),
 
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widget.TextLine{Color: c.TextColor}.Layout(gtx, win.Theme.Shaper, font.Font{}, c.TextSize, c.Label)
+				return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, c.TextSize, c.Label, widget.ColorTextMaterial(gtx, c.TextColor))
 			}),
 		)
 	})
@@ -302,7 +302,7 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 					layout.Rigid(layout.Spacer{Width: 3}.Layout),
 
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return widget.TextLine{Color: chkgrp.TextColor}.Layout(gtx, win.Theme.Shaper, font.Font{}, chkgrp.TextSize, chkgrp.Label)
+						return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, chkgrp.TextSize, chkgrp.Label, widget.ColorTextMaterial(gtx, chkgrp.TextColor))
 					}),
 				)
 			})

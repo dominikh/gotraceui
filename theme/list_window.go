@@ -106,7 +106,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						c = rgba(0x000000FF)
 					}
-					return widget.TextLine{Color: c}.Layout(gtx, w.theme.Shaper, font.Font{}, w.theme.TextSize, item.Label)
+					return widget.Label{MaxLines: 1}.Layout(gtx, w.theme.Shaper, font.Font{}, w.theme.TextSize, item.Label, widget.ColorTextMaterial(gtx, c))
 				})
 			})
 		}

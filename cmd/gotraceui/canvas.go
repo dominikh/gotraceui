@@ -1299,7 +1299,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		}
 
 		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label)
+			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 		})
 		// TODO separate value and unit symbol with a space
 
@@ -1342,7 +1342,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 			f := font.Font{Weight: font.Bold}
 			label := formatTimestamp(t)
-			return widget.TextLine{Color: win.Theme.Palette.Foreground}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label)
+			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 		})
 		// TODO separate value and unit symbol with a space
 		labelStart := image.Pt(int(round32(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))

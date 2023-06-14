@@ -8,11 +8,9 @@ import (
 
 	"honnef.co/go/gotraceui/layout"
 
-	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/unit"
 )
 
@@ -58,24 +56,10 @@ func (b Border) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	return dims
 }
 
-type TextLine struct {
-	Color color.NRGBA
-}
-
 func ColorTextMaterial(gtx layout.Context, c color.NRGBA) op.CallOp {
 	m := op.Record(gtx.Ops)
 	paint.ColorOp{Color: c}.Add(gtx.Ops)
 	return m.Stop()
-}
-
-func (tl TextLine) Layout(gtx layout.Context, shaper *text.Shaper, font font.Font, size unit.Sp, label string) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "widget.TextLine.Layout").End()
-
-	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-
-	// Effectively disable widget.Label's word wrapping and sentence truncation.
-	gtx.Constraints.Max.X = 1e6
-	return Label{MaxLines: 1}.Layout(gtx, shaper, font, size, label, ColorTextMaterial(gtx, tl.Color))
 }
 
 type Background struct {

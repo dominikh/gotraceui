@@ -298,7 +298,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				labelGtx := gtx
 				labelGtx.Constraints.Min = image.Point{}
-				labelDims := widget.TextLine{Color: colors[colorTimelineLabel]}.Layout(labelGtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, tl.label)
+				labelDims := widget.Label{MaxLines: 1}.Layout(labelGtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, tl.label, widget.ColorTextMaterial(gtx, colors[colorTimelineLabel]))
 				stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 				pointer.CursorPointer.Add(gtx.Ops)
 				stack.Pop()
