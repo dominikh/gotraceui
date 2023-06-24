@@ -65,6 +65,8 @@ const headerLength = 16
 
 // Trace is the result of Parse.
 type Trace struct {
+	Version int
+
 	// Events is the sorted list of Events in the trace.
 	Events []Event
 	// Stacks is the stack traces keyed by stack IDs from the trace.
@@ -190,14 +192,13 @@ func Parse(r io.Reader, progress func(float64)) (Trace, error) {
 }
 
 func (p *Parser) Parse() (Trace, error) {
-	_, res, err := p.parse()
+	res, err := p.parse()
 	p.data = nil
 	return res, err
 }
 
-// parse parses, post-processes and verifies the trace. It returns the
-// trace version and the list of events.
-func (p *Parser) parse() (int, Trace, error) {
+// parse parses, post-processes and verifies the trace.
+func (p *Parser) parse() (Trace, error) {
 	p.strings = make(map[uint64]string)
 	p.pStates = make(map[int32]*pState)
 	p.stacks = make(map[uint32][]uint64)
@@ -205,7 +206,7 @@ func (p *Parser) parse() (int, Trace, error) {
 
 	ver, err := p.readHeader()
 	if err != nil {
-		return 0, Trace{}, err
+		return Trace{}, err
 	}
 
 	p.ver = ver
@@ -215,17 +216,17 @@ func (p *Parser) parse() (int, Trace, error) {
 	}
 	progress := func(r float64) { p.progress((1.0 / 3.0) * r) }
 	if err := p.indexAndPartiallyParse(progress); err != nil {
-		return 0, Trace{}, err
+		return Trace{}, err
 	}
 
 	progress = func(r float64) { p.progress(1.0/3.0 + (1.0/3.0)*r) }
 	events, err := p.parseRest(progress)
 	if err != nil {
-		return 0, Trace{}, err
+		return Trace{}, err
 	}
 
 	if p.ticksPerSec == 0 {
-		return 0, Trace{}, errors.New("no EvFrequency event")
+		return Trace{}, errors.New("no EvFrequency event")
 	}
 
 	if len(events) > 0 {
@@ -245,16 +246,17 @@ func (p *Parser) parse() (int, Trace, error) {
 
 	progress = func(r float64) { p.progress(2.0/3.0 + (1.0/3.0)*r) }
 	if err := p.postProcessTrace(events, progress); err != nil {
-		return 0, Trace{}, err
+		return Trace{}, err
 	}
 
 	res := Trace{
+		Version: ver,
 		Events:  events,
 		Stacks:  p.stacks,
 		Strings: p.strings,
 		PCs:     p.pcs,
 	}
-	return ver, res, nil
+	return res, nil
 }
 
 // rawEvent is a helper type used during parsing.
@@ -275,7 +277,7 @@ func (p *Parser) readHeader() (ver int, err error) {
 	}
 	p.off += headerLength
 	switch ver {
-	case 1011, 1019:
+	case 1011, 1019, 1021:
 		// Note: When adding a new version, add canned traces
 		// from the old version to the test suite using mkcanned.bash.
 	default:
@@ -1051,13 +1053,13 @@ func (p *Parser) postProcessTrace(events []Event, progress func(float64)) error 
 			}
 			evGC.Link = int32(evIdx)
 			evGC = nil
-		case EvGCSTWStart:
+		case EvSTWStart:
 			evp := &evSTW
 			if *evp != nil {
 				return fmt.Errorf("previous STW is not ended before a new one (time %d)", ev.Ts)
 			}
 			*evp = ev
-		case EvGCSTWDone:
+		case EvSTWDone:
 			evp := &evSTW
 			if *evp == nil {
 				return fmt.Errorf("bogus STW end (time %d)", ev.Ts)
@@ -1417,8 +1419,8 @@ const (
 	EvProcStop          = 6  // stop of P [timestamp]
 	EvGCStart           = 7  // GC start [timestamp, seq, stack id]
 	EvGCDone            = 8  // GC done [timestamp]
-	EvGCSTWStart        = 9  // GC mark termination start [timestamp, kind]
-	EvGCSTWDone         = 10 // GC mark termination done [timestamp]
+	EvSTWStart          = 9  // GC mark termination start [timestamp, kind]
+	EvSTWDone           = 10 // GC mark termination done [timestamp]
 	EvGCSweepStart      = 11 // GC sweep start [timestamp, stack id]
 	EvGCSweepDone       = 12 // GC sweep done [timestamp, swept, reclaimed]
 	EvGoCreate          = 13 // goroutine creation [timestamp, new goroutine id, new stack id, stack id]
@@ -1477,8 +1479,8 @@ var EventDescriptions = [256]struct {
 	EvProcStop:          {"ProcStop", 1005, false, []string{}, nil},
 	EvGCStart:           {"GCStart", 1005, true, []string{"seq"}, nil}, // in 1.5 format it was {}
 	EvGCDone:            {"GCDone", 1005, false, []string{}, nil},
-	EvGCSTWStart:        {"GCSTWStart", 1005, false, []string{"kindid"}, []string{"kind"}}, // <= 1.9, args was {} (implicitly {0})
-	EvGCSTWDone:         {"GCSTWDone", 1005, false, []string{}, nil},
+	EvSTWStart:          {"GCSTWStart", 1005, false, []string{"kindid"}, []string{"kind"}}, // <= 1.9, args was {} (implicitly {0})
+	EvSTWDone:           {"GCSTWDone", 1005, false, []string{}, nil},
 	EvGCSweepStart:      {"GCSweepStart", 1005, true, []string{}, nil},
 	EvGCSweepDone:       {"GCSweepDone", 1005, false, []string{"swept", "reclaimed"}, nil}, // before 1.9, format was {}
 	EvGoCreate:          {"GoCreate", 1005, true, []string{"g", "stack"}, nil},
@@ -1553,4 +1555,87 @@ const (
 	ArgUserTaskCreateTypeID = 2
 	ArgHeapAllocMem         = 0
 	ArgHeapGoalMem          = 0
+	ArgSTWStartKind         = 0
 )
+
+func (tr *Trace) STWReason(kindID uint64) STWReason {
+	if tr.Version < 1021 {
+		if kindID == 0 || kindID == 1 {
+			return STWReason(kindID + 1)
+		} else {
+			return STWUnknown
+		}
+	} else if tr.Version == 1021 {
+		if kindID < NumSTWReasons {
+			return STWReason(kindID)
+		} else {
+			return STWUnknown
+		}
+	} else {
+		return STWUnknown
+	}
+}
+
+type STWReason int
+
+const (
+	STWUnknown                 STWReason = 0
+	STWGCMarkTermination       STWReason = 1
+	STWGCSweepTermination      STWReason = 2
+	STWWriteHeapDump           STWReason = 3
+	STWGoroutineProfile        STWReason = 4
+	STWGoroutineProfileCleanup STWReason = 5
+	STWAllGoroutinesStackTrace STWReason = 6
+	STWReadMemStats            STWReason = 7
+	STWAllThreadsSyscall       STWReason = 8
+	STWGOMAXPROCS              STWReason = 9
+	STWStartTrace              STWReason = 10
+	STWStopTrace               STWReason = 11
+	STWCountPagesInUse         STWReason = 12
+	STWReadMetricsSlow         STWReason = 13
+	STWReadMemStatsSlow        STWReason = 14
+	STWPageCachePagesLeaked    STWReason = 15
+	STWResetDebugLog           STWReason = 16
+
+	NumSTWReasons = 17
+)
+
+func (stw STWReason) String() string {
+	// These strings are taken from Go's trace parser.
+	switch stw {
+	case STWGCMarkTermination:
+		return "GC mark termination"
+	case STWGCSweepTermination:
+		return "GC sweep termination"
+	case STWWriteHeapDump:
+		return "write heap dump"
+	case STWGoroutineProfile:
+		return "goroutine profile"
+	case STWGoroutineProfileCleanup:
+		return "goroutine profile cleanup"
+	case STWAllGoroutinesStackTrace:
+		return "all goroutine stack trace"
+	case STWReadMemStats:
+		return "read mem stats"
+	case STWAllThreadsSyscall:
+		return "AllThreadsSyscall"
+	case STWGOMAXPROCS:
+		return "GOMAXPROCS"
+	case STWStartTrace:
+		return "start trace"
+	case STWStopTrace:
+		return "stop trace"
+	case STWCountPagesInUse:
+		return "CountPagesInUse (test)"
+	case STWReadMetricsSlow:
+		return "ReadMetricsSlow (test)"
+	case STWReadMemStatsSlow:
+		return "ReadMemStatsSlow (test)"
+	case STWPageCachePagesLeaked:
+		return "PageCachePagesLeaked (test)"
+	case STWResetDebugLog:
+		return "ResetDebugLog (test)"
+	default:
+		return "unknown"
+	}
+}

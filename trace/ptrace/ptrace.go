@@ -420,7 +420,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 				ev.Ts,
 				ev.Args[trace.ArgHeapGoalMem],
 			})
-		case trace.EvGCStart, trace.EvGCSTWStart, trace.EvGCDone, trace.EvGCSTWDone,
+		case trace.EvGCStart, trace.EvSTWStart, trace.EvGCDone, trace.EvSTWDone,
 			trace.EvGomaxprocs, trace.EvUserTaskCreate,
 			trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog, trace.EvCPUSample,
 			trace.EvProcStop, trace.EvGoSysCall:
@@ -694,7 +694,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			tr.GC = append(tr.GC.(spansSlice), Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
 			continue
 
-		case trace.EvGCSTWStart:
+		case trace.EvSTWStart:
 			tr.STW = append(tr.STW.(spansSlice), Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
 			continue
 
@@ -703,7 +703,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			tr.GC.AtPtr(tr.GC.Len() - 1).End = ev.Ts
 			continue
 
-		case trace.EvGCSTWDone:
+		case trace.EvSTWDone:
 			// Even though STW happens as part of GC, we can see EvGCSTWDone after EvGCDone.
 			// XXX verify that index isn't out of bounds
 			tr.STW.AtPtr(tr.STW.Len() - 1).End = ev.Ts

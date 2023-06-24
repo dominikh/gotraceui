@@ -94,11 +94,11 @@ func MutatorUtilization(events []Event, res Trace, flags UtilFlags) [][]MutatorU
 				}
 				ps = append(ps, perP{series: series})
 			}
-		case EvGCSTWStart:
+		case EvSTWStart:
 			if flags&UtilSTW != 0 {
 				stw++
 			}
-		case EvGCSTWDone:
+		case EvSTWDone:
 			if flags&UtilSTW != 0 {
 				stw--
 			}
