@@ -951,7 +951,7 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 	}
 }
 
-func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
+func NewSTWTimeline(cv *Canvas, tr *Trace, spans ptrace.Spans) *Timeline {
 	return &Timeline{
 		tracks:    []Track{{spans: (spans)}},
 		item:      &STW{spans},
@@ -960,10 +960,25 @@ func NewSTWTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
 
 		buildTrackWidgets: func(tracks []Track) {
 			*tracks[0].TrackWidget = TrackWidget{
-				spanLabel: singleSpanLabel("STW", true),
+				// spanLabel: singleSpanLabel("STW", true),
+				spanLabel: func(spans ptrace.Spans, tr *Trace, out []string) []string {
+					if spans.Len() != 1 {
+						return nil
+					}
+					kindID := tr.Events[spans.At(0).Event].Args[trace.ArgSTWStartKind]
+					return append(out, stwSpanLabels[tr.STWReason(kindID)])
+				},
 				spanColor: singleSpanColor(colorStateSTW),
 			}
 		},
+	}
+}
+
+var stwSpanLabels = [trace.NumSTWReasons]string{}
+
+func init() {
+	for i := 0; i < trace.NumSTWReasons; i++ {
+		stwSpanLabels[i] = fmt.Sprintf("STW (%s)", trace.STWReason(i).String())
 	}
 }
 

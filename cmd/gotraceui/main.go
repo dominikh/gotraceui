@@ -83,7 +83,6 @@ func debugCaching(gtx layout.Context) {
 // TODO(dh): support exporting an image of the entire trace, at a zoom level that shows all details
 // TODO(dh): clicking on a goroutine in the per-P view should bring up the goroutine window
 // TODO(dh): allow computing statistics for a selectable region of time
-// TODO(dh): use the GC-purple color in the GC and STW timelines
 // TODO(dh): toggleable behavior for hovering spans in goroutine timelines. For example, hovering a blocked span could
 //   highlight the span that unblocks it (or maybe when hovering the "runnable" span, but same idea). Hovering a running
 //   span could highlight all the spans it unblocks.
