@@ -29,7 +29,15 @@ func SpansDuration(sel ptrace.Spans) time.Duration {
 	if sel.Len() == 0 {
 		return 0
 	}
-	return time.Duration(LastSpan(sel).End - sel.At(0).Start)
+	if _, ok := sel.(ptrace.ContiguousSpans); ok {
+		return time.Duration(LastSpan(sel).End - sel.At(0).Start)
+	} else {
+		var total time.Duration
+		for i := 0; i < sel.Len(); i++ {
+			total += time.Duration(sel.At(i).End - sel.At(i).Start)
+		}
+		return total
+	}
 }
 
 type SpanContainer struct {
@@ -226,8 +234,6 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		Value: *tb.Link(formatTimestamp(lastSpan.End), lastSpan.End),
 	})
 
-	// XXX reconsider this. for goroutines and possibly merged spans it makes sense to define duration as end-start. but
-	// for filtered spans we probably want to compute the sum instead.
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Duration",
 		Value: *tb.Span(SpansDuration(si.spans).String()),
@@ -252,10 +258,10 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		})
 	}
 
-	if si.cfg.Container.Timeline != nil {
+	if tl := si.cfg.Container.Timeline; tl != nil {
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
-			Value: *tb.Link(si.cfg.Container.Timeline.shortName, si.cfg.Container.Timeline.item),
+			Value: *tb.Link(si.cfg.Container.Timeline.shortName, tl.item),
 		})
 	}
 
