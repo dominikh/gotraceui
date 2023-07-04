@@ -9,7 +9,13 @@
 - Added individual spans' stack traces in spans panel
 - Added function panel
 - Navigating to timestamps now places them at the configured axis origin
-- Update Gio dependency, fixing ctrl+scroll zooming on Windows
+- Fixed ctrl+scroll zooming on Windows
+- Fixed a crash when loading traces that start in the middle of a task
+- Improved the performance of processor timelines
+- Span labels that don't fit will now get truncated instead of hidden
+- Added a button to select all instances of a user region
+- Added histograms
+- Stop-the-world spans now display the reason for the STW
 
 
 # v0.2.0 (2023-04-11)
