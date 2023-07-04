@@ -5,6 +5,7 @@
 - Replaced foldables with a tabbed interface
 - Allow selecting and copying stack traces
 - Added list of spans to goroutine panel
+- Added parent goroutine to goroutine panel
 - Added statistics to spans panel
 - Added individual spans' stack traces in spans panel
 - Added function panel

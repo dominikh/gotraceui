@@ -143,7 +143,8 @@ func (fn Function) String() string {
 }
 
 type Goroutine struct {
-	ID uint64
+	ID     uint64
+	Parent uint64
 	// Sequential ID of goroutine in the trace
 	SeqID       int
 	Function    *Function
@@ -465,11 +466,12 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 				addEventToCurrentSpan(ev.G, EventID(evID))
 			}
 			gid = ev.Args[trace.ArgGoCreateG]
+			g := getG(gid)
+			g.Parent = ev.G
 			if stkID := ev.Args[trace.ArgGoCreateStack]; stkID != 0 {
 				stack := res.Stacks[uint32(stkID)]
 				if len(stack) != 0 {
 					f := tr.function(res.PCs[stack[0]])
-					g := getG(gid)
 					f.Goroutines = append(f.Goroutines, g)
 					g.Function = f
 				}

@@ -766,6 +766,22 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		observedStart := spans.At(0).State == ptrace.StateCreated
 		observedEnd := LastSpan(spans).State == ptrace.StateDone
 
+		if g.Parent != 0 {
+			parent := tr.G(g.Parent)
+
+			if parent.Function != nil {
+				attrs = append(attrs, DescriptionAttribute{
+					Key:   "Parent",
+					Value: *tb.Link(local.Sprintf("Goroutine %d (%s)\n", g.Parent, parent.Function.Fn), parent),
+				})
+			} else {
+				attrs = append(attrs, DescriptionAttribute{
+					Key:   "Parent",
+					Value: *tb.Link(local.Sprintf("Goroutine %d\n", g.Parent), parent),
+				})
+			}
+		}
+
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Goroutine",
 			Value: *tb.Span(local.Sprintf("%d\n", g.ID)),
