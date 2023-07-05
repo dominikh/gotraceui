@@ -241,10 +241,10 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 
 	var txtCnt int
 	// OPT(dh): reuse memory
-	tb := TextBuilder{Theme: win.Theme}
 	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
+		tb := TextBuilder{Theme: win.Theme}
 		var txt *Text
 		if txtCnt < gs.texts.Len() {
 			txt = gs.texts.Ptr(txtCnt)
