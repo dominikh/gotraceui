@@ -707,29 +707,6 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	tl.tracks = append(tl.tracks, stackTracks...)
 }
 
-func goroutineLinkContextMenu(mwin MainWindowIface, obj *ptrace.Goroutine) []*theme.MenuItem {
-	return []*theme.MenuItem{
-		{
-			Label: PlainLabel("Scroll to goroutine"),
-			Do: func(gtx layout.Context) {
-				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindScroll})
-			},
-		},
-		{
-			Label: PlainLabel("Zoom to goroutine"),
-			Do: func(gtx layout.Context) {
-				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindZoom})
-			},
-		},
-		{
-			Label: PlainLabel("Show goroutine information"),
-			Do: func(gtx layout.Context) {
-				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen})
-			},
-		},
-	}
-}
-
 func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, timelines []*Timeline) *SpansInfo {
 	var title string
 	if g.Function.Fn != "" {
@@ -772,12 +749,12 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 			if parent.Function != nil {
 				attrs = append(attrs, DescriptionAttribute{
 					Key:   "Parent",
-					Value: *tb.Link(local.Sprintf("Goroutine %d (%s)\n", g.Parent, parent.Function.Fn), parent),
+					Value: *tb.DefaultLink(local.Sprintf("Goroutine %d (%s)\n", g.Parent, parent.Function.Fn), parent),
 				})
 			} else {
 				attrs = append(attrs, DescriptionAttribute{
 					Key:   "Parent",
-					Value: *tb.Link(local.Sprintf("Goroutine %d\n", g.Parent), parent),
+					Value: *tb.DefaultLink(local.Sprintf("Goroutine %d\n", g.Parent), parent),
 				})
 			}
 		}
@@ -789,30 +766,30 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Function",
-			Value: *(tb.Link(g.Function.Fn, g.Function)),
+			Value: *(tb.DefaultLink(g.Function.Fn, g.Function)),
 		})
 
 		if observedStart {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
-				Value: *(tb.Link(formatTimestamp(start), start)),
+				Value: *(tb.DefaultLink(formatTimestamp(start), start)),
 			})
 		} else {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
-				Value: *(tb.Link("before trace start", start)),
+				Value: *(tb.DefaultLink("before trace start", start)),
 			})
 		}
 
 		if observedEnd {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
-				Value: *(tb.Link(formatTimestamp(end), end)),
+				Value: *(tb.DefaultLink(formatTimestamp(end), end)),
 			})
 		} else {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
-				Value: *(tb.Link("after trace end", end)),
+				Value: *(tb.DefaultLink("after trace end", end)),
 			})
 		}
 
@@ -838,18 +815,12 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		Navigations: SpansInfoConfigNavigations{
 			ScrollLabel: "Scroll to goroutine",
 			ScrollFn: func() Link {
-				return &GoroutineLink{
-					Goroutine: g,
-					Kind:      GoroutineLinkKindScroll,
-				}
+				return (*ScrollToGoroutineLink)(g)
 			},
 
 			ZoomLabel: "Zoom to goroutine",
 			ZoomFn: func() Link {
-				return &GoroutineLink{
-					Goroutine: g,
-					Kind:      GoroutineLinkKindZoom,
-				}
+				return (*ZoomToGoroutineLink)(g)
 			},
 		},
 		Statistics: func(win *theme.Window) *theme.Future[*SpansStats] {

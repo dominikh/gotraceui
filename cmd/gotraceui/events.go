@@ -156,11 +156,11 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		// XXX styledtext wraps our spans if the window is too small
 
 		addSpanG := func(gid uint64) {
-			tb.Link(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
+			tb.DefaultLink(local.Sprintf("goroutine %d", gid), evs.Trace.G(gid))
 		}
 
 		addSpanTs := func(ts trace.Timestamp) {
-			tb.Link(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
+			tb.DefaultLink(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
 		}
 
 		switch col {

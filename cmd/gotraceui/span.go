@@ -226,12 +226,12 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	lastSpan := LastSpan(si.spans)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
-		Value: *tb.Link(formatTimestamp(firstSpan.Start), firstSpan.Start),
+		Value: *tb.DefaultLink(formatTimestamp(firstSpan.Start), firstSpan.Start),
 	})
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "End",
-		Value: *tb.Link(formatTimestamp(lastSpan.End), lastSpan.End),
+		Value: *tb.DefaultLink(formatTimestamp(lastSpan.End), lastSpan.End),
 	})
 
 	attrs = append(attrs, DescriptionAttribute{
@@ -261,7 +261,7 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	if tl := si.cfg.Container.Timeline; tl != nil {
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
-			Value: *tb.Link(si.cfg.Container.Timeline.shortName, tl.item),
+			Value: *tb.DefaultLink(si.cfg.Container.Timeline.shortName, tl.item),
 		})
 	}
 
@@ -428,11 +428,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		if si.cfg.Navigations.ScrollFn != nil {
 			si.mwin.OpenLink(si.cfg.Navigations.ScrollFn())
 		} else {
-			si.mwin.OpenLink(&SpansLink{
-				Timeline: si.cfg.Container.Timeline,
-				Track:    si.cfg.Container.Track,
-				Spans:    si.spans,
-				Kind:     SpanLinkKindScrollAndPan,
+			si.mwin.OpenLink(&ScrollAndPanToSpansLink{
+				Container: si.cfg.Container,
+				Spans:     si.spans,
 			})
 		}
 	}
@@ -440,11 +438,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		if si.cfg.Navigations.ZoomFn != nil {
 			si.mwin.OpenLink(si.cfg.Navigations.ZoomFn())
 		} else {
-			si.mwin.OpenLink(&SpansLink{
-				Timeline: si.cfg.Container.Timeline,
-				Track:    si.cfg.Container.Track,
-				Spans:    si.spans,
-				Kind:     SpanLinkKindZoom,
+			si.mwin.OpenLink(&ZoomToSpansLink{
+				Container: si.cfg.Container,
+				Spans:     si.spans,
 			})
 		}
 	}
@@ -482,22 +478,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 	return dims
 }
-
-type SpansLink struct {
-	aLink
-
-	Timeline *Timeline
-	Track    *Track
-	Spans    ptrace.Spans
-	Kind     SpanLinkKind
-}
-
-type SpanLinkKind uint8
-
-const (
-	SpanLinkKindScrollAndPan SpanLinkKind = iota
-	SpanLinkKindZoom
-)
 
 func spanTagStrings(tags ptrace.SpanTags) []string {
 	if tags == 0 {
@@ -581,7 +561,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		span := spans.Spans.At(row)
 		switch col {
 		case 0: // Time
-			tb.Link(formatTimestamp(span.Start), spans.timestampObjects.Allocate(span.Start))
+			tb.DefaultLink(formatTimestamp(span.Start), spans.timestampObjects.Allocate(span.Start))
 			txt.Alignment = text.End
 		case 1: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())

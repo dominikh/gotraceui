@@ -459,67 +459,7 @@ func (mwin *MainWindow) LoadTrace(res loadTraceResult) {
 
 func (mwin *MainWindow) OpenLink(l Link) {
 	mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
-		// TODO(dh): links should probably have a method that take a MainWindow and run the appropriate commands on it
-		switch l := l.(type) {
-		case *GoroutineLink:
-			switch l.Kind {
-			case GoroutineLinkKindOpen:
-				mwin.openGoroutine(l.Goroutine)
-			case GoroutineLinkKindScroll:
-				mwin.canvas.scrollToTimeline(gtx, l.Goroutine)
-			case GoroutineLinkKindZoom:
-				y := mwin.canvas.timelineY(gtx, l.Goroutine)
-				mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans.Start(), l.Goroutine.Spans.End(), y)
-			default:
-				panic(l.Kind)
-			}
-
-		case *ProcessorLink:
-			switch l.Kind {
-			case ProcessorLinkKindScroll:
-				mwin.canvas.scrollToTimeline(gtx, l.Processor)
-			case ProcessorLinkKindZoom:
-				y := mwin.canvas.timelineY(gtx, l.Processor)
-				mwin.canvas.navigateToStartAndEnd(gtx, l.Processor.Spans.Start(), l.Processor.Spans.End(), y)
-			default:
-				panic(l.Kind)
-			}
-
-		case *FunctionLink:
-			mwin.openFunction(l.Fn)
-
-		case *TimestampLink:
-			d := mwin.canvas.End() - mwin.canvas.start
-			var off trace.Timestamp
-			switch mwin.canvas.axis.anchor {
-			case AxisAnchorNone:
-				off = mwin.canvas.pxToTs(mwin.canvas.axis.position) - mwin.canvas.start
-			case AxisAnchorStart:
-				off = 0
-			case AxisAnchorCenter:
-				off = d / 2
-			case AxisAnchorEnd:
-				off = d
-			}
-			mwin.canvas.navigateTo(gtx, l.Ts-off, mwin.canvas.nsPerPx, mwin.canvas.y)
-
-		case *SpansLink:
-			switch l.Kind {
-			case SpanLinkKindScrollAndPan:
-				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
-				d := mwin.canvas.End() - mwin.canvas.start
-				ts := l.Spans.At(0).Start + trace.Timestamp(SpansDuration(l.Spans)/2)
-				mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.animateTo.targetY)
-			case SpanLinkKindZoom:
-				mwin.canvas.scrollToTimeline(gtx, l.Timeline.item)
-				mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
-			default:
-				panic(l.Kind)
-			}
-
-		default:
-			panic(fmt.Sprintf("unsupported type: %T", l))
-		}
+		l.Open(gtx, mwin)
 	}
 }
 
@@ -1159,46 +1099,6 @@ type MainWindowIface interface {
 	ClosePanel()
 }
 
-type Link interface{ isLink() }
-
-type aLink struct{}
-
-func (aLink) isLink() {}
-
-type TimestampLink struct {
-	aLink
-	Ts trace.Timestamp
-}
-
-type GoroutineLinkKind uint8
-
-const (
-	GoroutineLinkKindOpen GoroutineLinkKind = iota
-	GoroutineLinkKindScroll
-	GoroutineLinkKindZoom
-)
-
-type GoroutineLink struct {
-	aLink
-
-	Goroutine *ptrace.Goroutine
-	Kind      GoroutineLinkKind
-}
-
-type ProcessorLinkKind uint8
-
-const (
-	ProcessorLinkKindScroll ProcessorLinkKind = iota
-	ProcessorLinkKindZoom
-)
-
-type ProcessorLink struct {
-	aLink
-
-	Processor *ptrace.Processor
-	Kind      ProcessorLinkKind
-}
-
 func span(th *theme.Theme, text string) styledtext.SpanStyle {
 	return styledtext.SpanStyle{
 		Content: text,
@@ -1697,7 +1597,8 @@ type TextEvent struct {
 
 type TextSpan struct {
 	styledtext.SpanStyle
-	Object any
+	Object     any
+	ObjectLink ObjectLink
 
 	Click *gesture.Click
 }
@@ -1732,10 +1633,15 @@ func (txt *TextBuilder) Bold(label string) *TextSpan {
 	return s
 }
 
-func (txt *TextBuilder) Link(label string, obj any) *TextSpan {
+func (txt *TextBuilder) DefaultLink(label string, obj any) *TextSpan {
+	return txt.Link(label, obj, defaultObjectLink(obj))
+}
+
+func (txt *TextBuilder) Link(label string, obj any, link ObjectLink) *TextSpan {
 	s := txt.Span(label)
 	s.Color = txt.Theme.Palette.Link
 	s.Object = obj
+	s.ObjectLink = link
 	return s
 }
 
@@ -1796,46 +1702,6 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan)
 			pointer.CursorPointer.Add(gtx.Ops)
 		}
 	})
-}
-
-func defaultLink(obj any) Link {
-	switch obj := obj.(type) {
-	case *ptrace.Processor:
-		// There are no processor panels yet, so we default to scrolling
-		return &ProcessorLink{Processor: obj, Kind: ProcessorLinkKindScroll}
-	case *trace.Timestamp:
-		return &TimestampLink{Ts: *obj}
-	case trace.Timestamp:
-		return &TimestampLink{Ts: obj}
-	case *ptrace.Function:
-		return &FunctionLink{Fn: obj}
-	default:
-		panic(fmt.Sprintf("unsupported type: %T", obj))
-	}
-}
-
-func handleLinkClick(win *theme.Window, mwin MainWindowIface, ev TextEvent) {
-	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
-		if obj, ok := ev.Span.Object.(*ptrace.Goroutine); ok {
-			switch ev.Event.Modifiers {
-			case 0:
-				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindScroll})
-			case key.ModShortcut:
-				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindZoom})
-			case key.ModShift:
-				mwin.OpenLink(&GoroutineLink{Goroutine: obj, Kind: GoroutineLinkKindOpen})
-			}
-		} else {
-			mwin.OpenLink(defaultLink(ev.Span.Object))
-		}
-	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
-		switch obj := ev.Span.Object.(type) {
-		case *ptrace.Goroutine:
-			win.SetContextMenu(goroutineLinkContextMenu(mwin, obj))
-		case *ptrace.Processor:
-			win.SetContextMenu(processorLinkContextMenu(mwin, obj))
-		}
-	}
 }
 
 type Recording struct {

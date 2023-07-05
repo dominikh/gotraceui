@@ -23,12 +23,6 @@ import (
 	"gioui.org/text"
 )
 
-type FunctionLink struct {
-	aLink
-
-	Fn *ptrace.Function
-}
-
 type FunctionInfo struct {
 	mwin          MainWindowIface
 	fn            *ptrace.Function
@@ -257,11 +251,11 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		g := goroutines[row]
 		switch col {
 		case 0: // ID
-			tb.Link(local.Sprintf("%d", g.ID), g)
+			tb.DefaultLink(local.Sprintf("%d", g.ID), g)
 			txt.Alignment = text.End
 		case 1: // Time
 			start := g.Spans.At(0).Start
-			tb.Link(formatTimestamp(start), gs.timestampObjects.Allocate(start))
+			tb.DefaultLink(formatTimestamp(start), gs.timestampObjects.Allocate(start))
 			txt.Alignment = text.End
 		case 2: // Duration
 			start := g.Spans.At(0).Start
