@@ -449,7 +449,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(si.spans.At(0).Event).Args[2]]
-		var out MergedSpans
+		var out mergedSpans
 		for _, tl := range si.timelines {
 			for _, track := range tl.tracks {
 				if track.kind != TrackKindUserRegions {
@@ -460,7 +460,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					return label == needle
 				})
 
-				out.Bases = append(out.Bases, filtered)
+				out.bases = append(out.bases, filtered)
 			}
 		}
 
@@ -469,7 +469,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.timelines, nil))
+		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, indirectlySortSpans(out), si.timelines, nil))
 	}
 
 	if si.hist.Changed() {
@@ -663,12 +663,12 @@ func FilterSpans(spans ptrace.Spans, fn func(span ptrace.Span) bool) ptrace.Span
 	}
 }
 
-type MergedSpans struct {
-	Bases []ptrace.Spans
+type mergedSpans struct {
+	bases []ptrace.Spans
 }
 
-func (spans MergedSpans) index(idx int) (int, int) {
-	for i, s := range spans.Bases {
+func (spans mergedSpans) index(idx int) (int, int) {
+	for i, s := range spans.bases {
 		if s.Len() > idx {
 			return i, idx
 		} else {
@@ -676,62 +676,28 @@ func (spans MergedSpans) index(idx int) (int, int) {
 		}
 	}
 	if idx == 0 {
-		return len(spans.Bases) - 1, spans.Bases[len(spans.Bases)-1].Len()
+		return len(spans.bases) - 1, spans.bases[len(spans.bases)-1].Len()
 	}
 	panic(fmt.Sprintf("index %d is out of bounds", idx))
 }
 
 // At implements ptrace.Spans
-func (spans MergedSpans) At(idx int) ptrace.Span {
+func (spans mergedSpans) At(idx int) ptrace.Span {
 	a, b := spans.index(idx)
-	return spans.Bases[a].At(b)
+	return spans.bases[a].At(b)
 }
 
 // AtPtr implements ptrace.Spans
-func (spans MergedSpans) AtPtr(idx int) *ptrace.Span {
+func (spans mergedSpans) AtPtr(idx int) *ptrace.Span {
 	a, b := spans.index(idx)
-	return spans.Bases[a].AtPtr(b)
-}
-
-// End implements ptrace.Spans
-func (spans MergedSpans) End() trace.Timestamp {
-	return ptrace.End(spans)
-}
-
-// Events implements ptrace.Spans
-func (spans MergedSpans) Events(all []ptrace.EventID, tr *ptrace.Trace) []ptrace.EventID {
-	return ptrace.Events(spans, all, tr)
+	return spans.bases[a].AtPtr(b)
 }
 
 // Len implements ptrace.Spans
-func (spans MergedSpans) Len() int {
+func (spans mergedSpans) Len() int {
 	var n int
-	for _, s := range spans.Bases {
+	for _, s := range spans.bases {
 		n += s.Len()
 	}
 	return n
-}
-
-// Slice implements ptrace.Spans
-func (spans MergedSpans) Slice(start int, end int) ptrace.Spans {
-	startBase, startIdx := spans.index(start)
-	endBase, endIdx := spans.index(end)
-
-	if startBase == endBase {
-		return spans.Bases[startBase].Slice(startIdx, endIdx)
-	}
-
-	var newBases []ptrace.Spans
-	newBases = append(newBases, spans.Bases[startBase].Slice(startIdx, spans.Bases[startBase].Len()))
-	newBases = append(newBases, spans.Bases[startBase+1:endBase]...)
-	newBases = append(newBases, spans.Bases[endBase].Slice(0, endIdx))
-
-	return MergedSpans{
-		Bases: newBases,
-	}
-}
-
-// Start implements ptrace.Spans
-func (spans MergedSpans) Start() trace.Timestamp {
-	return ptrace.Start(spans)
 }
