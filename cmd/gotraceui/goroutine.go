@@ -699,7 +699,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	for i := range stackTracks {
 		stackTracks[i].kind = TrackKindStack
 		stackTracks[i].spans = spanAndMetadataSlices[stackSpanMeta]{
-			spans: ptrace.ToSpans(trackSpans[i]),
+			Spans: ptrace.ToSpans(trackSpans[i]),
 			meta:  spanMeta[i],
 		}
 	}
@@ -715,7 +715,7 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		title = local.Sprintf("goroutine %d", g.ID)
 	}
 
-	spans := (g.Spans)
+	spans := g.Spans
 
 	var stacktrace string
 	if spans.At(0).State == ptrace.StateCreated {
@@ -831,5 +831,7 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		DescriptionBuilder: buildDescription,
 	}
 
-	return NewSpansInfo(cfg, tr, mwin, spans, timelines, g.Events)
+	// XXX empty container? why?
+	ss := Spans{bases: []ptrace.Spans{spans}}
+	return NewSpansInfo(cfg, tr, mwin, ss, timelines, g.Events)
 }

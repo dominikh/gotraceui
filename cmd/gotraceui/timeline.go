@@ -111,38 +111,18 @@ type MetadataSpans[T any] interface {
 }
 
 type spanAndMetadataSlices[T any] struct {
-	spans ptrace.Spans
-	meta  []T
+	ptrace.Spans
+	meta []T
 }
 
 func (spans spanAndMetadataSlices[T]) Metadata() []T { return spans.meta }
-func (spans spanAndMetadataSlices[T]) Len() int      { return (spans.spans.Len()) }
 func (spans spanAndMetadataSlices[T]) Slice(start, end int) ptrace.Spans {
 	return spanAndMetadataSlices[T]{
-		spans: spans.spans.Slice(start, end),
+		Spans: spans.Spans.Slice(start, end),
 		meta:  spans.meta[start:end],
 	}
 }
-func (spans spanAndMetadataSlices[T]) At(index int) ptrace.Span     { return spans.spans.At(index) }
-func (spans spanAndMetadataSlices[T]) AtPtr(index int) *ptrace.Span { return spans.spans.AtPtr(index) }
-func (spans spanAndMetadataSlices[T]) Start() trace.Timestamp       { return ptrace.Start(spans) }
-func (spans spanAndMetadataSlices[T]) End() trace.Timestamp         { return ptrace.End(spans) }
-func (spans spanAndMetadataSlices[T]) Duration() time.Duration      { return ptrace.Duration(spans) }
-func (spans spanAndMetadataSlices[T]) Events(all []ptrace.EventID, tr *ptrace.Trace) []ptrace.EventID {
-	return ptrace.Events(spans, all, tr)
-}
 func (spans spanAndMetadataSlices[T]) MetadataAt(index int) T { return spans.meta[index] }
-
-type NoSpan struct{}
-
-func (NoSpan) Metadata() any                                                  { return nil }
-func (NoSpan) Len() int                                                       { return 0 }
-func (NoSpan) Start() trace.Timestamp                                         { panic("index out of bounds") }
-func (NoSpan) End() trace.Timestamp                                           { panic("index out of bounds") }
-func (NoSpan) Events(all []ptrace.EventID, tr *ptrace.Trace) []ptrace.EventID { return nil }
-func (NoSpan) Slice(start, end int) ptrace.Spans                              { return NoSpan{} }
-func (NoSpan) At(_ int) ptrace.Span                                           { panic("index out of bounds") }
-func (NoSpan) AtPtr(_ int) *ptrace.Span                                       { panic("index out of bounds") }
 
 func newZoomMenuItem(cv *Canvas, spans ptrace.Spans) *theme.MenuItem {
 	return &theme.MenuItem{
@@ -283,10 +263,10 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 
 	tl.displayed = true
 
-	tl.clickedSpans.Spans = NoSpan{}
+	tl.clickedSpans.Spans = Spans{}
 	tl.clickedSpans.Track = nil
-	tl.navigatedSpans = NoSpan{}
-	tl.hoveredSpans = NoSpan{}
+	tl.navigatedSpans = Spans{}
+	tl.hoveredSpans = Spans{}
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
 	tl.hover.Add(gtx.Ops)
@@ -497,9 +477,9 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	track.click.Add(gtx.Ops)
 	track.hover.Add(gtx.Ops)
 
-	track.clickedSpans = NoSpan{}
-	track.navigatedSpans = NoSpan{}
-	track.hoveredSpans = NoSpan{}
+	track.clickedSpans = Spans{}
+	track.navigatedSpans = Spans{}
+	track.hoveredSpans = Spans{}
 
 	trackClickedSpans := false
 	trackNavigatedSpans := false

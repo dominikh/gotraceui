@@ -145,7 +145,11 @@ func (mwin *MainWindow) openSpan(s ptrace.Spans, tl *Timeline, tr *Track, allEve
 			Track:    tr,
 		},
 	}
-	si := NewSpansInfo(cfg, mwin.trace, mwin, s, mwin.canvas.timelines, allEvents)
+	ss := Spans{
+		bases:      []ptrace.Spans{s},
+		containers: []SpanContainer{SpanContainer{Timeline: tl, Track: tr}},
+	}
+	si := NewSpansInfo(cfg, mwin.trace, mwin, ss, mwin.canvas.timelines, allEvents)
 	mwin.OpenPanel(si)
 }
 

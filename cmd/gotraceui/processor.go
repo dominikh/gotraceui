@@ -136,7 +136,7 @@ func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [
 		return [2]colorIndex{do(spans.At(0), tr), 0}
 	}
 
-	if _, ok := spans.(ptrace.ContiguousSpans); ok {
+	if spans.Contiguous() {
 		var (
 			cached [2]colorIndex
 			found  bool

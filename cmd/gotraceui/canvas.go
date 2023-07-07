@@ -199,7 +199,7 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
 	cv.timelines[1] = NewSTWTimeline(cv, t, t.STW)
 
-	cv.timeline.hoveredSpans = NoSpan{}
+	cv.timeline.hoveredSpans = Spans{}
 }
 
 func (cv *Canvas) End() trace.Timestamp {
@@ -436,7 +436,7 @@ func (cv *Canvas) visibleSpans(spans ptrace.Spans) ptrace.Spans {
 		return s.End > cv.start
 	})
 	if start == (spans.Len()) {
-		return NoSpan{}
+		return Spans{}
 	}
 	end := sort.Search((spans.Len()), func(i int) bool {
 		s := spans.At(i)
@@ -973,7 +973,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.automaticFilter = cv.timeline.automaticFilter
 
 	cv.clickedSpans = cv.clickedSpans[:0]
-	cv.timeline.hoveredSpans = NoSpan{}
+	cv.timeline.hoveredSpans = Spans{}
 	cv.timeline.hoveredTimeline = nil
 	cv.timeline.automaticFilter = Filter{Mode: FilterModeAnd}
 	for _, tl := range cv.prevFrame.displayedTls {

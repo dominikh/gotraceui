@@ -1154,10 +1154,8 @@ type Spans interface {
 	Start() trace.Timestamp
 	End() trace.Timestamp
 	Events(all []EventID, tr *Trace) []EventID
-}
 
-type ContiguousSpans interface {
-	isContiguous()
+	Contiguous() bool
 }
 
 func ToSpans(spans []Span) Spans {
@@ -1176,7 +1174,7 @@ func (spans processorSpans) Start() trace.Timestamp                    { return 
 func (spans processorSpans) End() trace.Timestamp                      { return End(spans) }
 func (spans processorSpans) Duration() time.Duration                   { return Duration(spans) }
 func (spans processorSpans) Events(all []EventID, tr *Trace) []EventID { return Events(spans, all, tr) }
-func (spans processorSpans) isContiguous()                             {}
+func (spans processorSpans) Contiguous() bool                          { return true }
 
 type spansSlice []Span
 
@@ -1188,6 +1186,7 @@ func (spans spansSlice) Start() trace.Timestamp                    { return Star
 func (spans spansSlice) End() trace.Timestamp                      { return End(spans) }
 func (spans spansSlice) Duration() time.Duration                   { return Duration(spans) }
 func (spans spansSlice) Events(all []EventID, tr *Trace) []EventID { return Events(spans, all, tr) }
+func (spans spansSlice) Contiguous() bool                          { return false }
 
 func Start(spans Spans) trace.Timestamp {
 	if spans.Len() == 0 {

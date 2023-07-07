@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	rtrace "runtime/trace"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ func SpansDuration(sel ptrace.Spans) time.Duration {
 	if sel.Len() == 0 {
 		return 0
 	}
-	if _, ok := sel.(ptrace.ContiguousSpans); ok {
+	if sel.Contiguous() {
 		return time.Duration(LastSpan(sel).End - sel.At(0).Start)
 	} else {
 		var total time.Duration
@@ -102,7 +103,7 @@ type SpansInfoConfigNavigations struct {
 	ZoomFn    func() Link
 }
 
-func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans ptrace.Spans, timelines []*Timeline, allEvents []ptrace.EventID) *SpansInfo {
+func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans SpansWithContainers, timelines []*Timeline, allEvents []ptrace.EventID) *SpansInfo {
 	si := &SpansInfo{
 		mwin:      mwin,
 		spans:     spans,
@@ -332,6 +333,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
 			si.descriptionText.Reset(win.Theme)
+			// XXX calling this on each frame can be insanely expensive
 			return si.descriptionBuilder(win, gtx).Layout(win, gtx, &si.descriptionText)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -449,9 +451,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(si.spans.At(0).Event).Args[2]]
-		var out mergedSpans
+		var out Spans
 		for _, tl := range si.timelines {
-			for _, track := range tl.tracks {
+			for trackIdx := range tl.tracks {
+				track := &tl.tracks[trackIdx]
 				if track.kind != TrackKindUserRegions {
 					continue
 				}
@@ -461,6 +464,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				})
 
 				out.bases = append(out.bases, filtered)
+				out.containers = append(out.containers, SpanContainer{
+					Timeline: tl,
+					Track:    track,
+				})
 			}
 		}
 
@@ -469,7 +476,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, indirectlySortSpans(out), si.timelines, nil))
+		out.sort()
+		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.timelines, nil))
 	}
 
 	if si.hist.Changed() {
@@ -606,8 +614,6 @@ type SpansSubset struct {
 	Subset []int
 }
 
-var _ ptrace.Spans = SpansSubset{}
-
 // At implements ptrace.Spans
 func (spans SpansSubset) At(idx int) ptrace.Span {
 	return spans.Base.At(spans.Subset[idx])
@@ -646,6 +652,10 @@ func (spans SpansSubset) Start() trace.Timestamp {
 	return ptrace.Start(spans)
 }
 
+func (spans SpansSubset) Contiguous() bool {
+	return false
+}
+
 func FilterSpans(spans ptrace.Spans, fn func(span ptrace.Span) bool) ptrace.Spans {
 	var subset []int
 	for i := 0; i < spans.Len(); i++ {
@@ -663,11 +673,36 @@ func FilterSpans(spans ptrace.Spans, fn func(span ptrace.Span) bool) ptrace.Span
 	}
 }
 
-type mergedSpans struct {
-	bases []ptrace.Spans
+type Spans struct {
+	bases       []ptrace.Spans
+	containers  []SpanContainer
+	indices     []int
+	start       int
+	end         int
+	initialized bool
 }
 
-func (spans mergedSpans) index(idx int) (int, int) {
+func (spans *Spans) sort() {
+	n := 0
+	for _, s := range spans.bases {
+		n += s.Len()
+	}
+	spans.indices = make([]int, n)
+	for i := range spans.indices {
+		spans.indices[i] = i
+	}
+	sort.Slice(spans.indices, func(i, j int) bool {
+		return spans.At(i).Start < spans.At(j).Start
+	})
+}
+
+func (spans Spans) index(idx int) (int, int) {
+	idx += spans.start
+
+	if len(spans.indices) != 0 {
+		idx = spans.indices[idx]
+	}
+
 	for i, s := range spans.bases {
 		if s.Len() > idx {
 			return i, idx
@@ -681,23 +716,67 @@ func (spans mergedSpans) index(idx int) (int, int) {
 	panic(fmt.Sprintf("index %d is out of bounds", idx))
 }
 
-// At implements ptrace.Spans
-func (spans mergedSpans) At(idx int) ptrace.Span {
+func (spans Spans) At(idx int) ptrace.Span {
 	a, b := spans.index(idx)
 	return spans.bases[a].At(b)
 }
 
-// AtPtr implements ptrace.Spans
-func (spans mergedSpans) AtPtr(idx int) *ptrace.Span {
+func (spans Spans) AtPtr(idx int) *ptrace.Span {
 	a, b := spans.index(idx)
 	return spans.bases[a].AtPtr(b)
 }
 
-// Len implements ptrace.Spans
-func (spans mergedSpans) Len() int {
-	var n int
+func (spans *Spans) initializeEnd() {
+	spans.end = 0
 	for _, s := range spans.bases {
-		n += s.Len()
+		spans.end += s.Len()
 	}
-	return n
+}
+
+func (spans Spans) Len() int {
+	if !spans.initialized {
+		spans.initializeEnd()
+	}
+	return spans.end - spans.start
+}
+
+func (spans Spans) ContainerAt(idx int) (SpanContainer, bool) {
+	if len(spans.containers) == 0 {
+		return SpanContainer{}, false
+	}
+	base, _ := spans.index(idx)
+	return spans.containers[base], true
+}
+
+func (spans Spans) Slice(start, end int) ptrace.Spans {
+	spans.start += start
+	spans.end = spans.start + (end - start)
+	return spans
+}
+
+func (spans Spans) Start() trace.Timestamp {
+	return spans.At(0).Start
+}
+
+func (spans Spans) End() trace.Timestamp {
+	return spans.At(spans.Len() - 1).End
+}
+
+func (spans Spans) Events(all []ptrace.EventID, tr *ptrace.Trace) []ptrace.EventID {
+	return ptrace.Events(spans, all, tr)
+}
+
+func (spans Spans) Contiguous() bool {
+	if len(spans.bases) == 0 {
+		return true
+	}
+	if len(spans.bases) > 1 {
+		return false
+	}
+	return spans.bases[0].Contiguous()
+}
+
+type SpansWithContainers interface {
+	ptrace.Spans
+	ContainerAt(idx int) (SpanContainer, bool)
 }
