@@ -832,6 +832,6 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 	}
 
 	// XXX empty container? why?
-	ss := Spans{bases: []ptrace.Spans{spans}}
+	ss := NewSpans([]ptrace.Spans{spans})
 	return NewSpansInfo(cfg, tr, mwin, ss, timelines, g.Events)
 }

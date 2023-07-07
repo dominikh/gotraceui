@@ -85,8 +85,9 @@ type SpansInfo struct {
 }
 
 type SpansInfoConfig struct {
-	Title              string
-	Label              string
+	Title string
+	Label string
+	// The container of the spans, if all spans share the same container
 	Container          SpanContainer
 	DescriptionBuilder func(win *theme.Window, gtx layout.Context) Description
 	Stacktrace         string
@@ -116,7 +117,11 @@ func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans Sp
 	if si.cfg.Title == "" {
 		firstSpan := si.spans.At(0)
 		lastSpan := LastSpan(si.spans)
-		si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.cfg.Container.Timeline.shortName)
+		if si.cfg.Container != (SpanContainer{}) {
+			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.cfg.Container.Timeline.shortName)
+		} else {
+			si.cfg.Title = local.Sprintf("%d ns–%d ns\n", firstSpan.Start, lastSpan.End)
+		}
 	}
 
 	if si.cfg.Stacktrace == "" && (si.cfg.Container != SpanContainer{}) && spans.Len() == 1 {
@@ -476,6 +481,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
+		out.initializeEnd()
 		out.sort()
 		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.timelines, nil))
 	}
@@ -569,7 +575,14 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		span := spans.Spans.At(row)
 		switch col {
 		case 0: // Time
-			tb.DefaultLink(formatTimestamp(span.Start), spans.timestampObjects.Allocate(span.Start))
+			var container SpanContainer
+			if spans, ok := spans.Spans.(SpansWithContainers); ok {
+				container, _ = spans.ContainerAt(row)
+			}
+			tb.Link(formatTimestamp(span.Start), span, &SpansObjectLink{
+				Spans:     spans.Spans.Slice(row, row+1),
+				Container: container,
+			})
 			txt.Alignment = text.End
 		case 1: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())
@@ -674,12 +687,19 @@ func FilterSpans(spans ptrace.Spans, fn func(span ptrace.Span) bool) ptrace.Span
 }
 
 type Spans struct {
-	bases       []ptrace.Spans
-	containers  []SpanContainer
-	indices     []int
-	start       int
-	end         int
-	initialized bool
+	bases      []ptrace.Spans
+	containers []SpanContainer
+	indices    []int
+	start      int
+	end        int
+}
+
+func NewSpans(bases []ptrace.Spans) Spans {
+	ss := Spans{
+		bases: bases,
+	}
+	ss.initializeEnd()
+	return ss
 }
 
 func (spans *Spans) sort() {
@@ -734,9 +754,6 @@ func (spans *Spans) initializeEnd() {
 }
 
 func (spans Spans) Len() int {
-	if !spans.initialized {
-		spans.initializeEnd()
-	}
 	return spans.end - spans.start
 }
 
