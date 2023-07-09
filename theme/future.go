@@ -40,7 +40,7 @@ func NewFuture[T any](win *Window, fn func(cancelled <-chan struct{}) T) *Future
 		result:    make(chan T, 1),
 		ff:        win.Futures,
 		// Don't immediately cancel future if it was created but not read from in this frame
-		// read: true,
+		read: true,
 	}
 	ft.fn = func(cancelled chan struct{}) {
 		res := fn(cancelled)
