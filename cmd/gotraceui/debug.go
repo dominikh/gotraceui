@@ -3,8 +3,10 @@
 package main
 
 import (
+	"context"
 	"image/color"
 	"math"
+	rtrace "runtime/trace"
 	"time"
 
 	ourfont "honnef.co/go/gotraceui/font"
