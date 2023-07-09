@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 )
 
 type Items[T any] interface {
@@ -113,19 +112,38 @@ func MergeItems[T any](items []Items[T], less func(a, b T) bool) Items[T] {
 }
 
 func (items *MergedItems[T]) sort(less func(a, b T) bool) {
-	// OPT(dh): each set of items in bases is already sorted, so this should be a simple merge, not a full sort.
-
+	// Each set of items in items.bases is already sorted, so we only need to merge them.
 	n := 0
 	for _, s := range items.bases {
 		n += s.Len()
 	}
-	items.indices = make([]int, n)
-	for i := range items.indices {
-		items.indices[i] = i
+	items.indices = make([]int, 0, n)
+	offsets := make([]int, len(items.bases))
+
+	startOffsets := make([]int, len(items.bases))
+	for i, b := range items.bases[:len(items.bases)-1] {
+		startOffsets[i+1] = startOffsets[i] + b.Len()
 	}
-	sort.Slice(items.indices, func(i, j int) bool {
-		return less(items.At(i), items.At(j))
-	})
+
+	for i := 0; i < n; i++ {
+		var (
+			minBaseIdx int = -1
+			minItem    T
+		)
+		for j, b := range items.bases {
+			if offsets[j] == b.Len() {
+				continue
+			}
+			candidate := b.At(offsets[j])
+			if minBaseIdx == -1 || less(candidate, minItem) {
+				minItem = candidate
+				minBaseIdx = j
+			}
+		}
+
+		items.indices = append(items.indices, startOffsets[minBaseIdx]+offsets[minBaseIdx])
+		offsets[minBaseIdx]++
+	}
 }
 
 func (items MergedItems[T]) index(idx int) (int, int) {
