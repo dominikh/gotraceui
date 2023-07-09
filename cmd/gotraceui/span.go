@@ -75,7 +75,8 @@ type SpansInfo struct {
 	statistics *theme.Future[*SpansStats]
 	hist       InteractiveHistogram
 
-	state *theme.Future[string]
+	duration *theme.Future[time.Duration]
+	state    *theme.Future[string]
 
 	initOnce sync.Once
 
@@ -183,6 +184,10 @@ func (si *SpansInfo) init(win *theme.Window) {
 		}
 		return state
 	})
+
+	si.duration = theme.NewFuture(win, func(cancelled <-chan struct{}) time.Duration {
+		return SpansDuration(si.spans)
+	})
 }
 
 func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
@@ -234,12 +239,18 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		Value: *tb.DefaultLink(formatTimestamp(lastSpan.End), lastSpan.End),
 	})
 
-	attrs = append(attrs, DescriptionAttribute{
-		Key:   "Duration",
-		Value: *tb.Span(SpansDuration(si.spans).String()),
-	})
-
 	a := DescriptionAttribute{
+		Key: "Duration",
+	}
+	if v, ok := si.duration.Result(); ok {
+		a.Value = *tb.Span(v.String())
+	} else {
+		a.Value = *tb.Span(textSpinner(gtx.Now))
+		op.InvalidateOp{}.Add(gtx.Ops)
+	}
+	attrs = append(attrs, a)
+
+	a = DescriptionAttribute{
 		Key: "State",
 	}
 	if v, ok := si.state.Result(); ok {
@@ -333,7 +344,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
 			si.descriptionText.Reset(win.Theme)
-			// XXX calling this on each frame can be insanely expensive
 			return si.descriptionBuilder(win, gtx).Layout(win, gtx, &si.descriptionText)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
