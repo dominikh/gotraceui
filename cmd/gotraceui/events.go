@@ -295,8 +295,8 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 			for _, base := range spans.bases {
 				events = append(events, Events(base, tr))
 			}
-			return MergeItems[ptrace.EventID](events, func(a, b ptrace.EventID) bool {
-				return tr.Event(a).Ts < tr.Event(b).Ts
+			return MergeItems[ptrace.EventID](events, func(a, b *ptrace.EventID) bool {
+				return tr.Event(*a).Ts < tr.Event(*b).Ts
 			})
 		}
 
@@ -306,8 +306,8 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		for i := 0; i < spans.Len(); i++ {
 			events = append(events, Events(spans.Slice(i, i+1), tr))
 		}
-		return MergeItems[ptrace.EventID](events, func(a, b ptrace.EventID) bool {
-			return tr.Event(a).Ts < tr.Event(b).Ts
+		return MergeItems[ptrace.EventID](events, func(a, b *ptrace.EventID) bool {
+			return tr.Event(*a).Ts < tr.Event(*b).Ts
 		})
 	}
 }

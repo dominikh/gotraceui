@@ -513,7 +513,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				}
 			}
 
-			return MergeItems(bases, func(a, b ptrace.Span) bool {
+			return MergeItems(bases, func(a, b *ptrace.Span) bool {
 				return a.Start < b.Start
 			})
 		})

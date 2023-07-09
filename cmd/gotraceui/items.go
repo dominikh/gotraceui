@@ -66,7 +66,7 @@ type MergedItems[T any] struct {
 	end             int
 }
 
-func MergeItems[T any](items []Items[T], less func(a, b T) bool) Items[T] {
+func MergeItems[T any](items []Items[T], less func(a, b *T) bool) Items[T] {
 	if len(items) == 0 {
 		return NoItems[T]{}
 	} else if len(items) == 1 {
@@ -111,7 +111,7 @@ func MergeItems[T any](items []Items[T], less func(a, b T) bool) Items[T] {
 	return ms
 }
 
-func (items *MergedItems[T]) sort(less func(a, b T) bool) {
+func (items *MergedItems[T]) sort(less func(a, b *T) bool) {
 	// Each set of items in items.bases is already sorted, so we only need to merge them.
 	n := 0
 	for _, s := range items.bases {
@@ -128,13 +128,13 @@ func (items *MergedItems[T]) sort(less func(a, b T) bool) {
 	for i := 0; i < n; i++ {
 		var (
 			minBaseIdx int = -1
-			minItem    T
+			minItem    *T
 		)
 		for j, b := range items.bases {
 			if offsets[j] == b.Len() {
 				continue
 			}
-			candidate := b.At(offsets[j])
+			candidate := b.AtPtr(offsets[j])
 			if minBaseIdx == -1 || less(candidate, minItem) {
 				minItem = candidate
 				minBaseIdx = j
