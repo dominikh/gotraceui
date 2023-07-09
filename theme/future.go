@@ -78,6 +78,14 @@ func (ft *Future[T]) cancel() {
 	close(ft.cancelled)
 }
 
+func (ft *Future[T]) MustResult() T {
+	v, ok := ft.Result()
+	if !ok {
+		panic("Future wasn't ready")
+	}
+	return v
+}
+
 func (ft *Future[T]) Result() (T, bool) {
 	if ft.resSet {
 		// We already have the value

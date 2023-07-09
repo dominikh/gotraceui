@@ -242,8 +242,8 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 
 	for _, ug := range g.UserRegions {
 		track := &Track{
-			kind: TrackKindUserRegions,
-			events: tl.tracks[0].events,
+			kind:             TrackKindUserRegions,
+			events:           tl.tracks[0].events,
 			hideEventMarkers: true,
 		}
 		track.spans = SimpleItems[ptrace.Span]{
@@ -876,5 +876,5 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, canvas *Canvas, g *ptrace
 		},
 		subslice: true,
 	}
-	return NewSpansInfo(cfg, tr, mwin, ss, allTimelines)
+	return NewSpansInfo(cfg, tr, mwin, theme.Immediate[Items[ptrace.Span]](ss), allTimelines)
 }

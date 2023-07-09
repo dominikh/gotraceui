@@ -47,7 +47,7 @@ type ItemContainer struct {
 
 type SpansInfo struct {
 	mwin         MainWindowIface
-	spans        Items[ptrace.Span]
+	spans        *theme.Future[Items[ptrace.Span]]
 	trace        *Trace
 	allTimelines []*Timeline
 
@@ -101,7 +101,7 @@ type SpansInfoConfigNavigations struct {
 	ZoomFn    func() Link
 }
 
-func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans Items[ptrace.Span], allTimelines []*Timeline) *SpansInfo {
+func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans *theme.Future[Items[ptrace.Span]], allTimelines []*Timeline) *SpansInfo {
 	si := &SpansInfo{
 		mwin:         mwin,
 		spans:        spans,
@@ -110,10 +110,15 @@ func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans It
 		allTimelines: allTimelines,
 	}
 
+	return si
+}
+
+func (si *SpansInfo) init(win *theme.Window) {
+	spans := si.spans.MustResult()
 	c, haveContainer := spans.Container()
 	if si.cfg.Title == "" {
-		firstSpan := si.spans.At(0)
-		lastSpan := LastSpan(si.spans)
+		firstSpan := spans.At(0)
+		lastSpan := LastSpan(spans)
 		if haveContainer {
 			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, c.Timeline.shortName)
 		} else {
@@ -140,13 +145,13 @@ func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans It
 	if si.cfg.Statistics == nil {
 		si.cfg.Statistics = func(win *theme.Window) *theme.Future[*SpansStats] {
 			return theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
-				return NewSpansStats(si.spans)
+				return NewSpansStats(spans)
 			})
 		}
 	}
 
 	si.spansList = SpanList{
-		Spans: si.spans,
+		Spans: spans,
 	}
 
 	si.eventsList = EventList{Trace: si.trace}
@@ -154,29 +159,25 @@ func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans It
 	si.eventsList.Filter.ShowGoUnblock.Value = true
 	si.eventsList.Filter.ShowGoSysCall.Value = true
 	si.eventsList.Filter.ShowUserLog.Value = true
-	si.eventsList.Events = Events(si.spans, si.trace)
+	si.eventsList.Events = Events(spans, si.trace)
 	si.eventsList.UpdateFilter()
 
-	if cfg.DescriptionBuilder != nil {
-		si.descriptionBuilder = cfg.DescriptionBuilder
+	if si.cfg.DescriptionBuilder != nil {
+		si.descriptionBuilder = si.cfg.DescriptionBuilder
 	} else {
 		si.descriptionBuilder = si.buildDefaultDescription
 	}
 
-	return si
-}
-
-func (si *SpansInfo) init(win *theme.Window) {
 	si.statistics = si.cfg.Statistics(win)
 	histCfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
 	// XXX computeHistogram looks at all spans before starting a future; that part should probably be concurrent, too.
 	si.computeHistogram(win, histCfg)
 
 	si.state = theme.NewFuture(win, func(cancelled <-chan struct{}) string {
-		firstSpan := si.spans.At(0)
+		firstSpan := spans.At(0)
 		state := stateNames[firstSpan.State]
-		for i := 1; i < si.spans.Len(); i++ {
-			s := si.spans.At(i).State
+		for i := 1; i < spans.Len(); i++ {
+			s := spans.At(i).State
 			if s != firstSpan.State {
 				state = "mixed"
 				break
@@ -186,15 +187,15 @@ func (si *SpansInfo) init(win *theme.Window) {
 	})
 
 	si.duration = theme.NewFuture(win, func(cancelled <-chan struct{}) time.Duration {
-		return SpansDuration(si.spans)
+		return SpansDuration(spans)
 	})
 }
 
 func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
 	var spanDurations []time.Duration
 
-	for i := 0; i < si.spans.Len(); i++ {
-		s := si.spans.At(i)
+	for i := 0; i < si.spans.MustResult().Len(); i++ {
+		s := si.spans.MustResult().At(i)
 		d := time.Duration(s.End - s.Start)
 		spanDurations = append(spanDurations, d)
 	}
@@ -227,8 +228,10 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: *tb.Span(si.cfg.Label)})
 	}
 
-	firstSpan := si.spans.At(0)
-	lastSpan := LastSpan(si.spans)
+	spans := si.spans.MustResult()
+
+	firstSpan := spans.At(0)
+	lastSpan := LastSpan(spans)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
 		Value: *tb.DefaultLink(formatTimestamp(firstSpan.Start), firstSpan.Start),
@@ -261,7 +264,7 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	}
 	attrs = append(attrs, a)
 
-	if si.spans.Len() == 1 && firstSpan.Tags != 0 {
+	if spans.Len() == 1 && firstSpan.Tags != 0 {
 		tags := spanTagStrings(firstSpan.Tags)
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Tags",
@@ -269,7 +272,7 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		})
 	}
 
-	if c, ok := si.spans.Container(); ok {
+	if c, ok := spans.Container(); ok {
 		tl := c.Timeline
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
@@ -282,8 +285,6 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
-
-	si.initOnce.Do(func() { si.init(win) })
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
@@ -300,124 +301,156 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	}
 
-	dims := layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			type button struct {
-				w     *widget.Clickable
-				label string
-			}
+	var dims layout.Dimensions
+	spans, haveSpans := si.spans.Result()
+	if haveSpans {
+		si.initOnce.Do(func() { si.init(win) })
 
-			var buttonsLeft []button
-			if _, ok := si.spans.Container(); ok {
-				buttonsLeft = []button{
-					{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
-					{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
+		dims = layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				type button struct {
+					w     *widget.Clickable
+					label string
 				}
-				if si.cfg.Navigations.ScrollLabel != "" {
-					buttonsLeft[0].label = si.cfg.Navigations.ScrollLabel
+
+				var buttonsLeft []button
+				if _, ok := spans.Container(); ok {
+					buttonsLeft = []button{
+						{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
+						{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
+					}
+					if si.cfg.Navigations.ScrollLabel != "" {
+						buttonsLeft[0].label = si.cfg.Navigations.ScrollLabel
+					}
+					if si.cfg.Navigations.ZoomLabel != "" {
+						buttonsLeft[1].label = si.cfg.Navigations.ZoomLabel
+					}
 				}
-				if si.cfg.Navigations.ZoomLabel != "" {
-					buttonsLeft[1].label = si.cfg.Navigations.ZoomLabel
-				}
-			}
 
-			children := make([]layout.FlexChild, 0, len(buttonsLeft)+2)
-			for _, btn := range buttonsLeft {
-				btn := btn
-				children = append(children,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return theme.Button(win.Theme, btn.w, btn.label).Layout(win, gtx)
-					}),
-					layout.Rigid(layout.Spacer{Width: 5}.Layout),
-				)
-			}
-			children = append(children, layout.Flexed(1, nothing))
-			children = append(children, layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)))
-
-			// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
-			// panel contents, nor the infinite width of a possible surrounding list.
-			gtx.Constraints.Max.X = gtx.Constraints.Min.X
-			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
-		}),
-
-		layout.Rigid(layout.Spacer{Height: 10}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			si.descriptionText.Reset(win.Theme)
-			return si.descriptionBuilder(win, gtx).Layout(win, gtx, &si.descriptionText)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if si.spans.Len() == 1 && si.spans.At(0).State == ptrace.StateUserRegion {
-				gtx.Constraints.Min = image.Point{}
-				return theme.Button(win.Theme, &si.buttons.selectUserRegion.Clickable, "Select user region").Layout(win, gtx)
-			}
-			return layout.Dimensions{}
-		}),
-
-		layout.Rigid(layout.Spacer{Height: 10}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			tabs := []string{"Statistics", "Spans"}
-			if si.eventsList.Events.Len() != 0 {
-				tabs = append(tabs, "Events")
-			}
-			if si.cfg.Stacktrace != "" {
-				tabs = append(tabs, "Stack trace")
-			}
-			if si.cfg.ShowHistogram {
-				tabs = append(tabs, "Histogram")
-			}
-			return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				switch tabs[si.tabbedState.Current] {
-				case "Stack trace":
-					return theme.List(win.Theme, &si.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-						if index != 0 {
-							panic("impossible")
-						}
-						if si.stackSelectable.Text() == "" {
-							si.stackSelectable.SetText(si.cfg.Stacktrace)
-						}
-
-						return si.stackSelectable.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
-					})
-
-				case "Statistics":
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				children := make([]layout.FlexChild, 0, len(buttonsLeft)+2)
+				for _, btn := range buttonsLeft {
+					btn := btn
+					children = append(children,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return theme.List(win.Theme, &si.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-								if index != 0 {
-									panic("impossible")
-								}
-								if stats, ok := si.statistics.Result(); ok {
-									return stats.Layout(win, gtx)
-								} else {
-									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
-								}
-							})
+							return theme.Button(win.Theme, btn.w, btn.label).Layout(win, gtx)
 						}),
-
-						layout.Rigid(layout.Spacer{Height: 1}.Layout),
-
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = 0
-							return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
-						}),
+						layout.Rigid(layout.Spacer{Width: 5}.Layout),
 					)
-
-				case "Spans":
-					return si.spansList.Layout(win, gtx)
-
-				case "Events":
-					return si.eventsList.Layout(win, gtx)
-
-				case "Histogram":
-					return si.hist.Layout(win, gtx)
-
-				default:
-					panic("impossible")
 				}
-			})
-		}),
-	)
+				children = append(children, layout.Flexed(1, nothing))
+				children = append(children, layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)))
+
+				// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
+				// panel contents, nor the infinite width of a possible surrounding list.
+				gtx.Constraints.Max.X = gtx.Constraints.Min.X
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+			}),
+
+			layout.Rigid(layout.Spacer{Height: 10}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min = image.Point{}
+				si.descriptionText.Reset(win.Theme)
+				return si.descriptionBuilder(win, gtx).Layout(win, gtx, &si.descriptionText)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if spans.Len() == 1 && spans.At(0).State == ptrace.StateUserRegion {
+					gtx.Constraints.Min = image.Point{}
+					return theme.Button(win.Theme, &si.buttons.selectUserRegion.Clickable, "Select user region").Layout(win, gtx)
+				}
+				return layout.Dimensions{}
+			}),
+
+			layout.Rigid(layout.Spacer{Height: 10}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				tabs := []string{"Statistics", "Spans"}
+				if si.eventsList.Events.Len() != 0 {
+					tabs = append(tabs, "Events")
+				}
+				if si.cfg.Stacktrace != "" {
+					tabs = append(tabs, "Stack trace")
+				}
+				if si.cfg.ShowHistogram {
+					tabs = append(tabs, "Histogram")
+				}
+				return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+					switch tabs[si.tabbedState.Current] {
+					case "Stack trace":
+						return theme.List(win.Theme, &si.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+							if index != 0 {
+								panic("impossible")
+							}
+							if si.stackSelectable.Text() == "" {
+								si.stackSelectable.SetText(si.cfg.Stacktrace)
+							}
+
+							return si.stackSelectable.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
+						})
+
+					case "Statistics":
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return theme.List(win.Theme, &si.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+									if index != 0 {
+										panic("impossible")
+									}
+									if stats, ok := si.statistics.Result(); ok {
+										return stats.Layout(win, gtx)
+									} else {
+										return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+									}
+								})
+							}),
+
+							layout.Rigid(layout.Spacer{Height: 1}.Layout),
+
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								gtx.Constraints.Min.X = 0
+								return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
+							}),
+						)
+
+					case "Spans":
+						return si.spansList.Layout(win, gtx)
+
+					case "Events":
+						return si.eventsList.Layout(win, gtx)
+
+					case "Histogram":
+						return si.hist.Layout(win, gtx)
+
+					default:
+						panic("impossible")
+					}
+				})
+			}),
+		)
+	} else {
+		dims = layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				type button struct {
+					w     *widget.Clickable
+					label string
+				}
+
+				children := []layout.FlexChild{
+					layout.Flexed(1, nothing),
+					layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)),
+				}
+
+				// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
+				// panel contents, nor the infinite width of a possible surrounding list.
+				gtx.Constraints.Max.X = gtx.Constraints.Min.X
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+			}),
+
+			layout.Rigid(layout.Spacer{Height: 10}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				l := "Collecting spans" + textSpinner(gtx.Now)
+				op.InvalidateOp{}.Add(gtx.Ops)
+				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+			}),
+		)
+	}
 
 	for si.buttons.copyAsCSV.Clicked() {
 		if stats, ok := si.statistics.Result(); ok {
@@ -441,7 +474,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.mwin.OpenLink(si.cfg.Navigations.ScrollFn())
 		} else {
 			si.mwin.OpenLink(&ScrollAndPanToSpansLink{
-				Spans: si.spans,
+				Spans: spans,
 			})
 		}
 	}
@@ -450,7 +483,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.mwin.OpenLink(si.cfg.Navigations.ZoomFn())
 		} else {
 			si.mwin.OpenLink(&ZoomToSpansLink{
-				Spans: si.spans,
+				Spans: spans,
 			})
 		}
 	}
@@ -458,31 +491,38 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.mwin.PrevPanel()
 	}
 	for si.buttons.selectUserRegion.Clicked() {
-		needle := si.trace.Strings[si.trace.Event(si.spans.At(0).Event).Args[2]]
-		var bases []Items[ptrace.Span]
-		for _, tl := range si.allTimelines {
-			for _, track := range tl.tracks {
-				if track.kind != TrackKindUserRegions {
-					continue
+		needle := si.trace.Strings[si.trace.Event(spans.At(0).Event).Args[2]]
+		ft := theme.NewFuture[Items[ptrace.Span]](win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
+			var bases []Items[ptrace.Span]
+			for _, tl := range si.allTimelines {
+				select {
+				case <-cancelled:
+					return nil
+				default:
 				}
-				filtered := FilterItems(track.spans, func(span ptrace.Span) bool {
-					label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
-					return label == needle
-				})
+				for _, track := range tl.tracks {
+					if track.kind != TrackKindUserRegions {
+						continue
+					}
+					filtered := FilterItems(track.spans, func(span ptrace.Span) bool {
+						label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
+						return label == needle
+					})
 
-				bases = append(bases, filtered)
+					bases = append(bases, filtered)
+				}
 			}
-		}
 
+			return MergeItems(bases, func(a, b ptrace.Span) bool {
+				return a.Start < b.Start
+			})
+		})
 		cfg := SpansInfoConfig{
 			Title:         fmt.Sprintf("All %q user regions", needle),
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		out := MergeItems(bases, func(a, b ptrace.Span) bool {
-			return a.Start < b.Start
-		})
-		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.allTimelines))
+		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines))
 	}
 
 	if si.hist.Changed() {

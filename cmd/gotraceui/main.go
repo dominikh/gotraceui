@@ -142,7 +142,7 @@ func (mwin *MainWindow) openSpan(s Items[ptrace.Span]) {
 	cfg := SpansInfoConfig{
 		Label: label,
 	}
-	si := NewSpansInfo(cfg, mwin.trace, mwin, s, mwin.canvas.timelines)
+	si := NewSpansInfo(cfg, mwin.trace, mwin, theme.Immediate[Items[ptrace.Span]](s), mwin.canvas.timelines)
 	mwin.OpenPanel(si)
 }
 
