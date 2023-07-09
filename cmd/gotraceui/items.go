@@ -308,10 +308,10 @@ func (items ItemsSubset[T]) ContainerAt(idx int) ItemContainer {
 	return items.Base.ContainerAt(items.Subset[idx])
 }
 
-func FilterItems[T any](items Items[T], fn func(item T) bool) Items[T] {
+func FilterItems[T any](items Items[T], fn func(item *T) bool) Items[T] {
 	var subset []int
 	for i := 0; i < items.Len(); i++ {
-		if fn(items.At(i)) {
+		if fn(items.AtPtr(i)) {
 			subset = append(subset, i)
 		}
 	}

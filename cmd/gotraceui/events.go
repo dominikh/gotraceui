@@ -38,8 +38,8 @@ func (evs *EventList) UpdateFilter() {
 	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
 	//   requires us to check each event.
 	// OPT(dh): multiple calls to FilterItems should be able to reuse memory
-	evs.filteredEvents = FilterItems[ptrace.EventID](evs.Events, func(ev ptrace.EventID) bool {
-		switch evs.Trace.Event(ev).Type {
+	evs.filteredEvents = FilterItems[ptrace.EventID](evs.Events, func(ev *ptrace.EventID) bool {
+		switch evs.Trace.Event(*ev).Type {
 		case trace.EvGoCreate:
 			return evs.Filter.ShowGoCreate.Value
 		case trace.EvGoUnblock:
@@ -49,7 +49,7 @@ func (evs *EventList) UpdateFilter() {
 		case trace.EvUserLog:
 			return evs.Filter.ShowUserLog.Value
 		default:
-			panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(ev).Type))
+			panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(*ev).Type))
 		}
 	})
 
