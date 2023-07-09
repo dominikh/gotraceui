@@ -121,8 +121,12 @@ func (items *MergedItems[T]) sort(less func(a, b *T) bool) {
 	offsets := make([]int, len(items.bases))
 
 	startOffsets := make([]int, len(items.bases))
+	baseLengths := make([]int, len(items.bases))
 	for i, b := range items.bases[:len(items.bases)-1] {
 		startOffsets[i+1] = startOffsets[i] + b.Len()
+	}
+	for i, b := range items.bases {
+		baseLengths[i] = b.Len()
 	}
 
 	for i := 0; i < n; i++ {
@@ -131,7 +135,7 @@ func (items *MergedItems[T]) sort(less func(a, b *T) bool) {
 			minItem    *T
 		)
 		for j, b := range items.bases {
-			if offsets[j] == b.Len() {
+			if offsets[j] == baseLengths[j] {
 				continue
 			}
 			candidate := b.AtPtr(offsets[j])
