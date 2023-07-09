@@ -95,9 +95,10 @@ type SpanTooltipState struct {
 }
 
 type Track struct {
-	kind   TrackKind
-	spans  Items[ptrace.Span]
-	events []ptrace.EventID
+	kind             TrackKind
+	spans            Items[ptrace.Span]
+	events           []ptrace.EventID
+	hideEventMarkers bool
 
 	*TrackWidget
 }
@@ -642,12 +643,14 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		spanTooltipState.eventsUnderCursor = NoItems[ptrace.EventID]{}
 		if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
 			spanTooltipState.spans = dspSpans
-			spanTooltipState.events = Events(dspSpans, tr)
+			if !track.hideEventMarkers {
+				spanTooltipState.events = Events(dspSpans, tr)
+			}
 		}
 
 		dotRadiusX := float32(gtx.Dp(4))
 		dotRadiusY := float32(gtx.Dp(3))
-		if maxP.X-minP.X > dotRadiusX*2 && dspSpans.Len() == 1 {
+		if !track.hideEventMarkers && maxP.X-minP.X > dotRadiusX*2 && dspSpans.Len() == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
 			events := Events(dspSpans.Slice(0, 1), tr)

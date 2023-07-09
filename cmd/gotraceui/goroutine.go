@@ -241,11 +241,12 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	}
 
 	for _, ug := range g.UserRegions {
-		tl.tracks = append(tl.tracks, &Track{
+		track := &Track{
 			kind: TrackKindUserRegions,
-			// events: tl.tracks[0].events,
-		})
-		tl.tracks[len(tl.tracks)-1].spans = SimpleItems[ptrace.Span]{
+			events: tl.tracks[0].events,
+			hideEventMarkers: true,
+		}
+		track.spans = SimpleItems[ptrace.Span]{
 			items: ug,
 			container: ItemContainer{
 				Timeline: tl,
@@ -253,6 +254,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 			},
 			subslice: true,
 		}
+		tl.tracks = append(tl.tracks, track)
 	}
 
 	addStackTracks(tl, g, tr)
