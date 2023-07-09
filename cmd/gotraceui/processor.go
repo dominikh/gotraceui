@@ -27,8 +27,8 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
 
 	var userD, gcD time.Duration
-	for i := 0; i < tt.p.Spans.Len(); i++ {
-		s := tt.p.Spans.AtPtr(i)
+	for i := range tt.p.Spans {
+		s := &tt.p.Spans[i]
 		d := s.Duration()
 
 		ev := tr.Events[s.Event]
@@ -54,7 +54,7 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 			"Time running GC workers: %[5]s (%.2[6]f%%)\n"+
 			"Time inactive: %[7]s (%.2[8]f%%)",
 		tt.p.ID,
-		(tt.p.Spans.Len()),
+		(len(tt.p.Spans)),
 		roundDuration(userD), userPct,
 		roundDuration(gcD), gcPct,
 		roundDuration(inactiveD), inactivePct,
@@ -113,7 +113,7 @@ func processorInvalidateCache(tl *Timeline, cv *Canvas) bool {
 	return false
 }
 
-func processorTrackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+func processorTrackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 	if spans.Len() != 1 {
 		return out
 	}
@@ -122,7 +122,7 @@ func processorTrackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []stri
 	return append(out, labels...)
 }
 
-func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [2]colorIndex) {
+func processorTrackSpanColor(spans Items[ptrace.Span], tr *Trace) (out [2]colorIndex) {
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		if s.Tags&ptrace.SpanTagGC != 0 {
 			return colorStateGC
@@ -136,34 +136,36 @@ func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [
 		return [2]colorIndex{do(spans.At(0), tr), 0}
 	}
 
-	if spans.Contiguous() {
-		var (
-			cached [2]colorIndex
-			found  bool
-		)
+	con, ok := spans.Container()
+	assert(ok, "expected spans to have container")
+	tl := con.Timeline
 
-		tl.spanColorCache.FindIter(spans.Start(), spans.End(), func(node *container.RBNode[container.Interval[trace.Timestamp], container.Value[trace.Timestamp, [2]colorIndex]]) bool {
-			ival := container.Interval[trace.Timestamp]{spans.Start(), spans.End()}
-			if node.Key.SupersetOf(ival) {
-				if node.Value.Value[1] != 0 {
-					cached = node.Value.Value
-					found = true
-					return true
-				}
-			}
-			if ival.SupersetOf(node.Key) {
-				if node.Value.Value[1] == 0 {
-					cached = node.Value.Value
-					found = true
-					return true
-				}
-			}
-			return false
-		})
+	var (
+		cached [2]colorIndex
+		found  bool
+	)
 
-		if found {
-			return cached
+	tl.spanColorCache.FindIter(spans.At(0).Start, spans.At(spans.Len()-1).End, func(node *container.RBNode[container.Interval[trace.Timestamp], container.Value[trace.Timestamp, [2]colorIndex]]) bool {
+		ival := container.Interval[trace.Timestamp]{spans.At(0).Start, spans.At(spans.Len() - 1).End}
+		if node.Key.SupersetOf(ival) {
+			if node.Value.Value[1] != 0 {
+				cached = node.Value.Value
+				found = true
+				return true
+			}
 		}
+		if ival.SupersetOf(node.Key) {
+			if node.Value.Value[1] == 0 {
+				cached = node.Value.Value
+				found = true
+				return true
+			}
+		}
+		return false
+	})
+
+	if found {
+		return cached
 	}
 
 	// Analyzing 500 spans takes around 10 μs, which is the amount of CPU time we're willing to spend on analyzing
@@ -178,7 +180,7 @@ func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [
 			if i > minCachedSize {
 				// Store a cache entry for the non-mixed-state prefix
 				// OPT(dh): don't store it if a superset of it already exists
-				tl.spanColorCache.Insert(spans.Start(), spans.At(i-1).End, [2]colorIndex{c, colorStateMerged})
+				tl.spanColorCache.Insert(spans.At(0).Start, spans.At(i-1).End, [2]colorIndex{c, colorStateMerged})
 			}
 
 			// Store a cache entry for the non-mixed to mixed transition.
@@ -190,12 +192,12 @@ func processorTrackSpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) (out [
 
 	if spans.Len() > minCachedSize {
 		// Store a cache entry for the full non-mixed-state merged span
-		tl.spanColorCache.Insert(spans.Start(), spans.End(), [2]colorIndex{c, colorStateMerged})
+		tl.spanColorCache.Insert(spans.At(0).Start, spans.At(spans.Len()-1).End, [2]colorIndex{c, colorStateMerged})
 	}
 	return [2]colorIndex{c, colorStateMerged}
 }
 
-func processorTrackSpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
+func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
 	items = append(items, newZoomMenuItem(cv, spans))
 
@@ -214,12 +216,11 @@ func processorTrackSpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.Menu
 
 func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
 	l := local.Sprintf("Processor %d", p.ID)
-	return &Timeline{
-		tracks: []Track{{spans: (p.Spans)}},
+	tl := &Timeline{
+		tracks: []*Track{{}},
 
-		buildTrackWidgets: func(tracks []Track) {
-			for i := range tracks {
-				track := &tracks[i]
+		buildTrackWidgets: func(tracks []*Track) {
+			for _, track := range tracks {
 				*track.TrackWidget = TrackWidget{
 					spanLabel:       processorTrackSpanLabel,
 					spanColor:       processorTrackSpanColor,
@@ -239,4 +240,16 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 		label:           l,
 		shortName:       l,
 	}
+
+	ss := SimpleItems[ptrace.Span]{
+		items: p.Spans,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    tl.tracks[0],
+		},
+		subslice: true,
+	}
+	tl.tracks[0].spans = ss
+
+	return tl
 }

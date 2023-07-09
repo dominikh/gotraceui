@@ -12,7 +12,7 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
-func machineTrack0SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+func machineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 	if spans.Len() != 1 {
 		return out
 	}
@@ -49,7 +49,7 @@ func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, 
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
-func machineTrack0SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
+func machineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
 	items = append(items, newZoomMenuItem(cv, spans))
 
@@ -73,7 +73,7 @@ func machineTrack0SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuI
 	return items
 }
 
-func machineTrack1SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+func machineTrack1SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 	if spans.Len() != 1 {
 		return out
 	}
@@ -82,7 +82,7 @@ func machineTrack1SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []strin
 	return append(out, labels...)
 }
 
-func machineTrack1SpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex {
+func machineTrack1SpanColor(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
 	// OPT(dh): implement caching
 	do := func(s ptrace.Span, tr *Trace) colorIndex {
 		gid := tr.Events[s.Event].G
@@ -112,7 +112,7 @@ func machineTrack1SpanColor(tl *Timeline, spans ptrace.Spans, tr *Trace) [2]colo
 	}
 }
 
-func machineTrack1SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
+func machineTrack1SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
 	items = append(items, newZoomMenuItem(cv, spans))
 
@@ -181,8 +181,8 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
 
 	var procD, syscallD time.Duration
-	for i := 0; i < tt.m.Spans.Len(); i++ {
-		s := tt.m.Spans.AtPtr(i)
+	for i := 0; i < len(tt.m.Spans); i++ {
+		s := &tt.m.Spans[i]
 		d := s.Duration()
 
 		ev := tr.Events[s.Event]
@@ -208,7 +208,7 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			"Time blocked in syscalls: %[5]s (%.2[6]f%%)\n"+
 			"Time inactive: %[7]s (%.2[8]f%%)",
 		tt.m.ID,
-		(tt.m.Spans.Len()),
+		len(tt.m.Spans),
 		roundDuration(procD), procPct,
 		roundDuration(syscallD), syscallPct,
 		roundDuration(inactiveD), inactivePct,
@@ -222,18 +222,14 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		panic("NewMachineWidget was called despite supportmachineActivities == false")
 	}
 	l := local.Sprintf("Machine %d", m.ID)
-	return &Timeline{
-		tracks: []Track{
-			{spans: (m.Spans)},
-			{spans: (m.Goroutines)},
-		},
+	tl := &Timeline{
+		tracks:    []*Track{{}, {}},
 		item:      m,
 		label:     l,
 		shortName: l,
 
-		buildTrackWidgets: func(tracks []Track) {
-			for i := range tracks {
-				track := &tracks[i]
+		buildTrackWidgets: func(tracks []*Track) {
+			for i, track := range tracks {
 				switch i {
 				case 0:
 					*track.TrackWidget = TrackWidget{
@@ -257,4 +253,23 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		},
 		invalidateCache: machineInvalidateCache,
 	}
+
+	tl.tracks[0].spans = SimpleItems[ptrace.Span]{
+		items: m.Spans,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    tl.tracks[0],
+		},
+		subslice: true,
+	}
+	tl.tracks[1].spans = SimpleItems[ptrace.Span]{
+		items: m.Goroutines,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    tl.tracks[1],
+		},
+		subslice: true,
+	}
+
+	return tl
 }

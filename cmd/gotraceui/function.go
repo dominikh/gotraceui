@@ -99,7 +99,7 @@ func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) 
 
 	var total time.Duration
 	for _, g := range fi.fn.Goroutines {
-		d := time.Duration(g.Spans.At((g.Spans.Len())-1).End - g.Spans.At(0).Start)
+		d := time.Duration(g.Spans[len(g.Spans)-1].End - g.Spans[0].Start)
 		total += d
 	}
 
@@ -208,7 +208,7 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.Histogra
 
 	var gs []*ptrace.Goroutine
 	for _, g := range fi.fn.Goroutines {
-		d := time.Duration(g.Spans.At((g.Spans.Len())-1).End - g.Spans.At(0).Start)
+		d := time.Duration(g.Spans[len(g.Spans)-1].End - g.Spans[0].Start)
 		if fd := widget.FloatDuration(d); fd >= cfg.Start && (cfg.End == 0 || fd <= cfg.End) {
 			goroutineDurations = append(goroutineDurations, d)
 			gs = append(gs, g)
@@ -254,12 +254,12 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 			tb.DefaultLink(local.Sprintf("%d", g.ID), g)
 			txt.Alignment = text.End
 		case 1: // Time
-			start := g.Spans.At(0).Start
+			start := g.Spans[0].Start
 			tb.DefaultLink(formatTimestamp(start), gs.timestampObjects.Allocate(start))
 			txt.Alignment = text.End
 		case 2: // Duration
-			start := g.Spans.At(0).Start
-			end := g.Spans.At((g.Spans.Len()) - 1).End
+			start := g.Spans[0].Start
+			end := g.Spans[len(g.Spans)-1].End
 			d := time.Duration(end - start)
 			value, unit := durationNumberFormatSITable.format(d)
 			tb.Span(value)

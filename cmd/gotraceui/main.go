@@ -119,7 +119,7 @@ func (rops *reusableOps) get() *op.Ops {
 }
 
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
-	gi := NewGoroutineInfo(mwin.trace, mwin, g, mwin.canvas.timelines)
+	gi := NewGoroutineInfo(mwin.trace, mwin, &mwin.canvas, g, mwin.canvas.timelines)
 	mwin.OpenPanel(gi)
 }
 
@@ -128,11 +128,12 @@ func (mwin *MainWindow) openFunction(fn *ptrace.Function) {
 	mwin.OpenPanel(fi)
 }
 
-func (mwin *MainWindow) openSpan(s ptrace.Spans, tl *Timeline, tr *Track, allEvents []ptrace.EventID) {
+func (mwin *MainWindow) openSpan(s Items[ptrace.Span]) {
 	var labels []string
 	var label string
-	if tr.spanLabel != nil {
-		labels = tr.spanLabel(s, tl.cv.trace, nil)
+
+	if c, ok := s.Container(); ok && c.Track.spanLabel != nil {
+		labels = c.Track.spanLabel(s, c.Timeline.cv.trace, nil)
 	}
 	if len(labels) > 0 {
 		label = labels[0]
@@ -140,14 +141,8 @@ func (mwin *MainWindow) openSpan(s ptrace.Spans, tl *Timeline, tr *Track, allEve
 
 	cfg := SpansInfoConfig{
 		Label: label,
-		Container: SpanContainer{
-			Timeline: tl,
-			Track:    tr,
-		},
 	}
-	ss := NewSpans([]ptrace.Spans{s})
-	ss.containers = []SpanContainer{SpanContainer{Timeline: tl, Track: tr}}
-	si := NewSpansInfo(cfg, mwin.trace, mwin, ss, mwin.canvas.timelines, allEvents)
+	si := NewSpansInfo(cfg, mwin.trace, mwin, s, mwin.canvas.timelines)
 	mwin.OpenPanel(si)
 }
 
@@ -917,7 +912,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							mwin.openGoroutine(g)
 						}
 						for _, clicked := range mwin.canvas.clickedSpans {
-							mwin.openSpan(clicked.Spans, clicked.Timeline, clicked.Track, clicked.AllEvents)
+							mwin.openSpan(clicked)
 						}
 
 						return dims
@@ -966,6 +961,12 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.canvas.start = res.start
 	mwin.canvas.memoryGraph = res.plot
 	mwin.canvas.timelines = append(mwin.canvas.timelines, res.timelines...)
+
+	for _, tl := range res.timelines {
+		assert(tl.item != nil, "unexpected nil item")
+		mwin.canvas.itemToTimeline[tl.item] = tl
+	}
+
 	mwin.trace = res.trace
 	mwin.panel = nil
 	mwin.panelHistory = nil
@@ -1326,14 +1327,14 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStage(2)
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
 	for i, proc := range pt.Processors {
-		for j := 0; j < proc.Spans.Len(); j++ {
-			fn := pt.G(pt.Events[proc.Spans.At(j).Event].G).Function
+		for j := 0; j < len(proc.Spans); j++ {
+			fn := pt.G(pt.Events[proc.Spans[j].Event].G).Function
 			if fn == nil {
 				continue
 			}
 			switch fn.Fn {
 			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
-				proc.Spans.AtPtr(j).Tags |= ptrace.SpanTagGC
+				proc.Spans[j].Tags |= ptrace.SpanTagGC
 			}
 		}
 		p.SetProgressLossy(float64(i+1) / float64(len(pt.Processors)))

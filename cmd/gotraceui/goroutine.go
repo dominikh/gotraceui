@@ -69,7 +69,7 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateStack:                   "Stack frame",
 }
 
-func goroutineTrack0SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+func goroutineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 	if spans.Len() != 1 {
 		return out
 	}
@@ -90,7 +90,7 @@ func goroutineTrack0SpanLabel(spans ptrace.Spans, tr *Trace, out []string) []str
 	return append(out, spanStateLabels[state]...)
 }
 
-func goroutineTrack0SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem {
+func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
 	var items []*theme.MenuItem
 	items = append(items, newZoomMenuItem(cv, spans))
 
@@ -124,7 +124,7 @@ func goroutineTrack0SpanContextMenu(spans ptrace.Spans, cv *Canvas) []*theme.Men
 	return items
 }
 
-func userRegionSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+func userRegionSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 	if spans.Len() != 1 {
 		return out
 	}
@@ -133,7 +133,7 @@ func userRegionSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
 	return append(out, s)
 }
 
-func stackSpanLabel(spans ptrace.Spans, tr *Trace, out []string) []string {
+func stackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 	if spans.Len() != 1 {
 		return out
 	}
@@ -182,17 +182,26 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
 	}
 
-	tl := &Timeline{
-		tracks: []Track{{
-			spans:  (g.Spans),
-			events: g.Events,
-		}},
-		buildTrackWidgets: func(tracks []Track) {
+	tl := &Timeline{}
+	track := &Track{}
+	*track = Track{
+		spans: SimpleItems[ptrace.Span]{
+			items: g.Spans,
+			container: ItemContainer{
+				Timeline: tl,
+				Track:    track,
+			},
+			subslice: true,
+		},
+		events: g.Events,
+	}
+	*tl = Timeline{
+		tracks: []*Track{track},
+		buildTrackWidgets: func(tracks []*Track) {
 			stackTrackBase := -1
-			for i := range tracks {
+			for i, track := range tracks {
 				i := i
 
-				track := &tracks[i]
 				switch track.kind {
 				case TrackKindUnspecified:
 					*track.TrackWidget = TrackWidget{
@@ -232,7 +241,18 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	}
 
 	for _, ug := range g.UserRegions {
-		tl.tracks = append(tl.tracks, Track{spans: (ug), kind: TrackKindUserRegions})
+		tl.tracks = append(tl.tracks, &Track{
+			kind: TrackKindUserRegions,
+			// events: tl.tracks[0].events,
+		})
+		tl.tracks[len(tl.tracks)-1].spans = SimpleItems[ptrace.Span]{
+			items: ug,
+			container: ItemContainer{
+				Timeline: tl,
+				Track:    tl.tracks[len(tl.tracks)-1],
+			},
+			subslice: true,
+		}
 	}
 
 	addStackTracks(tl, g, tr)
@@ -248,11 +268,12 @@ type GoroutineTooltip struct {
 func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineTooltip.Layout").End()
 
-	start := tt.g.Spans.Start()
-	end := tt.g.Spans.End()
+	start := tt.g.Spans[0].Start
+	end := tt.g.Spans[len(tt.g.Spans)-1].End
 	d := time.Duration(end - start)
 
-	stats := tt.g.Statistics()
+	// XXX reintroduce caching of statistics
+	stats := ptrace.ComputeStatistics(ptrace.ToSpans(tt.g.Spans))
 	blocked := stats.Blocked()
 	inactive := stats.Inactive()
 	gcAssist := stats.GCAssist()
@@ -273,8 +294,8 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		args = append(args, tt.g.ID)
 	}
 
-	observedStart := tt.g.Spans.At(0).State == ptrace.StateCreated
-	observedEnd := tt.g.Spans.At((tt.g.Spans.Len())-1).State == ptrace.StateDone
+	observedStart := tt.g.Spans[0].State == ptrace.StateCreated
+	observedEnd := tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone
 	if observedStart {
 		fmts = append(fmts, "Created at: %s")
 		args = append(args, formatTimestamp(start))
@@ -298,7 +319,7 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	}
 
 	fmts = append(fmts, "Spans: %d")
-	args = append(args, (tt.g.Spans.Len()))
+	args = append(args, len(tt.g.Spans))
 
 	fmts = append(fmts, "Time in blocked states: %s (%.2f%%)")
 	args = append(args, roundDuration(blocked), blockedPct)
@@ -445,13 +466,14 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spans)))
 	}
 
-	if len(state.events) > 0 {
-		label += local.Sprintf("Events in span: %d\n", len(state.events))
+	if state.events.Len() > 0 {
+		label += local.Sprintf("Events in span: %d\n", state.events.Len())
 	}
 
-	if len(state.eventsUnderCursor) > 0 {
-		kind := tr.Event(state.eventsUnderCursor[0]).Type
-		for _, ev := range state.eventsUnderCursor[1:] {
+	if state.eventsUnderCursor.Len() > 0 {
+		kind := tr.Event(state.eventsUnderCursor.At(0)).Type
+		for i := 1; i < state.eventsUnderCursor.Len(); i++ {
+			ev := state.eventsUnderCursor.At(i)
 			if tr.Event(ev).Type != kind {
 				kind = 255
 				break
@@ -462,8 +484,8 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			switch kind {
 			case trace.EvGoSysCall:
 				noun = "syscalls"
-				if len(state.eventsUnderCursor) == 1 {
-					stk := tr.Stacks[tr.Event(state.eventsUnderCursor[0]).StkID]
+				if state.eventsUnderCursor.Len() == 1 {
+					stk := tr.Stacks[tr.Event(state.eventsUnderCursor.At(0)).StkID]
 					if len(stk) != 0 {
 						frame := tr.PCs[stk[0]]
 						noun += fmt.Sprintf(" (%s)", frame.Fn)
@@ -478,9 +500,9 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 					panic(fmt.Sprintf("unhandled kind %d", kind))
 				}
 			}
-			label += local.Sprintf("Events under cursor: %d %s\n", len(state.eventsUnderCursor), noun)
+			label += local.Sprintf("Events under cursor: %d %s\n", state.eventsUnderCursor.Len(), noun)
 		} else {
-			label += local.Sprintf("Events under cursor: %d\n", len(state.eventsUnderCursor))
+			label += local.Sprintf("Events under cursor: %d\n", state.eventsUnderCursor.Len())
 		}
 	}
 
@@ -560,7 +582,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		return
 	}
 
-	var stackTracks []Track
+	var numStackTracks int
 	var trackSpans [][]ptrace.Span
 	var spanMeta [][]stackSpanMeta
 	offSpans := 0
@@ -568,12 +590,12 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	cpuSamples := tr.CPUSamples[g.ID]
 
 	nextEvent := func(advance bool) (ptrace.EventID, bool, bool) {
-		if offSpans == (g.Spans.Len()) && offSamples == len(cpuSamples) {
+		if offSpans == len(g.Spans) && offSamples == len(cpuSamples) {
 			return 0, false, false
 		}
 
-		if offSpans < (g.Spans.Len()) {
-			id := g.Spans.At(offSpans).Event
+		if offSpans < len(g.Spans) {
+			id := g.Spans[offSpans].Event
 			if offSamples < len(cpuSamples) {
 				oid := cpuSamples[offSamples]
 				if id <= oid {
@@ -642,7 +664,9 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 			stk = stk[:64]
 		}
 
-		stackTracks = grow(stackTracks, len(stk))
+		if len(stk) > numStackTracks {
+			numStackTracks = len(stk)
+		}
 		prevFns = grow(prevFns, len(stk))
 		trackSpans = grow(trackSpans, len(stk))
 		spanMeta = grow(spanMeta, len(stk))
@@ -650,7 +674,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		if endEvID, _, ok := nextEvent(false); ok {
 			end = tr.Events[endEvID].Ts
 		} else {
-			end = g.Spans.End()
+			end = g.Spans[len(g.Spans)-1].End
 		}
 
 		for i := 0; i < len(stk); i++ {
@@ -696,18 +720,28 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		}
 	}
 
+	stackTracks := make([]*Track, numStackTracks)
 	for i := range stackTracks {
-		stackTracks[i].kind = TrackKindStack
-		stackTracks[i].spans = spanAndMetadataSlices[stackSpanMeta]{
-			Spans: ptrace.ToSpans(trackSpans[i]),
-			meta:  spanMeta[i],
+		stackTracks[i] = &Track{
+			kind: TrackKindStack,
+			spans: spanAndMetadataSlices[stackSpanMeta]{
+				Items: SimpleItems[ptrace.Span]{
+					items: trackSpans[i],
+					container: ItemContainer{
+						Timeline: tl,
+						Track:    stackTracks[i],
+					},
+					subslice: true,
+				},
+				meta: spanMeta[i],
+			},
 		}
 	}
 
 	tl.tracks = append(tl.tracks, stackTracks...)
 }
 
-func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, timelines []*Timeline) *SpansInfo {
+func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, canvas *Canvas, g *ptrace.Goroutine, allTimelines []*Timeline) *SpansInfo {
 	var title string
 	if g.Function.Fn != "" {
 		title = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
@@ -718,8 +752,8 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 	spans := g.Spans
 
 	var stacktrace string
-	if spans.At(0).State == ptrace.StateCreated {
-		ev := tr.Events[spans.At(0).Event]
+	if spans[0].State == ptrace.StateCreated {
+		ev := tr.Events[spans[0].Event]
 		stk := tr.Stacks[ev.StkID]
 		sb := strings.Builder{}
 		for _, f := range stk {
@@ -737,11 +771,11 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		// OPT(dh): we don't need TextBuilder to collect the spans in this case.
 		tb := TextBuilder{Theme: win.Theme}
 
-		start := spans.At(0).Start
-		end := LastSpan(spans).End
+		start := spans[0].Start
+		end := spans[len(spans)-1].End
 		d := time.Duration(end - start)
-		observedStart := spans.At(0).State == ptrace.StateCreated
-		observedEnd := LastSpan(spans).State == ptrace.StateDone
+		observedStart := spans[0].State == ptrace.StateCreated
+		observedEnd := spans[len(spans)-1].State == ptrace.StateDone
 
 		if g.Parent != 0 {
 			parent := tr.G(g.Parent)
@@ -831,7 +865,14 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, g *ptrace.Goroutine, time
 		DescriptionBuilder: buildDescription,
 	}
 
-	// XXX empty container? why?
-	ss := NewSpans([]ptrace.Spans{spans})
-	return NewSpansInfo(cfg, tr, mwin, ss, timelines, g.Events)
+	tl := canvas.itemToTimeline[g]
+	ss := SimpleItems[ptrace.Span]{
+		items: spans,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    tl.tracks[0],
+		},
+		subslice: true,
+	}
+	return NewSpansInfo(cfg, tr, mwin, ss, allTimelines)
 }

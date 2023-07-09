@@ -44,7 +44,7 @@ func (f Filter) HasState(state ptrace.SchedulingState) bool {
 	return f.States&(1<<state) != 0
 }
 
-func (f Filter) Match(spans ptrace.Spans, container SpanContainer) (out bool) {
+func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 	if !f.couldMatch(spans, container) {
 		return false
 	}
@@ -182,7 +182,7 @@ func (f Filter) Match(spans ptrace.Spans, container SpanContainer) (out bool) {
 
 // couldMatch checks if the filter could possibly match the spans. It's an optimization to avoid checking impossible
 // combinations.
-func (f Filter) couldMatch(spans ptrace.Spans, container SpanContainer) bool {
+func (f Filter) couldMatch(spans ptrace.Spans, container ItemContainer) bool {
 	{
 		// Unset Mode so we can compare with the empty literal
 		f := f
@@ -197,7 +197,7 @@ func (f Filter) couldMatch(spans ptrace.Spans, container SpanContainer) bool {
 	return b
 }
 
-func (f Filter) couldMatchProcessor(spans ptrace.Spans, container SpanContainer) bool {
+func (f Filter) couldMatchProcessor(spans ptrace.Spans, container ItemContainer) bool {
 	switch container.Timeline.item.(type) {
 	case *ptrace.Processor:
 		return true
@@ -206,7 +206,7 @@ func (f Filter) couldMatchProcessor(spans ptrace.Spans, container SpanContainer)
 	}
 }
 
-func (f Filter) couldMatchState(spans ptrace.Spans, container SpanContainer) bool {
+func (f Filter) couldMatchState(spans ptrace.Spans, container ItemContainer) bool {
 	switch item := container.Timeline.item.(type) {
 	case *ptrace.Processor:
 		return f.HasState(ptrace.StateRunningG)

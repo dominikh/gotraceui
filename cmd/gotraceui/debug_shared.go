@@ -66,3 +66,9 @@ func writeMemprofile(s string) {
 		fmt.Fprintln(os.Stderr, "couldn't write memory profile:", err)
 	}
 }
+
+func assert(b bool, msg string) {
+	if !b {
+		panic(fmt.Sprintf("failed assertion: %s", msg))
+	}
+}

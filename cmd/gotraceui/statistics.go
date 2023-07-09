@@ -121,7 +121,8 @@ func NewSpansStats(spans ptrace.Spans) *SpansStats {
 }
 
 func NewGoroutineStats(g *ptrace.Goroutine) *SpansStats {
-	return NewStats(g.Statistics())
+	// XXX reintroduce caching of statistics
+	return NewStats(ptrace.ComputeStatistics(ptrace.ToSpans(g.Spans)))
 }
 
 func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStatLabels]image.Point {

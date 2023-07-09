@@ -46,8 +46,8 @@ const (
 
 type Timeline struct {
 	// Inputs
-	tracks            []Track
-	buildTrackWidgets func([]Track)
+	tracks            []*Track
+	buildTrackWidgets func([]*Track)
 	widgetTooltip     func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions
 	invalidateCache   func(tl *Timeline, cv *Canvas) bool
 	item              any
@@ -76,12 +76,9 @@ type TimelineWidget struct {
 	// TimelineWidget doesn't have to mutate Timeline's state.
 	//
 	// OPT(dh): clicked spans and navigated spans are mutually exclusive, combine the fields
-	clickedSpans struct {
-		Spans ptrace.Spans
-		Track *Track
-	}
-	navigatedSpans ptrace.Spans
-	hoveredSpans   ptrace.Spans
+	clickedSpans   Items[ptrace.Span]
+	navigatedSpans Items[ptrace.Span]
+	hoveredSpans   Items[ptrace.Span]
 }
 
 func (tw *TimelineWidget) Hovered() bool {
@@ -92,14 +89,14 @@ func (tw *TimelineWidget) Hovered() bool {
 }
 
 type SpanTooltipState struct {
-	spans             ptrace.Spans
-	events            []ptrace.EventID
-	eventsUnderCursor []ptrace.EventID
+	spans             Items[ptrace.Span]
+	events            Items[ptrace.EventID]
+	eventsUnderCursor Items[ptrace.EventID]
 }
 
 type Track struct {
 	kind   TrackKind
-	spans  ptrace.Spans
+	spans  Items[ptrace.Span]
 	events []ptrace.EventID
 
 	*TrackWidget
@@ -111,20 +108,20 @@ type MetadataSpans[T any] interface {
 }
 
 type spanAndMetadataSlices[T any] struct {
-	ptrace.Spans
+	Items[ptrace.Span]
 	meta []T
 }
 
 func (spans spanAndMetadataSlices[T]) Metadata() []T { return spans.meta }
-func (spans spanAndMetadataSlices[T]) Slice(start, end int) ptrace.Spans {
+func (spans spanAndMetadataSlices[T]) Slice(start, end int) Items[ptrace.Span] {
 	return spanAndMetadataSlices[T]{
-		Spans: spans.Spans.Slice(start, end),
+		Items: spans.Items.Slice(start, end),
 		meta:  spans.meta[start:end],
 	}
 }
 func (spans spanAndMetadataSlices[T]) MetadataAt(index int) T { return spans.meta[index] }
 
-func newZoomMenuItem(cv *Canvas, spans ptrace.Spans) *theme.MenuItem {
+func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 	return &theme.MenuItem{
 		Label:    PlainLabel("Zoom"),
 		Shortcut: key.ModShortcut.String() + "+LMB",
@@ -137,19 +134,19 @@ func newZoomMenuItem(cv *Canvas, spans ptrace.Spans) *theme.MenuItem {
 }
 
 type TrackWidget struct {
-	spanLabel       func(spans ptrace.Spans, tr *Trace, out []string) []string
-	spanColor       func(tl *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex
+	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
+	spanColor       func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
-	spanContextMenu func(spans ptrace.Spans, cv *Canvas) []*theme.MenuItem
+	spanContextMenu func(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem
 
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in TimelineWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because TimelineWidgetTrack doesn't have to
 	// mutate TimelineWidget's state.
 	//
 	// OPT(dh): clickedSpans and navigatedSpans are mutually exclusive, combine the fields
-	clickedSpans   ptrace.Spans
-	navigatedSpans ptrace.Spans
-	hoveredSpans   ptrace.Spans
+	clickedSpans   Items[ptrace.Span]
+	navigatedSpans Items[ptrace.Span]
+	hoveredSpans   Items[ptrace.Span]
 
 	// op lists get reused between frames to avoid generating garbage
 	ops                             [colorStateLast * 2]op.Ops
@@ -171,36 +168,33 @@ type TrackWidget struct {
 		dims        layout.Dimensions
 
 		dspSpans []struct {
-			dspSpans       ptrace.Spans
+			dspSpans       Items[ptrace.Span]
 			startPx, endPx float32
 		}
 	}
 }
 
-func (track *TrackWidget) ClickedSpans() ptrace.Spans {
+func (track *TrackWidget) ClickedSpans() Items[ptrace.Span] {
 	return track.clickedSpans
 }
 
-func (track *TrackWidget) NavigatedSpans() ptrace.Spans {
+func (track *TrackWidget) NavigatedSpans() Items[ptrace.Span] {
 	return track.navigatedSpans
 }
 
-func (track *TrackWidget) HoveredSpans() ptrace.Spans {
+func (track *TrackWidget) HoveredSpans() Items[ptrace.Span] {
 	return track.hoveredSpans
 }
 
-func (tw *TimelineWidget) ClickedSpans() struct {
-	Spans ptrace.Spans
-	Track *Track
-} {
+func (tw *TimelineWidget) ClickedSpans() Items[ptrace.Span] {
 	return tw.clickedSpans
 }
 
-func (tw *TimelineWidget) NavigatedSpans() ptrace.Spans {
+func (tw *TimelineWidget) NavigatedSpans() Items[ptrace.Span] {
 	return tw.navigatedSpans
 }
 
-func (tw *TimelineWidget) HoveredSpans() ptrace.Spans {
+func (tw *TimelineWidget) HoveredSpans() Items[ptrace.Span] {
 	return tw.hoveredSpans
 }
 
@@ -216,8 +210,7 @@ func (tw *TimelineWidget) LabelClicked() bool {
 func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
 	timelineGap := gtx.Dp(timelineGapDp)
 	enabledTracks := 0
-	for i := range tl.tracks {
-		track := &tl.tracks[i]
+	for _, track := range tl.tracks {
 		if track.kind != TrackKindStack || cv.timeline.displayStackTracks {
 			enabledTracks++
 		}
@@ -232,9 +225,9 @@ func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
 // notifyHidden informs the widget that it is no longer visible.
 func (tl *Timeline) notifyHidden(cv *Canvas) {
 	rtrace.Logf(context.Background(), "", "unloading track widget %q", tl.label)
-	for i := range tl.tracks {
-		cv.trackWidgetsCache.Put(tl.tracks[i].TrackWidget)
-		tl.tracks[i].TrackWidget = nil
+	for _, track := range tl.tracks {
+		cv.trackWidgetsCache.Put(track.TrackWidget)
+		track.TrackWidget = nil
 	}
 	cv.timelineWidgetsCache.Put(tl.TimelineWidget)
 	tl.TimelineWidget = nil
@@ -263,10 +256,9 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 
 	tl.displayed = true
 
-	tl.clickedSpans.Spans = Spans{}
-	tl.clickedSpans.Track = nil
-	tl.navigatedSpans = Spans{}
-	tl.hoveredSpans = Spans{}
+	tl.clickedSpans = NoItems[ptrace.Span]{}
+	tl.navigatedSpans = NoItems[ptrace.Span]{}
+	tl.hoveredSpans = NoItems[ptrace.Span]{}
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
 	tl.hover.Add(gtx.Ops)
@@ -315,8 +307,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		}
 	}
 
-	for i := range tl.tracks {
-		track := &tl.tracks[i]
+	for _, track := range tl.tracks {
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
@@ -329,10 +320,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.navigatedSpans = spans
 		}
 		if spans := track.ClickedSpans(); spans.Len() != 0 {
-			tl.clickedSpans = struct {
-				Spans ptrace.Spans
-				Track *Track
-			}{spans, track}
+			tl.clickedSpans = spans
 		}
 	}
 	stack.Pop()
@@ -351,7 +339,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }
 
-func defaultSpanColor(spans ptrace.Spans) [2]colorIndex {
+func defaultSpanColor(spans Items[ptrace.Span]) [2]colorIndex {
 	if spans.Len() == 1 {
 		return [2]colorIndex{stateColors[spans.At(0).State], 0}
 	} else {
@@ -373,11 +361,11 @@ func defaultSpanColor(spans ptrace.Spans) [2]colorIndex {
 type renderedSpansIterator struct {
 	offset  int
 	cv      *Canvas
-	spans   ptrace.Spans
+	spans   Items[ptrace.Span]
 	prevEnd trace.Timestamp
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut ptrace.Spans, startPx, endPx float32, ok bool) {
+func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace.Span], startPx, endPx float32, ok bool) {
 	offset := it.offset
 	if offset >= it.spans.Len() {
 		return nil, 0, 0, false
@@ -477,9 +465,9 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	track.click.Add(gtx.Ops)
 	track.hover.Add(gtx.Ops)
 
-	track.clickedSpans = Spans{}
-	track.navigatedSpans = Spans{}
-	track.hoveredSpans = Spans{}
+	track.clickedSpans = NoItems[ptrace.Span]{}
+	track.navigatedSpans = NoItems[ptrace.Span]{}
+	track.hoveredSpans = NoItems[ptrace.Span]{}
 
 	trackClickedSpans := false
 	trackNavigatedSpans := false
@@ -556,7 +544,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 	first := true
 	var prevEndPx float32
-	doSpans := func(dspSpans ptrace.Spans, startPx, endPx float32) {
+	doSpans := func(dspSpans Items[ptrace.Span], startPx, endPx float32) {
 		hovered := false
 		if track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
 			// Highlight the span under the cursor
@@ -580,7 +568,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 		var cs [2]colorIndex
 		if track.spanColor != nil {
-			cs = track.spanColor(tl, dspSpans, tr)
+			cs = track.spanColor(dspSpans, tr)
 		} else {
 			cs = defaultSpanColor(dspSpans)
 		}
@@ -594,7 +582,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		minP = f32.Pt((max(startPx, 0)), 0)
 		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(trackHeight))
 
-		highlighted := filter.Match(dspSpans, SpanContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, SpanContainer{Timeline: tl, Track: track})
+		highlighted := filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track})
 		if hovered {
 			highlightedPrimaryOutlinesPath.MoveTo(minP)
 			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
@@ -650,13 +638,11 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		p.Close()
 
 		var spanTooltipState SpanTooltipState
+		spanTooltipState.events = NoItems[ptrace.EventID]{}
+		spanTooltipState.eventsUnderCursor = NoItems[ptrace.EventID]{}
 		if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
-			events := dspSpans.Events(track.events, tr.Trace)
-
-			spanTooltipState = SpanTooltipState{
-				spans:  dspSpans,
-				events: events,
-			}
+			spanTooltipState.spans = dspSpans
+			spanTooltipState.events = Events(dspSpans, tr)
 		}
 
 		dotRadiusX := float32(gtx.Dp(4))
@@ -664,13 +650,13 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		if maxP.X-minP.X > dotRadiusX*2 && dspSpans.Len() == 1 {
 			// We only display event dots in unmerged spans because merged spans can split into smaller spans when we
 			// zoom in, causing dots to disappear and reappearappear and disappear.
-			events := dspSpans.Slice(0, 1).Events(track.events, tr.Trace)
+			events := Events(dspSpans.Slice(0, 1), tr)
 
 			dotGap := float32(gtx.Dp(4))
 			centerY := float32(trackHeight) / 2
 
-			for i := 0; i < len(events); i++ {
-				ev := events[i]
+			for i := 0; i < events.Len(); i++ {
+				ev := events.At(i)
 				px := cv.tsToPx(tr.Event(ev).Ts)
 
 				if px+dotRadiusX < minP.X {
@@ -683,8 +669,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				start := px
 				end := px
 				oldi := i
-				for i = i + 1; i < len(events); i++ {
-					ev := events[i]
+				for i = i + 1; i < events.Len(); i++ {
+					ev := events.At(i)
 					px := cv.tsToPx(tr.Event(ev).Ts)
 					if px < end+dotRadiusX*2+dotGap {
 						end = px
@@ -713,7 +699,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				eventsPath.Close()
 
 				if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= minX && track.hover.Pointer().X < maxX {
-					spanTooltipState.eventsUnderCursor = events[oldi : i+1]
+					spanTooltipState.eventsUnderCursor = events.Slice(oldi, i+1)
 				}
 			}
 		}
@@ -799,7 +785,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				break
 			}
 			allDspSpans = append(allDspSpans, struct {
-				dspSpans       ptrace.Spans
+				dspSpans       Items[ptrace.Span]
 				startPx, endPx float32
 			}{dspSpans, startPx, endPx})
 			doSpans(dspSpans, startPx, endPx)
@@ -896,8 +882,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, trackHeight)}
 }
 
-func singleSpanLabel(label string, showForMerged bool) func(spans ptrace.Spans, tr *Trace, out []string) []string {
-	return func(spans ptrace.Spans, tr *Trace, out []string) []string {
+func singleSpanLabel(label string, showForMerged bool) func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
+	return func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 		if !showForMerged && spans.Len() != 1 {
 			return out
 		}
@@ -905,8 +891,8 @@ func singleSpanLabel(label string, showForMerged bool) func(spans ptrace.Spans, 
 	}
 }
 
-func singleSpanColor(c colorIndex) func(_ *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex {
-	return func(_ *Timeline, spans ptrace.Spans, tr *Trace) [2]colorIndex {
+func singleSpanColor(c colorIndex) func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
+	return func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
 		if spans.Len() == 1 {
 			return [2]colorIndex{c, 0}
 		} else {
@@ -915,33 +901,44 @@ func singleSpanColor(c colorIndex) func(_ *Timeline, spans ptrace.Spans, tr *Tra
 	}
 }
 
-func NewGCTimeline(cv *Canvas, trace *Trace, spans ptrace.Spans) *Timeline {
-	return &Timeline{
-		tracks:    []Track{{spans: (spans)}},
-		item:      &GC{spans},
+func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
+	tl := &Timeline{
+		tracks:    []*Track{{}},
 		label:     "GC",
 		shortName: "GC",
 
-		buildTrackWidgets: func(tracks []Track) {
+		buildTrackWidgets: func(tracks []*Track) {
 			*tracks[0].TrackWidget = TrackWidget{
 				spanLabel: singleSpanLabel("GC", true),
 				spanColor: singleSpanColor(colorStateGC),
 			}
 		},
 	}
+	ss := SimpleItems[ptrace.Span]{
+		items: spans,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    tl.tracks[0],
+		},
+		subslice: true,
+	}
+
+	tl.tracks[0].spans = ss
+	tl.item = &GC{ss}
+
+	return tl
 }
 
-func NewSTWTimeline(cv *Canvas, tr *Trace, spans ptrace.Spans) *Timeline {
-	return &Timeline{
-		tracks:    []Track{{spans: (spans)}},
-		item:      &STW{spans},
+func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
+	tl := &Timeline{
+		tracks:    []*Track{{}},
 		label:     "STW",
 		shortName: "STW",
 
-		buildTrackWidgets: func(tracks []Track) {
+		buildTrackWidgets: func(tracks []*Track) {
 			*tracks[0].TrackWidget = TrackWidget{
 				// spanLabel: singleSpanLabel("STW", true),
-				spanLabel: func(spans ptrace.Spans, tr *Trace, out []string) []string {
+				spanLabel: func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
 					if spans.Len() != 1 {
 						return nil
 					}
@@ -952,6 +949,20 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans ptrace.Spans) *Timeline {
 			}
 		},
 	}
+
+	ss := SimpleItems[ptrace.Span]{
+		items: spans,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    tl.tracks[0],
+		},
+		subslice: true,
+	}
+
+	tl.tracks[0].spans = ss
+	tl.item = &STW{ss}
+
+	return tl
 }
 
 var stwSpanLabels = [trace.NumSTWReasons]string{}
@@ -963,9 +974,9 @@ func init() {
 }
 
 type GC struct {
-	Spans ptrace.Spans
+	Spans Items[ptrace.Span]
 }
 
 type STW struct {
-	Spans ptrace.Spans
+	Spans Items[ptrace.Span]
 }

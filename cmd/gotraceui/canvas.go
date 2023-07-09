@@ -75,12 +75,7 @@ type Canvas struct {
 	debugWindow *DebugWindow
 
 	clickedGoroutineTimelines []*ptrace.Goroutine
-	clickedSpans              []struct {
-		Spans     ptrace.Spans
-		AllEvents []ptrace.EventID
-		Timeline  *Timeline
-		Track     *Track
-	}
+	clickedSpans              []Items[ptrace.Span]
 
 	// The start of the timeline
 	start   trace.Timestamp
@@ -113,9 +108,10 @@ type Canvas struct {
 
 	locationHistory []LocationHistoryEntry
 	// All timelines. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
-	timelines []*Timeline
-	scrollbar widget.Scrollbar
-	axis      Axis
+	timelines      []*Timeline
+	itemToTimeline map[any]*Timeline
+	scrollbar      widget.Scrollbar
+	axis           Axis
 
 	memoryGraph Plot
 
@@ -154,7 +150,7 @@ type Canvas struct {
 		showGCOverlays showGCOverlays
 
 		hoveredTimeline *Timeline
-		hoveredSpans    ptrace.Spans
+		hoveredSpans    Items[ptrace.Span]
 		hover           gesture.Hover
 	}
 
@@ -171,7 +167,7 @@ type Canvas struct {
 		displayStackTracks bool
 		displayedTls       []*Timeline
 		hoveredTimeline    *Timeline
-		hoveredSpans       ptrace.Spans
+		hoveredSpans       Items[ptrace.Span]
 		width              int
 		filter             Filter
 		automaticFilter    Filter
@@ -199,7 +195,9 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
 	cv.timelines[1] = NewSTWTimeline(cv, t, t.STW)
 
-	cv.timeline.hoveredSpans = Spans{}
+	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
+
+	cv.itemToTimeline = make(map[any]*Timeline)
 }
 
 func (cv *Canvas) End() trace.Timestamp {
@@ -429,14 +427,14 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	}
 }
 
-func (cv *Canvas) visibleSpans(spans ptrace.Spans) ptrace.Spans {
+func (cv *Canvas) visibleSpans(spans Items[ptrace.Span]) Items[ptrace.Span] {
 	// Visible spans have to end after cv.Start and begin before cv.End
 	start := sort.Search((spans.Len()), func(i int) bool {
 		s := spans.At(i)
 		return s.End > cv.start
 	})
 	if start == (spans.Len()) {
-		return Spans{}
+		return NoItems[ptrace.Span]{}
 	}
 	end := sort.Search((spans.Len()), func(i int) bool {
 		s := spans.At(i)
@@ -831,7 +829,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
 
-		drawRegionOverlays := func(spans ptrace.Spans, c color.NRGBA, height int) {
+		drawRegionOverlays := func(spans Items[ptrace.Span], c color.NRGBA, height int) {
 			var p clip.Path
 			p.Begin(gtx.Ops)
 			visible := cv.visibleSpans(spans)
@@ -872,8 +870,27 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				// Draw STW and GC regions
 				// TODO(dh): make this be optional
 				tickHeight := gtx.Dp(tickHeightDp)
-				drawRegionOverlays((cv.trace.GC), colors[colorStateGC], tickHeight)
-				drawRegionOverlays((cv.trace.STW), colors[colorStateBlocked], tickHeight)
+
+				// TODO(dh): make this less brittle. relying on the fact that cv.timelines[0] and [1] are GC and STW
+				// respectively is bad.
+				sGC := SimpleItems[ptrace.Span]{
+					items: cv.trace.GC,
+					container: ItemContainer{
+						Timeline: cv.timelines[0],
+						Track:    cv.timelines[0].tracks[0],
+					},
+					subslice: true,
+				}
+				sSTW := SimpleItems[ptrace.Span]{
+					items: cv.trace.STW,
+					container: ItemContainer{
+						Timeline: cv.timelines[1],
+						Track:    cv.timelines[1].tracks[0],
+					},
+					subslice: true,
+				}
+				drawRegionOverlays(sGC, colors[colorStateGC], tickHeight)
+				drawRegionOverlays(sSTW, colors[colorStateBlocked], tickHeight)
 
 				dims := cv.axis.Layout(win, gtx)
 
@@ -942,14 +959,34 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw STW and GC overlays
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
+			// TODO(dh): make this less brittle. relying on the fact that cv.timelines[0] and [1] are GC and STW
+			// respectively is bad.
+			sGC := SimpleItems[ptrace.Span]{
+				items: cv.trace.GC,
+				container: ItemContainer{
+					Timeline: cv.timelines[0],
+					Track:    cv.timelines[0].tracks[0],
+				},
+				subslice: true,
+			}
 			c := colors[colorStateGC]
 			c.A = 0x33
-			drawRegionOverlays((cv.trace.GC), c, gtx.Constraints.Max.Y)
+			drawRegionOverlays(sGC, c, gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
+			// TODO(dh): make this less brittle. relying on the fact that cv.timelines[0] and [1] are GC and STW
+			// respectively is bad.
+			sSTW := SimpleItems[ptrace.Span]{
+				items: cv.trace.STW,
+				container: ItemContainer{
+					Timeline: cv.timelines[1],
+					Track:    cv.timelines[1].tracks[0],
+				},
+				subslice: true,
+			}
 			c := colors[colorStateSTW]
 			c.A = 0x33
-			drawRegionOverlays((cv.trace.STW), c, gtx.Constraints.Max.Y)
+			drawRegionOverlays(sSTW, c, gtx.Constraints.Max.Y)
 		}
 
 		// Draw cursor
@@ -973,25 +1010,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.automaticFilter = cv.timeline.automaticFilter
 
 	cv.clickedSpans = cv.clickedSpans[:0]
-	cv.timeline.hoveredSpans = Spans{}
+	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
 	cv.timeline.hoveredTimeline = nil
 	cv.timeline.automaticFilter = Filter{Mode: FilterModeAnd}
 	for _, tl := range cv.prevFrame.displayedTls {
-		if clicked := tl.ClickedSpans(); clicked.Spans.Len() > 0 {
-			var allEvents []ptrace.EventID
-			switch item := tl.item.(type) {
-			case *ptrace.Goroutine:
-				allEvents = item.Events
-			default:
-				// TODO(dh): give all relevant types a method that we can check for, instead of having to hard-code
-				// a list of types here.
-			}
-			cv.clickedSpans = append(cv.clickedSpans, struct {
-				Spans     ptrace.Spans
-				AllEvents []ptrace.EventID
-				Timeline  *Timeline
-				Track     *Track
-			}{clicked.Spans, allEvents, tl, clicked.Track})
+		if clicked := tl.ClickedSpans(); clicked.Len() > 0 {
+			cv.clickedSpans = append(cv.clickedSpans, clicked)
 		}
 		if tl.Hovered() {
 			cv.timeline.hoveredTimeline = tl

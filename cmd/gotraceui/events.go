@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	rtrace "runtime/trace"
+	"sort"
 
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -19,14 +20,14 @@ import (
 
 type EventList struct {
 	Trace  *Trace
-	Events []ptrace.EventID
+	Events Items[ptrace.EventID]
 	Filter struct {
 		ShowGoCreate  widget.Bool
 		ShowGoUnblock widget.Bool
 		ShowGoSysCall widget.Bool
 		ShowUserLog   widget.Bool
 	}
-	filteredEvents []ptrace.EventID
+	filteredEvents Items[ptrace.EventID]
 	list           widget.List
 
 	timestampObjects allocator[trace.Timestamp]
@@ -36,29 +37,25 @@ type EventList struct {
 func (evs *EventList) UpdateFilter() {
 	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
 	//   requires us to check each event.
-	evs.filteredEvents = evs.filteredEvents[:0]
-	for _, ev := range evs.Events {
-		var b bool
+	// OPT(dh): multiple calls to FilterItems should be able to reuse memory
+	evs.filteredEvents = FilterItems[ptrace.EventID](evs.Events, func(ev ptrace.EventID) bool {
 		switch evs.Trace.Event(ev).Type {
 		case trace.EvGoCreate:
-			b = evs.Filter.ShowGoCreate.Value
+			return evs.Filter.ShowGoCreate.Value
 		case trace.EvGoUnblock:
-			b = evs.Filter.ShowGoUnblock.Value
+			return evs.Filter.ShowGoUnblock.Value
 		case trace.EvGoSysCall:
-			b = evs.Filter.ShowGoSysCall.Value
+			return evs.Filter.ShowGoSysCall.Value
 		case trace.EvUserLog:
-			b = evs.Filter.ShowUserLog.Value
+			return evs.Filter.ShowUserLog.Value
 		default:
 			panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(ev).Type))
 		}
-
-		if b {
-			evs.filteredEvents = append(evs.filteredEvents, ev)
-		}
-	}
+	})
 
 	var max int
-	for _, evID := range evs.filteredEvents {
+	for i := 0; i < evs.filteredEvents.Len(); i++ {
+		evID := evs.filteredEvents.At(i)
 		msgs := evs.eventMessage(evs.Trace.Event(evID))
 		n := 0
 		for _, msg := range msgs {
@@ -152,7 +149,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 
-		ev := evs.Trace.Event(evs.filteredEvents[row])
+		ev := evs.Trace.Event(evs.filteredEvents.At(row))
 		// XXX styledtext wraps our spans if the window is too small
 
 		addSpanG := func(gid uint64) {
@@ -246,11 +243,71 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 				ColumnPadding: gtx.Dp(10),
 			}
 
-			return tbl.Layout(win, gtx, len(evs.filteredEvents), cellFn)
+			return tbl.Layout(win, gtx, evs.filteredEvents.Len(), cellFn)
 		}),
 	)
 
 	evs.texts.Truncate(txtCnt)
 
 	return ret
+}
+
+func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
+	if spans.Len() == 0 {
+		return NoItems[ptrace.EventID]{}
+	}
+
+	if spans.Subslice() {
+		c, ok := spans.Container()
+		assert(ok, "didn't expect contiguous spans with multiple containers")
+
+		sStart := spans.At(0).Start
+		sEnd := spans.At(spans.Len() - 1).End
+
+		allEvents := c.Track.events
+		if len(allEvents) == 0 {
+			return NoItems[ptrace.EventID]{}
+		}
+
+		eEnd := sort.Search(len(allEvents), func(i int) bool {
+			return tr.Event(allEvents[i]).Ts >= sEnd
+		})
+
+		eStart := sort.Search(eEnd, func(i int) bool {
+			return tr.Event(allEvents[i]).Ts >= sStart
+		})
+
+		if eStart == eEnd {
+			return NoItems[ptrace.EventID]{}
+		}
+
+		return SimpleItems[ptrace.EventID]{
+			items:      allEvents[eStart:eEnd],
+			container:  c,
+			contiguous: true,
+			subslice:   true,
+		}
+	} else {
+		if spans, ok := spans.(MergedItems[ptrace.Span]); ok {
+			// This is an optimization. While the overall MergedItems won't be a subslice of a span, each individual
+			// base might be.
+			events := make([]Items[ptrace.EventID], 0, len(spans.bases))
+			for _, base := range spans.bases {
+				events = append(events, Events(base, tr))
+			}
+			return MergeItems[ptrace.EventID](events, func(a, b ptrace.EventID) bool {
+				return tr.Event(a).Ts < tr.Event(b).Ts
+			})
+		}
+
+		// OPT(dh): even if all spans aren't a subslice, individual runs of spans might be. Detecting that, however,
+		// would be the responsibility of the Items implementation, and wouldn't always be possible.
+		events := make([]Items[ptrace.EventID], 0, spans.Len())
+		for i := 0; i < spans.Len(); i++ {
+			events = append(events, Events(spans.Slice(i, i+1), tr))
+		}
+		return MergeItems[ptrace.EventID](events, func(a, b ptrace.EventID) bool {
+			return tr.Event(a).Ts < tr.Event(b).Ts
+		})
+	}
 }

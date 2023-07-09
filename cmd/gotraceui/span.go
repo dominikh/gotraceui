@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image"
 	rtrace "runtime/trace"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ func LastSpan(sel ptrace.Spans) ptrace.Span {
 	return sel.At(sel.Len() - 1)
 }
 
-func SpansDuration(sel ptrace.Spans) time.Duration {
+func SpansDuration(sel Items[ptrace.Span]) time.Duration {
 	if sel.Len() == 0 {
 		return 0
 	}
@@ -41,22 +40,21 @@ func SpansDuration(sel ptrace.Spans) time.Duration {
 	}
 }
 
-type SpanContainer struct {
+type ItemContainer struct {
 	Timeline *Timeline
 	Track    *Track
 }
 
 type SpansInfo struct {
-	mwin      MainWindowIface
-	allEvents []ptrace.EventID
-	spans     ptrace.Spans
-	trace     *Trace
-	timelines []*Timeline
+	mwin         MainWindowIface
+	spans        Items[ptrace.Span]
+	trace        *Trace
+	allTimelines []*Timeline
 
 	cfg SpansInfoConfig
 
-	events    EventList
-	spansList SpanList
+	eventsList EventList
+	spansList  SpanList
 
 	buttons struct {
 		scrollAndPanToSpans widget.PrimaryClickable
@@ -85,10 +83,8 @@ type SpansInfo struct {
 }
 
 type SpansInfoConfig struct {
-	Title string
-	Label string
-	// The container of the spans, if all spans share the same container
-	Container          SpanContainer
+	Title              string
+	Label              string
 	DescriptionBuilder func(win *theme.Window, gtx layout.Context) Description
 	Stacktrace         string
 	Statistics         func(win *theme.Window) *theme.Future[*SpansStats]
@@ -104,27 +100,27 @@ type SpansInfoConfigNavigations struct {
 	ZoomFn    func() Link
 }
 
-func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans SpansWithContainers, timelines []*Timeline, allEvents []ptrace.EventID) *SpansInfo {
+func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans Items[ptrace.Span], allTimelines []*Timeline) *SpansInfo {
 	si := &SpansInfo{
-		mwin:      mwin,
-		spans:     spans,
-		trace:     tr,
-		allEvents: allEvents,
-		cfg:       cfg,
-		timelines: timelines,
+		mwin:         mwin,
+		spans:        spans,
+		trace:        tr,
+		cfg:          cfg,
+		allTimelines: allTimelines,
 	}
 
+	c, haveContainer := spans.Container()
 	if si.cfg.Title == "" {
 		firstSpan := si.spans.At(0)
 		lastSpan := LastSpan(si.spans)
-		if si.cfg.Container != (SpanContainer{}) {
-			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, si.cfg.Container.Timeline.shortName)
+		if haveContainer {
+			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, c.Timeline.shortName)
 		} else {
 			si.cfg.Title = local.Sprintf("%d ns–%d ns\n", firstSpan.Start, lastSpan.End)
 		}
 	}
 
-	if si.cfg.Stacktrace == "" && (si.cfg.Container != SpanContainer{}) && spans.Len() == 1 {
+	if si.cfg.Stacktrace == "" && haveContainer && spans.Len() == 1 {
 		ev := si.trace.Events[spans.At(0).Event]
 		stk := si.trace.Stacks[ev.StkID]
 		sb := strings.Builder{}
@@ -152,15 +148,13 @@ func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans Sp
 		Spans: si.spans,
 	}
 
-	si.events = EventList{Trace: si.trace}
-	si.events.Filter.ShowGoCreate.Value = true
-	si.events.Filter.ShowGoUnblock.Value = true
-	si.events.Filter.ShowGoSysCall.Value = true
-	si.events.Filter.ShowUserLog.Value = true
-	si.events.UpdateFilter()
-
-	si.events.Events = si.spans.Events(si.allEvents, si.trace.Trace)
-	si.events.UpdateFilter()
+	si.eventsList = EventList{Trace: si.trace}
+	si.eventsList.Filter.ShowGoCreate.Value = true
+	si.eventsList.Filter.ShowGoUnblock.Value = true
+	si.eventsList.Filter.ShowGoSysCall.Value = true
+	si.eventsList.Filter.ShowUserLog.Value = true
+	si.eventsList.Events = Events(si.spans, si.trace)
+	si.eventsList.UpdateFilter()
 
 	if cfg.DescriptionBuilder != nil {
 		si.descriptionBuilder = cfg.DescriptionBuilder
@@ -264,10 +258,11 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		})
 	}
 
-	if tl := si.cfg.Container.Timeline; tl != nil {
+	if c, ok := si.spans.Container(); ok {
+		tl := c.Timeline
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
-			Value: *tb.DefaultLink(si.cfg.Container.Timeline.shortName, tl.item),
+			Value: *tb.DefaultLink(tl.shortName, tl.item),
 		})
 	}
 
@@ -302,7 +297,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			}
 
 			var buttonsLeft []button
-			if si.cfg.Container.Timeline != nil {
+			if _, ok := si.spans.Container(); ok {
 				buttonsLeft = []button{
 					{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
 					{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
@@ -352,7 +347,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		layout.Rigid(layout.Spacer{Height: 10}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			tabs := []string{"Statistics", "Spans"}
-			if len(si.events.Events) != 0 {
+			if si.eventsList.Events.Len() != 0 {
 				tabs = append(tabs, "Events")
 			}
 			if si.cfg.Stacktrace != "" {
@@ -402,7 +397,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					return si.spansList.Layout(win, gtx)
 
 				case "Events":
-					return si.events.Layout(win, gtx)
+					return si.eventsList.Layout(win, gtx)
 
 				case "Histogram":
 					return si.hist.Layout(win, gtx)
@@ -424,7 +419,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		handleLinkClick(win, si.mwin, ev)
 	}
 
-	for _, ev := range si.events.Clicked() {
+	for _, ev := range si.eventsList.Clicked() {
 		handleLinkClick(win, si.mwin, ev)
 	}
 	for _, ev := range si.spansList.Clicked() {
@@ -436,8 +431,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.mwin.OpenLink(si.cfg.Navigations.ScrollFn())
 		} else {
 			si.mwin.OpenLink(&ScrollAndPanToSpansLink{
-				Container: si.cfg.Container,
-				Spans:     si.spans,
+				Spans: si.spans,
 			})
 		}
 	}
@@ -446,8 +440,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.mwin.OpenLink(si.cfg.Navigations.ZoomFn())
 		} else {
 			si.mwin.OpenLink(&ZoomToSpansLink{
-				Container: si.cfg.Container,
-				Spans:     si.spans,
+				Spans: si.spans,
 			})
 		}
 	}
@@ -456,23 +449,18 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(si.spans.At(0).Event).Args[2]]
-		var out Spans
-		for _, tl := range si.timelines {
-			for trackIdx := range tl.tracks {
-				track := &tl.tracks[trackIdx]
+		var bases []Items[ptrace.Span]
+		for _, tl := range si.allTimelines {
+			for _, track := range tl.tracks {
 				if track.kind != TrackKindUserRegions {
 					continue
 				}
-				filtered := FilterSpans(track.spans, func(span ptrace.Span) bool {
+				filtered := FilterItems(track.spans, func(span ptrace.Span) bool {
 					label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
 					return label == needle
 				})
 
-				out.bases = append(out.bases, filtered)
-				out.containers = append(out.containers, SpanContainer{
-					Timeline: tl,
-					Track:    track,
-				})
+				bases = append(bases, filtered)
 			}
 		}
 
@@ -481,9 +469,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		out.initializeEnd()
-		out.sort()
-		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.timelines, nil))
+		out := MergeItems(bases, func(a, b ptrace.Span) bool {
+			return a.Start < b.Start
+		})
+		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, out, si.allTimelines))
 	}
 
 	if si.hist.Changed() {
@@ -544,7 +533,7 @@ var spanListColumns = []theme.TableListColumn{
 }
 
 type SpanList struct {
-	Spans ptrace.Spans
+	Spans Items[ptrace.Span]
 	list  widget.List
 
 	timestampObjects allocator[trace.Timestamp]
@@ -575,13 +564,8 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		span := spans.Spans.At(row)
 		switch col {
 		case 0: // Time
-			var container SpanContainer
-			if spans, ok := spans.Spans.(SpansWithContainers); ok {
-				container, _ = spans.ContainerAt(row)
-			}
 			tb.Link(formatTimestamp(span.Start), span, &SpansObjectLink{
-				Spans:     spans.Spans.Slice(row, row+1),
-				Container: container,
+				Spans: spans.Spans.Slice(row, row+1),
 			})
 			txt.Alignment = text.End
 		case 1: // Duration
@@ -622,178 +606,55 @@ func (spans *SpanList) Clicked() []TextEvent {
 	return out
 }
 
-type SpansSubset struct {
-	Base   ptrace.Spans
-	Subset []int
-}
+/*
+   Notes for redesigning spans data structures
 
-// At implements ptrace.Spans
-func (spans SpansSubset) At(idx int) ptrace.Span {
-	return spans.Base.At(spans.Subset[idx])
-}
+   ptrace turns the events in a trace into spans. A span is defined by its start and end point, the event that caused
+   it, and some other metadata.
 
-// AtPtr implements ptrace.Spans
-func (spans SpansSubset) AtPtr(idx int) *ptrace.Span {
-	return spans.Base.AtPtr(spans.Subset[idx])
-}
+   Spans are used in many places. Goroutines have spans for goroutine activity, as well as spans for user regions (one
+   set of spans per nesting depth). Processors have spans describing the scheduled goroutines. GC and STW are each
+   represented by a series of spans.
 
-// End implements ptrace.Spans
-func (spans SpansSubset) End() trace.Timestamp {
-	return ptrace.End(spans)
-}
+   Spans for goroutine activity are contiguous, that is, there are no gaps between spans. All other spans can have gaps
+   between them.
 
-// Events implements ptrace.Spans
-func (spans SpansSubset) Events(all []ptrace.EventID, tr *ptrace.Trace) []ptrace.EventID {
-	return ptrace.Events(spans, all, tr)
-}
+   Goroutines have events. These are instantaneous.
 
-// Len implements ptrace.Spans
-func (spans SpansSubset) Len() int {
-	return len(spans.Subset)
-}
 
-// Slice implements ptrace.Spans
-func (spans SpansSubset) Slice(start int, end int) ptrace.Spans {
-	return SpansSubset{
-		Base:   spans.Base,
-		Subset: spans.Subset[start:end],
-	}
-}
+   In gotraceui, spans are displayed in tracks, which are displayed in timelines. For example, a goroutine timeline has
+   a track for the goroutine activity, and one track per level of nesting of user regions. Additionally, CPU samples —
+   which ptrace exposes as a slice of events — are turned into spans, which are displayed in tracks, one per level of
+   stack depth.
 
-// Start implements ptrace.Spans
-func (spans SpansSubset) Start() trace.Timestamp {
-	return ptrace.Start(spans)
-}
+   When displaying individual spans, spans that are too small get merged into one big span. This big span is, too,
+   represented as a ptrace.Spans, and is a subslice of the track's overall spans.
 
-func (spans SpansSubset) Contiguous() bool {
-	return false
-}
+   We want to apply the following operations on spans:
 
-func FilterSpans(spans ptrace.Spans, fn func(span ptrace.Span) bool) ptrace.Spans {
-	var subset []int
-	for i := 0; i < spans.Len(); i++ {
-		if fn(spans.At(i)) {
-			subset = append(subset, i)
-		}
-	}
-	if len(subset) == spans.Len() {
-		return spans
-	}
+   - Compute their total duration. For contiguous spans, this is simply the end time minus the start time. For
+     non-contiguous spans, we have to sum the durations of all individual spans.
 
-	return SpansSubset{
-		Base:   spans,
-		Subset: subset,
-	}
-}
+   - Zoom to spans. This requires scrolling to the correct track and zooming to the area between the start and end time.
 
-type Spans struct {
-	bases      []ptrace.Spans
-	containers []SpanContainer
-	indices    []int
-	start      int
-	end        int
-}
+   - Filter spans. Of all spans in a track, we may only be interested in a subset. After that, we can no longer assume
+     that the spans are contiguous.
 
-func NewSpans(bases []ptrace.Spans) Spans {
-	ss := Spans{
-		bases: bases,
-	}
-	ss.initializeEnd()
-	return ss
-}
+   - Merge multiple sets of spans. For example, we may want to represent all spans that describe a user region with a
+     certain label. This will include spans from different tracks. Spans have to be ordered by start time, for binary
+     search to work correctly.
 
-func (spans *Spans) sort() {
-	n := 0
-	for _, s := range spans.bases {
-		n += s.Len()
-	}
-	spans.indices = make([]int, n)
-	for i := range spans.indices {
-		spans.indices[i] = i
-	}
-	sort.Slice(spans.indices, func(i, j int) bool {
-		return spans.At(i).Start < spans.At(j).Start
-	})
-}
+   - We want to correlate spans with the events that happened during those spans. We haven't yet decided if events are
+     scoped to a timeline or a track. If they are scoped to timelines then we have to deduplicate events when merging
+     multiple tracks. When rendering tracks, events are certainly track-scoped: only the first track in a goroutine
+     timeline displays the events. However, when looking at user regions in the spans info panel, we likely want to see
+     goroutine events that happened during the user region.
 
-func (spans Spans) index(idx int) (int, int) {
-	idx += spans.start
+   - Spans may all be in the same container (timeline + track), or in multiple different ones, depending if we've merged
+     sets of spans or not.
 
-	if len(spans.indices) != 0 {
-		idx = spans.indices[idx]
-	}
+   When filtering and merging spans, we'd like not to create completely new slices, and to instead reuse the existing
+   memory.
 
-	for i, s := range spans.bases {
-		if s.Len() > idx {
-			return i, idx
-		} else {
-			idx -= s.Len()
-		}
-	}
-	if idx == 0 {
-		return len(spans.bases) - 1, spans.bases[len(spans.bases)-1].Len()
-	}
-	panic(fmt.Sprintf("index %d is out of bounds", idx))
-}
-
-func (spans Spans) At(idx int) ptrace.Span {
-	a, b := spans.index(idx)
-	return spans.bases[a].At(b)
-}
-
-func (spans Spans) AtPtr(idx int) *ptrace.Span {
-	a, b := spans.index(idx)
-	return spans.bases[a].AtPtr(b)
-}
-
-func (spans *Spans) initializeEnd() {
-	spans.end = 0
-	for _, s := range spans.bases {
-		spans.end += s.Len()
-	}
-}
-
-func (spans Spans) Len() int {
-	return spans.end - spans.start
-}
-
-func (spans Spans) ContainerAt(idx int) (SpanContainer, bool) {
-	if len(spans.containers) == 0 {
-		return SpanContainer{}, false
-	}
-	base, _ := spans.index(idx)
-	return spans.containers[base], true
-}
-
-func (spans Spans) Slice(start, end int) ptrace.Spans {
-	spans.start += start
-	spans.end = spans.start + (end - start)
-	return spans
-}
-
-func (spans Spans) Start() trace.Timestamp {
-	return spans.At(0).Start
-}
-
-func (spans Spans) End() trace.Timestamp {
-	return spans.At(spans.Len() - 1).End
-}
-
-func (spans Spans) Events(all []ptrace.EventID, tr *ptrace.Trace) []ptrace.EventID {
-	return ptrace.Events(spans, all, tr)
-}
-
-func (spans Spans) Contiguous() bool {
-	if len(spans.bases) == 0 {
-		return true
-	}
-	if len(spans.bases) > 1 {
-		return false
-	}
-	return spans.bases[0].Contiguous()
-}
-
-type SpansWithContainers interface {
-	ptrace.Spans
-	ContainerAt(idx int) (SpanContainer, bool)
-}
+   Tracks may display filtered/merged/... spans, not just plain []Span from ptrace.
+*/

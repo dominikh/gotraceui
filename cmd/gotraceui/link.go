@@ -44,8 +44,7 @@ type ProcessorObjectLink ptrace.Processor
 type TimestampObjectLink trace.Timestamp
 type FunctionObjectLink ptrace.Function
 type SpansObjectLink struct {
-	Spans     ptrace.Spans
-	Container SpanContainer
+	Spans Items[ptrace.Span]
 }
 
 func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) Link {
@@ -128,13 +127,13 @@ func (l *FunctionObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem
 func (l *SpansObjectLink) Link(ev gesture.ClickEvent) Link {
 	switch ev.Modifiers {
 	default:
-		ll := ScrollToTimestampLink(l.Spans.Start())
+		ll := ScrollToTimestampLink(l.Spans.At(0).Start)
 		return &ll
 	case key.ModShortcut:
-		if l.Container != (SpanContainer{}) {
+		if _, ok := l.Spans.Container(); ok {
 			return (*ZoomToSpansLink)(l)
 		} else {
-			ll := ScrollToTimestampLink(l.Spans.Start())
+			ll := ScrollToTimestampLink(l.Spans.At(0).Start)
 			return &ll
 		}
 	case key.ModShift:
@@ -143,19 +142,19 @@ func (l *SpansObjectLink) Link(ev gesture.ClickEvent) Link {
 }
 
 func (l *SpansObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
-	if l.Container != (SpanContainer{}) {
+	if _, ok := l.Spans.Container(); ok {
 		return []*theme.MenuItem{
 			{
 				Label: PlainLabel("Scroll to span start"),
 				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.Start())
+					ll := ScrollToTimestampLink(l.Spans.At(0).Start)
 					mwin.OpenLink(&ll)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
 				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.End())
+					ll := ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
 					mwin.OpenLink(&ll)
 				},
 			},
@@ -177,14 +176,14 @@ func (l *SpansObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
 			{
 				Label: PlainLabel("Scroll to span start"),
 				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.Start())
+					ll := ScrollToTimestampLink(l.Spans.At(0).Start)
 					mwin.OpenLink(&ll)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
 				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.End())
+					ll := ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
 					mwin.OpenLink(&ll)
 				},
 			},
@@ -206,8 +205,7 @@ type ScrollToProcessorLink ptrace.Processor
 type ZoomToProcessorLink ptrace.Processor
 type OpenFunctionLink ptrace.Function
 type SpansLink struct {
-	Spans     ptrace.Spans
-	Container SpanContainer
+	Spans Items[ptrace.Span]
 }
 type OpenSpansLink SpansLink
 type ScrollAndPanToSpansLink SpansLink
@@ -223,7 +221,7 @@ func (l *ScrollToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
 
 func (l *ZoomToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
 	y := mwin.canvas.timelineY(gtx, (*ptrace.Goroutine)(l))
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.Start(), l.Spans.End(), y)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans[0].Start, l.Spans[len(l.Spans)-1].End, y)
 }
 
 func (l *ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
@@ -248,7 +246,7 @@ func (l *ScrollToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
 
 func (l *ZoomToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
 	y := mwin.canvas.timelineY(gtx, (*ptrace.Processor)(l))
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.Start(), l.Spans.End(), y)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans[0].Start, l.Spans[len(l.Spans)-1].End, y)
 }
 
 func (l *OpenFunctionLink) Open(_ layout.Context, mwin *MainWindow) {
@@ -256,23 +254,22 @@ func (l *OpenFunctionLink) Open(_ layout.Context, mwin *MainWindow) {
 }
 
 func (l *OpenSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
-	tl := l.Container.Timeline
-	tr := l.Container.Track
-	s := l.Spans
-	// XXX is this always correct?
-	allEvents := l.Container.Track.events
-	mwin.openSpan(s, tl, tr, allEvents)
+	mwin.openSpan(l.Spans)
 }
 
 func (l *ScrollAndPanToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToTimeline(gtx, l.Container.Timeline.item)
+	c, ok := l.Spans.Container()
+	assert(ok, "expected container")
+	mwin.canvas.scrollToTimeline(gtx, c.Timeline.item)
 	d := mwin.canvas.End() - mwin.canvas.start
 	ts := l.Spans.At(0).Start + trace.Timestamp(SpansDuration(l.Spans)/2)
 	mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.animateTo.targetY)
 }
 
 func (l *ZoomToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToTimeline(gtx, l.Container.Timeline.item)
+	c, ok := l.Spans.Container()
+	assert(ok, "expected container")
+	mwin.canvas.scrollToTimeline(gtx, c.Timeline.item)
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 }
 
