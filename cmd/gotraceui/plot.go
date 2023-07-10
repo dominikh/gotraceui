@@ -58,6 +58,12 @@ type Plot struct {
 	prevDirection uint8
 
 	prevFrame struct {
+		constraints layout.Constraints
+		hideLegends bool
+		autoScale   bool
+		ops         reusableOps
+		call        op.CallOp
+
 		start, end trace.Timestamp
 		// bitmap of disabled series
 		disabledSeries uint64
@@ -138,34 +144,76 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		}
 	}
 
-	if pl.autoScale {
-		r := rtrace.StartRegion(context.Background(), "auto-scaling")
-		var bitmap uint64
-		for i, s := range pl.series {
-			if s.disabled {
-				bitmap |= 1 << i
-			}
+	var bitmap uint64
+	for i, s := range pl.series {
+		if s.disabled {
+			bitmap |= 1 << i
 		}
-		if pl.prevFrame.start != cv.start || pl.prevFrame.end != cv.End() || pl.prevFrame.disabledSeries != bitmap {
-			pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
-		}
-		pl.prevFrame.start = cv.start
-		pl.prevFrame.end = cv.End()
-		pl.prevFrame.disabledSeries = bitmap
-		r.End()
 	}
 
-	paint.Fill(gtx.Ops, rgba(0xDFFFEAFF))
+	if cv.unchanged() && gtx.Constraints == pl.prevFrame.constraints && bitmap == pl.prevFrame.disabledSeries && pl.hideLegends == pl.prevFrame.hideLegends && pl.autoScale == pl.prevFrame.autoScale {
+		pl.prevFrame.call.Add(gtx.Ops)
+		debugCaching(gtx)
+	} else {
+		pl.prevFrame.constraints = gtx.Constraints
+		pl.prevFrame.hideLegends = pl.hideLegends
+		pl.prevFrame.disabledSeries = bitmap
+		pl.prevFrame.autoScale = pl.autoScale
 
-	{
-		r := rtrace.StartRegion(context.Background(), "draw all points")
-		for _, s := range pl.series {
-			if s.disabled {
-				continue
+		origOps := gtx.Ops
+		gtx.Ops = pl.prevFrame.ops.get()
+		macro := op.Record(gtx.Ops)
+		defer func() {
+			call := macro.Stop()
+			call.Add(origOps)
+			pl.prevFrame.call = call
+		}()
+
+		if pl.autoScale {
+			r := rtrace.StartRegion(context.Background(), "auto-scaling")
+			if pl.prevFrame.start != cv.start || pl.prevFrame.end != cv.End() || pl.prevFrame.disabledSeries != bitmap {
+				pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
 			}
-			pl.drawPoints(gtx, cv, s)
+			pl.prevFrame.start = cv.start
+			pl.prevFrame.end = cv.End()
+			r.End()
 		}
-		r.End()
+
+		paint.Fill(gtx.Ops, rgba(0xDFFFEAFF))
+
+		{
+			r := rtrace.StartRegion(context.Background(), "draw all points")
+			for _, s := range pl.series {
+				if s.disabled {
+					continue
+				}
+				pl.drawPoints(gtx, cv, s)
+			}
+			r.End()
+		}
+
+		if !pl.hideLegends {
+			gtx := gtx
+			gtx.Constraints.Min = image.Point{}
+
+			r := rtrace.StartRegion(context.Background(), "legends")
+			// Print legends
+			rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+			})
+			paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
+			paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
+			rec.Layout(win, gtx)
+
+			rec = Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.min, pl.Unit), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+			})
+			defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-rec.Dimensions.Size.Y)).Push(gtx.Ops).Pop()
+			paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
+			paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
+			rec.Layout(win, gtx)
+			r.End()
+		}
 	}
 
 	if pl.click.Hovered() {
@@ -257,29 +305,6 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			items = append(items, item)
 		}
 		win.SetContextMenu(items)
-		r.End()
-	}
-
-	if !pl.hideLegends {
-		gtx := gtx
-		gtx.Constraints.Min = image.Point{}
-
-		r := rtrace.StartRegion(context.Background(), "legends")
-		// Print legends
-		rec := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-		})
-		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
-		paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-		rec.Layout(win, gtx)
-
-		rec = Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.min, pl.Unit), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-		})
-		defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-rec.Dimensions.Size.Y)).Push(gtx.Ops).Pop()
-		paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
-		paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-		rec.Layout(win, gtx)
 		r.End()
 	}
 
