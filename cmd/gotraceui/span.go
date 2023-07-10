@@ -569,7 +569,14 @@ func spanTagStrings(tags ptrace.SpanTags) []string {
 
 var spanListColumns = []theme.TableListColumn{
 	{
-		Name: "Time",
+		// XXX the width depends on the font and scaling
+		Name:     "Span",
+		MinWidth: 80,
+		MaxWidth: 80,
+	},
+
+	{
+		Name: "Start time",
 		// XXX the width depends on the font and scaling
 		MinWidth: 200,
 		MaxWidth: 200,
@@ -618,19 +625,21 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 
 		span := spans.Spans.At(row)
 		switch col {
-		case 0: // Time
-			tb.Link(formatTimestamp(span.Start), span, &SpansObjectLink{
+		case 0:
+			tb.Link("<Span>", span, &SpansObjectLink{
 				Spans: spans.Spans.Slice(row, row+1),
 			})
+		case 1: // Time
+			tb.Link(formatTimestamp(span.Start), span, defaultObjectLink(span.Start))
 			txt.Alignment = text.End
-		case 1: // Duration
+		case 2: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())
 			tb.Span(value)
 			tb.Span(" ")
 			s := tb.Span(unit)
 			s.Font.Variant = "Mono"
 			txt.Alignment = text.End
-		case 2: // State
+		case 3: // State
 			label := stateNamesCapitalized[span.State]
 			tb.Span(label)
 		}
