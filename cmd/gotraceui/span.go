@@ -192,12 +192,13 @@ func (si *SpansInfo) init(win *theme.Window) {
 }
 
 func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramConfig) {
-	var spanDurations []time.Duration
-
-	for i := 0; i < si.spans.MustResult().Len(); i++ {
-		s := si.spans.MustResult().At(i)
+	spans := si.spans.MustResult()
+	n := spans.Len()
+	spanDurations := make([]time.Duration, n)
+	for i := 0; i < n; i++ {
+		s := spans.At(i)
 		d := time.Duration(s.End - s.Start)
-		spanDurations = append(spanDurations, d)
+		spanDurations[i] = d
 	}
 	si.hist.Set(win, spanDurations)
 }
