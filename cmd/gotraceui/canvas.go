@@ -747,10 +747,14 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			case pointer.Scroll:
 				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
 				cv.abortZoomSelection()
-				if ev.Modifiers == 0 {
-					cv.scroll(gtx, ev.Scroll.X, ev.Scroll.Y)
-				} else if ev.Modifiers == key.ModShortcut {
+				switch ev.Modifiers {
+				case key.ModShortcut:
 					cv.zoom(gtx, ev.Scroll.Y, ev.Position)
+				case key.ModShift:
+					// Gio swaps X and Y when Shift is pressed, matching the behavior we desire.
+					fallthrough
+				default:
+					cv.scroll(gtx, ev.Scroll.X, ev.Scroll.Y)
 				}
 			}
 		}
