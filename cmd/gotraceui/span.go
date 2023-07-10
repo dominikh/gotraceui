@@ -169,9 +169,11 @@ func (si *SpansInfo) init(win *theme.Window) {
 	}
 
 	si.statistics = si.cfg.Statistics(win)
-	histCfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
-	// XXX computeHistogram looks at all spans before starting a future; that part should probably be concurrent, too.
-	si.computeHistogram(win, histCfg)
+	if si.cfg.ShowHistogram {
+		// XXX computeHistogram looks at all spans before starting a future; that part should probably be concurrent, too.
+		histCfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
+		si.computeHistogram(win, histCfg)
+	}
 
 	si.state = theme.NewFuture(win, func(cancelled <-chan struct{}) string {
 		firstSpan := spans.At(0)
