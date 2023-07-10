@@ -6,7 +6,6 @@ import (
 	"image"
 	rtrace "runtime/trace"
 	"strings"
-	"sync"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -78,7 +77,7 @@ type SpansInfo struct {
 	duration *theme.Future[time.Duration]
 	state    *theme.Future[string]
 
-	initOnce sync.Once
+	initialized bool
 
 	theme.PanelButtons
 }
@@ -307,7 +306,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	var dims layout.Dimensions
 	spans, haveSpans := si.spans.Result()
 	if haveSpans {
-		si.initOnce.Do(func() { si.init(win) })
+		if !si.initialized {
+			si.init(win)
+			si.initialized = true
+		}
 
 		dims = layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {

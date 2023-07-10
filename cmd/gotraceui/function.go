@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	rtrace "runtime/trace"
 	"strings"
-	"sync"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -37,7 +36,7 @@ type FunctionInfo struct {
 
 	descriptionText Text
 
-	initOnce sync.Once
+	initialized bool
 
 	theme.PanelButtons
 }
@@ -125,7 +124,10 @@ func (fi *FunctionInfo) Title() string {
 func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.FunctionInfo.Layout").End()
 
-	fi.initOnce.Do(func() { fi.init(win) })
+	if !fi.initialized {
+		fi.init(win)
+		fi.initialized = true
+	}
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
