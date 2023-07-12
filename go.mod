@@ -1,6 +1,6 @@
 module honnef.co/go/gotraceui
 
-go 1.20
+go 1.21
 
 require (
 	gioui.org v0.0.0-20230611141527-3bb6cca15710

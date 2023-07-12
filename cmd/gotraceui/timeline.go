@@ -8,6 +8,7 @@ import (
 	rtrace "runtime/trace"
 	"sort"
 	"time"
+	"unsafe"
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/container"
@@ -95,12 +96,116 @@ type SpanTooltipState struct {
 }
 
 type Track struct {
+	parent           *Timeline
 	kind             TrackKind
-	spans            Items[ptrace.Span]
+	spans_           Items[ptrace.Span]
+	compressedSpans  compressedStackSpans
 	events           []ptrace.EventID
 	hideEventMarkers bool
 
 	*TrackWidget
+}
+
+func NewTrack(parent *Timeline, kind TrackKind) *Track {
+	return &Track{
+		parent: parent,
+		kind:   kind,
+	}
+}
+
+func (tr *Track) Spans() Items[ptrace.Span] {
+	if tr.spans_ != nil {
+		return tr.spans_
+	}
+	if tr.compressedSpans.count == 0 {
+		return nil
+	}
+
+	bitunpackByte := func(bits uint8, dst *uint64) {
+		x64 := uint64(bits)
+		x_hi := x64 & 0xFE
+		r_hi := x_hi * 0b10000001000000100000010000001000000100000010000000
+		r := r_hi | x64
+		*dst = r & 0x0101010101010101
+	}
+	bitunpack := func(bits []uint64) []bool {
+		if len(bits) == 0 {
+			return nil
+		}
+		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&bits[0])), len(bits)*8)
+		out := boolSliceCache.Get(len(bytes) * 8)[:len(bytes)*8]
+		for i, v := range bytes {
+			bitunpackByte(v, (*uint64)(unsafe.Pointer(&out[i*8])))
+		}
+		return out
+	}
+
+	n := tr.compressedSpans.count
+	c := &tr.compressedSpans
+
+	startsEnds := uint64SliceCache.Get(n * 2)[:n*2]
+	eventIDs := uint64SliceCache.Get(n)[:n]
+	pcs := uint64SliceCache.Get(n)[:n]
+	nums := uint64SliceCache.Get(n)[:n]
+
+	// OPT(dh): we could reduce memory usage by decoding one property at a time and populating span fields one at a
+	// time. It would, however, increase CPU usage.
+	//
+	// OPT(dh): we could also decode one word at a time, interleaving decoding and constructing spans. This would,
+	// however, increase CPU usage to 1.3x.
+	DecodeUnsafe(c.startsEnds, startsEnds)
+	DecodeUnsafe(c.eventIDs, eventIDs)
+	DecodeUnsafe(c.pcs, pcs)
+	DecodeUnsafe(c.nums, nums)
+
+	deltaZigZagDecode(startsEnds)
+	deltaZigZagDecode(eventIDs)
+	deltaZigZagDecode(pcs)
+	deltaZigZagDecode(nums)
+	isCPUSample := bitunpack(c.isCPUSample)
+
+	spans := spanSliceCache.Get(len(eventIDs))[:len(eventIDs)]
+	metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:len(eventIDs)]
+	for i := range eventIDs {
+		// OPT(dh): mind the bound checks
+		state := ptrace.StateStack
+		if isCPUSample[i] {
+			state = ptrace.StateCPUSample
+		}
+		span := ptrace.Span{
+			Start: trace.Timestamp(startsEnds[i*2]),
+			End:   trace.Timestamp(startsEnds[i*2+1]),
+			Event: ptrace.EventID(eventIDs[i]),
+			State: state,
+		}
+		meta := stackSpanMeta{
+			pc:  pcs[i],
+			num: int(nums[i]),
+		}
+		spans[i] = span
+		metas[i] = meta
+	}
+
+	uint64SliceCache.Put(startsEnds)
+	uint64SliceCache.Put(eventIDs)
+	uint64SliceCache.Put(pcs)
+	uint64SliceCache.Put(nums)
+
+	out := spanAndMetadataSlices[stackSpanMeta]{
+		Items: SimpleItems[ptrace.Span]{
+			items: spans,
+			container: ItemContainer{
+				Timeline: tr.parent,
+				Track:    tr,
+			},
+			subslice: true,
+		},
+		meta: metas,
+	}
+
+	tr.spans_ = out
+	boolSliceCache.Put(isCPUSample)
+	return out
 }
 
 type MetadataSpans[T any] interface {
@@ -229,6 +334,15 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 	for _, track := range tl.tracks {
 		cv.trackWidgetsCache.Put(track.TrackWidget)
 		track.TrackWidget = nil
+		if track.compressedSpans.count != 0 {
+			if spans, ok := track.spans_.(spanAndMetadataSlices[stackSpanMeta]); ok {
+				stackSpanMetaSliceCache.Put(spans.meta)
+				if items, ok := spans.Items.(SimpleItems[ptrace.Span]); ok {
+					spanSliceCache.Put(items.items)
+				}
+			}
+			track.spans_ = nil
+		}
 	}
 	cv.timelineWidgetsCache.Put(tl.TimelineWidget)
 	tl.TimelineWidget = nil
@@ -333,7 +447,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		} else if click.Modifiers == key.ModShortcut {
 			// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 			// assumption to make.
-			tl.navigatedSpans = tl.tracks[0].spans
+			tl.navigatedSpans = tl.tracks[0].Spans()
 		}
 	}
 
@@ -780,7 +894,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		allDspSpans := track.prevFrame.dspSpans[:0]
 		it := renderedSpansIterator{
 			cv:    cv,
-			spans: cv.visibleSpans(track.spans),
+			spans: cv.visibleSpans(track.Spans()),
 		}
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
@@ -803,7 +917,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			unbornUntilPx float32
 			deadFromPx    float32 = visWidthPx
 		)
-		if track.spans.Len() == 0 {
+		// OPT(dh): don't build all spans just to check their length
+		if track.Spans().Len() == 0 {
 			// A track with no spans is similar to a track that's always dead
 			deadFromPx = 0
 		} else {
@@ -811,7 +926,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				// If the first displayed span is also the first overall span, display an indicator that the
 				// goroutine/processor hasn't been created yet.
 				dspFirst := track.prevFrame.dspSpans[0]
-				if dspFirst.dspSpans.At(0) == track.spans.At(0) {
+				if dspFirst.dspSpans.At(0) == track.Spans().At(0) {
 					end := dspFirst.startPx
 					unbornUntilPx = end
 				}
@@ -819,7 +934,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				// If the last displayed span is also the last overall span, display an indicator that the
 				// goroutine/processor is dead.
 				dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
-				if LastSpan(dspLast.dspSpans) == LastSpan(track.spans) {
+				if LastSpan(dspLast.dspSpans) == LastSpan(track.Spans()) {
 					start := dspLast.endPx
 					deadFromPx = start
 				}
@@ -827,8 +942,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			} else {
 				// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
 				// between spans (for processor tracks).
-				born := track.spans.At(0).Start
-				died := LastSpan(track.spans).End
+				born := track.Spans().At(0).Start
+				died := LastSpan(track.Spans()).End
 
 				if cv.start >= died {
 					// The goroutine is dead
@@ -906,7 +1021,6 @@ func singleSpanColor(c colorIndex) func(spans Items[ptrace.Span], tr *Trace) [2]
 
 func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 	tl := &Timeline{
-		tracks:    []*Track{{}},
 		label:     "GC",
 		shortName: "GC",
 
@@ -917,6 +1031,10 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 			}
 		},
 	}
+	tl.tracks = []*Track{
+		NewTrack(tl, TrackKindUnspecified),
+	}
+
 	ss := SimpleItems[ptrace.Span]{
 		items: spans,
 		container: ItemContainer{
@@ -926,7 +1044,7 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 		subslice: true,
 	}
 
-	tl.tracks[0].spans = ss
+	tl.tracks[0].spans_ = ss
 	tl.item = &GC{ss}
 
 	return tl
@@ -934,7 +1052,6 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 
 func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	tl := &Timeline{
-		tracks:    []*Track{{}},
 		label:     "STW",
 		shortName: "STW",
 
@@ -953,6 +1070,9 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 		},
 	}
 
+	tl.tracks = []*Track{
+		NewTrack(tl, TrackKindUnspecified),
+	}
 	ss := SimpleItems[ptrace.Span]{
 		items: spans,
 		container: ItemContainer{
@@ -962,7 +1082,7 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 		subslice: true,
 	}
 
-	tl.tracks[0].spans = ss
+	tl.tracks[0].spans_ = ss
 	tl.item = &STW{ss}
 
 	return tl

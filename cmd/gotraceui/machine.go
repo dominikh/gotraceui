@@ -223,7 +223,6 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	}
 	l := local.Sprintf("Machine %d", m.ID)
 	tl := &Timeline{
-		tracks:    []*Track{{}, {}},
 		item:      m,
 		label:     l,
 		shortName: l,
@@ -254,7 +253,12 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		invalidateCache: machineInvalidateCache,
 	}
 
-	tl.tracks[0].spans = SimpleItems[ptrace.Span]{
+	tl.tracks = []*Track{
+		NewTrack(tl, TrackKindUnspecified),
+		NewTrack(tl, TrackKindUnspecified),
+	}
+
+	tl.tracks[0].spans_ = SimpleItems[ptrace.Span]{
 		items: m.Spans,
 		container: ItemContainer{
 			Timeline: tl,
@@ -262,7 +266,7 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		},
 		subslice: true,
 	}
-	tl.tracks[1].spans = SimpleItems[ptrace.Span]{
+	tl.tracks[1].spans_ = SimpleItems[ptrace.Span]{
 		items: m.Goroutines,
 		container: ItemContainer{
 			Timeline: tl,

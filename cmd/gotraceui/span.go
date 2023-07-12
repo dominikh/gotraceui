@@ -509,7 +509,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					if track.kind != TrackKindUserRegions {
 						continue
 					}
-					filtered := FilterItems(track.spans, func(span *ptrace.Span) bool {
+					filtered := FilterItems(track.Spans(), func(span *ptrace.Span) bool {
 						label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
 						return label == needle
 					})

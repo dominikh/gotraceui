@@ -1431,6 +1431,11 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		p.SetProgressLossy(float64(i+1) / float64(len(tr.Goroutines)))
 	}
 
+	// Clear all of the slice caches used by NewGoroutineTimeline (in particular addstacktracks). They use the caches
+	// with much higher concurrency than rendering tracks will, bloating their sizes.
+	uint64SliceCache.Clear()
+	boolSliceCache.Clear()
+
 	// We no longer need this.
 	tr.CPUSamples = nil
 

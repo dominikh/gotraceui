@@ -217,8 +217,6 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
 	l := local.Sprintf("Processor %d", p.ID)
 	tl := &Timeline{
-		tracks: []*Track{{}},
-
 		buildTrackWidgets: func(tracks []*Track) {
 			for _, track := range tracks {
 				*track.TrackWidget = TrackWidget{
@@ -240,6 +238,9 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 		label:           l,
 		shortName:       l,
 	}
+	tl.tracks = []*Track{
+		NewTrack(tl, TrackKindUnspecified),
+	}
 
 	ss := SimpleItems[ptrace.Span]{
 		items: p.Spans,
@@ -249,7 +250,7 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 		},
 		subslice: true,
 	}
-	tl.tracks[0].spans = ss
+	tl.tracks[0].spans_ = ss
 
 	return tl
 }

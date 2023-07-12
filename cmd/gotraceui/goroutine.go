@@ -6,7 +6,9 @@ import (
 	rtrace "runtime/trace"
 	"strings"
 	"time"
+	"unsafe"
 
+	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -182,21 +184,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		l = local.Sprintf("goroutine %d: %s", g.ID, g.Function.Fn)
 	}
 
-	tl := &Timeline{}
-	track := &Track{}
-	*track = Track{
-		spans: SimpleItems[ptrace.Span]{
-			items: g.Spans,
-			container: ItemContainer{
-				Timeline: tl,
-				Track:    track,
-			},
-			subslice: true,
-		},
-		events: g.Events,
-	}
-	*tl = Timeline{
-		tracks: []*Track{track},
+	tl := &Timeline{
 		buildTrackWidgets: func(tracks []*Track) {
 			stackTrackBase := -1
 			for i, track := range tracks {
@@ -240,13 +228,23 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		shortName: shortName,
 	}
 
+	track := NewTrack(tl, TrackKindUnspecified)
+	track.spans_ = SimpleItems[ptrace.Span]{
+		items: g.Spans,
+		container: ItemContainer{
+			Timeline: tl,
+			Track:    track,
+		},
+		subslice: true,
+	}
+	track.events = g.Events
+	tl.tracks = []*Track{track}
+
 	for _, ug := range g.UserRegions {
-		track := &Track{
-			kind:             TrackKindUserRegions,
-			events:           tl.tracks[0].events,
-			hideEventMarkers: true,
-		}
-		track.spans = SimpleItems[ptrace.Span]{
+		track := NewTrack(tl, TrackKindUserRegions)
+		track.events = tl.tracks[0].events
+		track.hideEventMarkers = true
+		track.spans_ = SimpleItems[ptrace.Span]{
 			items: ug,
 			container: ItemContainer{
 				Timeline: tl,
@@ -584,9 +582,6 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		return
 	}
 
-	var numStackTracks int
-	var trackSpans [][]ptrace.Span
-	var spanMeta [][]stackSpanMeta
 	offSpans := 0
 	offSamples := 0
 	cpuSamples := tr.CPUSamples[g.ID]
@@ -626,8 +621,20 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		}
 	}
 
-	// function name of the previous span, indexed by track index, i.e. stack depth
-	var prevFns []string
+	type track struct {
+		startsEnds  []uint64
+		eventIDs    []uint64
+		pcs         []uint64
+		nums        []uint64
+		isCPUSample []bool
+		prevFn      string
+	}
+	var tracks []track
+	grow := func(n int) {
+		if len(tracks) < n {
+			tracks = slices.Grow(tracks, n-len(tracks))[:n]
+		}
+	}
 	for {
 		evID, isSample, ok := nextEvent(true)
 		if !ok {
@@ -666,12 +673,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 			stk = stk[:64]
 		}
 
-		if len(stk) > numStackTracks {
-			numStackTracks = len(stk)
-		}
-		prevFns = grow(prevFns, len(stk))
-		trackSpans = grow(trackSpans, len(stk))
-		spanMeta = grow(spanMeta, len(stk))
+		grow(len(stk))
 		var end trace.Timestamp
 		if endEvID, _, ok := nextEvent(false); ok {
 			end = tr.Events[endEvID].Ts
@@ -680,66 +682,93 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		}
 
 		for i := 0; i < len(stk); i++ {
-			spans := trackSpans[i]
-			if len(spans) != 0 {
-				prevSpan := &spans[len(spans)-1]
-				prevFn := prevFns[i]
+			track := &tracks[i]
+			if track.eventIDs == nil {
+				// We tried encoding values incrementally, but this had worse memory usage because of slice
+				// growth in append.
+				n := len(g.Spans) + len(cpuSamples)
+				track.startsEnds = uint64SliceCache.Get(2 * n)
+				track.eventIDs = uint64SliceCache.Get(n)
+				track.isCPUSample = boolSliceCache.Get(n)
+				track.pcs = uint64SliceCache.Get(n)
+				track.nums = uint64SliceCache.Get(n)
+			}
+			if len(track.startsEnds) != 0 {
+				// This isn't the first span. Check if we should merge this stack into the previous span.
+				prevFn := track.prevFn
+				prevEnd := trace.Timestamp(last(track.startsEnds))
+				var prevState ptrace.SchedulingState
+				if last(track.isCPUSample) {
+					prevState = ptrace.StateCPUSample
+				} else {
+					prevState = ptrace.StateStack
+				}
 				fn := tr.PCs[stk[len(stk)-i-1]].Fn
-				if prevSpan.End == tr.Events[evID].Ts && prevFn == fn && state == prevSpan.State {
+				if prevEnd == tr.Events[evID].Ts && prevFn == fn && state == prevState {
 					// This is a continuation of the previous span. Merging these can have massive memory usage savings,
 					// which is why we do it here and not during display.
 					//
 					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
 					// data more apparent.
-					prevSpan.End = end
+					*lastPtr(track.startsEnds) = uint64(end)
 					if state == ptrace.StateCPUSample {
-						spanMeta[i][len(spans)-1].num++
+						*lastPtr(track.nums)++
 					}
 				} else {
 					// This is a new span
-					span := ptrace.Span{
-						Start: ev.Ts,
-						End:   end,
-						Event: evID,
-						State: state,
-					}
-					trackSpans[i] = append(trackSpans[i], span)
-					spanMeta[i] = append(spanMeta[i], stackSpanMeta{pc: stk[len(stk)-i-1], num: 1})
-					prevFns[i] = fn
+					track.startsEnds = append(track.startsEnds, uint64(ev.Ts), uint64(end))
+					track.eventIDs = append(track.eventIDs, uint64(evID))
+					track.isCPUSample = append(track.isCPUSample, state == ptrace.StateCPUSample)
+					track.pcs = append(track.pcs, stk[len(stk)-i-1])
+					track.nums = append(track.nums, 1)
+					track.prevFn = fn
 				}
 			} else {
 				// This is the first span
-				span := ptrace.Span{
-					Start: ev.Ts,
-					End:   end,
-					Event: evID,
-					State: state,
-				}
-				trackSpans[i] = append(trackSpans[i], span)
-				spanMeta[i] = append(spanMeta[i], stackSpanMeta{pc: stk[len(stk)-i-1], num: 1})
-				prevFns[i] = tr.PCs[stk[len(stk)-i-1]].Fn
+				track.startsEnds = append(track.startsEnds, uint64(ev.Ts), uint64(end))
+				track.eventIDs = append(track.eventIDs, uint64(evID))
+				track.isCPUSample = append(track.isCPUSample, state == ptrace.StateCPUSample)
+				track.pcs = append(track.pcs, stk[len(stk)-i-1])
+				track.nums = append(track.nums, 1)
+				track.prevFn = tr.PCs[stk[len(stk)-i-1]].Fn
 			}
 		}
 	}
 
-	stackTracks := make([]*Track, numStackTracks)
-	for i := range stackTracks {
-		track := new(Track)
-		*track = Track{
-			kind: TrackKindStack,
-			spans: spanAndMetadataSlices[stackSpanMeta]{
-				Items: SimpleItems[ptrace.Span]{
-					items: trackSpans[i],
-					container: ItemContainer{
-						Timeline: tl,
-						Track:    track,
-					},
-					subslice: true,
-				},
-				meta: spanMeta[i],
-			},
+	bitpack := func(bs []bool) []uint64 {
+		out := make([]uint64, (len(bs)+63)/64)
+		for i, b := range bs {
+			out[i/64] |= uint64(*(*byte)(unsafe.Pointer(&b))) << (i % 64)
 		}
-		stackTracks[i] = track
+		return out
+	}
+
+	dup := func(in []uint64) []uint64 {
+		out := make([]uint64, len(in))
+		copy(out, in)
+		uint64SliceCache.Put(in)
+		return out
+	}
+	stackTracks := make([]*Track, len(tracks))
+	for i, track := range tracks {
+		deltaZigZagEncode(track.startsEnds)
+		deltaZigZagEncode(track.eventIDs)
+		deltaZigZagEncode(track.pcs)
+		deltaZigZagEncode(track.nums)
+
+		tr := NewTrack(tl, TrackKindStack)
+		tr.compressedSpans = compressedStackSpans{
+			count: len(track.eventIDs),
+			// We can encode in place because n >= 1 values are consumed to produce one value of output.
+			// This lets us avoid runtime.growslice. Instead, we copy the slice once when we're done.
+			startsEnds:  dup(Encode(track.startsEnds, track.startsEnds[:0])),
+			eventIDs:    dup(Encode(track.eventIDs, track.eventIDs[:0])),
+			pcs:         dup(Encode(track.pcs, track.pcs[:0])),
+			nums:        dup(Encode(track.nums, track.nums[:0])),
+			isCPUSample: bitpack(track.isCPUSample),
+		}
+		boolSliceCache.Put(track.isCPUSample)
+		stackTracks[i] = tr
 	}
 
 	tl.tracks = append(tl.tracks, stackTracks...)
