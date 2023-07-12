@@ -250,7 +250,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 			items: ug,
 			container: ItemContainer{
 				Timeline: tl,
-				Track:    tl.tracks[len(tl.tracks)-1],
+				Track:    track,
 			},
 			subslice: true,
 		}
@@ -724,20 +724,22 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 
 	stackTracks := make([]*Track, numStackTracks)
 	for i := range stackTracks {
-		stackTracks[i] = &Track{
+		track := new(Track)
+		*track = Track{
 			kind: TrackKindStack,
 			spans: spanAndMetadataSlices[stackSpanMeta]{
 				Items: SimpleItems[ptrace.Span]{
 					items: trackSpans[i],
 					container: ItemContainer{
 						Timeline: tl,
-						Track:    stackTracks[i],
+						Track:    track,
 					},
 					subslice: true,
 				},
 				meta: spanMeta[i],
 			},
 		}
+		stackTracks[i] = track
 	}
 
 	tl.tracks = append(tl.tracks, stackTracks...)
