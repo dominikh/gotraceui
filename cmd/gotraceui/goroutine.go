@@ -5,6 +5,7 @@ import (
 	"fmt"
 	rtrace "runtime/trace"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -187,45 +188,70 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	tl := &Timeline{
 		buildTrackWidgets: func(tracks []*Track) {
 			stackTrackBase := -1
+			step := len(tracks)
+			maxG := 1
+			if len(tracks) >= 4 {
+				step = len(tracks) / 4
+				maxG = 4
+			}
 			for i, track := range tracks {
-				i := i
-
-				switch track.kind {
-				case TrackKindUnspecified:
-					*track.TrackWidget = TrackWidget{
-						spanLabel:       goroutineTrack0SpanLabel,
-						spanTooltip:     goroutineSpanTooltip,
-						spanContextMenu: goroutineTrack0SpanContextMenu,
-					}
-
-				case TrackKindUserRegions:
-					*track.TrackWidget = TrackWidget{
-						spanLabel:   userRegionSpanLabel,
-						spanTooltip: userRegionSpanTooltip,
-						spanColor:   singleSpanColor(colorStateUserRegion),
-					}
-
-				case TrackKindStack:
-					if stackTrackBase == -1 {
-						stackTrackBase = i
-					}
-					*track.TrackWidget = TrackWidget{
-						// TODO(dh): should we highlight hovered spans that share the same function?
-						spanLabel:   stackSpanLabel,
-						spanTooltip: stackSpanTooltip(i - stackTrackBase),
-						spanColor: func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
-							if spans.Len() == 1 {
-								return [2]colorIndex{stateColors[spans.At(0).State], 0}
-							} else {
-								return [2]colorIndex{colorStateStack, colorStateMerged}
-							}
-						},
-					}
-
-				default:
-					panic(fmt.Sprintf("unexpected timeline track kind %d", track.kind))
+				if track.kind == TrackKindStack {
+					stackTrackBase = i
+					break
 				}
 			}
+			var wg sync.WaitGroup
+			wg.Add(maxG)
+			for g := 0; g < maxG; g++ {
+				g := g
+				go func() {
+					defer wg.Done()
+
+					var subset []*Track
+					if g < maxG-1 {
+						subset = tracks[g*step : (g+1)*step]
+					} else {
+						subset = tracks[g*step:]
+					}
+					for i, track := range subset {
+						i += g * step
+						switch track.kind {
+						case TrackKindUnspecified:
+							*track.TrackWidget = TrackWidget{
+								spanLabel:       goroutineTrack0SpanLabel,
+								spanTooltip:     goroutineSpanTooltip,
+								spanContextMenu: goroutineTrack0SpanContextMenu,
+							}
+
+						case TrackKindUserRegions:
+							*track.TrackWidget = TrackWidget{
+								spanLabel:   userRegionSpanLabel,
+								spanTooltip: userRegionSpanTooltip,
+								spanColor:   singleSpanColor(colorStateUserRegion),
+							}
+
+						case TrackKindStack:
+							track.spans_ = track.Spans()
+							*track.TrackWidget = TrackWidget{
+								// TODO(dh): should we highlight hovered spans that share the same function?
+								spanLabel:   stackSpanLabel,
+								spanTooltip: stackSpanTooltip(i - stackTrackBase),
+								spanColor: func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
+									if spans.Len() == 1 {
+										return [2]colorIndex{stateColors[spans.At(0).State], 0}
+									} else {
+										return [2]colorIndex{colorStateStack, colorStateMerged}
+									}
+								},
+							}
+
+						default:
+							panic(fmt.Sprintf("unexpected timeline track kind %d", track.kind))
+						}
+					}
+				}()
+			}
+			wg.Wait()
 		},
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return GoroutineTooltip{g, cv.trace}.Layout(win, gtx)
