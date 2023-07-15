@@ -17,6 +17,7 @@ import (
 	rtrace "runtime/trace"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -44,6 +45,7 @@ import (
 	"gioui.org/x/component"
 	"gioui.org/x/explorer"
 	"gioui.org/x/styledtext"
+	"golang.org/x/exp/slices"
 	"golang.org/x/text/message"
 )
 
@@ -1426,10 +1428,34 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	}
 
 	p.SetProgressStage(7)
-	for i, g := range tr.Goroutines {
-		timelines = append(timelines, NewGoroutineTimeline(tr, cv, g))
-		p.SetProgressLossy(float64(i+1) / float64(len(tr.Goroutines)))
+	maxprocs := runtime.GOMAXPROCS(0)
+	maxG := min(maxprocs, len(tr.Goroutines))
+	step := len(tr.Goroutines) / maxG
+	var wg sync.WaitGroup
+	wg.Add(maxprocs)
+	baseTimeline := len(timelines)
+	timelines = slices.Grow(timelines, len(tr.Goroutines))[:len(timelines)+len(tr.Goroutines)]
+	var progress atomic.Uint64
+	for i := 0; i < maxG; i++ {
+		i := i
+
+		go func() {
+			defer wg.Done()
+			var subset []*ptrace.Goroutine
+			if i < maxG-1 {
+				subset = tr.Goroutines[i*step : (i+1)*step]
+			} else {
+				subset = tr.Goroutines[i*step:]
+			}
+
+			for j, g := range subset {
+				timelines[baseTimeline+i*step+j] = NewGoroutineTimeline(tr, cv, g)
+				pr := progress.Add(1)
+				p.SetProgressLossy(float64(pr) / float64(len(tr.Goroutines)))
+			}
+		}()
 	}
+	wg.Wait()
 
 	// Clear all of the slice caches used by NewGoroutineTimeline (in particular addstacktracks). They use the caches
 	// with much higher concurrency than rendering tracks will, bloating their sizes.
