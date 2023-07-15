@@ -17,7 +17,6 @@ import (
 	rtrace "runtime/trace"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -26,6 +25,7 @@ import (
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -1428,34 +1428,17 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	}
 
 	p.SetProgressStage(7)
-	maxprocs := runtime.GOMAXPROCS(0)
-	maxG := min(maxprocs, len(tr.Goroutines))
-	step := len(tr.Goroutines) / maxG
-	var wg sync.WaitGroup
-	wg.Add(maxprocs)
 	baseTimeline := len(timelines)
 	timelines = slices.Grow(timelines, len(tr.Goroutines))[:len(timelines)+len(tr.Goroutines)]
 	var progress atomic.Uint64
-	for i := 0; i < maxG; i++ {
-		i := i
-
-		go func() {
-			defer wg.Done()
-			var subset []*ptrace.Goroutine
-			if i < maxG-1 {
-				subset = tr.Goroutines[i*step : (i+1)*step]
-			} else {
-				subset = tr.Goroutines[i*step:]
-			}
-
-			for j, g := range subset {
-				timelines[baseTimeline+i*step+j] = NewGoroutineTimeline(tr, cv, g)
-				pr := progress.Add(1)
-				p.SetProgressLossy(float64(pr) / float64(len(tr.Goroutines)))
-			}
-		}()
-	}
-	wg.Wait()
+	mysync.Distribute(tr.Goroutines, 0, func(group int, step int, subitems []*ptrace.Goroutine) error {
+		for j, g := range subitems {
+			timelines[baseTimeline+group*step+j] = NewGoroutineTimeline(tr, cv, g)
+			pr := progress.Add(1)
+			p.SetProgressLossy(float64(pr) / float64(len(tr.Goroutines)))
+		}
+		return nil
+	})
 
 	// Clear all of the slice caches used by NewGoroutineTimeline (in particular addstacktracks). They use the caches
 	// with much higher concurrency than rendering tracks will, bloating their sizes.
