@@ -213,6 +213,13 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 						// TODO(dh): should we highlight hovered spans that share the same function?
 						spanLabel:   stackSpanLabel,
 						spanTooltip: stackSpanTooltip(i - stackTrackBase),
+						spanColor: func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
+							if spans.Len() == 1 {
+								return [2]colorIndex{stateColors[spans.At(0).State], 0}
+							} else {
+								return [2]colorIndex{colorStateStack, colorStateMerged}
+							}
+						},
 					}
 
 				default:
