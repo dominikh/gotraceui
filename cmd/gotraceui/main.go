@@ -501,7 +501,9 @@ type MainMenu struct {
 	}
 
 	Debug struct {
-		Memprofile theme.MenuItem
+		Memprofile   theme.MenuItem
+		GC           theme.MenuItem
+		FreeOSMemory theme.MenuItem
 	}
 
 	menu *theme.Menu
@@ -524,6 +526,8 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &mwin.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
+	m.Debug.GC = theme.MenuItem{Label: PlainLabel("Force garbage collection")}
+	m.Debug.FreeOSMemory = theme.MenuItem{Label: PlainLabel("Force garbage collection & return unused memory to OS")}
 
 	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap"), Disabled: notMainDisabled}
 
@@ -575,6 +579,8 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 			Label: "Debug",
 			Items: []theme.Widget{
 				theme.NewMenuItemStyle(win.Theme, &m.Debug.Memprofile).Layout,
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.GC).Layout,
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.FreeOSMemory).Layout,
 			},
 		})
 	}
@@ -877,6 +883,18 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							} else {
 								win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
 							}
+						}
+						if mainMenu.Debug.GC.Clicked() {
+							win.Menu.Close()
+							start := time.Now()
+							runtime.GC()
+							d := time.Since(start)
+							win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
+						}
+						if mainMenu.Debug.FreeOSMemory.Clicked() {
+							win.Menu.Close()
+							rdebug.FreeOSMemory()
+							win.ShowNotification(gtx, "Returned unused memory to OS")
 						}
 
 						if mwin.panel != nil {
