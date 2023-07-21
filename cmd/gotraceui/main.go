@@ -241,6 +241,8 @@ type MainWindow struct {
 	explorer        *explorer.Explorer
 	showingExplorer atomic.Bool
 
+	cpuProfile *os.File
+
 	// Channel used by goroutines to report critical errors.
 	errs chan error
 
@@ -502,6 +504,7 @@ type MainMenu struct {
 
 	Debug struct {
 		Memprofile   theme.MenuItem
+		Cpuprofile   theme.MenuItem
 		GC           theme.MenuItem
 		FreeOSMemory theme.MenuItem
 	}
@@ -526,6 +529,13 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &mwin.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
 
 	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
+	m.Debug.Cpuprofile = theme.MenuItem{Label: func() string {
+		if mwin.cpuProfile == nil {
+			return "Start CPU profile"
+		} else {
+			return "Stop CPU profile"
+		}
+	}}
 	m.Debug.GC = theme.MenuItem{Label: PlainLabel("Force garbage collection")}
 	m.Debug.FreeOSMemory = theme.MenuItem{Label: PlainLabel("Force garbage collection & return unused memory to OS")}
 
@@ -578,6 +588,7 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
 			Label: "Debug",
 			Items: []theme.Widget{
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.Cpuprofile).Layout,
 				theme.NewMenuItemStyle(win.Theme, &m.Debug.Memprofile).Layout,
 				theme.NewMenuItemStyle(win.Theme, &m.Debug.GC).Layout,
 				theme.NewMenuItemStyle(win.Theme, &m.Debug.FreeOSMemory).Layout,
@@ -863,6 +874,37 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						if mainMenu.Analyze.OpenHeatmap.Clicked() {
 							win.Menu.Close()
 							mwin.openHeatmap()
+						}
+						if mainMenu.Debug.Cpuprofile.Clicked() {
+							win.Menu.Close()
+							if mwin.cpuProfile != nil {
+								pprof.StopCPUProfile()
+								if err := mwin.cpuProfile.Close(); err == nil {
+									win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
+								} else {
+									win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
+								}
+								mwin.cpuProfile = nil
+							} else {
+								f, path, err := func() (*os.File, string, error) {
+									path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
+									f, err := os.Create(path)
+									if err != nil {
+										return nil, "", err
+									}
+									if err := pprof.StartCPUProfile(f); err != nil {
+										f.Close()
+										return nil, "", err
+									}
+									return f, path, nil
+								}()
+								if err == nil {
+									win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
+								} else {
+									win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
+								}
+								mwin.cpuProfile = f
+							}
 						}
 						if mainMenu.Debug.Memprofile.Clicked() {
 							win.Menu.Close()
