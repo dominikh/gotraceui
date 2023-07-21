@@ -144,6 +144,8 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 	c := &tr.compressedSpans
 
 	startsEnds := uint64SliceCache.Get(n * 2)[:n*2]
+	// eventIDs, pcs, and nums share the same slice length, which eliminates bounds checking when we loop over the
+	// indices of eventIDs and use them to index the other slices.
 	eventIDs := uint64SliceCache.Get(n)[:n]
 	pcs := uint64SliceCache.Get(n)[:n]
 	nums := uint64SliceCache.Get(n)[:n]
@@ -162,10 +164,15 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 	deltaZigZagDecode(eventIDs)
 	deltaZigZagDecode(pcs)
 	deltaZigZagDecode(nums)
-	isCPUSample := bitunpack(c.isCPUSample)
+	// We slice isCPUSample to [:n] to eliminate bounds checking.
+	isCPUSample := bitunpack(c.isCPUSample)[:n]
 
-	spans := spanSliceCache.Get(len(eventIDs))[:len(eventIDs)]
-	metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:len(eventIDs)]
+	// spans and metas share the slice length of eventIDs, eliminating bounds checking.
+	spans := spanSliceCache.Get(len(eventIDs))[:n]
+	metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:n]
+
+	// startsEndsPairwise and eventIDs have the same length, eliminating bounds checking.
+	startsEndsPairwise := unsafe.Slice((*[2]uint64)(unsafe.Pointer(&startsEnds[0])), n)[:n]
 	for i := range eventIDs {
 		// OPT(dh): mind the bound checks
 		state := ptrace.StateStack
@@ -173,8 +180,8 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 			state = ptrace.StateCPUSample
 		}
 		span := ptrace.Span{
-			Start: trace.Timestamp(startsEnds[i*2]),
-			End:   trace.Timestamp(startsEnds[i*2+1]),
+			Start: trace.Timestamp(startsEndsPairwise[i][0]),
+			End:   trace.Timestamp(startsEndsPairwise[i][1]),
 			Event: ptrace.EventID(eventIDs[i]),
 			State: state,
 		}
