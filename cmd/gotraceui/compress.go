@@ -39,11 +39,11 @@ var sizes = [16]int{
 }
 
 // DecodeUnsafe is like Decode, but expects out to be big enough to hold all decoded values.
-func DecodeUnsafe(v []uint64, out []uint64) {
+func DecodeUnsafe(v []uint64, out *uint64) {
 	if len(v) == 0 {
 		return
 	}
-	outPtr := unsafe.Pointer(&out[0])
+	outPtr := unsafe.Pointer(out)
 	var prevN uintptr
 	for _, e := range v {
 		// We have to increment the pointer at the beginning of the iteration, not the end. Otherwise, on the final
@@ -135,12 +135,15 @@ func DecodeUnsafe(v []uint64, out []uint64) {
 }
 
 func Decode(v []uint64, out []uint64) []uint64 {
+	if len(v) == 0 {
+		return out
+	}
 	var n int
 	for _, e := range v {
 		n += sizes[e&0b1111]
 	}
 	out = slices.Grow(out[:0], n)[:n]
-	DecodeUnsafe(v, out)
+	DecodeUnsafe(v, &out[0])
 	return out
 }
 

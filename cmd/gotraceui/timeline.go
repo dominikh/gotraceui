@@ -141,6 +141,12 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 	}
 
 	n := tr.compressedSpans.count
+	if n == 0 || n*2 == 0 {
+		// This is unreachable and only aids the bounds checker, eliminating bounds checks in calls to DecodeUnsafe for
+		// the second argument.
+		return nil
+	}
+
 	c := &tr.compressedSpans
 
 	startsEnds := uint64SliceCache.Get(n * 2)[:n*2]
@@ -155,10 +161,10 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 	//
 	// OPT(dh): we could also decode one word at a time, interleaving decoding and constructing spans. This would,
 	// however, increase CPU usage to 1.3x.
-	DecodeUnsafe(c.startsEnds, startsEnds)
-	DecodeUnsafe(c.eventIDs, eventIDs)
-	DecodeUnsafe(c.pcs, pcs)
-	DecodeUnsafe(c.nums, nums)
+	DecodeUnsafe(c.startsEnds, &startsEnds[0])
+	DecodeUnsafe(c.eventIDs, &eventIDs[0])
+	DecodeUnsafe(c.pcs, &pcs[0])
+	DecodeUnsafe(c.nums, &nums[0])
 
 	deltaZigZagDecode(startsEnds)
 	deltaZigZagDecode(eventIDs)

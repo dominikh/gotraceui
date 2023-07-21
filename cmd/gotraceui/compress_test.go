@@ -44,7 +44,7 @@ func BenchmarkDecode(b *testing.B) {
 	out := make([]uint64, len(benchNums))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		DecodeUnsafe(encoded, out)
+		DecodeUnsafe(encoded, &out[0])
 	}
 	b.ReportMetric(float64(len(benchNums)*b.N)/float64(b.Elapsed().Nanoseconds()), "ints/ns")
 }
@@ -170,7 +170,7 @@ func TestEncode(t *testing.T) {
 		encoded := Encode(in, nil)
 		decoded := make([]uint64, len(in))
 		j := 0
-		DecodeUnsafe(encoded, decoded)
+		DecodeUnsafe(encoded, &decoded[0])
 		for _, d := range decoded {
 			if d != in[j] {
 				t.Fatalf("decoded value %d is %d, expected %d. seed: %d", j, d, in[j], seed)
