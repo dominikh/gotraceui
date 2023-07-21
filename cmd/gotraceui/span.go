@@ -432,11 +432,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	} else {
 		dims = layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				type button struct {
-					w     *widget.Clickable
-					label string
-				}
-
 				children := []layout.FlexChild{
 					layout.Flexed(1, nothing),
 					layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)),

@@ -180,13 +180,6 @@ func (items MergedItems[T]) AtPtr(idx int) *T {
 	return items.bases[a].AtPtr(b)
 }
 
-func (items *MergedItems[T]) initializeEnd() {
-	items.end = 0
-	for _, s := range items.bases {
-		items.end += s.Len()
-	}
-}
-
 func (items MergedItems[T]) Len() int {
 	return items.end - items.start
 }
