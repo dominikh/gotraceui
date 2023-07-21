@@ -146,7 +146,10 @@ func processorTrackSpanColor(spans Items[ptrace.Span], tr *Trace) (out [2]colorI
 	)
 
 	tl.spanColorCache.FindIter(spans.At(0).Start, spans.At(spans.Len()-1).End, func(node *container.RBNode[container.Interval[trace.Timestamp], container.Value[trace.Timestamp, [2]colorIndex]]) bool {
-		ival := container.Interval[trace.Timestamp]{spans.At(0).Start, spans.At(spans.Len() - 1).End}
+		ival := container.Interval[trace.Timestamp]{
+			Min: spans.At(0).Start,
+			Max: spans.At(spans.Len() - 1).End,
+		}
 		if node.Key.SupersetOf(ival) {
 			if node.Value.Value[1] != 0 {
 				cached = node.Value.Value
