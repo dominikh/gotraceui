@@ -465,62 +465,82 @@ func Encode(in []uint64, out []uint64) []uint64 {
 	return out
 }
 
-// The number of bits that can effectively be used in a word, as a mapping from width per encoded
-// integer to available bits. We use 4 of the 64 bits for the selector. The remaining 60 bits are
-// used for packing integers. Because all integers in a word have the same width, and 60 isn't
-// divisible by all possible widths, we sometimes waste some bits.
-//
-// The first entry is a special case: when encoding runs of zeros, we need zero bits per integer.
-// This allows us to pack 120 or 240 zeros into one word. The 240 case is handled conditionally.
-var availableBits = [256]uint8{
-	120, 60, 60, 60, 60, 60, 60, 56, 56, 54, 60, 55, 60, 52, 56, 60, 48, 51, 54, 57, 60,
-	42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-	41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
-}
-
+// bitsToCount maps from width to how many numbers we need to fill a word.
 var bitsToCount = [256]uint8{
-	120, 60, 30, 20, 15, 12, 10, 8, 7, 6, 6, 5, 5, 4, 4, 4, 3, 3, 3, 3, 3,
+	240, 60, 30, 20, 15, 12, 10, 8, 7, 6, 6, 5, 5, 4, 4, 4, 3, 3, 3, 3, 3,
 	2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 }
 
+// The first phase of the packing algorithm figures out how many bits we need to encode the largest
+// integer in a group, and how many numbers we have for that group. It can happen that we have fewer
+// numbers than is needed to fill a word at the given width. For example, the input {1, 1} needs one
+// bit per number, but encoding a word at that width would require 60 numbers. Since we have only
+// two numbers, we need to choose a larger width, namely 30.
+//
+// This table maps from the actual count to the count we have to use instead.
+var countToCount = [256]uint8{
+	0, 1, 2, 3, 4, 5, 6, 6, 7, 7,
+	10, 10, 12, 12, 12, 15, 15, 15, 15, 15,
+	20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
+	30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
+	30, 30, 30, 30, 30, 30, 30, 30, 30, 30,
+	30, 30, 30, 30, 30, 30, 30, 30, 30, 60,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+	120, 120, 120, 120, 120, 120,
+}
+
+// pack takes a slice of integers and returns how many of them can be packed into a single word.
 func pack(in []uint64) uint8 {
+	if len(in) > 240 {
+		in = in[:240]
+	}
+
 	countBits := func(n uint64) uint8 {
 		return uint8(64 - bits.LeadingZeros64(n))
 	}
 
-	var count uint8
 	var numBits uint8
-
-	count = 1
-	numBits = countBits(in[0])
-
-	for i, num := range in {
-		if i == 0 {
-			continue
-		}
+	var count uint8
+	var num uint64
+	for count = 0; count < uint8(len(in)); count++ {
+		// Check which width we'd have to select to include the next number
+		num = in[count]
 		req := max(countBits(num), numBits)
-		if (count+1)*req > availableBits[req] || count == 240 {
+		// Check if given the selected width we'd still have room for the number
+		if count+1 > bitsToCount[req] {
 			break
 		}
-		count++
 		numBits = req
 	}
 
-	for count < bitsToCount[numBits] {
-		numBits++
+	if count < 120 {
+		// If we have too few numbers to fill the word at the minimum width, choose the next larger
+		// width that we can fill.
+		return countToCount[count]
+	} else if count < 240 {
+		return 120
+	} else {
+		return 240
 	}
-
-	if numBits == 0 {
-		if count == 240 {
-			return 240
-		} else {
-			return 120
-		}
-	}
-
-	count = bitsToCount[numBits]
-	return count
 }
 
 func pack240(in *[240]uint64) uint64 { return 0 }

@@ -179,3 +179,41 @@ func TestEncode(t *testing.T) {
 		}
 	}
 }
+
+func TestPack(t *testing.T) {
+	tests := []struct {
+		in  []uint64
+		out uint8
+	}{
+		{
+			make([]uint64, 120),
+			120,
+		},
+		{
+			make([]uint64, 240),
+			240,
+		},
+		{
+			make([]uint64, 245),
+			240,
+		},
+		{
+			make([]uint64, 125),
+			120,
+		},
+		{
+			[]uint64{0},
+			1,
+		},
+		{
+			[]uint64{0, 1},
+			2,
+		},
+	}
+
+	for i, tt := range tests {
+		if n := pack(tt.in); n != tt.out {
+			t.Errorf("%d: got %d, expected %d", i, n, tt.out)
+		}
+	}
+}
