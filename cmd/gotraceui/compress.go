@@ -373,13 +373,25 @@ func unpack1(v uint64, b *[1]uint64) {
 }
 
 func Encode(in []uint64, out []uint64) []uint64 {
-	ptrIn := unsafe.SliceData(in)
+	if len(in) == 0 {
+		return nil
+	}
+
+	reallyUnsafeSlice := func(ptr unsafe.Pointer, n int) []uint64 {
+		type slice struct {
+			data     unsafe.Pointer
+			len, cap int
+		}
+		return *(*[]uint64)(unsafe.Pointer(&slice{ptr, n, n}))
+	}
+
+	ptrIn := unsafe.Pointer(&in[0])
 	var prevN uintptr
 	for left := len(in); left > 0; left -= int(prevN) {
 		// We have to increment the pointer at the beginning of the iteration, not the end. Otherwise, on the final
 		// iteration, we'll compute a pointer that points at memory after the slice data. This gets flagged by checkptr.
-		ptrIn = (*uint64)(unsafe.Pointer(uintptr(unsafe.Pointer(ptrIn)) + prevN*8))
-		num := pack(unsafe.Slice(ptrIn, left))
+		ptrIn = unsafe.Add(ptrIn, prevN*8)
+		num := pack(reallyUnsafeSlice(ptrIn, left))
 		switch num {
 		case 0:
 			panic("unreachable")
