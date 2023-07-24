@@ -359,9 +359,6 @@ func (f *timelineFilter) Filter(item theme.ListWindowItem) bool {
 // OpenTrace initiates loading of a trace. It changes the state to loadingTrace, loads the trace, and notifies the
 // window when it's done. OpenTrace should be called from a different goroutine than the render loop.
 func (mwin *MainWindow) OpenTrace(r io.Reader) {
-	// Unset the memory limit in case we've already loaded a trace but this trace needs more memory.
-	rdebug.SetMemoryLimit(-1)
-
 	mwin.SetState("loadingTrace")
 	res, err := loadTrace(r, mwin, &mwin.canvas)
 	if memprofileLoad != "" {
@@ -380,24 +377,6 @@ func (mwin *MainWindow) OpenTrace(r io.Reader) {
 		return
 	}
 
-	// At this point we've allocated most long-lived memory. For large traces, the GC goal will be a lot higher than the
-	// memory needed for the "static" data, causing our memory usage to grow a lot over time as we make short-lived
-	// allocations when rendering frames. To avoid this we get the current memory usage, add a GiB on top, and set that as
-	// the soft memory limit. Go will try to stay within the limit, which should be easy in our case, as each frame
-	// produces a modest amount of garbage.
-	//
-	// It doesn't matter if our soft limit is vastly higher than the GC goal (which happens if the loaded trace was very
-	// small), as the memory limit doesn't disable or overwrite the GC goal. That is, if memory usage is 50 MiB, we set
-	// the limit to 1074 MiB, and the GC goal is 100 MiB, then Go will still try to stay within the 100 MiB limit.
-	//
-	// There are only two cases in which this memory limit could lead to the GC running too often: if our set of
-	// long-lived allocations grows a lot, or if we allocate 1 GiB of short-lived allocations in a very short time. The
-	// former would be a bug, and the latter would ultimately lead to bad performance, anyway.
-	runtime.GC()
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	limit := int64(mem.Sys-mem.HeapReleased) + 1024*1024*1024 // 1 GiB
-	rdebug.SetMemoryLimit(limit)
 	mwin.LoadTrace(res)
 }
 
