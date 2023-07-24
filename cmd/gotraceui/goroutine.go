@@ -8,7 +8,6 @@ import (
 	"time"
 	"unsafe"
 
-	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
@@ -589,6 +588,22 @@ type stackSpanMeta struct {
 	num int
 }
 
+func ensureLen[S ~[]E, E any](s S, n int) S {
+	if len(s) >= n {
+		return s[:n]
+	} else {
+		return append(s, make([]E, n-len(s))...)
+	}
+}
+
+func ensureAtLeastLen[S ~[]E, E any](s S, n int) S {
+	if len(s) >= n {
+		return s
+	} else {
+		return append(s, make([]E, n-len(s))...)
+	}
+}
+
 func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	if g.Function.Fn == "runtime.bgsweep" {
 		// Go <=1.19 has a lot of spans in runtime.bgsweep, but the stacks are utterly uninteresting, containing only a
@@ -644,11 +659,6 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		prevFn      string
 	}
 	var tracks []track
-	grow := func(n int) {
-		if len(tracks) < n {
-			tracks = slices.Grow(tracks, n-len(tracks))[:n]
-		}
-	}
 	for {
 		evID, isSample, ok := nextEvent(true)
 		if !ok {
@@ -687,7 +697,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 			stk = stk[:64]
 		}
 
-		grow(len(stk))
+		tracks = ensureAtLeastLen(tracks, len(stk))
 		var end trace.Timestamp
 		if endEvID, _, ok := nextEvent(false); ok {
 			end = tr.Events[endEvID].Ts
