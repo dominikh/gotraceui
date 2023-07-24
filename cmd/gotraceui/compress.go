@@ -397,67 +397,67 @@ func Encode(in []uint64, out []uint64) []uint64 {
 			panic("unreachable")
 		case 1:
 			const n = 1
-			out = append(out, pack1((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack1((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 2:
 			const n = 2
-			out = append(out, pack2((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack2((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 3:
 			const n = 3
-			out = append(out, pack3((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack3((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 4:
 			const n = 4
-			out = append(out, pack4((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack4((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 5:
 			const n = 5
-			out = append(out, pack5((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack5((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 6:
 			const n = 6
-			out = append(out, pack6((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack6((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 7:
 			const n = 7
-			out = append(out, pack7((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack7((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 8:
 			const n = 8
-			out = append(out, pack8((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack8((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 10:
 			const n = 10
-			out = append(out, pack10((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack10((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 12:
 			const n = 12
-			out = append(out, pack12((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack12((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 15:
 			const n = 15
-			out = append(out, pack15((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack15((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 20:
 			const n = 20
-			out = append(out, pack20((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack20((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 30:
 			const n = 30
-			out = append(out, pack30((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack30((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 60:
 			const n = 60
-			out = append(out, pack60((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack60((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 120:
 			const n = 120
-			out = append(out, pack120((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack120((*[n]uint64)(ptrIn)))
 			prevN = n
 		case 240:
 			const n = 240
-			out = append(out, pack240((*[n]uint64)(unsafe.Pointer(ptrIn))))
+			out = append(out, pack240((*[n]uint64)(ptrIn)))
 			prevN = n
 		}
 	}
