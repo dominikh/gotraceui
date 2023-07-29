@@ -99,6 +99,7 @@ func debugCaching(gtx layout.Context) {
 const supportMachineTimelines = false
 
 var (
+	softDebug          bool
 	cpuprofile         string
 	memprofileLoad     string
 	memprofileExit     string
@@ -563,7 +564,7 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 		},
 	}
 
-	if debug {
+	if softDebug {
 		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
 			Label: "Debug",
 			Items: []theme.Widget{
@@ -1244,6 +1245,7 @@ func isZeroValue(f *flag.Flag, value string) bool {
 
 func main() {
 	flag.Usage = usage("gotraceui", flag.CommandLine)
+	flag.BoolVar(&softDebug, "debug", debug, "Enable basic debug functionality")
 	flag.StringVar(&cpuprofile, "debug.cpuprofile", "", "write CPU profile to this file")
 	flag.StringVar(&memprofileLoad, "debug.memprofile-load", "", "write memory profile to this file after loading trace")
 	flag.StringVar(&memprofileExit, "debug.memprofile-exit", "", "write meory profile to this file when exiting")
