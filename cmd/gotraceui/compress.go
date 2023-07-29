@@ -4,6 +4,8 @@ import (
 	"math/bits"
 	"unsafe"
 
+	myunsafe "honnef.co/go/gotraceui/unsafe"
+
 	"golang.org/x/exp/slices"
 )
 
@@ -382,7 +384,7 @@ func Encode(in []uint64, out []uint64) []uint64 {
 			data     unsafe.Pointer
 			len, cap int
 		}
-		return *(*[]uint64)(unsafe.Pointer(&slice{ptr, n, n}))
+		return myunsafe.Cast[[]uint64](slice{ptr,n,n})
 	}
 
 	ptrIn := unsafe.Pointer(&in[0])

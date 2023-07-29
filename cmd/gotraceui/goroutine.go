@@ -13,6 +13,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	myunsafe "honnef.co/go/gotraceui/unsafe"
 )
 
 var stateNames = [ptrace.StateLast]string{
@@ -762,6 +763,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	bitpack := func(bs []bool) []uint64 {
 		out := make([]uint64, (len(bs)+63)/64)
 		for i, b := range bs {
+			out[i/64] |= uint64(myunsafe.Cast[byte](b)) << (i % 64)
 			out[i/64] |= uint64(*(*byte)(unsafe.Pointer(&b))) << (i % 64)
 		}
 		return out

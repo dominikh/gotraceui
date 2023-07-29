@@ -17,6 +17,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	myunsafe "honnef.co/go/gotraceui/unsafe"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
@@ -135,7 +136,7 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&bits[0])), len(bits)*8)
 		out := boolSliceCache.Get(len(bytes) * 8)[:len(bytes)*8]
 		for i, v := range bytes {
-			bitunpackByte(v, (*uint64)(unsafe.Pointer(&out[i*8])))
+			bitunpackByte(v, myunsafe.Cast[*uint64](&out[i*8]))
 		}
 		return out
 	}
@@ -178,7 +179,7 @@ func (tr *Track) Spans() Items[ptrace.Span] {
 	metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:n]
 
 	// startsEndsPairwise and eventIDs have the same length, eliminating bounds checking.
-	startsEndsPairwise := unsafe.Slice((*[2]uint64)(unsafe.Pointer(&startsEnds[0])), n)[:n]
+	startsEndsPairwise := unsafe.Slice(myunsafe.Cast[*[2]uint64](&startsEnds[0]), n)[:n]
 	for i := range eventIDs {
 		// OPT(dh): mind the bound checks
 		state := ptrace.StateStack
