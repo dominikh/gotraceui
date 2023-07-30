@@ -12,11 +12,16 @@
 - Navigating to timestamps now places them at the configured axis origin
 - Fixed ctrl+scroll zooming on Windows
 - Fixed a crash when loading traces that start in the middle of a task
-- Improved the performance of processor timelines
-- Span labels that don't fit will now get truncated instead of hidden
+- Truncate long span labels instead of hiding them
 - Added a button to select all instances of a user region
 - Added histograms
 - Stop-the-world spans now display the reason for the STW
+- Made various performance improvements
+- Drastically lowered memory usage for traces with a lot of deep call stacks
+- Holding shift while scrolling vertically will cause horizontal scrolling, and vice versa
+- The info panel of user regions now displays events that occurred on the goroutine during said regions
+- Improved accuracy of computation of durations of merged spans
+- Added more features to the context menu of span links
 
 
 # v0.2.0 (2023-04-11)
