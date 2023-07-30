@@ -140,6 +140,9 @@ func stackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string 
 	if spans.Len() != 1 {
 		return out
 	}
+	if spans.At(0).State == statePlaceholder {
+		return out
+	}
 	pc := spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0).pc
 	f := tr.PCs[pc]
 
@@ -157,14 +160,16 @@ func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr 
 	return func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 		var label string
 		if state.spans.Len() == 1 {
-			meta := state.spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0)
-			pc := meta.pc
-			f := tr.PCs[pc]
-			label = local.Sprintf("Function: %s\n", f.Fn)
-			// TODO(dh): for truncated stacks we should display a relative depth instead
-			label += local.Sprintf("Call depth: %d\n", level)
-			if state.spans.At(0).State == ptrace.StateCPUSample {
-				label += local.Sprintf("Samples: %d\n", meta.num)
+			if state.spans.At(0).State != statePlaceholder {
+				meta := state.spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0)
+				pc := meta.pc
+				f := tr.PCs[pc]
+				label = local.Sprintf("Function: %s\n", f.Fn)
+				// TODO(dh): for truncated stacks we should display a relative depth instead
+				label += local.Sprintf("Call depth: %d\n", level)
+				if state.spans.At(0).State == ptrace.StateCPUSample {
+					label += local.Sprintf("Samples: %d\n", meta.num)
+				}
 			}
 		} else {
 			label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
@@ -213,14 +218,17 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 						}
 
 					case TrackKindStack:
-						track.spans_ = track.Spans()
 						*track.TrackWidget = TrackWidget{
 							// TODO(dh): should we highlight hovered spans that share the same function?
 							spanLabel:   stackSpanLabel,
 							spanTooltip: stackSpanTooltip(i - stackTrackBase),
 							spanColor: func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
 								if spans.Len() == 1 {
-									return [2]colorIndex{stateColors[spans.At(0).State], 0}
+									if state := spans.At(0).State; state == statePlaceholder {
+										return [2]colorIndex{colorStatePlaceholderStackSpan, 0}
+									} else {
+										return [2]colorIndex{stateColors[state], 0}
+									}
 								} else {
 									return [2]colorIndex{colorStateStack, colorStateMerged}
 								}
@@ -243,29 +251,35 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	}
 
 	track := NewTrack(tl, TrackKindUnspecified)
-	track.spans_ = SimpleItems[ptrace.Span]{
+	track.Start = g.Spans[0].Start
+	track.End = g.Spans[len(g.Spans)-1].End
+	track.Len = len(g.Spans)
+	track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
 		items: g.Spans,
 		container: ItemContainer{
 			Timeline: tl,
 			Track:    track,
 		},
 		subslice: true,
-	}
+	})
 	track.events = g.Events
 	tl.tracks = []*Track{track}
 
 	for _, ug := range g.UserRegions {
 		track := NewTrack(tl, TrackKindUserRegions)
+		track.Start = ug[0].Start
+		track.End = ug[len(ug)-1].End
+		track.Len = len(ug)
 		track.events = tl.tracks[0].events
 		track.hideEventMarkers = true
-		track.spans_ = SimpleItems[ptrace.Span]{
+		track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
 			items: ug,
 			container: ItemContainer{
 				Timeline: tl,
 				Track:    track,
 			},
 			subslice: true,
-		}
+		})
 		tl.tracks = append(tl.tracks, track)
 	}
 
@@ -777,12 +791,16 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	}
 	stackTracks := make([]*Track, len(tracks))
 	for i, track := range tracks {
+		tr := NewTrack(tl, TrackKindStack)
+		tr.Start = trace.Timestamp(track.startsEnds[0])
+		tr.End = trace.Timestamp(track.startsEnds[len(track.startsEnds)-1])
+		tr.Len = len(track.eventIDs)
+
 		deltaZigZagEncode(track.startsEnds)
 		deltaZigZagEncode(track.eventIDs)
 		deltaZigZagEncode(track.pcs)
 		deltaZigZagEncode(track.nums)
 
-		tr := NewTrack(tl, TrackKindStack)
 		tr.compressedSpans = compressedStackSpans{
 			count: len(track.eventIDs),
 			// We can encode in place because n >= 1 values are consumed to produce one value of output.

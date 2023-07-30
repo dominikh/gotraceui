@@ -54,6 +54,7 @@ func init() {
 	}
 
 	colors[colorStateUnknown] = rgba(0xFFFF00FF)
+	colors[colorStatePlaceholderStackSpan] = rgba(0xe8e8d5ff)
 }
 
 type colorIndex uint8
@@ -79,6 +80,7 @@ const (
 	colorStateStack
 	colorStateCPUSample
 	colorStateDone
+	colorStatePlaceholderStackSpan
 
 	colorStateLast
 

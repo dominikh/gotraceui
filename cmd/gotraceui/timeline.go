@@ -38,6 +38,8 @@ const (
 	timelineTrackGapDp    unit.Dp = 2
 )
 
+const statePlaceholder = ptrace.StateLast + 1
+
 type TrackKind uint8
 
 const (
@@ -99,10 +101,14 @@ type SpanTooltipState struct {
 type Track struct {
 	parent           *Timeline
 	kind             TrackKind
-	spans_           Items[ptrace.Span]
+	spans            *theme.Future[Items[ptrace.Span]]
 	compressedSpans  compressedStackSpans
 	events           []ptrace.EventID
 	hideEventMarkers bool
+
+	Start trace.Timestamp
+	End   trace.Timestamp
+	Len   int
 
 	*TrackWidget
 }
@@ -114,112 +120,132 @@ func NewTrack(parent *Timeline, kind TrackKind) *Track {
 	}
 }
 
-func (tr *Track) Spans() Items[ptrace.Span] {
-	if tr.spans_ != nil {
-		return tr.spans_
+func (tr *Track) Spans(win *theme.Window) *theme.Future[Items[ptrace.Span]] {
+	if tr.spans != nil {
+		return tr.spans
 	}
 	if tr.compressedSpans.count == 0 {
-		return nil
-	}
-
-	bitunpackByte := func(bits uint8, dst *uint64) {
-		x64 := uint64(bits)
-		x_hi := x64 & 0xFE
-		r_hi := x_hi * 0b10000001000000100000010000001000000100000010000000
-		r := r_hi | x64
-		*dst = r & 0x0101010101010101
-	}
-	bitunpack := func(bits []uint64) []bool {
-		if len(bits) == 0 {
-			return nil
-		}
-		bytes := unsafe.Slice((*byte)(unsafe.Pointer(&bits[0])), len(bits)*8)
-		out := boolSliceCache.Get(len(bytes) * 8)[:len(bytes)*8]
-		for i, v := range bytes {
-			bitunpackByte(v, myunsafe.Cast[*uint64](&out[i*8]))
-		}
-		return out
-	}
-
-	n := tr.compressedSpans.count
-	if n == 0 || n*2 == 0 {
-		// This is unreachable and only aids the bounds checker, eliminating bounds checks in calls to DecodeUnsafe for
-		// the second argument.
-		return nil
-	}
-
-	c := &tr.compressedSpans
-
-	startsEnds := uint64SliceCache.Get(n * 2)[:n*2]
-	// eventIDs, pcs, and nums share the same slice length, which eliminates bounds checking when we loop over the
-	// indices of eventIDs and use them to index the other slices.
-	eventIDs := uint64SliceCache.Get(n)[:n]
-	pcs := uint64SliceCache.Get(n)[:n]
-	nums := uint64SliceCache.Get(n)[:n]
-
-	// OPT(dh): we could reduce memory usage by decoding one property at a time and populating span fields one at a
-	// time. It would, however, increase CPU usage.
-	//
-	// OPT(dh): we could also decode one word at a time, interleaving decoding and constructing spans. This would,
-	// however, increase CPU usage to 1.3x.
-	DecodeUnsafe(c.startsEnds, &startsEnds[0])
-	DecodeUnsafe(c.eventIDs, &eventIDs[0])
-	DecodeUnsafe(c.pcs, &pcs[0])
-	DecodeUnsafe(c.nums, &nums[0])
-
-	deltaZigZagDecode(startsEnds)
-	deltaZigZagDecode(eventIDs)
-	deltaZigZagDecode(pcs)
-	deltaZigZagDecode(nums)
-	// We slice isCPUSample to [:n] to eliminate bounds checking.
-	isCPUSample := bitunpack(c.isCPUSample)[:n]
-
-	// spans and metas share the slice length of eventIDs, eliminating bounds checking.
-	spans := spanSliceCache.Get(len(eventIDs))[:n]
-	metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:n]
-
-	// startsEndsPairwise and eventIDs have the same length, eliminating bounds checking.
-	startsEndsPairwise := unsafe.Slice(myunsafe.Cast[*[2]uint64](&startsEnds[0]), n)[:n]
-	for i := range eventIDs {
-		// OPT(dh): mind the bound checks
-		state := ptrace.StateStack
-		if isCPUSample[i] {
-			state = ptrace.StateCPUSample
-		}
-		span := ptrace.Span{
-			Start: trace.Timestamp(startsEndsPairwise[i][0]),
-			End:   trace.Timestamp(startsEndsPairwise[i][1]),
-			Event: ptrace.EventID(eventIDs[i]),
-			State: state,
-		}
-		meta := stackSpanMeta{
-			pc:  pcs[i],
-			num: int(nums[i]),
-		}
-		spans[i] = span
-		metas[i] = meta
-	}
-
-	uint64SliceCache.Put(startsEnds)
-	uint64SliceCache.Put(eventIDs)
-	uint64SliceCache.Put(pcs)
-	uint64SliceCache.Put(nums)
-
-	out := spanAndMetadataSlices[stackSpanMeta]{
-		Items: SimpleItems[ptrace.Span]{
-			items: spans,
+		tr.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
 			container: ItemContainer{
 				Timeline: tr.parent,
 				Track:    tr,
 			},
-			subslice: true,
-		},
-		meta: metas,
+			contiguous: true,
+			subslice:   true,
+		})
+		return tr.spans
 	}
 
-	tr.spans_ = out
-	boolSliceCache.Put(isCPUSample)
-	return out
+	tr.spans = theme.NewFuture(win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
+		bitunpackByte := func(bits uint8, dst *uint64) {
+			x64 := uint64(bits)
+			x_hi := x64 & 0xFE
+			r_hi := x_hi * 0b10000001000000100000010000001000000100000010000000
+			r := r_hi | x64
+			*dst = r & 0x0101010101010101
+		}
+		bitunpack := func(bits []uint64) []bool {
+			if len(bits) == 0 {
+				return nil
+			}
+			bytes := unsafe.Slice((*byte)(unsafe.Pointer(&bits[0])), len(bits)*8)
+			out := boolSliceCache.Get(len(bytes) * 8)[:len(bytes)*8]
+			for i, v := range bytes {
+				bitunpackByte(v, myunsafe.Cast[*uint64](&out[i*8]))
+			}
+			return out
+		}
+
+		n := tr.compressedSpans.count
+		if n == 0 || n*2 == 0 {
+			// This is unreachable and only aids the bounds checker, eliminating bounds checks in calls to DecodeUnsafe for
+			// the second argument.
+			return nil
+		}
+
+		c := &tr.compressedSpans
+
+		startsEnds := uint64SliceCache.Get(n * 2)[:n*2]
+		// eventIDs, pcs, and nums share the same slice length, which eliminates bounds checking when we loop over the
+		// indices of eventIDs and use them to index the other slices.
+		eventIDs := uint64SliceCache.Get(n)[:n]
+		pcs := uint64SliceCache.Get(n)[:n]
+		nums := uint64SliceCache.Get(n)[:n]
+
+		// OPT(dh): we could reduce memory usage by decoding one property at a time and populating span fields one at a
+		// time. It would, however, increase CPU usage.
+		//
+		// OPT(dh): we could also decode one word at a time, interleaving decoding and constructing spans. This would,
+		// however, increase CPU usage to 1.3x.
+		DecodeUnsafe(c.startsEnds, &startsEnds[0])
+		DecodeUnsafe(c.eventIDs, &eventIDs[0])
+		DecodeUnsafe(c.pcs, &pcs[0])
+		DecodeUnsafe(c.nums, &nums[0])
+
+		deltaZigZagDecode(startsEnds)
+		deltaZigZagDecode(eventIDs)
+		deltaZigZagDecode(pcs)
+		deltaZigZagDecode(nums)
+		// We slice isCPUSample to [:n] to eliminate bounds checking.
+		isCPUSample := bitunpack(c.isCPUSample)[:n]
+
+		// spans and metas share the slice length of eventIDs, eliminating bounds checking.
+		spans := spanSliceCache.Get(len(eventIDs))[:n]
+		metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:n]
+
+		// startsEndsPairwise and eventIDs have the same length, eliminating bounds checking.
+		startsEndsPairwise := unsafe.Slice(myunsafe.Cast[*[2]uint64](&startsEnds[0]), n)[:n]
+		for i := range eventIDs {
+			// OPT(dh): mind the bound checks
+			state := ptrace.StateStack
+			if isCPUSample[i] {
+				state = ptrace.StateCPUSample
+			}
+			span := ptrace.Span{
+				Start: trace.Timestamp(startsEndsPairwise[i][0]),
+				End:   trace.Timestamp(startsEndsPairwise[i][1]),
+				Event: ptrace.EventID(eventIDs[i]),
+				State: state,
+			}
+			meta := stackSpanMeta{
+				pc:  pcs[i],
+				num: int(nums[i]),
+			}
+			spans[i] = span
+			metas[i] = meta
+		}
+
+		uint64SliceCache.Put(startsEnds)
+		uint64SliceCache.Put(eventIDs)
+		uint64SliceCache.Put(pcs)
+		uint64SliceCache.Put(nums)
+
+		out := spanAndMetadataSlices[stackSpanMeta]{
+			Items: SimpleItems[ptrace.Span]{
+				items: spans,
+				container: ItemContainer{
+					Timeline: tr.parent,
+					Track:    tr,
+				},
+				subslice: true,
+			},
+			meta: metas,
+		}
+
+		boolSliceCache.Put(isCPUSample)
+
+		select {
+		case <-cancelled:
+			// The future has already been cancelled. Return slices to caches.
+			spanSliceCache.Put(spans)
+			stackSpanMetaSliceCache.Put(metas)
+			return nil
+		default:
+			return out
+		}
+	})
+
+	return tr.spans
 }
 
 type MetadataSpans[T any] interface {
@@ -286,6 +312,7 @@ type TrackWidget struct {
 		ops         reusableOps
 		call        op.CallOp
 		dims        layout.Dimensions
+		placeholder bool
 
 		dspSpans []struct {
 			dspSpans       Items[ptrace.Span]
@@ -348,14 +375,19 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 	for _, track := range tl.tracks {
 		cv.trackWidgetsCache.Put(track.TrackWidget)
 		track.TrackWidget = nil
+		// TODO(dh): this code is ugly and punches through abstractions.
 		if track.compressedSpans.count != 0 {
-			if spans, ok := track.spans_.(spanAndMetadataSlices[stackSpanMeta]); ok {
-				stackSpanMetaSliceCache.Put(spans.meta)
-				if items, ok := spans.Items.(SimpleItems[ptrace.Span]); ok {
-					spanSliceCache.Put(items.items)
+			if track.spans != nil {
+				if spans, ok := track.spans.ResultNoWait(); ok {
+					if spans, ok := spans.(spanAndMetadataSlices[stackSpanMeta]); ok {
+						stackSpanMetaSliceCache.Put(spans.meta)
+						if items, ok := spans.Items.(SimpleItems[ptrace.Span]); ok {
+							spanSliceCache.Put(items.items)
+						}
+					}
 				}
 			}
-			track.spans_ = nil
+			track.spans = nil
 		}
 	}
 	cv.timelineWidgetsCache.Put(tl.TimelineWidget)
@@ -461,7 +493,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		} else if click.Modifiers == key.ModShortcut {
 			// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 			// assumption to make.
-			tl.navigatedSpans = tl.tracks[0].Spans()
+			tl.navigatedSpans = tl.tracks[0].Spans(win).Wait()
 		}
 	}
 
@@ -618,11 +650,28 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	}
 	track.hover.Update(gtx.Queue)
 
-	// OPT(dh): don't redraw if the only change is cv.y
-	if !track.hover.Hovered() &&
-		!track.prevFrame.hovered &&
+	spans, haveSpans := track.Spans(win).ResultNoWait()
+	if !haveSpans {
+		// return layout.Dimensions{}
+		spans = SimpleItems[ptrace.Span]{
+			items: []ptrace.Span{
+				{
+					Start: track.Start,
+					End:   track.End,
+					State: statePlaceholder,
+				},
+			},
+			container:  ItemContainer{Timeline: tl, Track: track},
+			contiguous: false,
+			subslice:   true,
+		}
+	}
+
+	// // OPT(dh): don't redraw if the only change is cv.y
+	if !track.hover.Hovered() && !track.prevFrame.hovered &&
 		cv.unchanged() &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
+		track.prevFrame.placeholder == !haveSpans &&
 		gtx.Constraints == track.prevFrame.constraints {
 
 		track.prevFrame.call.Add(gtx.Ops)
@@ -639,6 +688,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	defer func() {
 		call := macro.Stop()
 		call.Add(origOps)
+		track.prevFrame.placeholder = !haveSpans
 		track.prevFrame.call = call
 		track.prevFrame.dims = dims
 	}()
@@ -675,7 +725,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	var prevEndPx float32
 	doSpans := func(dspSpans Items[ptrace.Span], startPx, endPx float32) {
 		hovered := false
-		if track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
+		if track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx && haveSpans {
 			// Highlight the span under the cursor
 			hovered = true
 			track.hoveredSpans = dspSpans
@@ -725,15 +775,17 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
 			highlightedSecondaryOutlinesPath.Close()
 		} else {
-			// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
-			//
-			// OPT(dh): for timelines that have no gaps between any of the spans this can be drawn as a single rectangle
-			// covering all spans.
-			outlinesPath.MoveTo(minP)
-			outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			outlinesPath.LineTo(maxP)
-			outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			outlinesPath.Close()
+			if dspSpans.At(0).State != statePlaceholder {
+				// Draw outline as a rectangle, the span will draw on top of it so that only the outline remains.
+				//
+				// OPT(dh): for timelines that have no gaps between any of the spans this can be drawn as a single rectangle
+				// covering all spans.
+				outlinesPath.MoveTo(minP)
+				outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+				outlinesPath.LineTo(maxP)
+				outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+				outlinesPath.Close()
+			}
 		}
 
 		borderWidth := spanBorderWidth
@@ -760,6 +812,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			pathID += colorStateLast
 		}
 		p := &paths[pathID]
+
 		p.MoveTo(minP)
 		p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
 		p.LineTo(maxP)
@@ -769,7 +822,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		var spanTooltipState SpanTooltipState
 		spanTooltipState.events = NoItems[ptrace.EventID]{}
 		spanTooltipState.eventsUnderCursor = NoItems[ptrace.EventID]{}
-		if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx {
+		if cv.timeline.showTooltips < showTooltipsNone && hovered {
 			spanTooltipState.spans = dspSpans
 			if !track.hideEventMarkers {
 				spanTooltipState.events = Events(dspSpans, tr)
@@ -900,7 +953,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		first = false
 	}
 
-	if cv.unchanged() && track.prevFrame.dspSpans != nil {
+	if cv.unchanged() && track.prevFrame.dspSpans != nil && track.prevFrame.placeholder == !haveSpans {
 		for _, prevSpans := range track.prevFrame.dspSpans {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
@@ -908,7 +961,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		allDspSpans := track.prevFrame.dspSpans[:0]
 		it := renderedSpansIterator{
 			cv:    cv,
-			spans: cv.visibleSpans(track.Spans()),
+			spans: cv.visibleSpans(spans),
 		}
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
@@ -931,8 +984,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			unbornUntilPx float32
 			deadFromPx    float32 = visWidthPx
 		)
-		// OPT(dh): don't build all spans just to check their length
-		if track.Spans().Len() == 0 {
+		if track.Len == 0 {
 			// A track with no spans is similar to a track that's always dead
 			deadFromPx = 0
 		} else {
@@ -940,7 +992,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				// If the first displayed span is also the first overall span, display an indicator that the
 				// goroutine/processor hasn't been created yet.
 				dspFirst := track.prevFrame.dspSpans[0]
-				if dspFirst.dspSpans.At(0) == track.Spans().At(0) {
+				if dspFirst.dspSpans.At(0) == spans.At(0) {
 					end := dspFirst.startPx
 					unbornUntilPx = end
 				}
@@ -948,7 +1000,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				// If the last displayed span is also the last overall span, display an indicator that the
 				// goroutine/processor is dead.
 				dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
-				if LastSpan(dspLast.dspSpans) == LastSpan(track.Spans()) {
+				if LastSpan(dspLast.dspSpans) == LastSpan(spans) {
 					start := dspLast.endPx
 					deadFromPx = start
 				}
@@ -956,8 +1008,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			} else {
 				// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
 				// between spans (for processor tracks).
-				born := track.Spans().At(0).Start
-				died := LastSpan(track.Spans()).End
+				born := track.Start
+				died := track.End
 
 				if cv.start >= died {
 					// The goroutine is dead
@@ -1058,7 +1110,10 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 		subslice: true,
 	}
 
-	tl.tracks[0].spans_ = ss
+	tl.tracks[0].Start = spans[0].Start
+	tl.tracks[0].End = spans[len(spans)-1].End
+	tl.tracks[0].Len = len(spans)
+	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.item = &GC{ss}
 
 	return tl
@@ -1096,7 +1151,10 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 		subslice: true,
 	}
 
-	tl.tracks[0].spans_ = ss
+	tl.tracks[0].Start = spans[0].Start
+	tl.tracks[0].End = spans[len(spans)-1].End
+	tl.tracks[0].Len = len(spans)
+	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.item = &STW{ss}
 
 	return tl

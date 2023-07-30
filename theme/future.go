@@ -14,6 +14,7 @@ type Future[T any] struct {
 	//
 	// The channel itself is accessed concurrently, but the field isn't
 	cancelled chan struct{}
+	done      chan struct{}
 	res       T
 	resSet    bool
 	read      bool
@@ -41,6 +42,7 @@ func NewFuture[T any](win *Window, fn func(cancelled <-chan struct{}) T) *Future
 		ff:        win.Futures,
 		// Don't immediately cancel future if it was created but not read from in this frame
 		read: true,
+		done: make(chan struct{}),
 	}
 	ft.fn = func(cancelled chan struct{}) {
 		res := fn(cancelled)
@@ -52,6 +54,7 @@ func NewFuture[T any](win *Window, fn func(cancelled <-chan struct{}) T) *Future
 			case ft.result <- res:
 				// We've got the result of the computation. Invalidate the window so a new frame gets drawn with the
 				// result.
+				close(ft.done)
 				win.AppWindow.Invalidate()
 			default:
 				// We've already gotten a valid result before and this goroutine raced with it. Discard the new result.
@@ -84,6 +87,51 @@ func (ft *Future[T]) MustResult() T {
 		panic("Future wasn't ready")
 	}
 	return v
+}
+
+func (ft *Future[T]) Wait() T {
+	if ft.resSet {
+		return ft.res
+	}
+	<-ft.done
+	return ft.MustResult()
+}
+
+func (ft *Future[T]) ResultNoWait() (T, bool) {
+	if ft.resSet {
+		// We already have the value
+		return ft.res, true
+	}
+
+	// Prevent sweep from cancelling this future
+	ft.read = true
+
+	select {
+	case res := <-ft.result:
+		// First time reading the computed value
+		ft.res = res
+		ft.resSet = true
+		return res, true
+	case <-ft.cancelled:
+		// Don't discard result if cancellation raced with the computation finishing.
+		select {
+		case res := <-ft.result:
+			ft.res = res
+			ft.resSet = true
+			return res, true
+		default:
+		}
+
+		// Future got cancelled and reused later, restart the computation
+		ft.cancelled = make(chan struct{})
+		// Re-add the future to the controller so it gets swept again
+		ft.ff.add(ft)
+		go ft.fn(ft.cancelled)
+		return *new(T), false
+	default:
+		// Not ready yet, we'll try again next frame
+		return *new(T), false
+	}
 }
 
 func (ft *Future[T]) Result() (T, bool) {
