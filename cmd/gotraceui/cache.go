@@ -32,41 +32,6 @@ func (c *Cache[T]) Get() *T {
 	}
 }
 
-type SliceCache[E any, T ~[]E] struct {
-	// OPT(dh): use a sorted data structure that we can query and modify in sub-linear time.
-	items []T
-}
-
-func (c *SliceCache[E, T]) Put(s T) {
-	if cap(s) == 0 {
-		return
-	}
-	c.items = append(c.items, s)
-}
-
-func (c *SliceCache[E, T]) Get(minCap int) T {
-	for i, s := range c.items {
-		if cap(s) < minCap {
-			continue
-		}
-		c.items[i] = nil
-		if n := len(c.items) - 1; i < n {
-			c.items[i], c.items[n] = c.items[n], c.items[i]
-			c.items = c.items[:n]
-		} else {
-			c.items = c.items[:n]
-		}
-		return s[:0]
-	}
-	return make(T, 0, minCap)
-}
-
-func (c *SliceCache[E, T]) Clear() {
-	// TODO(dh): if T is storing pointers then we should clear each slice, too
-	clear(c.items)
-	c.items = c.items[:0]
-}
-
 // Mapping from log2 to size that is to be used
 //
 // TODO(dh): remove some of the steps
