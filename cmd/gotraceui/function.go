@@ -268,7 +268,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 			tb.Span(value)
 			tb.Span(" ")
 			s := tb.Span(unit)
-			s.Font.Variant = "Mono"
+			s.Font.Typeface = "Go Mono"
 			txt.Alignment = text.End
 		}
 

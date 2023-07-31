@@ -635,7 +635,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 			tb.Span(value)
 			tb.Span(" ")
 			s := tb.Span(unit)
-			s.Font.Variant = "Mono"
+			s.Font.Typeface = "Go Mono"
 			txt.Alignment = text.End
 		case 3: // State
 			label := stateNamesCapitalized[span.State]

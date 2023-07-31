@@ -137,7 +137,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 	fContent := ourfont.Collection()[0].Font
 	fValue := ourfont.Collection()[0].Font
 	fUnit := ourfont.Collection()[0].Font
-	fUnit.Variant = "Mono"
+	fUnit.Typeface = "Go Mono"
 
 	var columnSizes [numStatLabels]image.Point
 
@@ -380,7 +380,7 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 			// TODO(dh): explicitly select tabular figures from the font. It's not crucial because most fonts default to
 			// it, anyway.
 			txt := styledtext.Text(win.Theme.Shaper, span(win.Theme, value), span(win.Theme, " "), span(win.Theme, unit))
-			txt.Styles[2].Font.Variant = "Mono"
+			txt.Styles[2].Font.Typeface = "Go Mono"
 			if col != 0 {
 				txt.Alignment = text.End
 			}

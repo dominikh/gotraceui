@@ -91,7 +91,7 @@ var DefaultPalette = Palette{
 func NewTheme(fontCollection []font.FontFace) *Theme {
 	return &Theme{
 		Palette:       DefaultPalette,
-		Shaper:        text.NewShaper(fontCollection),
+		Shaper:        text.NewShaper(text.WithCollection(fontCollection), text.NoSystemFonts()),
 		TextSize:      12,
 		TextSizeLarge: 14,
 
