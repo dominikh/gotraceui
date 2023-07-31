@@ -1,5 +1,6 @@
 # v0.3.0 (unreleased)
 
+- Added support for traces produced by Go 1.21
 - Improved the formatting of durations in statistics
 - Made minor improvements to visual appearance
 - Replaced foldables with a tabbed interface
@@ -22,6 +23,7 @@
 - The info panel of user regions now displays events that occurred on the goroutine during said regions
 - Improved accuracy of computation of durations of merged spans
 - Added more features to the context menu of span links
+- Expensive computations, such as creating goroutine statistics, now run in the background and no longer prevent the UI from updating.
 
 
 # v0.2.0 (2023-04-11)
