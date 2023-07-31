@@ -1191,7 +1191,7 @@ func usage(name string, fs *flag.FlagSet) func() {
 func printDefaults(fs *flag.FlagSet) {
 	fs.VisitAll(func(f *flag.Flag) {
 		// Don't print debug flags
-		if strings.HasPrefix(f.Name, "debug.") {
+		if f.Name == "debug" || strings.HasPrefix(f.Name, "debug.") {
 			return
 		}
 
