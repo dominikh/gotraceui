@@ -14,6 +14,7 @@ import (
 	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -296,11 +297,11 @@ type TrackWidget struct {
 
 	// op lists get reused between frames to avoid generating garbage
 	ops                             [colorStateLast * 2]op.Ops
-	outlinesOps                     reusableOps
-	highlightedPrimaryOutlinesOps   reusableOps
-	highlightedSecondaryOutlinesOps reusableOps
-	eventsOps                       reusableOps
-	labelsOps                       reusableOps
+	outlinesOps                     mem.ReusableOps
+	highlightedPrimaryOutlinesOps   mem.ReusableOps
+	highlightedSecondaryOutlinesOps mem.ReusableOps
+	eventsOps                       mem.ReusableOps
+	labelsOps                       mem.ReusableOps
 
 	hover gesture.Hover
 	click gesture.Click
@@ -309,7 +310,7 @@ type TrackWidget struct {
 	prevFrame struct {
 		hovered     bool
 		constraints layout.Constraints
-		ops         reusableOps
+		ops         mem.ReusableOps
 		call        op.CallOp
 		dims        layout.Dimensions
 		placeholder bool
@@ -683,7 +684,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	track.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
-	gtx.Ops = track.prevFrame.ops.get()
+	gtx.Ops = track.prevFrame.ops.Get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
@@ -710,11 +711,11 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	var highlightedPrimaryOutlinesPath clip.Path
 	var highlightedSecondaryOutlinesPath clip.Path
 	var eventsPath clip.Path
-	outlinesPath.Begin(track.outlinesOps.get())
-	highlightedPrimaryOutlinesPath.Begin(track.highlightedPrimaryOutlinesOps.get())
-	highlightedSecondaryOutlinesPath.Begin(track.highlightedSecondaryOutlinesOps.get())
-	eventsPath.Begin(track.eventsOps.get())
-	labelsOps := track.labelsOps.get()
+	outlinesPath.Begin(track.outlinesOps.Get())
+	highlightedPrimaryOutlinesPath.Begin(track.highlightedPrimaryOutlinesOps.Get())
+	highlightedSecondaryOutlinesPath.Begin(track.highlightedSecondaryOutlinesOps.Get())
+	eventsPath.Begin(track.eventsOps.Get())
+	labelsOps := track.labelsOps.Get()
 	labelsMacro := op.Record(labelsOps)
 
 	for i := range paths {

@@ -111,16 +111,6 @@ var (
 	invalidateFrames   bool
 )
 
-type reusableOps struct {
-	ops op.Ops
-}
-
-// get resets and returns an op.Ops
-func (rops *reusableOps) get() *op.Ops {
-	rops.ops.Reset()
-	return &rops.ops
-}
-
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
 	gi := NewGoroutineInfo(mwin.trace, mwin, &mwin.canvas, g, mwin.canvas.timelines)
 	mwin.OpenPanel(gi)

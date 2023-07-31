@@ -14,6 +14,7 @@ import (
 
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -61,7 +62,7 @@ type Plot struct {
 		constraints layout.Constraints
 		hideLegends bool
 		autoScale   bool
-		ops         reusableOps
+		ops         mem.ReusableOps
 		call        op.CallOp
 
 		start, end trace.Timestamp
@@ -161,7 +162,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		pl.prevFrame.autoScale = pl.autoScale
 
 		origOps := gtx.Ops
-		gtx.Ops = pl.prevFrame.ops.get()
+		gtx.Ops = pl.prevFrame.ops.Get()
 		macro := op.Record(gtx.Ops)
 		defer func() {
 			call := macro.Stop()

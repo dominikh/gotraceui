@@ -13,6 +13,7 @@ import (
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -1144,7 +1145,7 @@ type Axis struct {
 	cv       *Canvas
 	click    gesture.Click
 	drag     gesture.Drag
-	ticksOps reusableOps
+	ticksOps mem.ReusableOps
 
 	// the location of the origin in pixels
 	position float32
@@ -1152,7 +1153,7 @@ type Axis struct {
 	anchor AxisAnchor
 
 	prevFrame struct {
-		ops    reusableOps
+		ops    mem.ReusableOps
 		call   op.CallOp
 		dims   layout.Dimensions
 		origin trace.Timestamp
@@ -1255,7 +1256,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	origOps := gtx.Ops
-	gtx.Ops = axis.prevFrame.ops.get()
+	gtx.Ops = axis.prevFrame.ops.Get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
@@ -1266,7 +1267,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}()
 
 	var ticksPath clip.Path
-	ticksPath.Begin(axis.ticksOps.get())
+	ticksPath.Begin(axis.ticksOps.Get())
 
 	// prevLabelEnd tracks where the previous tick label ended, so that we don't draw overlapping labels
 	var originLabelExtents image.Rectangle

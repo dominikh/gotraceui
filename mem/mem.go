@@ -1,5 +1,7 @@
 package mem
 
+import "gioui.org/op"
+
 const allocatorBucketSize = 64
 
 // BucketSlice is like a slice, but grows one bucket at a time, instead of growing exponentially. This allows
@@ -62,4 +64,14 @@ func (l *BucketSlice[T]) Truncate(n int) {
 		l.buckets[i] = l.buckets[i][:0]
 	}
 	l.n = n
+}
+
+type ReusableOps struct {
+	ops op.Ops
+}
+
+// get resets and returns an op.Ops
+func (rops *ReusableOps) Get() *op.Ops {
+	rops.ops.Reset()
+	return &rops.ops
 }
