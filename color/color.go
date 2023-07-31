@@ -88,6 +88,15 @@ func (c Oklch) Oklab() Oklab {
 	}
 }
 
+func Difference(reference, sample Oklab) (deltaEOK float32) {
+	L1, a1, b1 := reference.L, reference.A, reference.B
+	L2, a2, b2 := sample.L, sample.A, sample.B
+	deltaL := float64(L1 - L2)
+	deltaa := float64(a1 - a2)
+	deltab := float64(b1 - b2)
+	return float32(math.Hypot(math.Hypot(deltaL, deltaa), deltab))
+}
+
 // MapToSRGBGamut maps colors that fall outside the sRGB gamut to the sRGB gamut. It uses the same algorithm as [CSS
 // Color Module Level 4]. Note that the mapping implements a relative colorimetric intent. That is, colors that are
 // already inside the gamut are unchanged. This is intended for mapping individual colors, not for mapping images.
@@ -125,15 +134,6 @@ func (c Oklch) MapToSRGBGamut() LinearSRGB {
 		return m
 	}
 
-	delta := func(reference, sample Oklab) (deltaEOK float32) {
-		L1, a1, b1 := reference.L, reference.A, reference.B
-		L2, a2, b2 := sample.L, sample.A, sample.B
-		deltaL := float64(L1 - L2)
-		deltaa := float64(a1 - a2)
-		deltab := float64(b1 - b2)
-		return float32(math.Hypot(math.Hypot(deltaL, deltaa), deltab))
-	}
-
 	clip := func(color Oklch) LinearSRGB {
 		m := color.Oklab().LinearSRGB()
 		fmin := func(a, b float32) float32 {
@@ -163,7 +163,7 @@ func (c Oklch) MapToSRGBGamut() LinearSRGB {
 	current := c
 	clipped := clip(c)
 
-	E := delta(clipped.Oklab(), current.Oklab())
+	E := Difference(clipped.Oklab(), current.Oklab())
 	if E < jnd {
 		return clipped
 	}
@@ -176,7 +176,7 @@ func (c Oklch) MapToSRGBGamut() LinearSRGB {
 			min = chroma
 		} else {
 			clipped = clip(current)
-			E = delta(clipped.Oklab(), current.Oklab())
+			E = Difference(clipped.Oklab(), current.Oklab())
 			if E < jnd {
 				if jnd-E < epsilon {
 					return clipped
