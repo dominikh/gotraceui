@@ -188,43 +188,8 @@ func (c Oklch) MapToSRGBGamut() LinearSRGB {
 				max = chroma
 			}
 		}
-
-		// _, in := inGamut(current)
-		// clipped := clip(current)
-
-		// if in || delta(clipped.Oklab(), current.Oklab()) <= jnd {
-		// 	min = current.C
-		// } else {
-		// 	max = current.C
-		// }
-
-		// if min_inGamut && in {
-		// 	min = chroma
-		// 	continue
-		// }
-		// if !in {
-		// 	clipped := clip(current)
-		// 	E := delta(clipped.Oklab(), current.Oklab())
-		// 	if E < jnd {
-		// 		if jnd-E < epsilon {
-		// 			return clipped
-		// 		} else {
-		// 			min_inGamut = false
-		// 			min = chroma
-		// 		}
-		// 	} else {
-		// 		max = chroma
-		// 		continue
-		// 	}
-		// }
 	}
 	return current.Oklab().LinearSRGB()
-	// return clip(current)
-	// if m, ok := inGamut(current); ok {
-	// 	return m
-	// } else {
-	// 	return clip(current)
-	// }
 }
 
 func (c LinearSRGB) Oklab() Oklab {
