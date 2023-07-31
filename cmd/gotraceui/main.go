@@ -25,6 +25,7 @@ import (
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -47,6 +48,13 @@ import (
 	"gioui.org/x/styledtext"
 	"golang.org/x/exp/slices"
 	"golang.org/x/text/message"
+)
+
+var (
+	uint64SliceCache        = mem.NewConcurrentSliceCache[uint64, []uint64]()
+	boolSliceCache          = mem.NewConcurrentSliceCache[bool, []bool]()
+	spanSliceCache          = mem.NewConcurrentSliceCache[ptrace.Span, []ptrace.Span]()
+	stackSpanMetaSliceCache = mem.NewConcurrentSliceCache[stackSpanMeta, []stackSpanMeta]()
 )
 
 func debugCaching(gtx layout.Context) {

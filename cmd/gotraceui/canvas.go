@@ -178,8 +178,8 @@ type Canvas struct {
 	// Canvas.computeTimelinePositions
 	timelineEnds []int
 
-	timelineWidgetsCache Cache[TimelineWidget]
-	trackWidgetsCache    Cache[TrackWidget]
+	timelineWidgetsCache mem.AllocationCache[TimelineWidget]
+	trackWidgetsCache    mem.AllocationCache[TrackWidget]
 }
 
 func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {

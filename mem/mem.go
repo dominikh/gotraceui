@@ -175,3 +175,23 @@ func (c *ConcurrentSliceCache[E, T]) Get(minCap int) T {
 
 	return c.pools[log2].Get().(T)[:0]
 }
+
+// AllocationCache is a trivial cache of allocations. Put appends a value to a slice and Get pops a value from the
+// slice, or allocates a new value.
+type AllocationCache[T any] struct {
+	items []*T
+}
+
+func (c *AllocationCache[T]) Put(x *T) {
+	c.items = append(c.items, x)
+}
+
+func (c *AllocationCache[T]) Get() *T {
+	if len(c.items) == 0 {
+		return new(T)
+	} else {
+		item := c.items[len(c.items)-1]
+		c.items = c.items[:len(c.items)-1]
+		return item
+	}
+}
