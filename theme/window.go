@@ -9,6 +9,7 @@ import (
 	"time"
 	"unsafe"
 
+	mycolor "honnef.co/go/gotraceui/color"
 	myfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/tinylfu"
@@ -47,6 +48,16 @@ type Window struct {
 	windowFrameState
 
 	textLengths *tinylfu.T[string, layout.Dimensions]
+	oklchToSRGB *tinylfu.T[mycolor.Oklch, color.NRGBA]
+}
+
+func (win *Window) ConvertColor(c mycolor.Oklch) color.NRGBA {
+	if out, ok := win.oklchToSRGB.Get(c); ok {
+		return out
+	}
+	out := color.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(color.NRGBA)
+	win.oklchToSRGB.Add(c, out)
+	return out
 }
 
 func (win *Window) TextLength(gtx layout.Context, l widget.Label, font font.Font, size unit.Sp, s string) int {
@@ -82,6 +93,7 @@ func NewWindow(win *app.Window) *Window {
 			win: win,
 		},
 		textLengths: tinylfu.New[string, layout.Dimensions](1024, 1024*10),
+		oklchToSRGB: tinylfu.New[mycolor.Oklch, color.NRGBA](1024, 1024*10),
 		shortcuts:   map[Shortcut]struct{}{},
 	}
 }
