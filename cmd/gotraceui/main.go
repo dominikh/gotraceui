@@ -1562,66 +1562,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	}, nil
 }
 
-const allocatorBucketSize = 64
-
-type allocator[T any] struct {
-	n       int
-	buckets [][]T
-}
-
-func (l *allocator[T]) Allocate(v T) *T {
-	a, _ := l.index(l.n)
-	if a >= len(l.buckets) {
-		l.buckets = append(l.buckets, make([]T, 0, allocatorBucketSize))
-	}
-	l.buckets[a] = append(l.buckets[a], v)
-	ptr := &l.buckets[a][len(l.buckets[a])-1]
-	l.n++
-	return ptr
-}
-
-func (l *allocator[T]) index(i int) (int, int) {
-	return i / allocatorBucketSize, i % allocatorBucketSize
-}
-
-func (l *allocator[T]) Ptr(i int) *T {
-	a, b := l.index(i)
-	return &l.buckets[a][b]
-}
-
-func (l *allocator[T]) Get(i int) T {
-	a, b := l.index(i)
-	return l.buckets[a][b]
-}
-
-func (l *allocator[T]) Set(i int, v T) {
-	a, b := l.index(i)
-	l.buckets[a][b] = v
-}
-
-func (l *allocator[T]) Len() int {
-	return l.n
-}
-
-func (l *allocator[T]) Reset() {
-	for i := range l.buckets {
-		l.buckets[i] = l.buckets[i][:0]
-	}
-	l.n = 0
-}
-
-func (l *allocator[T]) Truncate(n int) {
-	if n >= l.n {
-		return
-	}
-	a, b := l.index(n)
-	l.buckets[a] = l.buckets[a][:b]
-	for i := a + 1; i < len(l.buckets); i++ {
-		l.buckets[i] = l.buckets[i][:0]
-	}
-	l.n = n
-}
-
 type Text struct {
 	// The theme must only be used for building the Text, with methods like Span. The Layout function has to use the
 	// theme provided to it, to avoid race conditions when texts transition from widgets to independent windows.

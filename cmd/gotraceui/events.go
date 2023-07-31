@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -30,8 +31,8 @@ type EventList struct {
 	filteredEvents Items[ptrace.EventID]
 	list           widget.List
 
-	timestampObjects allocator[trace.Timestamp]
-	texts            allocator[Text]
+	timestampObjects mem.BucketSlice[trace.Timestamp]
+	texts            mem.BucketSlice[Text]
 }
 
 func (evs *EventList) UpdateFilter() {
@@ -140,7 +141,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		if txtCnt < evs.texts.Len() {
 			txt = evs.texts.Ptr(txtCnt)
 		} else {
-			txt = evs.texts.Allocate(Text{})
+			txt = evs.texts.Append(Text{})
 		}
 		txtCnt++
 		txt.Reset(win.Theme)
@@ -157,7 +158,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		}
 
 		addSpanTs := func(ts trace.Timestamp) {
-			tb.DefaultLink(formatTimestamp(ts), evs.timestampObjects.Allocate(ts))
+			tb.DefaultLink(formatTimestamp(ts), evs.timestampObjects.Append(ts))
 		}
 
 		switch col {

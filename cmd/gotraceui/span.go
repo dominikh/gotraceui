@@ -10,6 +10,7 @@ import (
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -593,8 +594,8 @@ type SpanList struct {
 	Spans Items[ptrace.Span]
 	list  widget.List
 
-	timestampObjects allocator[trace.Timestamp]
-	texts            allocator[Text]
+	timestampObjects mem.BucketSlice[trace.Timestamp]
+	texts            mem.BucketSlice[Text]
 }
 
 func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -613,7 +614,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		if txtCnt < spans.texts.Len() {
 			txt = spans.texts.Ptr(txtCnt)
 		} else {
-			txt = spans.texts.Allocate(Text{})
+			txt = spans.texts.Append(Text{})
 		}
 		txtCnt++
 		txt.Reset(win.Theme)

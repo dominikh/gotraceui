@@ -12,6 +12,7 @@ import (
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -225,8 +226,8 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.Histogra
 type GoroutineList struct {
 	list widget.List
 
-	timestampObjects allocator[trace.Timestamp]
-	texts            allocator[Text]
+	timestampObjects mem.BucketSlice[trace.Timestamp]
+	texts            mem.BucketSlice[Text]
 }
 
 func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutines []*ptrace.Goroutine) layout.Dimensions {
@@ -245,7 +246,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		if txtCnt < gs.texts.Len() {
 			txt = gs.texts.Ptr(txtCnt)
 		} else {
-			txt = gs.texts.Allocate(Text{})
+			txt = gs.texts.Append(Text{})
 		}
 		txtCnt++
 		txt.Reset(win.Theme)
@@ -257,7 +258,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 			txt.Alignment = text.End
 		case 1: // Time
 			start := g.Spans[0].Start
-			tb.DefaultLink(formatTimestamp(start), gs.timestampObjects.Allocate(start))
+			tb.DefaultLink(formatTimestamp(start), gs.timestampObjects.Append(start))
 			txt.Alignment = text.End
 		case 2: // Duration
 			start := g.Spans[0].Start
