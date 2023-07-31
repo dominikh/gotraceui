@@ -17,15 +17,22 @@ type BucketSlice[T any] struct {
 	buckets [][]T
 }
 
-// Append appends v to the slice and returns a pointer to the new element.
-func (l *BucketSlice[T]) Append(v T) *T {
+// Grow grows the slice by one and returns a pointer to the new element, without overwriting it.
+func (l *BucketSlice[T]) Grow() *T {
 	a, _ := l.index(l.n)
 	if a >= len(l.buckets) {
 		l.buckets = append(l.buckets, make([]T, 0, allocatorBucketSize))
 	}
-	l.buckets[a] = append(l.buckets[a], v)
+	l.buckets[a] = l.buckets[a][:len(l.buckets[a])+1]
 	ptr := &l.buckets[a][len(l.buckets[a])-1]
 	l.n++
+	return ptr
+}
+
+// Append appends v to the slice and returns a pointer to the new element.
+func (l *BucketSlice[T]) Append(v T) *T {
+	ptr := l.Grow()
+	*ptr = v
 	return ptr
 }
 

@@ -226,6 +226,14 @@ func (mwin *MainWindow) openHeatmap() {
 	}()
 }
 
+func (mwin *MainWindow) openFlameGraph() {
+	win := &FlameGraphWindow{}
+	go func() {
+		// XXX handle error?
+		win.Run(app.NewWindow(app.Title("gotraceui - heatmap")), mwin.trace.Trace)
+	}()
+}
+
 func shortenFunctionName(s string) string {
 	fields := strings.Split(s, ".")
 	return fields[len(fields)-1]
@@ -477,7 +485,8 @@ type MainMenu struct {
 	}
 
 	Analyze struct {
-		OpenHeatmap theme.MenuItem
+		OpenHeatmap    theme.MenuItem
+		OpenFlameGraph theme.MenuItem
 	}
 
 	Debug struct {
@@ -518,6 +527,7 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 	m.Debug.FreeOSMemory = theme.MenuItem{Label: PlainLabel("Force garbage collection & return unused memory to OS")}
 
 	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap"), Disabled: notMainDisabled}
+	m.Analyze.OpenFlameGraph = theme.MenuItem{Label: PlainLabel("Open flame graph"), Disabled: notMainDisabled}
 
 	m.menu = &theme.Menu{
 		Groups: []theme.MenuGroup{
@@ -557,6 +567,7 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 				Label: "Analyze",
 				Items: []theme.Widget{
 					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenHeatmap).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenFlameGraph).Layout,
 				},
 			},
 		},
@@ -853,6 +864,10 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							win.Menu.Close()
 							mwin.openHeatmap()
 						}
+						if mainMenu.Analyze.OpenFlameGraph.Clicked() {
+							win.Menu.Close()
+							mwin.openFlameGraph()
+						}
 						if mainMenu.Debug.Cpuprofile.Clicked() {
 							win.Menu.Close()
 							if mwin.cpuProfile != nil {
@@ -942,6 +957,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
 
 						var dims layout.Dimensions
+
 						if mwin.panel == nil {
 							dims = mwin.canvas.Layout(win, gtx)
 						} else {
@@ -1478,9 +1494,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		}
 		return nil
 	})
-
-	// We no longer need this.
-	tr.CPUSamples = nil
 
 	end := tr.Events[len(tr.Events)-1].Ts
 
