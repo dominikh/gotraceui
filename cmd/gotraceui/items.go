@@ -322,6 +322,9 @@ func FilterItems[T any](items Items[T], fn func(item *T) bool) Items[T] {
 	if len(subset) == items.Len() {
 		return items
 	}
+	if len(subset) == 0 {
+		return NoItems[T]{}
+	}
 
 	return ItemsSubset[T]{
 		Base:   items,
