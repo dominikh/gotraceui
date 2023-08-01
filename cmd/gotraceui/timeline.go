@@ -1111,9 +1111,11 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 		subslice: true,
 	}
 
-	tl.tracks[0].Start = spans[0].Start
-	tl.tracks[0].End = spans[len(spans)-1].End
-	tl.tracks[0].Len = len(spans)
+	if len(spans) > 0 {
+		tl.tracks[0].Start = spans[0].Start
+		tl.tracks[0].End = spans[len(spans)-1].End
+		tl.tracks[0].Len = len(spans)
+	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.item = &GC{ss}
 
@@ -1152,9 +1154,11 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 		subslice: true,
 	}
 
-	tl.tracks[0].Start = spans[0].Start
-	tl.tracks[0].End = spans[len(spans)-1].End
-	tl.tracks[0].Len = len(spans)
+	if len(spans) > 0 {
+		tl.tracks[0].Start = spans[0].Start
+		tl.tracks[0].End = spans[len(spans)-1].End
+		tl.tracks[0].Len = len(spans)
+	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.item = &STW{ss}
 
