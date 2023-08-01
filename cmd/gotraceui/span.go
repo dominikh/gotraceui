@@ -510,7 +510,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						return label == needle
 					})
 
-					bases = append(bases, filtered)
+					if filtered.Len() > 0 {
+						bases = append(bases, filtered)
+					}
 				}
 			}
 
