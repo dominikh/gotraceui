@@ -73,12 +73,19 @@ func MergeItems[T any](items []Items[T], less func(a, b *T) bool) Items[T] {
 		return items[0]
 	}
 
-	bases := make([]Items[T], 0, len(items))
-	singleContainer, hasSingleContainer := items[0].Container()
-
+	var (
+		singleContainer    ItemContainer
+		hasSingleContainer bool
+		first              = true
+		bases              = make([]Items[T], 0, len(items))
+	)
 	for _, ss := range items {
 		if ss.Len() == 0 {
 			continue
+		}
+		if first {
+			singleContainer, hasSingleContainer = ss.Container()
+			first = false
 		}
 
 		c, ok := ss.Container()
