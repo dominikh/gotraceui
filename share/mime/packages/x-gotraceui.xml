@@ -9,6 +9,7 @@
 	  <match type="string" offset="0" value="go 1.10 trace\0\0\0"></match>
 	  <match type="string" offset="0" value="go 1.11 trace\0\0\0"></match>
 	  <match type="string" offset="0" value="go 1.19 trace\0\0\0"></match>
+	  <match type="string" offset="0" value="go 1.21 trace\0\0\0"></match>
 	</magic>
   </mime-type>
 </mime-info>
