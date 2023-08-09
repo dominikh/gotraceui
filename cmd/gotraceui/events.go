@@ -36,23 +36,37 @@ type EventList struct {
 }
 
 func (evs *EventList) UpdateFilter() {
-	// OPT(dh): if all filters are set, all events are shown. if no filters are set, no events are shown. neither case
-	//   requires us to check each event.
-	// OPT(dh): multiple calls to FilterItems should be able to reuse memory
-	evs.filteredEvents = FilterItems[ptrace.EventID](evs.Events, func(ev *ptrace.EventID) bool {
-		switch evs.Trace.Event(*ev).Type {
-		case trace.EvGoCreate:
-			return evs.Filter.ShowGoCreate.Value
-		case trace.EvGoUnblock:
-			return evs.Filter.ShowGoUnblock.Value
-		case trace.EvGoSysCall:
-			return evs.Filter.ShowGoSysCall.Value
-		case trace.EvUserLog:
-			return evs.Filter.ShowUserLog.Value
-		default:
-			panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(*ev).Type))
-		}
-	})
+	if evs.Filter.ShowGoCreate.Value &&
+		evs.Filter.ShowGoUnblock.Value &&
+		evs.Filter.ShowGoSysCall.Value &&
+		evs.Filter.ShowUserLog.Value {
+
+		// Everything is shown
+		evs.filteredEvents = evs.Events
+	} else if !evs.Filter.ShowGoCreate.Value &&
+		!evs.Filter.ShowGoUnblock.Value &&
+		!evs.Filter.ShowGoSysCall.Value &&
+		!evs.Filter.ShowUserLog.Value {
+
+		// Nothing is shown
+		evs.filteredEvents = NoItems[ptrace.EventID]{}
+	} else {
+		// OPT(dh): multiple calls to FilterItems should be able to reuse memory
+		evs.filteredEvents = FilterItems[ptrace.EventID](evs.Events, func(ev *ptrace.EventID) bool {
+			switch evs.Trace.Event(*ev).Type {
+			case trace.EvGoCreate:
+				return evs.Filter.ShowGoCreate.Value
+			case trace.EvGoUnblock:
+				return evs.Filter.ShowGoUnblock.Value
+			case trace.EvGoSysCall:
+				return evs.Filter.ShowGoSysCall.Value
+			case trace.EvUserLog:
+				return evs.Filter.ShowUserLog.Value
+			default:
+				panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(*ev).Type))
+			}
+		})
+	}
 
 	var max int
 	for i := 0; i < evs.filteredEvents.Len(); i++ {
