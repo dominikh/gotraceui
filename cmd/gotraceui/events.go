@@ -258,9 +258,9 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		return NoItems[ptrace.EventID]{}
 	}
 
-	if spans.Subslice() {
+	if spans.Subslice() || spans.Len() == 1 {
 		c, ok := spans.Container()
-		assert(ok, "didn't expect contiguous spans with multiple containers")
+		assert(ok, "didn't expect subslice with multiple containers")
 
 		sStart := spans.At(0).Start
 		sEnd := spans.At(spans.Len() - 1).End
@@ -305,7 +305,6 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		// would be the responsibility of the Items implementation, and wouldn't always be possible.
 		events := make([]Items[ptrace.EventID], 0, spans.Len())
 		for i := 0; i < spans.Len(); i++ {
-			fmt.Printf("%T\n", spans)
 			events = append(events, Events(spans.Slice(i, i+1), tr))
 		}
 		return MergeItems[ptrace.EventID](events, func(a, b *ptrace.EventID) bool {

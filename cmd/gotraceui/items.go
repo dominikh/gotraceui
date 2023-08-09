@@ -305,7 +305,11 @@ func (items ItemsSubset[T]) Subslice() bool {
 }
 
 func (items ItemsSubset[T]) Container() (ItemContainer, bool) {
-	return items.Base.Container()
+	if items.Len() == 1 {
+		return items.ContainerAt(0), true
+	} else {
+		return items.Base.Container()
+	}
 }
 
 func (items ItemsSubset[T]) ContainerAt(idx int) ItemContainer {
