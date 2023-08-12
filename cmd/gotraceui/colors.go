@@ -50,7 +50,7 @@ func init() {
 	cs[colorStateDone] = oklch(0, 0, 0)
 
 	for i, c := range cs {
-		colors[i] = color.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(color.NRGBA)
+		colors[i] = c.NRGBA()
 	}
 
 	colors[colorStateUnknown] = rgba(0xFFFF00FF)

@@ -2,6 +2,7 @@ package color
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 )
 
@@ -252,4 +253,8 @@ func (c LinearSRGB) SRGB() SRGB {
 	}
 
 	return SRGB{t(c.R), t(c.G), t(c.B), c.A}
+}
+
+func (c Oklch) NRGBA() color.NRGBA {
+	return color.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(color.NRGBA)
 }
