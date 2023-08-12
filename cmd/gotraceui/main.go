@@ -232,7 +232,7 @@ func (mwin *MainWindow) openFlameGraph() {
 	win := &FlameGraphWindow{}
 	go func() {
 		// XXX handle error?
-		win.Run(app.NewWindow(app.Title("gotraceui - heatmap")), mwin.trace.Trace)
+		win.Run(app.NewWindow(app.Title("gotraceui - flame graph")), mwin.trace.Trace)
 	}()
 }
 
