@@ -313,12 +313,12 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 			maxID = g.ID
 		}
 	}
-	r0 := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Pt(99999, 99999)
 		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, goroutineListColumns[0].Name, widget.ColorTextMaterial(gtx, color.NRGBA{}))
 	})
-	r1 := Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Pt(99999, 99999)
 		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))

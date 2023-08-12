@@ -934,3 +934,24 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 
 	return dims
 }
+
+type Recording struct {
+	Call       op.CallOp
+	Dimensions layout.Dimensions
+}
+
+func (r Recording) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Recording.Layout").End()
+
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	r.Call.Add(gtx.Ops)
+	return r.Dimensions
+}
+
+func Record(win *Window, gtx layout.Context, w Widget) Recording {
+	m := op.Record(gtx.Ops)
+	dims := w(win, gtx)
+	c := m.Stop()
+
+	return Recording{c, dims}
+}

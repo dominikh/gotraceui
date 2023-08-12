@@ -221,17 +221,17 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		return dims
 	}
 
-	checkboxes := make([]Recording, 0, 4)
-	var widestCheckbox Recording
+	checkboxes := make([]theme.Recording, 0, 4)
+	var widestCheckbox theme.Recording
 	{
 		gtx := gtx
 		gtx.Constraints.Min = image.Point{}
 
 		checkboxes = append(checkboxes,
-			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoCreate, "Goroutine creations").Layout),
-			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout),
-			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoSysCall, "Syscalls").Layout),
-			Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout))
+			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoCreate, "Goroutine creations").Layout),
+			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout),
+			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoSysCall, "Syscalls").Layout),
+			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout))
 
 		for _, checkbox := range checkboxes {
 			if checkbox.Dimensions.Size.X > widestCheckbox.Dimensions.Size.X {
