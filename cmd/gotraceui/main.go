@@ -8,6 +8,7 @@ import (
 	"image"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,6 +23,7 @@ import (
 	"unicode"
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
+	mycolor "honnef.co/go/gotraceui/color"
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
@@ -265,7 +267,7 @@ type MainWindow struct {
 	progress       float64
 	progressStage  int
 	progressStages []string
-	ww             *theme.ListWindow
+	ww             *theme.CommandPalette
 	err            error
 
 	debugWindow *DebugWindow
@@ -279,88 +281,6 @@ func NewMainWindow() *MainWindow {
 	}
 
 	return mwin
-}
-
-type timelineFilter struct {
-	invalid bool
-	parts   []struct {
-		prefix string
-		value  struct {
-			s string
-			n uint64
-		}
-	}
-}
-
-func newTimelineFilter(s string) theme.Filter {
-	out := &timelineFilter{}
-	for _, field := range strings.Fields(s) {
-		prefix, value, found := strings.Cut(field, ":")
-		if !found {
-			prefix, value = value, prefix
-		}
-
-		var v struct {
-			s string
-			n uint64
-		}
-		switch prefix {
-		case "gid", "pid":
-			var err error
-			v.n, err = strconv.ParseUint(value, 10, 64)
-			if err != nil {
-				out.invalid = true
-			}
-		default:
-			v.s = value
-		}
-
-		out.parts = append(out.parts, struct {
-			prefix string
-			value  struct {
-				s string
-				n uint64
-			}
-		}{prefix, v})
-	}
-	return out
-}
-
-func (f *timelineFilter) Filter(item theme.ListWindowItem) bool {
-	if f.invalid {
-		return false
-	}
-
-	for _, p := range f.parts {
-		switch p.prefix {
-		case "gid":
-			if item, ok := item.Item.(*ptrace.Goroutine); !ok || item.ID != p.value.n {
-				return false
-			}
-
-		case "pid":
-			if item, ok := item.Item.(*ptrace.Processor); !ok || uint64(item.ID) != p.value.n {
-				return false
-			}
-
-		case "":
-			ss := item.FilterLabels
-			any := false
-			for _, s := range ss {
-				if strings.Contains(s, p.value.s) {
-					any = true
-					break
-				}
-			}
-			if !any {
-				return false
-			}
-
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 // OpenTrace initiates loading of a trace. It changes the state to loadingTrace, loads the trace, and notifies the
@@ -396,7 +316,6 @@ func (mwin *MainWindow) setState(state string) {
 func (mwin *MainWindow) SetState(state string) {
 	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
 		mwin.twin.CloseModal()
-		mwin.twin.Menu.Close()
 		mwin.setState(state)
 	}
 }
@@ -467,127 +386,6 @@ func ToggleLabel(t, f string, b *bool) func() string {
 }
 func PlainLabel(s string) func() string { return func() string { return s } }
 
-type MainMenu struct {
-	File struct {
-		OpenTrace theme.MenuItem
-		Quit      theme.MenuItem
-	}
-
-	Display struct {
-		UndoNavigation       theme.MenuItem
-		ScrollToTop          theme.MenuItem
-		ZoomToFit            theme.MenuItem
-		JumpToBeginning      theme.MenuItem
-		HighlightSpans       theme.MenuItem
-		ToggleCompactDisplay theme.MenuItem
-		ToggleTimelineLabels theme.MenuItem
-		ToggleStackTracks    theme.MenuItem
-	}
-
-	Analyze struct {
-		OpenHeatmap    theme.MenuItem
-		OpenFlameGraph theme.MenuItem
-	}
-
-	Debug struct {
-		Memprofile   theme.MenuItem
-		Cpuprofile   theme.MenuItem
-		GC           theme.MenuItem
-		FreeOSMemory theme.MenuItem
-	}
-
-	menu *theme.Menu
-}
-
-func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
-	m := &MainMenu{}
-
-	m.File.OpenTrace = theme.MenuItem{Label: PlainLabel("Open trace")}
-	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
-
-	notMainDisabled := func() bool { return mwin.state != "main" }
-	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
-	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of canvas"), Disabled: notMainDisabled}
-	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible timelines"), Disabled: notMainDisabled}
-	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
-	m.Display.HighlightSpans = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Highlight spans…"), Disabled: notMainDisabled}
-	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &mwin.canvas.timeline.compact), Disabled: notMainDisabled}
-	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &mwin.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
-	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &mwin.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
-
-	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
-	m.Debug.Cpuprofile = theme.MenuItem{Label: func() string {
-		if mwin.cpuProfile == nil {
-			return "Start CPU profile"
-		} else {
-			return "Stop CPU profile"
-		}
-	}}
-	m.Debug.GC = theme.MenuItem{Label: PlainLabel("Force garbage collection")}
-	m.Debug.FreeOSMemory = theme.MenuItem{Label: PlainLabel("Force garbage collection & return unused memory to OS")}
-
-	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap"), Disabled: notMainDisabled}
-	m.Analyze.OpenFlameGraph = theme.MenuItem{Label: PlainLabel("Open flame graph"), Disabled: notMainDisabled}
-
-	m.menu = &theme.Menu{
-		Groups: []theme.MenuGroup{
-			{
-				Label: "File",
-				Items: []theme.Widget{
-					theme.NewMenuItemStyle(win.Theme, &m.File.OpenTrace).Layout,
-					theme.NewMenuItemStyle(win.Theme, &m.File.Quit).Layout,
-				},
-			},
-			{
-				Label: "Display",
-				Items: []theme.Widget{
-					// TODO(dh): disable Undo menu item when there are no more undo steps
-					theme.NewMenuItemStyle(win.Theme, &m.Display.UndoNavigation).Layout,
-
-					theme.MenuDivider(win.Theme).Layout,
-
-					theme.NewMenuItemStyle(win.Theme, &m.Display.ScrollToTop).Layout,
-					theme.NewMenuItemStyle(win.Theme, &m.Display.ZoomToFit).Layout,
-					theme.NewMenuItemStyle(win.Theme, &m.Display.JumpToBeginning).Layout,
-
-					theme.MenuDivider(win.Theme).Layout,
-
-					theme.NewMenuItemStyle(win.Theme, &m.Display.HighlightSpans).Layout,
-
-					theme.MenuDivider(win.Theme).Layout,
-
-					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleCompactDisplay).Layout,
-					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleTimelineLabels).Layout,
-					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleStackTracks).Layout,
-					// TODO(dh): add items for STW and GC overlays
-					// TODO(dh): add item for tooltip display
-				},
-			},
-			{
-				Label: "Analyze",
-				Items: []theme.Widget{
-					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenHeatmap).Layout,
-					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenFlameGraph).Layout,
-				},
-			},
-		},
-	}
-
-	if softDebug {
-		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
-			Label: "Debug",
-			Items: []theme.Widget{
-				theme.NewMenuItemStyle(win.Theme, &m.Debug.Cpuprofile).Layout,
-				theme.NewMenuItemStyle(win.Theme, &m.Debug.Memprofile).Layout,
-				theme.NewMenuItemStyle(win.Theme, &m.Debug.GC).Layout,
-				theme.NewMenuItemStyle(win.Theme, &m.Debug.FreeOSMemory).Layout,
-			},
-		})
-	}
-
-	return m
-}
-
 func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 	hd := HighlightDialog(win, filter)
 	win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -601,7 +399,6 @@ func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 
 func (mwin *MainWindow) Run(win *app.Window) error {
 	mwin.twin = theme.NewWindow(win)
-	mainMenu := NewMainMenu(mwin, mwin.twin)
 	mwin.win = win
 	mwin.explorer = explorer.NewExplorer(win)
 
@@ -609,7 +406,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var ops op.Ops
 
 	var commands []Command
-	mwin.twin.Menu = mainMenu.menu
 
 	resize := component.Resize{
 		Axis:  layout.Horizontal,
@@ -694,16 +490,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					// Fill background
 					paint.Fill(gtx.Ops, mwin.twin.Theme.Palette.Background)
 
-					if mainMenu.File.Quit.Clicked() {
-						win.Menu.Close()
-						os.Exit(0)
-					}
-
-					if mainMenu.File.OpenTrace.Clicked() {
-						win.Menu.Close()
-						mwin.showFileOpenDialog()
-					}
-
 					switch mwin.state {
 					case "empty":
 						return layout.Dimensions{}
@@ -776,160 +562,25 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 					case "main":
 						win.AddShortcut(theme.Shortcut{Name: "G"})
 						win.AddShortcut(theme.Shortcut{Name: "H"})
+						win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
 
 						for _, s := range win.PressedShortcuts() {
 							switch s {
 							case theme.Shortcut{Name: "G"}:
-								mwin.ww = theme.NewListWindow(mwin.twin.Theme)
-								items := make([]theme.ListWindowItem, 0, len(mwin.canvas.timelines))
-								items = append(items,
-									theme.ListWindowItem{
-										Item:  mwin.canvas.timelines[0].item,
-										Label: mwin.canvas.timelines[0].label,
-									},
-
-									theme.ListWindowItem{
-										Item:  mwin.canvas.timelines[1].item,
-										Label: mwin.canvas.timelines[1].label,
-									},
-								)
-								for _, p := range mwin.trace.Processors {
-									items = append(items, theme.ListWindowItem{
-										Item:         p,
-										Label:        local.Sprintf("processor %d", p.ID),
-										FilterLabels: mwin.trace.processorFilterLabels(p),
-									})
-								}
-								for _, g := range mwin.trace.Goroutines {
-									var label string
-									if g.Function.Fn == "" {
-										// At least GCSweepStart can happen on g0
-										label = local.Sprintf("goroutine %d", g.ID)
-									} else {
-										label = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
-									}
-									items = append(items, theme.ListWindowItem{
-										Item:         g,
-										Label:        label,
-										FilterLabels: mwin.trace.goroutineFilterLabels(g),
-									})
-								}
-								mwin.ww.SetItems(items)
-								mwin.ww.BuildFilter = newTimelineFilter
-								win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-									return theme.Dialog(win.Theme, "Go to timeline").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-										gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(1000, 500))
-										return mwin.ww.Layout(gtx)
-									})
-								})
+								pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
+								pl.Set(GotoTimelineCommandProvider{mwin, mwin.canvas.timelines})
+								mwin.ww = &pl
+								win.SetModal(mwin.ww.Layout)
 
 							case theme.Shortcut{Name: "H"}:
 								displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-							}
-						}
 
-						if mainMenu.Display.UndoNavigation.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.UndoNavigation(gtx)
-						}
-						if mainMenu.Display.ScrollToTop.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.ScrollToTop(gtx)
-						}
-						if mainMenu.Display.ZoomToFit.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.ZoomToFitCurrentView(gtx)
-						}
-						if mainMenu.Display.JumpToBeginning.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.JumpToBeginning(gtx)
-						}
-						if mainMenu.Display.HighlightSpans.Clicked() {
-							win.Menu.Close()
-							displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-						}
-						if mainMenu.Display.ToggleCompactDisplay.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.ToggleCompactDisplay()
-						}
-						if mainMenu.Display.ToggleTimelineLabels.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.ToggleTimelineLabels()
-						}
-						if mainMenu.Display.ToggleStackTracks.Clicked() {
-							win.Menu.Close()
-							mwin.canvas.ToggleStackTracks()
-						}
-						if mainMenu.Analyze.OpenHeatmap.Clicked() {
-							win.Menu.Close()
-							mwin.openHeatmap()
-						}
-						if mainMenu.Analyze.OpenFlameGraph.Clicked() {
-							win.Menu.Close()
-							mwin.openFlameGraph()
-						}
-						if mainMenu.Debug.Cpuprofile.Clicked() {
-							win.Menu.Close()
-							if mwin.cpuProfile != nil {
-								pprof.StopCPUProfile()
-								if err := mwin.cpuProfile.Close(); err == nil {
-									win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
-								} else {
-									win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
-								}
-								mwin.cpuProfile = nil
-							} else {
-								f, path, err := func() (*os.File, string, error) {
-									path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
-									f, err := os.Create(path)
-									if err != nil {
-										return nil, "", err
-									}
-									if err := pprof.StartCPUProfile(f); err != nil {
-										f.Close()
-										return nil, "", err
-									}
-									return f, path, nil
-								}()
-								if err == nil {
-									win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
-								} else {
-									win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
-								}
-								mwin.cpuProfile = f
+							case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
+								cmd := &theme.CommandPalette{}
+								cmd.Set(mwin.paletteCommands())
+								win.SetModal(cmd.Layout)
+								mwin.ww = cmd
 							}
-						}
-						if mainMenu.Debug.Memprofile.Clicked() {
-							win.Menu.Close()
-							path, err := func() (string, error) {
-								runtime.GC()
-								path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
-								f, err := os.Create(path)
-								if err != nil {
-									return "", err
-								}
-								if err := pprof.WriteHeapProfile(f); err != nil {
-									return "", err
-								}
-								return path, f.Close()
-							}()
-							if err == nil {
-								win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
-							} else {
-								win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
-							}
-						}
-						if mainMenu.Debug.GC.Clicked() {
-							win.Menu.Close()
-							start := time.Now()
-							runtime.GC()
-							d := time.Since(start)
-							win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
-						}
-						if mainMenu.Debug.FreeOSMemory.Clicked() {
-							win.Menu.Close()
-							rdebug.FreeOSMemory()
-							win.ShowNotification(gtx, "Returned unused memory to OS")
 						}
 
 						if mwin.panel != nil {
@@ -942,13 +593,10 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						}
 
 						if mwin.ww != nil {
-							if item, ok := mwin.ww.Confirmed(); ok {
-								mwin.canvas.scrollToTimeline(gtx, item)
+							if cmd := mwin.ww.Activated(); cmd != nil {
 								mwin.ww = nil
 								win.CloseModal()
-							} else if mwin.ww.Cancelled() {
-								mwin.ww = nil
-								win.CloseModal()
+								cmd.Execute(win, gtx)
 							}
 						}
 
@@ -986,6 +634,283 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 			}
 		}
 	}
+}
+
+func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
+	var (
+		colorDisplay    = mycolor.Oklch{L: 0.7862, C: 0.104, H: 219.74, Alpha: 1}
+		colorAnalysis   = mycolor.Oklch{L: 0.7862, C: 0.104, H: 82.85, Alpha: 1}
+		colorNavigation = mycolor.Oklch{L: 0.7862, C: 0.104, H: 175.7, Alpha: 1}
+		colorDebug      = mycolor.Oklch{}
+		colorGeneral    = mycolor.Oklch{L: 0.7862, C: 0.104, H: 120, Alpha: 1}
+	)
+
+	cmds := theme.CommandSlice{
+		theme.NormalCommand{
+			Category:     "Navigation",
+			PrimaryLabel: "Scroll to timeline…",
+			Aliases:      []string{"goto", "go to"},
+			Shortcut:     "G",
+			Color:        colorNavigation,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
+				pl.Set(GotoTimelineCommandProvider{mwin, mwin.canvas.timelines})
+				mwin.ww = &pl
+				win.SetModal(mwin.ww.Layout)
+			}},
+
+		theme.NormalCommand{
+			Category:     "Navigation",
+			PrimaryLabel: "Undo previous navigation",
+			Shortcut:     key.ModShortcut.String() + "+Z",
+			Color:        colorNavigation,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.UndoNavigation(gtx)
+			}},
+
+		theme.NormalCommand{
+			Category:     "Navigation",
+			PrimaryLabel: "Scroll to top of canvas",
+			Aliases:      []string{"jump", "beginning"},
+			Shortcut:     "Home",
+			Color:        colorNavigation,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ScrollToTop(gtx)
+			}},
+
+		theme.NormalCommand{
+			Category:     "Navigation",
+			PrimaryLabel: "Zoom to fit visible timelines",
+			Shortcut:     key.ModShortcut.String() + "+Home",
+			Color:        colorNavigation,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ZoomToFitCurrentView(gtx)
+			}},
+
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Highlight spans…",
+			Shortcut:     "H",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
+			}},
+
+		theme.NormalCommand{
+			Category:     "Navigation",
+			PrimaryLabel: "Pan to beginning of time",
+			Aliases:      []string{"scroll", "jump"},
+			Shortcut:     "Shift+Home",
+			Color:        colorNavigation,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.JumpToBeginning(gtx)
+			}},
+
+		theme.NormalCommand{
+			Category:     "Analysis",
+			PrimaryLabel: "Open processor utilization heatmap",
+			Color:        colorAnalysis,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.openHeatmap()
+			}},
+
+		theme.NormalCommand{
+			Category:     "Analysis",
+			PrimaryLabel: "Open flame graph",
+			Aliases:      []string{"flamegraph"},
+			Color:        colorAnalysis,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.openFlameGraph()
+			}},
+
+		theme.NormalCommand{
+			Category:     "General",
+			PrimaryLabel: "Open trace",
+			Color:        colorGeneral,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.showFileOpenDialog()
+			}},
+
+		theme.NormalCommand{
+			Category:     "General",
+			PrimaryLabel: "Quit",
+			Color:        colorGeneral,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				os.Exit(0)
+			}},
+	}
+
+	if mwin.canvas.timeline.displayStackTracks {
+		cmds = append(cmds, theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Hide stack tracks",
+			Shortcut:     "S",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ToggleStackTracks()
+			},
+		})
+	} else {
+		cmds = append(cmds, theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show stack tracks",
+			Shortcut:     "S",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ToggleStackTracks()
+			},
+		})
+	}
+
+	if mwin.canvas.timeline.compact {
+		cmds = append(cmds, theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Disable compact display",
+			Shortcut:     "C",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ToggleCompactDisplay()
+			}})
+	} else {
+		cmds = append(cmds, theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Enable compact display",
+			Shortcut:     "C",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ToggleCompactDisplay()
+			}})
+	}
+
+	if mwin.canvas.timeline.displayAllLabels {
+		cmds = append(cmds, theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Hide timeline labels",
+			Shortcut:     "X",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ToggleTimelineLabels()
+			}})
+	} else {
+		cmds = append(cmds, theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show timeline labels",
+			Shortcut:     "X",
+			Color:        colorDisplay,
+			Fn: func(win *theme.Window, gtx layout.Context) {
+				mwin.canvas.ToggleTimelineLabels()
+			}})
+	}
+
+	if softDebug {
+		cmds = append(cmds,
+			theme.NormalCommand{
+				Category:     "Debug",
+				PrimaryLabel: "Write memory profile",
+				Color:        colorDebug,
+				Fn: func(win *theme.Window, gtx layout.Context) {
+					path, err := func() (string, error) {
+						runtime.GC()
+						path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
+						f, err := os.Create(path)
+						if err != nil {
+							return "", err
+						}
+						if err := pprof.WriteHeapProfile(f); err != nil {
+							return "", err
+						}
+						return path, f.Close()
+					}()
+					if err == nil {
+						win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
+					} else {
+						win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
+					}
+				}},
+
+			theme.NormalCommand{
+				Category:     "Debug",
+				PrimaryLabel: "Force garbage collection",
+				Aliases:      []string{"run", "gc"},
+				Color:        colorDebug,
+				Fn: func(win *theme.Window, gtx layout.Context) {
+					start := time.Now()
+					runtime.GC()
+					d := time.Since(start)
+					win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
+				}},
+
+			theme.NormalCommand{
+				Category:     "Debug",
+				PrimaryLabel: "Force garbage collection & return unused memory to OS",
+				Aliases:      []string{"run", "gc", "free", "operating system"},
+				Color:        colorDebug,
+				Fn: func(win *theme.Window, gtx layout.Context) {
+					rdebug.FreeOSMemory()
+					win.ShowNotification(gtx, "Returned unused memory to OS")
+				}},
+		)
+
+		if mwin.cpuProfile == nil {
+			cmds = append(cmds, theme.NormalCommand{
+				Category:     "Debug",
+				PrimaryLabel: "Start CPU profile",
+				Color:        colorDebug,
+				Fn: func(win *theme.Window, gtx layout.Context) {
+					if mwin.cpuProfile == nil {
+						f, path, err := func() (*os.File, string, error) {
+							path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
+							f, err := os.Create(path)
+							if err != nil {
+								return nil, "", err
+							}
+							if err := pprof.StartCPUProfile(f); err != nil {
+								f.Close()
+								return nil, "", err
+							}
+							return f, path, nil
+						}()
+						if err == nil {
+							win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
+						} else {
+							win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
+						}
+						mwin.cpuProfile = f
+					}
+				}})
+		} else {
+			cmds = append(cmds, theme.NormalCommand{
+				Category:     "Debug",
+				PrimaryLabel: "Stop CPU profile",
+				Color:        colorDebug,
+				Fn: func(win *theme.Window, gtx layout.Context) {
+					if mwin.cpuProfile != nil {
+						pprof.StopCPUProfile()
+						if err := mwin.cpuProfile.Close(); err == nil {
+							win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
+						} else {
+							win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
+						}
+						mwin.cpuProfile = nil
+					}
+				}})
+		}
+	}
+
+	slices.SortFunc(cmds, func(a, b theme.Command) bool {
+		an := a.(theme.NormalCommand)
+		bn := b.(theme.NormalCommand)
+
+		if an.Category < bn.Category {
+			return true
+		} else if an.Category > bn.Category {
+			return false
+		} else {
+			return an.PrimaryLabel < bn.PrimaryLabel
+		}
+	})
+
+	return cmds
 }
 
 func (mwin *MainWindow) showFileOpenDialog() {
@@ -1401,14 +1326,10 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	tr := &Trace{Trace: pt}
 	if len(pt.Goroutines) != 0 {
 		tr.allGoroutineSpanLabels = make([][]string, len(pt.Goroutines))
-		tr.allGoroutineFilterLabels = make([][]string, len(pt.Goroutines))
 
 		for seqID, g := range pt.Goroutines {
 			// Populate goroutine span labels
 			localPrefixedID := local.Sprintf("g%d", g.ID)
-			localUnprefixedID := localPrefixedID[1:]
-			fmtPrefixedID := fmt.Sprintf("g%d", g.ID)
-			fmtUnprefixedID := fmtPrefixedID[1:]
 
 			var spanLabels []string
 			if g.Function.Fn != "" {
@@ -1425,17 +1346,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 			}
 			tr.allGoroutineSpanLabels[seqID] = spanLabels
 
-			// Populate goroutine filter filterLabels
-			filterLabels := []string{
-				fmtUnprefixedID,
-				localUnprefixedID,
-				fmtPrefixedID,
-				localPrefixedID,
-				g.Function.Fn,
-				strings.ToLower(g.Function.Fn),
-				"goroutine", // allow queries like "goroutine 1234" to work
-			}
-			tr.allGoroutineFilterLabels[g.SeqID] = filterLabels
 			p.SetProgressLossy(float64(seqID+1) / float64(len(pt.Goroutines)))
 		}
 	}
@@ -1443,24 +1353,10 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStage(4)
 	if len(pt.Processors) != 0 {
 		tr.allProcessorSpanLabels = make([][]string, len(pt.Processors))
-		tr.allProcessorFilterLabels = make([][]string, len(pt.Processors))
 
 		for seqID, proc := range pt.Processors {
 			localPrefixedID := local.Sprintf("p%d", proc.ID)
-			localUnprefixedID := localPrefixedID[1:]
-			fmtPrefixedID := fmt.Sprintf("p%d", proc.ID)
-			fmtUnprefixedID := fmtPrefixedID[1:]
-
 			tr.allProcessorSpanLabels[seqID] = append(tr.allProcessorSpanLabels[seqID], localPrefixedID)
-
-			filterLabels := []string{
-				fmtUnprefixedID,
-				localUnprefixedID,
-				fmtPrefixedID,
-				localPrefixedID,
-				"processor", // allow queries like "processor 1234" to work
-			}
-			tr.allProcessorFilterLabels[proc.SeqID] = filterLabels
 			p.SetProgressLossy(float64(seqID+1) / float64(len(pt.Processors)))
 		}
 	}
@@ -1728,4 +1624,115 @@ func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text)
 	}
 
 	return txt.Layout(win, gtx, tb.Spans)
+}
+
+type GotoTimelineCommand struct {
+	MainWindow *MainWindow
+	Timeline   *Timeline
+}
+
+func (cmd GotoTimelineCommand) Layout(win *theme.Window, gtx layout.Context, current bool) layout.Dimensions {
+	var (
+		numSpans   int
+		start, end trace.Timestamp
+	)
+
+	// TODO(dh): instead of this switch we should have a method on the interface for returning the spans
+	switch item := cmd.Timeline.item.(type) {
+	case *GC:
+		numSpans = item.Spans.Len()
+		start = item.Spans.At(0).Start
+		end = LastSpan(item.Spans).End
+	case *STW:
+		numSpans = item.Spans.Len()
+		start = item.Spans.At(0).Start
+		end = LastSpan(item.Spans).End
+	case *ptrace.Goroutine:
+		numSpans = len(item.Spans)
+		start = item.Spans[0].Start
+		end = item.Spans[len(item.Spans)-1].End
+	case *ptrace.Processor:
+		numSpans = len(item.Spans)
+		start = item.Spans[0].Start
+		end = item.Spans[len(item.Spans)-1].End
+	default:
+		panic(fmt.Sprintf("%T", item))
+	}
+	return theme.NormalCommand{
+		PrimaryLabel:   cmd.Timeline.label,
+		SecondaryLabel: local.Sprintf("%d spans\n%d ns—%d ns (%s)", numSpans, start, end, roundDuration(time.Duration(end-start))),
+		Color:          mycolor.Oklch{L: 0.7862, C: 0.104, H: 139.8, Alpha: 1},
+	}.Layout(win, gtx, current)
+}
+
+func (cmd GotoTimelineCommand) Execute(win *theme.Window, gtx layout.Context) {
+	cmd.MainWindow.canvas.scrollToTimeline(gtx, cmd.Timeline.item)
+}
+
+func (cmd GotoTimelineCommand) Filter(input string) bool {
+	for _, f := range strings.Fields(input) {
+		b := func() bool {
+			if strings.HasPrefix(f, "g") {
+				if f == "g" {
+					if _, ok := cmd.Timeline.item.(*ptrace.Goroutine); ok {
+						return true
+					}
+				} else {
+					id := strings.ReplaceAll(f[len("g"):], ",", "")
+					if n, err := strconv.ParseUint(id, 10, 64); err == nil {
+						if g, ok := cmd.Timeline.item.(*ptrace.Goroutine); ok {
+							if g.ID == n {
+								return true
+							}
+						}
+					}
+				}
+			}
+			// TODO(dh): deduplicate code
+			if strings.HasPrefix(f, "p") {
+				if f == "p:" {
+					if _, ok := cmd.Timeline.item.(*ptrace.Processor); ok {
+						return true
+					}
+				} else {
+					id := strings.ReplaceAll(f[len("p"):], ",", "")
+					if n, err := strconv.ParseUint(id, 10, 64); err == nil {
+						if p, ok := cmd.Timeline.item.(*ptrace.Processor); ok {
+							if n <= math.MaxInt32 {
+								if p.ID == int32(n) {
+									return true
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// OPT(dh): don't repeatedly lowercase the label
+			if strings.Contains(strings.ToLower(cmd.Timeline.label), strings.ToLower(f)) {
+				return true
+			}
+			return false
+		}()
+		if !b {
+			return false
+		}
+	}
+	return true
+}
+
+type GotoTimelineCommandProvider struct {
+	MainWindow *MainWindow
+	Timelines  []*Timeline
+}
+
+func (p GotoTimelineCommandProvider) Len() int {
+	return len(p.Timelines)
+}
+
+func (p GotoTimelineCommandProvider) At(idx int) theme.Command {
+	return GotoTimelineCommand{
+		MainWindow: p.MainWindow,
+		Timeline:   p.Timelines[idx],
+	}
 }

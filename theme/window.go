@@ -30,7 +30,6 @@ type Window struct {
 	AppWindow *app.Window
 	Futures   *Futures
 	Theme     *Theme
-	Menu      *Menu
 	// The current frame number
 	Frame            uint64
 	contextMenu      []*MenuItem
@@ -166,14 +165,7 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		}
 	}
 
-	if win.Menu != nil {
-		dims := NewMenuStyle(win.Theme, win.Menu).Layout(win, gtx)
-		layout.PixelInset{
-			Top: dims.Size.Y,
-		}.Layout(gtx, Dumb(win, w))
-	} else {
-		w(win, gtx)
-	}
+	w(win, gtx)
 
 	win.notification.Layout(win, gtx)
 	stack.Pop()

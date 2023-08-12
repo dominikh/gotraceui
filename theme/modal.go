@@ -39,12 +39,16 @@ func (m ModalStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dim
 			}
 
 		case key.Event:
-			// TODO(dh): set cancelled when pressing Esc
+			if ev.Name == "⎋" {
+				*m.Cancelled = true
+			}
 		}
 	}
 
+	// TODO(dh): the tags should be pointers
 	pointer.InputOp{Tag: m, Types: 0xFF}.Add(gtx.Ops)
-	// TODO(dh): prevent keyboard input from bubbling up
+	// TODO(dh): prevent all keyboard input from bubbling up
+	key.InputOp{Tag: m, Keys: "A|B|C|D|E|F|G|H|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|⎋"}.Add(gtx.Ops)
 	w(win, gtx)
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
