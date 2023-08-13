@@ -592,7 +592,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 
 							case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
 								cmd := &theme.CommandPalette{}
-								cmd.Set(mwin.paletteCommands())
+								cmd.Set(theme.MultiCommandProvider{win.CommandProviders()})
 								win.SetModal(cmd.Layout)
 							}
 						}
@@ -610,8 +610,8 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
 						mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
 
+						win.AddCommandProvider(mwin.defaultCommands())
 						var dims layout.Dimensions
-
 						if mwin.panel == nil {
 							dims = mwin.canvas.Layout(win, gtx)
 						} else {
@@ -642,7 +642,7 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	}
 }
 
-func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
+func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 	var (
 		colorDisplay    = mycolor.Oklch{L: 0.7862, C: 0.104, H: 219.74, Alpha: 1}
 		colorAnalysis   = mycolor.Oklch{L: 0.7862, C: 0.104, H: 82.85, Alpha: 1}

@@ -38,10 +38,12 @@ type Window struct {
 	Futures   *Futures
 	Theme     *Theme
 	// The current frame number
-	Frame            uint64
-	contextMenu      []*MenuItem
-	shortcuts        map[Shortcut]struct{}
-	pressedShortcuts []Shortcut
+	Frame                uint64
+	contextMenu          []*MenuItem
+	shortcuts            map[Shortcut]struct{}
+	pressedShortcuts     []Shortcut
+	commandProviders     []CommandProvider
+	prevCommandProviders []CommandProvider
 
 	linksMu          sync.Mutex
 	emittedLinks     []Link
@@ -93,6 +95,10 @@ func (win *Window) TextDimensions(gtx layout.Context, l widget.Label, font font.
 	dims := labelDimensions(gtx, l, win.Theme.Shaper, font, size, s)
 	win.textLengths.Add(key, dims)
 	return dims
+}
+
+func (win *Window) AddCommandProvider(cp CommandProvider) {
+	win.commandProviders = append(win.commandProviders, cp)
 }
 
 func NewWindow(win *app.Window) *Window {
@@ -156,6 +162,10 @@ func doubleBuffer[E any, S ~[]E](dst, src *S) {
 	*src = (*src)[:0]
 }
 
+func (win *Window) CommandProviders() []CommandProvider {
+	return win.prevCommandProviders
+}
+
 func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
 	win.Frame++
@@ -183,9 +193,18 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		delete(win.shortcuts, k)
 	}
 
+	doubleBuffer(&win.prevCommandProviders, &win.commandProviders)
 	win.linksMu.Lock()
 	doubleBuffer(&win.prevEmittedLinks, &win.emittedLinks)
 	win.linksMu.Unlock()
+	{
+		// Use command providers in LIFO order, under the assumption that more specific providers get registered after
+		// general ones.
+		s := win.prevCommandProviders
+		for i := range s[:len(s)/2] {
+			s[i], s[len(s)-i-1] = s[len(s)-i-1], s[i]
+		}
+	}
 
 	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 	// Handle all keyboard input that wasn't handled by the window contents

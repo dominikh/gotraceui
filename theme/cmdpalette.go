@@ -59,6 +59,27 @@ func (cs CommandSlice) At(idx int) Command {
 	return cs[idx]
 }
 
+type MultiCommandProvider struct {
+	Providers []CommandProvider
+}
+
+func (mcp MultiCommandProvider) Len() int {
+	n := 0
+	for _, cp := range mcp.Providers {
+		n += cp.Len()
+	}
+	return n
+}
+
+func (mcp MultiCommandProvider) At(idx int) Command {
+	providers := mcp.Providers
+	for idx >= providers[0].Len() {
+		idx -= providers[0].Len()
+		providers = providers[1:]
+	}
+	return providers[0].At(idx)
+}
+
 type NormalCommand struct {
 	PrimaryLabel   string
 	SecondaryLabel string
