@@ -216,11 +216,11 @@ func (l *OpenGoroutineLink) Open(_ layout.Context, mwin *MainWindow) {
 }
 
 func (l *ScrollToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToTimeline(gtx, (*ptrace.Goroutine)(l))
+	mwin.canvas.scrollToObject(gtx, (*ptrace.Goroutine)(l))
 }
 
 func (l *ZoomToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.timelineY(gtx, (*ptrace.Goroutine)(l))
+	y := mwin.canvas.objectY(gtx, (*ptrace.Goroutine)(l))
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans[0].Start, l.Spans[len(l.Spans)-1].End, y)
 }
 
@@ -241,11 +241,11 @@ func (l *ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
 }
 
 func (l *ScrollToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToTimeline(gtx, (*ptrace.Processor)(l))
+	mwin.canvas.scrollToObject(gtx, (*ptrace.Processor)(l))
 }
 
 func (l *ZoomToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.timelineY(gtx, (*ptrace.Processor)(l))
+	y := mwin.canvas.objectY(gtx, (*ptrace.Processor)(l))
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans[0].Start, l.Spans[len(l.Spans)-1].End, y)
 }
 
@@ -260,7 +260,7 @@ func (l *OpenSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 func (l *ScrollAndPanToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 	c, ok := l.Spans.Container()
 	assert(ok, "expected container")
-	mwin.canvas.scrollToTimeline(gtx, c.Timeline.item)
+	mwin.canvas.scrollToTimeline(gtx, c.Timeline)
 	d := mwin.canvas.End() - mwin.canvas.start
 	ts := l.Spans.At(0).Start + trace.Timestamp(SpansDuration(l.Spans)/2)
 	mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.animateTo.targetY)
@@ -269,7 +269,7 @@ func (l *ScrollAndPanToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 func (l *ZoomToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 	c, ok := l.Spans.Container()
 	assert(ok, "expected container")
-	mwin.canvas.scrollToTimeline(gtx, c.Timeline.item)
+	mwin.canvas.scrollToTimeline(gtx, c.Timeline)
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 }
 

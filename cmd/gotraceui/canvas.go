@@ -479,7 +479,20 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	cv.navigateToStartAndEnd(gtx, first, last, cv.y)
 }
 
-func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
+func (cv *Canvas) timelineY(gtx layout.Context, dst *Timeline) int {
+	// OPT(dh): don't be O(n)
+	off := 0
+	for _, tl := range cv.timelines {
+		if tl == dst {
+			// TODO(dh): show goroutine at center of window, not the top
+			return off
+		}
+		off += tl.Height(gtx, cv)
+	}
+	panic("unreachable")
+}
+
+func (cv *Canvas) objectY(gtx layout.Context, act any) int {
 	// OPT(dh): don't be O(n)
 	off := 0
 	for _, tl := range cv.timelines {
@@ -492,8 +505,13 @@ func (cv *Canvas) timelineY(gtx layout.Context, act any) int {
 	panic("unreachable")
 }
 
-func (cv *Canvas) scrollToTimeline(gtx layout.Context, act any) {
-	off := cv.timelineY(gtx, act)
+func (cv *Canvas) scrollToTimeline(gtx layout.Context, tl *Timeline) {
+	off := cv.timelineY(gtx, tl)
+	cv.navigateTo(gtx, cv.start, cv.nsPerPx, off)
+}
+
+func (cv *Canvas) scrollToObject(gtx layout.Context, act any) {
+	off := cv.objectY(gtx, act)
 	cv.navigateTo(gtx, cv.start, cv.nsPerPx, off)
 }
 
@@ -675,7 +693,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			cv.ToggleStackTracks()
 			if h := cv.timeline.hoveredTimeline; h != nil {
 				cv.cancelNavigation()
-				y := cv.timelineY(gtx, h.item)
+				y := cv.timelineY(gtx, h)
 				offset := h.hover.Pointer().Y
 				if !cv.timeline.displayStackTracks {
 					// We're going from stacks to no stacks. This shrinks the timeline and the cursor might end
@@ -697,7 +715,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			cv.ToggleCompactDisplay()
 			if h := cv.timeline.hoveredTimeline; h != nil {
 				cv.cancelNavigation()
-				y := cv.timelineY(gtx, h.item)
+				y := cv.timelineY(gtx, h)
 
 				offset := h.hover.Pointer().Y
 				if cv.timeline.compact {

@@ -1666,7 +1666,7 @@ func (cmd GotoTimelineCommand) Layout(win *theme.Window, gtx layout.Context, cur
 }
 
 func (cmd GotoTimelineCommand) Execute(win *theme.Window, gtx layout.Context) {
-	cmd.MainWindow.canvas.scrollToTimeline(gtx, cmd.Timeline.item)
+	cmd.MainWindow.canvas.scrollToTimeline(gtx, cmd.Timeline)
 }
 
 func (cmd GotoTimelineCommand) Filter(input string) bool {
