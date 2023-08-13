@@ -256,7 +256,6 @@ type Command func(*MainWindow, layout.Context)
 type MainWindow struct {
 	canvas          Canvas
 	trace           *Trace
-	commands        chan Command
 	explorer        *explorer.Explorer
 	showingExplorer atomic.Bool
 
@@ -274,7 +273,7 @@ type MainWindow struct {
 	twin *theme.Window
 	// TODO(dh): use enum for state
 	state          string
-	progress       float64
+	progress       atomic.Uint64
 	progressStage  int
 	progressStages []string
 	err            error
@@ -284,7 +283,6 @@ type MainWindow struct {
 
 func NewMainWindow() *MainWindow {
 	mwin := &MainWindow{
-		commands:    make(chan Command, 128),
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
 	}
@@ -318,57 +316,45 @@ func (mwin *MainWindow) OpenTrace(r io.Reader) {
 
 func (mwin *MainWindow) setState(state string) {
 	mwin.state = state
-	mwin.progress = 0.0
+	mwin.progress.Store(0)
 }
 
 func (mwin *MainWindow) SetState(state string) {
-	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+	mwin.twin.EmitLink(theme.ExecuteLink(func(gtx layout.Context) {
 		mwin.twin.CloseModal()
 		mwin.setState(state)
-	}
+	}))
 }
 
 func (mwin *MainWindow) SetError(err error) {
-	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+	mwin.twin.EmitLink(theme.ExecuteLink(func(gtx layout.Context) {
 		mwin.err = err
 		mwin.setState("error")
-	}
+	}))
 }
 
 func (mwin *MainWindow) SetProgress(p float64) {
-	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
-		mwin.progress = p
-	}
+	mwin.progress.Store(math.Float64bits(p))
 }
 
 func (mwin *MainWindow) SetProgressStages(names []string) {
-	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+	mwin.twin.EmitLink(theme.ExecuteLink(func(gtx layout.Context) {
 		mwin.progressStages = names
-	}
+	}))
 }
 
 func (mwin *MainWindow) SetProgressStage(idx int) {
-	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+	mwin.twin.EmitLink(theme.ExecuteLink(func(gtx layout.Context) {
 		mwin.progressStage = idx
-		mwin.progress = 0
-	}
-}
-
-func (mwin *MainWindow) SetProgressLossy(p float64) {
-	fn := func(mwin *MainWindow, _ layout.Context) {
-		mwin.progress = p
-	}
-	select {
-	case mwin.commands <- fn:
-	default:
-	}
+		mwin.progress.Store(0)
+	}))
 }
 
 func (mwin *MainWindow) LoadTrace(res loadTraceResult) {
-	mwin.commands <- func(mwin *MainWindow, _ layout.Context) {
+	mwin.twin.EmitLink(theme.ExecuteLink(func(gtx layout.Context) {
 		mwin.loadTraceImpl(res)
 		mwin.setState("main")
-	}
+	}))
 }
 
 func (mwin *MainWindow) OpenLink(gtx layout.Context, l theme.Link) {
@@ -410,11 +396,8 @@ func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 	})
 }
 
-func (mwin *MainWindow) Run(win *app.Window) error {
-	mwin.twin = theme.NewWindow(win)
-	mwin.win = win
-	mwin.explorer = explorer.NewExplorer(win)
-
+func (mwin *MainWindow) Run() error {
+	win := mwin.win
 	profileTag := new(int)
 	var ops op.Ops
 
@@ -431,215 +414,201 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 	var frameCounter uint64
 	var openTraceButton widget.PrimaryClickable
 
-	for {
-		select {
-		case cmd := <-mwin.commands:
-			commands = append(commands, cmd)
-			mwin.win.Invalidate()
+	for e := range win.Events() {
+		mwin.explorer.ListenEvents(e)
 
-		case e := <-win.Events():
-			mwin.explorer.ListenEvents(e)
+		switch ev := e.(type) {
+		case system.DestroyEvent:
+			return ev.Err
+		case system.FrameEvent:
+			if measureFrameAllocs {
+				frameCounter++
+				if frameCounter%60 == 0 {
+					runtime.ReadMemStats(&mem)
+					log.Printf("%10.2f bytes/frame; %10.2f allocs/frame",
+						float64(mem.TotalAlloc-prevTotalAlloc)/float64(60),
+						float64(mem.Mallocs-prevMallocs)/float64(60),
+					)
+					prevTotalAlloc = mem.TotalAlloc
+					prevMallocs = mem.Mallocs
+				}
+			}
 
-			switch ev := e.(type) {
-			case system.DestroyEvent:
-				return ev.Err
-			case system.FrameEvent:
-				if measureFrameAllocs {
-					frameCounter++
-					if frameCounter%60 == 0 {
-						runtime.ReadMemStats(&mem)
-						log.Printf("%10.2f bytes/frame; %10.2f allocs/frame",
-							float64(mem.TotalAlloc-prevTotalAlloc)/float64(60),
-							float64(mem.Mallocs-prevMallocs)/float64(60),
-						)
-						prevTotalAlloc = mem.TotalAlloc
-						prevMallocs = mem.Mallocs
+			mwin.twin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				gtx.Constraints.Min = image.Point{}
+
+				for _, cmd := range commands {
+					cmd(mwin, gtx)
+				}
+				for _, l := range win.Links() {
+					mwin.OpenLink(gtx, l)
+				}
+				commands = commands[:0]
+
+				for _, ev := range gtx.Events(&mwin.pointerAt) {
+					mwin.pointerAt = ev.(pointer.Event).Position
+				}
+				pointer.InputOp{Tag: &mwin.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+
+				for _, ev := range gtx.Events(profileTag) {
+					// Yup, profile.Event only contains a string. No structured access to data.
+					fields := strings.Fields(ev.(profile.Event).Timings)
+					if len(fields) > 0 && strings.HasPrefix(fields[0], "tot:") {
+						var s string
+						if fields[0] == "tot:" {
+							s = fields[1]
+						} else {
+							s = strings.TrimPrefix(fields[0], "tot:")
+						}
+						// Either it parses fine, or d is undefined and will likely be obvious in the debug grpah.
+						d, _ := time.ParseDuration(s)
+						// We're using gtx.Now because events don't have timestamps associated with them. Hopefully
+						// event creation isn't too far removed from this code.
+						mwin.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
 					}
 				}
+				profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
-				mwin.twin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-					gtx.Constraints.Min = image.Point{}
+				// Fill background
+				paint.Fill(gtx.Ops, mwin.twin.Theme.Palette.Background)
 
-					for _, cmd := range commands {
-						cmd(mwin, gtx)
+				switch mwin.state {
+				case "empty":
+					return layout.Dimensions{}
+
+				case "start":
+					gtx.Constraints.Min = gtx.Constraints.Max
+
+					for openTraceButton.Clicked() {
+						mwin.showFileOpenDialog()
 					}
-					for _, l := range win.Links() {
-						mwin.OpenLink(gtx, l)
-					}
-					commands = commands[:0]
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Center.Layout(gtx, widget.Image{Src: assets.Image(gtx, "logo", 128), Scale: 1.0 / gtx.Metric.PxPerDp}.Layout)
+							}),
 
-					for _, ev := range gtx.Events(&mwin.pointerAt) {
-						mwin.pointerAt = ev.(pointer.Event).Position
-					}
-					pointer.InputOp{Tag: &mwin.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &openTraceButton.Clickable, "Open trace").Layout))
+							}),
+						)
+					})
 
-				commandLoop:
-					for {
-						select {
-						case cmd := <-mwin.commands:
-							cmd(mwin, gtx)
-						default:
-							break commandLoop
+				case "error":
+					gtx.Constraints.Min = gtx.Constraints.Max
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+							return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+						})
+					})
+
+				case "loadingTrace":
+					paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
+
+					// OPT(dh): only compute this once
+					var maxNameWidth int
+					for _, name := range mwin.progressStages {
+						width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, name)
+						if width > maxNameWidth {
+							maxNameWidth = width
 						}
 					}
-
-					for _, ev := range gtx.Events(profileTag) {
-						// Yup, profile.Event only contains a string. No structured access to data.
-						fields := strings.Fields(ev.(profile.Event).Timings)
-						if len(fields) > 0 && strings.HasPrefix(fields[0], "tot:") {
-							var s string
-							if fields[0] == "tot:" {
-								s = fields[1]
-							} else {
-								s = strings.TrimPrefix(fields[0], "tot:")
-							}
-							// Either it parses fine, or d is undefined and will likely be obvious in the debug grpah.
-							d, _ := time.ParseDuration(s)
-							// We're using gtx.Now because events don't have timestamps associated with them. Hopefully
-							// event creation isn't too far removed from this code.
-							mwin.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
-						}
+					maxLabelWidth := maxNameWidth
+					{
+						width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
+						maxLabelWidth += width
 					}
-					profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
-					// Fill background
-					paint.Fill(gtx.Ops, mwin.twin.Theme.Palette.Background)
-
-					switch mwin.state {
-					case "empty":
-						return layout.Dimensions{}
-
-					case "start":
-						gtx.Constraints.Min = gtx.Constraints.Max
-
-						for openTraceButton.Clicked() {
-							mwin.showFileOpenDialog()
-						}
-						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					gtx.Constraints.Min = gtx.Constraints.Max
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return theme.Dialog(win.Theme, "Opening trace").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+							progress := math.Float64frombits(mwin.progress.Load())
 							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return layout.Center.Layout(gtx, widget.Image{Src: assets.Image(gtx, "logo", 128), Scale: 1.0 / gtx.Metric.PxPerDp}.Layout)
+									name := mwin.progressStages[mwin.progressStage]
+									gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
+									gtx.Constraints.Max.X = gtx.Constraints.Min.X
+									pct := fmt.Sprintf("%5.2f%%", progress*100)
+									// Replace space with figure space for correct alignment
+									pct = strings.ReplaceAll(pct, " ", "\u2007")
+									return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 								}),
-
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &openTraceButton.Clickable, "Open trace").Layout))
-								}),
-							)
+									gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
+									gtx.Constraints.Max = gtx.Constraints.Min
+									return theme.ProgressBar(mwin.twin.Theme, float32(progress)).Layout(gtx)
+								}))
 						})
+					})
 
-					case "error":
-						gtx.Constraints.Min = gtx.Constraints.Max
-						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-							})
-						})
+				case "main":
+					win.AddShortcut(theme.Shortcut{Name: "G"})
+					win.AddShortcut(theme.Shortcut{Name: "H"})
+					win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
 
-					case "loadingTrace":
-						paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
+					for _, s := range win.PressedShortcuts() {
+						switch s {
+						case theme.Shortcut{Name: "G"}:
+							pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
+							pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
+							win.SetModal(pl.Layout)
 
-						// OPT(dh): only compute this once
-						var maxNameWidth int
-						for _, name := range mwin.progressStages {
-							width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, name)
-							if width > maxNameWidth {
-								maxNameWidth = width
-							}
+						case theme.Shortcut{Name: "H"}:
+							displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
+
+						case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
+							cmd := &theme.CommandPalette{}
+							cmd.Set(theme.MultiCommandProvider{win.CommandProviders()})
+							win.SetModal(cmd.Layout)
 						}
-						maxLabelWidth := maxNameWidth
-						{
-							width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
-							maxLabelWidth += width
-						}
-
-						gtx.Constraints.Min = gtx.Constraints.Max
-						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return theme.Dialog(win.Theme, "Opening trace").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										name := mwin.progressStages[mwin.progressStage]
-										gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
-										gtx.Constraints.Max.X = gtx.Constraints.Min.X
-										pct := fmt.Sprintf("%5.2f%%", mwin.progress*100)
-										// Replace space with figure space for correct alignment
-										pct = strings.ReplaceAll(pct, " ", "\u2007")
-										return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-									}),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
-										gtx.Constraints.Max = gtx.Constraints.Min
-										return theme.ProgressBar(mwin.twin.Theme, float32(mwin.progress)).Layout(gtx)
-									}))
-							})
-						})
-
-					case "main":
-						win.AddShortcut(theme.Shortcut{Name: "G"})
-						win.AddShortcut(theme.Shortcut{Name: "H"})
-						win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
-
-						for _, s := range win.PressedShortcuts() {
-							switch s {
-							case theme.Shortcut{Name: "G"}:
-								pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
-								pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
-								win.SetModal(pl.Layout)
-
-							case theme.Shortcut{Name: "H"}:
-								displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-
-							case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
-								cmd := &theme.CommandPalette{}
-								cmd.Set(theme.MultiCommandProvider{win.CommandProviders()})
-								win.SetModal(cmd.Layout)
-							}
-						}
-
-						if mwin.panel != nil {
-							if mwin.panel.Closed() {
-								mwin.ClosePanel()
-							} else if mwin.panel.Detached() {
-								mwin.openPanelWindow(mwin.panel)
-								mwin.ClosePanel()
-							}
-						}
-
-						mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
-						mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
-						mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
-
-						win.AddCommandProvider(mwin.defaultCommands())
-						var dims layout.Dimensions
-						if mwin.panel == nil {
-							dims = mwin.canvas.Layout(win, gtx)
-						} else {
-							dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mwin.canvas.Layout, mwin.panel.Layout)
-						}
-
-						for _, g := range mwin.canvas.clickedGoroutineTimelines {
-							mwin.openGoroutine(g)
-						}
-						for _, clicked := range mwin.canvas.clickedSpans {
-							mwin.openSpan(clicked)
-						}
-
-						return dims
-
-					default:
-						return layout.Dimensions{}
 					}
-				})
 
-				if invalidateFrames {
-					op.InvalidateOp{}.Add(&ops)
+					if mwin.panel != nil {
+						if mwin.panel.Closed() {
+							mwin.ClosePanel()
+						} else if mwin.panel.Detached() {
+							mwin.openPanelWindow(mwin.panel)
+							mwin.ClosePanel()
+						}
+					}
+
+					mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
+					mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
+					mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
+
+					win.AddCommandProvider(mwin.defaultCommands())
+					var dims layout.Dimensions
+					if mwin.panel == nil {
+						dims = mwin.canvas.Layout(win, gtx)
+					} else {
+						dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mwin.canvas.Layout, mwin.panel.Layout)
+					}
+
+					for _, g := range mwin.canvas.clickedGoroutineTimelines {
+						mwin.openGoroutine(g)
+					}
+					for _, clicked := range mwin.canvas.clickedSpans {
+						mwin.openSpan(clicked)
+					}
+
+					return dims
+
+				default:
+					return layout.Dimensions{}
 				}
+			})
 
-				ev.Frame(&ops)
+			if invalidateFrames {
+				op.InvalidateOp{}.Add(&ops)
 			}
+
+			ev.Frame(&ops)
 		}
 	}
+
+	return nil
 }
 
 func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
@@ -882,9 +851,7 @@ func (mwin *MainWindow) showFileOpenDialog() {
 					//lint:ignore ST1005 This error is only used for display in the UI. It probably shouldn't be of type error though.
 					err = errors.New("Opening file system dialogs isn't supported on this system. Please pass the trace file as an argument to gotraceui instead.")
 				}
-				mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
-					mwin.SetError(err)
-				}
+				mwin.SetError(err)
 				return
 			}
 			defer rc.Close()
@@ -1173,6 +1140,10 @@ func main() {
 	}()
 
 	mwin := NewMainWindow()
+	mwin.win = app.NewWindow(app.Title("gotraceui"))
+	mwin.twin = theme.NewWindow(mwin.win)
+	mwin.explorer = explorer.NewExplorer(mwin.win)
+
 	if debug {
 		go func() {
 			win := app.NewWindow(app.Title("gotraceui - debug window"))
@@ -1180,15 +1151,14 @@ func main() {
 		}()
 	}
 
-	mwin.SetState("start")
+	mwin.setState("start")
 
 	if len(flag.Args()) > 0 {
 		openTraceFromCmdline(mwin)
 	}
 
 	go func() {
-		win := app.NewWindow(app.Title("gotraceui"))
-		mwin.errs <- mwin.Run(win)
+		mwin.errs <- mwin.Run()
 	}()
 
 	go func() {
@@ -1221,7 +1191,7 @@ type loadTraceResult struct {
 type progresser interface {
 	SetProgressStages(names []string)
 	SetProgressStage(stage int)
-	SetProgressLossy(p float64)
+	SetProgress(p float64)
 }
 
 func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
@@ -1239,7 +1209,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStages(names)
 
 	p.SetProgressStage(0)
-	t, err := trace.Parse(f, p.SetProgressLossy)
+	t, err := trace.Parse(f, p.SetProgress)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
@@ -1248,7 +1218,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	}
 
 	p.SetProgressStage(1)
-	pt, err := ptrace.Parse(t, p.SetProgressLossy)
+	pt, err := ptrace.Parse(t, p.SetProgress)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
@@ -1266,7 +1236,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 				proc.Spans[j].Tags |= ptrace.SpanTagGC
 			}
 		}
-		p.SetProgressLossy(float64(i+1) / float64(len(pt.Processors)))
+		p.SetProgress(float64(i+1) / float64(len(pt.Processors)))
 	}
 
 	p.SetProgressStage(3)
@@ -1293,7 +1263,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 			}
 			tr.allGoroutineSpanLabels[seqID] = spanLabels
 
-			p.SetProgressLossy(float64(seqID+1) / float64(len(pt.Goroutines)))
+			p.SetProgress(float64(seqID+1) / float64(len(pt.Goroutines)))
 		}
 	}
 
@@ -1304,7 +1274,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		for seqID, proc := range pt.Processors {
 			localPrefixedID := local.Sprintf("p%d", proc.ID)
 			tr.allProcessorSpanLabels[seqID] = append(tr.allProcessorSpanLabels[seqID], localPrefixedID)
-			p.SetProgressLossy(float64(seqID+1) / float64(len(pt.Processors)))
+			p.SetProgress(float64(seqID+1) / float64(len(pt.Processors)))
 		}
 	}
 
@@ -1315,14 +1285,14 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	if supportMachineTimelines {
 		for i, m := range tr.Machines {
 			timelines = append(timelines, NewMachineTimeline(tr, cv, m))
-			p.SetProgressLossy(float64(i+1) / float64(len(tr.Machines)))
+			p.SetProgress(float64(i+1) / float64(len(tr.Machines)))
 		}
 	}
 
 	p.SetProgressStage(6)
 	for i, proc := range tr.Processors {
 		timelines = append(timelines, NewProcessorTimeline(tr, cv, proc))
-		p.SetProgressLossy(float64(i+1) / float64(len(tr.Processors)))
+		p.SetProgress(float64(i+1) / float64(len(tr.Processors)))
 	}
 
 	p.SetProgressStage(7)
@@ -1333,7 +1303,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		for j, g := range subitems {
 			timelines[baseTimeline+group*step+j] = NewGoroutineTimeline(tr, cv, g)
 			pr := progress.Add(1)
-			p.SetProgressLossy(float64(pr) / float64(len(tr.Goroutines)))
+			p.SetProgress(float64(pr) / float64(len(tr.Goroutines)))
 		}
 		return nil
 	})
