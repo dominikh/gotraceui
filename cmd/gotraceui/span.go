@@ -17,6 +17,7 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
+	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/text"
 )
@@ -94,11 +95,17 @@ type SpansInfoConfig struct {
 }
 
 type SpansInfoConfigNavigations struct {
-	ScrollLabel string
-	ScrollFn    func() theme.Link
+	Scroll struct {
+		ButtonLabel  string
+		CommandLabel string
+		Fn           func() theme.Link
+	}
 
-	ZoomLabel string
-	ZoomFn    func() theme.Link
+	Zoom struct {
+		ButtonLabel  string
+		CommandLabel string
+		Fn           func() theme.Link
+	}
 }
 
 func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin *theme.Window, spans *theme.Future[Items[ptrace.Span]], allTimelines []*Timeline) *SpansInfo {
@@ -286,8 +293,30 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	return Description{Attributes: attrs}
 }
 
+func (si *SpansInfo) scrollAndPanToSpans(win *theme.Window) {
+	if si.cfg.Navigations.Scroll.Fn != nil {
+		win.EmitLink(si.cfg.Navigations.Scroll.Fn())
+	} else {
+		win.EmitLink(&ScrollAndPanToSpansLink{
+			Spans: si.spans.MustResult(),
+		})
+	}
+}
+
+func (si *SpansInfo) zoomToSpans(win *theme.Window) {
+	if si.cfg.Navigations.Zoom.Fn != nil {
+		win.EmitLink(si.cfg.Navigations.Zoom.Fn())
+	} else {
+		win.EmitLink(&ZoomToSpansLink{
+			Spans: si.spans.MustResult(),
+		})
+	}
+}
+
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
+
+	var cmds []theme.Command
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
@@ -317,19 +346,43 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				type button struct {
 					w     *widget.Clickable
 					label string
+					cmd   theme.NormalCommand
 				}
 
 				var buttonsLeft []button
 				if _, ok := spans.Container(); ok {
 					buttonsLeft = []button{
-						{&si.buttons.scrollAndPanToSpans.Clickable, "Scroll and pan to spans"},
-						{&si.buttons.zoomToSpans.Clickable, "Zoom to spans"},
+						{
+							&si.buttons.scrollAndPanToSpans.Clickable,
+							"Scroll and pan to spans",
+							theme.NormalCommand{
+								PrimaryLabel: "Scroll and pan to spans",
+								Aliases:      []string{"goto", "go to"},
+							},
+						},
+
+						{
+							&si.buttons.zoomToSpans.Clickable,
+							"Zoom to spans",
+							theme.NormalCommand{
+								PrimaryLabel: "Zoom to spans",
+							},
+						},
 					}
-					if si.cfg.Navigations.ScrollLabel != "" {
-						buttonsLeft[0].label = si.cfg.Navigations.ScrollLabel
+					if si.cfg.Navigations.Scroll.ButtonLabel != "" {
+						buttonsLeft[0].label = si.cfg.Navigations.Scroll.ButtonLabel
 					}
-					if si.cfg.Navigations.ZoomLabel != "" {
-						buttonsLeft[1].label = si.cfg.Navigations.ZoomLabel
+					if si.cfg.Navigations.Zoom.ButtonLabel != "" {
+						buttonsLeft[1].label = si.cfg.Navigations.Zoom.ButtonLabel
+					}
+					buttonsLeft[0].cmd.PrimaryLabel = buttonsLeft[0].label
+					buttonsLeft[1].cmd.PrimaryLabel = buttonsLeft[1].label
+
+					if si.cfg.Navigations.Scroll.CommandLabel != "" {
+						buttonsLeft[0].cmd.PrimaryLabel = si.cfg.Navigations.Scroll.CommandLabel
+					}
+					if si.cfg.Navigations.Zoom.CommandLabel != "" {
+						buttonsLeft[1].cmd.PrimaryLabel = si.cfg.Navigations.Zoom.CommandLabel
 					}
 				}
 
@@ -342,6 +395,16 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						}),
 						layout.Rigid(layout.Spacer{Width: 5}.Layout),
 					)
+
+					cmd := btn.cmd
+					cmd.Category = "Panel"
+					cmd.Color = colorPanel
+					cmd.Fn = func() theme.Link {
+						return theme.ExecuteLink(func(gtx layout.Context) {
+							btn.w.Click(pointer.ButtonPrimary)
+						})
+					}
+					cmds = append(cmds, cmd)
 				}
 				children = append(children, layout.Flexed(1, nothing))
 				children = append(children, layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)))
@@ -471,22 +534,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {
-		if si.cfg.Navigations.ScrollFn != nil {
-			si.mwin.EmitLink(si.cfg.Navigations.ScrollFn())
-		} else {
-			si.mwin.EmitLink(&ScrollAndPanToSpansLink{
-				Spans: spans,
-			})
-		}
+		si.scrollAndPanToSpans(win)
 	}
 	for si.buttons.zoomToSpans.Clicked() {
-		if si.cfg.Navigations.ZoomFn != nil {
-			si.mwin.EmitLink(si.cfg.Navigations.ZoomFn())
-		} else {
-			si.mwin.EmitLink(&ZoomToSpansLink{
-				Spans: spans,
-			})
-		}
+		si.zoomToSpans(win)
 	}
 	for si.PanelButtons.Backed() {
 		si.mwin.EmitLink(PrevPanelLink{})
@@ -531,6 +582,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	if si.hist.Changed() {
 		si.computeHistogram(win, &si.hist.Config)
 	}
+
+	win.AddCommandProvider(theme.CommandSlice(cmds))
 
 	return dims
 }

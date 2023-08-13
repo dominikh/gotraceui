@@ -924,14 +924,28 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		Title:      title,
 		Stacktrace: stacktrace,
 		Navigations: SpansInfoConfigNavigations{
-			ScrollLabel: "Scroll to goroutine",
-			ScrollFn: func() theme.Link {
-				return (*ScrollToGoroutineLink)(g)
+			Scroll: struct {
+				ButtonLabel  string
+				CommandLabel string
+				Fn           func() theme.Link
+			}{
+				ButtonLabel:  "Scroll to goroutine",
+				CommandLabel: local.Sprintf("Scroll to goroutine %d: %s", g.ID, g.Function.Fn),
+				Fn: func() theme.Link {
+					return (*ScrollToGoroutineLink)(g)
+				},
 			},
 
-			ZoomLabel: "Zoom to goroutine",
-			ZoomFn: func() theme.Link {
-				return (*ZoomToGoroutineLink)(g)
+			Zoom: struct {
+				ButtonLabel  string
+				CommandLabel string
+				Fn           func() theme.Link
+			}{
+				ButtonLabel:  "Zoom to goroutine",
+				CommandLabel: local.Sprintf("Zoom to goroutine %d: %s", g.ID, g.Function.Fn),
+				Fn: func() theme.Link {
+					return (*ZoomToGoroutineLink)(g)
+				},
 			},
 		},
 		Statistics: func(win *theme.Window) *theme.Future[*SpansStats] {

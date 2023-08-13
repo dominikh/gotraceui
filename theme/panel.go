@@ -4,6 +4,7 @@ import (
 	"context"
 	rtrace "runtime/trace"
 
+	mycolor "honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 )
@@ -52,22 +53,58 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 	type button struct {
 		w     *widget.PrimaryClickable
 		label string
+		cmd   NormalCommand
 	}
 
 	var buttons []button
 	if pb.windowed {
 		buttons = []button{
-			{&pb.attach, "Attach"},
-			{&pb.close, "Close"},
+			{
+				&pb.attach,
+				"Attach",
+				NormalCommand{
+					PrimaryLabel: "Attach panel",
+				},
+			},
+
+			{
+				&pb.close,
+				"Close",
+				NormalCommand{
+					PrimaryLabel: "Close panel",
+				},
+			},
 		}
 	} else {
 		buttons = []button{
-			{&pb.back, "Back"},
-			{&pb.detach, "Detach"},
-			{&pb.close, "Close"},
+			{
+				&pb.back,
+				"Back",
+				NormalCommand{
+					PrimaryLabel: "Go to previous panel",
+					Aliases:      []string{"back"},
+				},
+			},
+
+			{
+				&pb.detach,
+				"Detach",
+				NormalCommand{
+					PrimaryLabel: "Detach panel",
+				},
+			},
+
+			{
+				&pb.close,
+				"Close",
+				NormalCommand{
+					PrimaryLabel: "Close panel",
+				},
+			},
 		}
 	}
 
+	var cmds CommandSlice
 	children := make([]layout.FlexChild, 0, 3)
 	for _, btn := range buttons {
 		btn := btn
@@ -77,8 +114,19 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 			}),
 			layout.Rigid(layout.Spacer{Width: 5}.Layout),
 		)
+
+		cmd := btn.cmd
+		cmd.Category = "Panel"
+		cmd.Color = mycolor.Oklch{L: 0.7862, C: 0.104, H: 140, Alpha: 1}
+		cmd.Fn = func() Link {
+			return ExecuteLink(func(gtx layout.Context) {
+				btn.w.Click()
+			})
+		}
+		cmds = append(cmds, cmd)
 	}
 
+	win.AddCommandProvider(CommandSlice(cmds))
 	return layout.Flex{}.Layout(gtx, children...)
 }
 

@@ -57,6 +57,7 @@ var (
 	spanSliceCache          = mem.NewConcurrentSliceCache[ptrace.Span, []ptrace.Span]()
 	stackSpanMetaSliceCache = mem.NewConcurrentSliceCache[stackSpanMeta, []stackSpanMeta]()
 )
+var colorPanel = mycolor.Oklch{L: 0.7862, C: 0.104, H: 140, Alpha: 1}
 
 func debugCaching(gtx layout.Context) {
 	if false {
