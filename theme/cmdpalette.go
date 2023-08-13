@@ -41,7 +41,7 @@ type CommandPalette struct {
 type Command interface {
 	Layout(win *Window, gtx layout.Context, current bool) layout.Dimensions
 	Filter(input string) bool
-	Link() Link
+	Link() Action
 }
 
 type CommandProvider interface {
@@ -87,10 +87,10 @@ type NormalCommand struct {
 	Color          mycolor.Oklch
 	Shortcut       string
 	Aliases        []string
-	Fn             func() Link
+	Fn             func() Action
 }
 
-func (cmd NormalCommand) Link() Link {
+func (cmd NormalCommand) Link() Action {
 	return cmd.Fn()
 }
 
@@ -317,7 +317,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 								}
 								for _, ev := range ges.Events(gtx.Queue) {
 									if ev.Type == gesture.TypeClick {
-										win.EmitLink(pl.cmds.At(pl.filtered[index]).Link())
+										win.EmitAction(pl.cmds.At(pl.filtered[index]).Link())
 										win.CloseModal()
 									}
 								}
@@ -361,7 +361,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 				// Do nothing, there is no active element
 				continue
 			}
-			win.EmitLink(pl.cmds.At(pl.filtered[pl.active]).Link())
+			win.EmitAction(pl.cmds.At(pl.filtered[pl.active]).Link())
 			win.CloseModal()
 		case widget.ChangeEvent:
 			pl.filter(pl.editor.Text())

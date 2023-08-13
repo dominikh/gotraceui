@@ -104,8 +104,8 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 			pid := cv.trace.Event((spans.At(0).Event)).P
 			items = append(items, &theme.MenuItem{
 				Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
-				Link: func() theme.Link {
-					return ScrollToProcessorLink{
+				Action: func() theme.Action {
+					return ScrollToProcessorAction{
 						Processor: cv.trace.P(cv.trace.Event((spans.At(0).Event)).P),
 					}
 				},
@@ -117,9 +117,9 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 			if ok {
 				items = append(items, &theme.MenuItem{
 					Label: PlainLabel(local.Sprintf("Scroll to unblocking goroutine %d", gid)),
-					Link: func() theme.Link {
+					Action: func() theme.Action {
 						gid, _ := unblockedByGoroutine(cv.trace, spans.At(0))
-						return ScrollToGoroutineLink{
+						return ScrollToGoroutineAction{
 							Goroutine: cv.trace.G(gid),
 						}
 					},
@@ -956,24 +956,24 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 			Scroll: struct {
 				ButtonLabel  string
 				CommandLabel string
-				Fn           func() theme.Link
+				Fn           func() theme.Action
 			}{
 				ButtonLabel:  "Scroll to goroutine",
 				CommandLabel: local.Sprintf("Scroll to goroutine %d: %s", g.ID, g.Function.Fn),
-				Fn: func() theme.Link {
-					return &ScrollToGoroutineLink{Goroutine: g}
+				Fn: func() theme.Action {
+					return &ScrollToGoroutineAction{Goroutine: g}
 				},
 			},
 
 			Zoom: struct {
 				ButtonLabel  string
 				CommandLabel string
-				Fn           func() theme.Link
+				Fn           func() theme.Action
 			}{
 				ButtonLabel:  "Zoom to goroutine",
 				CommandLabel: local.Sprintf("Zoom to goroutine %d: %s", g.ID, g.Function.Fn),
-				Fn: func() theme.Link {
-					return &ZoomToGoroutineLink{Goroutine: g}
+				Fn: func() theme.Action {
+					return &ZoomToGoroutineAction{Goroutine: g}
 				},
 			},
 		},

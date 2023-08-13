@@ -21,67 +21,67 @@ import (
 
 var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
 
-type MainWindowLink interface {
-	theme.Link
+type MainWindowAction interface {
+	theme.Action
 	Open(gtx layout.Context, mwin *MainWindow)
 }
 
 type ObjectLink interface {
-	Link(ev gesture.ClickEvent) theme.Link
+	Action(ev gesture.ClickEvent) theme.Action
 	ContextMenu() []*theme.MenuItem
 	Commands() []theme.Command
 }
 
-type OpenGoroutineLink struct {
+type OpenGoroutineAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
-type ScrollToGoroutineLink struct {
+type ScrollToGoroutineAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
-type ZoomToGoroutineLink struct {
+type ZoomToGoroutineAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
-type ScrollToTimestampLink trace.Timestamp
-type ScrollToProcessorLink struct {
+type ScrollToTimestampAction trace.Timestamp
+type ScrollToProcessorAction struct {
 	Processor  *ptrace.Processor
 	Provenance string
 }
-type ZoomToProcessorLink struct {
+type ZoomToProcessorAction struct {
 	Processor  *ptrace.Processor
 	Provenance string
 }
-type OpenFunctionLink struct {
+type OpenFunctionAction struct {
 	Function   *ptrace.Function
 	Provenance string
 }
-type SpansLink struct{ Spans Items[ptrace.Span] }
-type OpenSpansLink SpansLink
-type ScrollAndPanToSpansLink SpansLink
-type ZoomToSpansLink SpansLink
-type ScrollToTimelineLink Timeline
-type CanvasJumpToBeginningLink struct{}
-type CanvasScrollToTopLink struct{}
-type CanvasUndoNavigationLink struct{}
-type CanvasZoomToFitCurrentViewLink struct{}
-type OpenFlameGraphLink struct{}
-type OpenHeatmapLink struct{}
-type OpenHighlightSpansDialogLink struct{}
-type CanvasToggleTimelineLabelsLink struct{}
-type CanvasToggleCompactDisplayLink struct{}
-type CanvasToggleStackTracksLink struct{}
-type OpenScrollToTimelineDialog struct{}
-type OpenFileOpenDialog struct{}
-type ExitLink struct{}
-type WriteMemoryProfileLink struct{}
-type RunGarbageCollectionLink struct{}
-type RunFreeOSMemoryLink struct{}
-type StartCPUProfileLink struct{}
-type StopCPUProfileLink struct{}
-type OpenPanelLink struct{ Panel theme.Panel }
-type PrevPanelLink struct{}
+type SpansAction struct{ Spans Items[ptrace.Span] }
+type OpenSpansAction SpansAction
+type ScrollAndPanToSpansAction SpansAction
+type ZoomToSpansAction SpansAction
+type ScrollToTimelineAction Timeline
+type CanvasJumpToBeginningAction struct{}
+type CanvasScrollToTopAction struct{}
+type CanvasUndoNavigationAction struct{}
+type CanvasZoomToFitCurrentViewAction struct{}
+type OpenFlameGraphAction struct{}
+type OpenHeatmapAction struct{}
+type OpenHighlightSpansDialogAction struct{}
+type CanvasToggleTimelineLabelsAction struct{}
+type CanvasToggleCompactDisplayAction struct{}
+type CanvasToggleStackTracksAction struct{}
+type OpenScrollToTimelineAction struct{}
+type OpenFileOpenAction struct{}
+type ExitAction struct{}
+type WriteMemoryProfileAction struct{}
+type RunGarbageCollectionAction struct{}
+type RunFreeOSMemoryAction struct{}
+type StartCPUProfileAction struct{}
+type StopCPUProfileAction struct{}
+type OpenPanelAction struct{ Panel theme.Panel }
+type PrevPanelAction struct{}
 type GoroutineObjectLink struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
@@ -100,38 +100,38 @@ type FunctionObjectLink struct {
 }
 type SpansObjectLink struct{ Spans Items[ptrace.Span] }
 
-func (OpenGoroutineLink) IsLink()              {}
-func (ScrollToGoroutineLink) IsLink()          {}
-func (ZoomToGoroutineLink) IsLink()            {}
-func (ScrollToTimestampLink) IsLink()          {}
-func (ScrollToProcessorLink) IsLink()          {}
-func (ZoomToProcessorLink) IsLink()            {}
-func (OpenFunctionLink) IsLink()               {}
-func (SpansLink) IsLink()                      {}
-func (OpenSpansLink) IsLink()                  {}
-func (ScrollAndPanToSpansLink) IsLink()        {}
-func (ZoomToSpansLink) IsLink()                {}
-func (ScrollToTimelineLink) IsLink()           {}
-func (CanvasJumpToBeginningLink) IsLink()      {}
-func (CanvasScrollToTopLink) IsLink()          {}
-func (CanvasUndoNavigationLink) IsLink()       {}
-func (CanvasZoomToFitCurrentViewLink) IsLink() {}
-func (OpenFlameGraphLink) IsLink()             {}
-func (OpenHeatmapLink) IsLink()                {}
-func (OpenHighlightSpansDialogLink) IsLink()   {}
-func (CanvasToggleTimelineLabelsLink) IsLink() {}
-func (CanvasToggleCompactDisplayLink) IsLink() {}
-func (CanvasToggleStackTracksLink) IsLink()    {}
-func (OpenScrollToTimelineDialog) IsLink()     {}
-func (OpenFileOpenDialog) IsLink()             {}
-func (ExitLink) IsLink()                       {}
-func (WriteMemoryProfileLink) IsLink()         {}
-func (RunGarbageCollectionLink) IsLink()       {}
-func (RunFreeOSMemoryLink) IsLink()            {}
-func (StartCPUProfileLink) IsLink()            {}
-func (StopCPUProfileLink) IsLink()             {}
-func (*OpenPanelLink) IsLink()                 {}
-func (PrevPanelLink) IsLink()                  {}
+func (OpenGoroutineAction) IsAction()              {}
+func (ScrollToGoroutineAction) IsAction()          {}
+func (ZoomToGoroutineAction) IsAction()            {}
+func (ScrollToTimestampAction) IsAction()          {}
+func (ScrollToProcessorAction) IsAction()          {}
+func (ZoomToProcessorAction) IsAction()            {}
+func (OpenFunctionAction) IsAction()               {}
+func (SpansAction) IsAction()                      {}
+func (OpenSpansAction) IsAction()                  {}
+func (ScrollAndPanToSpansAction) IsAction()        {}
+func (ZoomToSpansAction) IsAction()                {}
+func (ScrollToTimelineAction) IsAction()           {}
+func (CanvasJumpToBeginningAction) IsAction()      {}
+func (CanvasScrollToTopAction) IsAction()          {}
+func (CanvasUndoNavigationAction) IsAction()       {}
+func (CanvasZoomToFitCurrentViewAction) IsAction() {}
+func (OpenFlameGraphAction) IsAction()             {}
+func (OpenHeatmapAction) IsAction()                {}
+func (OpenHighlightSpansDialogAction) IsAction()   {}
+func (CanvasToggleTimelineLabelsAction) IsAction() {}
+func (CanvasToggleCompactDisplayAction) IsAction() {}
+func (CanvasToggleStackTracksAction) IsAction()    {}
+func (OpenScrollToTimelineAction) IsAction()       {}
+func (OpenFileOpenAction) IsAction()               {}
+func (ExitAction) IsAction()                       {}
+func (WriteMemoryProfileAction) IsAction()         {}
+func (RunGarbageCollectionAction) IsAction()       {}
+func (RunFreeOSMemoryAction) IsAction()            {}
+func (StartCPUProfileAction) IsAction()            {}
+func (StopCPUProfileAction) IsAction()             {}
+func (*OpenPanelAction) IsAction()                 {}
+func (PrevPanelAction) IsAction()                  {}
 
 func defaultObjectLink(obj any, provenance string) ObjectLink {
 	switch obj := obj.(type) {
@@ -150,14 +150,14 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 	}
 }
 
-func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) theme.Link {
+func (l *GoroutineObjectLink) Action(ev gesture.ClickEvent) theme.Action {
 	switch ev.Modifiers {
 	default:
-		return (*ScrollToGoroutineLink)(l)
+		return (*ScrollToGoroutineAction)(l)
 	case key.ModShortcut:
-		return (*ZoomToGoroutineLink)(l)
+		return (*ZoomToGoroutineAction)(l)
 	case key.ModShift:
-		return (*OpenGoroutineLink)(l)
+		return (*OpenGoroutineAction)(l)
 	}
 }
 
@@ -165,32 +165,32 @@ func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to goroutine"),
-			Link: func() theme.Link {
-				return (*ScrollToGoroutineLink)(l)
+			Action: func() theme.Action {
+				return (*ScrollToGoroutineAction)(l)
 			},
 		},
 		{
 			Label: PlainLabel("Zoom to goroutine"),
-			Link: func() theme.Link {
-				return (*ZoomToGoroutineLink)(l)
+			Action: func() theme.Action {
+				return (*ZoomToGoroutineAction)(l)
 			},
 		},
 		{
 			Label: PlainLabel("Show goroutine information"),
-			Link: func() theme.Link {
-				return (*OpenGoroutineLink)(l)
+			Action: func() theme.Action {
+				return (*OpenGoroutineAction)(l)
 			},
 		},
 	}
 }
 
-func (l *ProcessorObjectLink) Link(ev gesture.ClickEvent) theme.Link {
+func (l *ProcessorObjectLink) Action(ev gesture.ClickEvent) theme.Action {
 	// There are no processor panels yet, so key.ModShift doesn't do anything
 	switch ev.Modifiers {
 	default:
-		return (*ScrollToProcessorLink)(l)
+		return (*ScrollToProcessorAction)(l)
 	case key.ModShortcut:
-		return (*ZoomToProcessorLink)(l)
+		return (*ZoomToProcessorAction)(l)
 	}
 }
 
@@ -198,49 +198,49 @@ func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to processor"),
-			Link: func() theme.Link {
-				return (*ScrollToProcessorLink)(l)
+			Action: func() theme.Action {
+				return (*ScrollToProcessorAction)(l)
 			},
 		},
 		{
 			Label: PlainLabel("Zoom to processor"),
-			Link: func() theme.Link {
-				return (*ZoomToProcessorLink)(l)
+			Action: func() theme.Action {
+				return (*ZoomToProcessorAction)(l)
 			},
 		},
 	}
 }
 
-func (l *TimestampObjectLink) Link(ev gesture.ClickEvent) theme.Link {
-	return ScrollToTimestampLink(l.Timestamp)
+func (l *TimestampObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+	return ScrollToTimestampAction(l.Timestamp)
 }
 
 func (l *TimestampObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
-func (l *FunctionObjectLink) Link(ev gesture.ClickEvent) theme.Link {
-	return (*OpenFunctionLink)(l)
+func (l *FunctionObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+	return (*OpenFunctionAction)(l)
 }
 
 func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
-func (l *SpansObjectLink) Link(ev gesture.ClickEvent) theme.Link {
+func (l *SpansObjectLink) Action(ev gesture.ClickEvent) theme.Action {
 	switch ev.Modifiers {
 	default:
-		ll := ScrollToTimestampLink(l.Spans.At(0).Start)
+		ll := ScrollToTimestampAction(l.Spans.At(0).Start)
 		return &ll
 	case key.ModShortcut:
 		if _, ok := l.Spans.Container(); ok {
-			return (*ZoomToSpansLink)(l)
+			return (*ZoomToSpansAction)(l)
 		} else {
-			ll := ScrollToTimestampLink(l.Spans.At(0).Start)
+			ll := ScrollToTimestampAction(l.Spans.At(0).Start)
 			return &ll
 		}
 	case key.ModShift:
-		return (*OpenSpansLink)(l)
+		return (*OpenSpansAction)(l)
 	}
 }
 
@@ -249,26 +249,26 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 		return []*theme.MenuItem{
 			{
 				Label: PlainLabel("Scroll to span start"),
-				Link: func() theme.Link {
-					return ScrollToTimestampLink(l.Spans.At(0).Start)
+				Action: func() theme.Action {
+					return ScrollToTimestampAction(l.Spans.At(0).Start)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
-				Link: func() theme.Link {
-					return ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
+				Action: func() theme.Action {
+					return ScrollToTimestampAction(l.Spans.At(l.Spans.Len() - 1).End)
 				},
 			},
 			{
 				Label: PlainLabel("Zoom to span"),
-				Link: func() theme.Link {
-					return (*ZoomToSpansLink)(l)
+				Action: func() theme.Action {
+					return (*ZoomToSpansAction)(l)
 				},
 			},
 			{
 				Label: PlainLabel("Show span information"),
-				Link: func() theme.Link {
-					return (*OpenSpansLink)(l)
+				Action: func() theme.Action {
+					return (*OpenSpansAction)(l)
 				},
 			},
 		}
@@ -276,44 +276,44 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 		return []*theme.MenuItem{
 			{
 				Label: PlainLabel("Scroll to span start"),
-				Link: func() theme.Link {
-					return ScrollToTimestampLink(l.Spans.At(0).Start)
+				Action: func() theme.Action {
+					return ScrollToTimestampAction(l.Spans.At(0).Start)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
-				Link: func() theme.Link {
-					return ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
+				Action: func() theme.Action {
+					return ScrollToTimestampAction(l.Spans.At(l.Spans.Len() - 1).End)
 				},
 			},
 			{
 				Label: PlainLabel("Show span information"),
-				Link: func() theme.Link {
-					return (*OpenSpansLink)(l)
+				Action: func() theme.Action {
+					return (*OpenSpansAction)(l)
 				},
 			},
 		}
 	}
 }
 
-func (l *ScrollToTimelineLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ScrollToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.scrollToTimeline(gtx, (*Timeline)(l))
 }
 
-func (l *OpenGoroutineLink) Open(_ layout.Context, mwin *MainWindow) {
+func (l *OpenGoroutineAction) Open(_ layout.Context, mwin *MainWindow) {
 	mwin.openGoroutine(l.Goroutine)
 }
 
-func (l *ScrollToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ScrollToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.scrollToObject(gtx, l.Goroutine)
 }
 
-func (l *ZoomToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ZoomToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	y := mwin.canvas.objectY(gtx, l.Goroutine)
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans[0].Start, l.Goroutine.Spans[len(l.Goroutine.Spans)-1].End, y)
 }
 
-func (l ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l ScrollToTimestampAction) Open(gtx layout.Context, mwin *MainWindow) {
 	d := mwin.canvas.End() - mwin.canvas.start
 	var off trace.Timestamp
 	switch mwin.canvas.axis.anchor {
@@ -329,24 +329,24 @@ func (l ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.navigateTo(gtx, trace.Timestamp(l)-off, mwin.canvas.nsPerPx, mwin.canvas.y)
 }
 
-func (l *ScrollToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ScrollToProcessorAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.scrollToObject(gtx, l.Processor)
 }
 
-func (l *ZoomToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ZoomToProcessorAction) Open(gtx layout.Context, mwin *MainWindow) {
 	y := mwin.canvas.objectY(gtx, l.Processor)
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Processor.Spans[0].Start, l.Processor.Spans[len(l.Processor.Spans)-1].End, y)
 }
 
-func (l *OpenFunctionLink) Open(_ layout.Context, mwin *MainWindow) {
+func (l *OpenFunctionAction) Open(_ layout.Context, mwin *MainWindow) {
 	mwin.openFunction(l.Function)
 }
 
-func (l *OpenSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *OpenSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openSpan(l.Spans)
 }
 
-func (l *ScrollAndPanToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ScrollAndPanToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	c, ok := l.Spans.Container()
 	assert(ok, "expected container")
 	mwin.canvas.scrollToTimeline(gtx, c.Timeline)
@@ -355,7 +355,7 @@ func (l *ScrollAndPanToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, mwin.canvas.animateTo.targetY)
 }
 
-func (l *ZoomToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *ZoomToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	c, ok := l.Spans.Container()
 	assert(ok, "expected container")
 	mwin.canvas.scrollToTimeline(gtx, c.Timeline)
@@ -364,8 +364,8 @@ func (l *ZoomToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 
 func handleLinkClick(win *theme.Window, ev TextEvent) {
 	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
-		link := ev.Span.ObjectLink.Link(ev.Event)
-		win.EmitLink(link)
+		link := ev.Span.ObjectLink.Action(ev.Event)
+		win.EmitAction(link)
 	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
 		menu := ev.Span.ObjectLink.ContextMenu()
 		if len(menu) != 0 {
@@ -374,48 +374,48 @@ func handleLinkClick(win *theme.Window, ev TextEvent) {
 	}
 }
 
-func (l CanvasJumpToBeginningLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasJumpToBeginningAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.JumpToBeginning(gtx)
 }
-func (l CanvasScrollToTopLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasScrollToTopAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.ScrollToTop(gtx)
 }
-func (l CanvasUndoNavigationLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasUndoNavigationAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.UndoNavigation(gtx)
 }
-func (l CanvasZoomToFitCurrentViewLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasZoomToFitCurrentViewAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.ZoomToFitCurrentView(gtx)
 }
-func (l OpenFlameGraphLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l OpenFlameGraphAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openFlameGraph()
 }
-func (l OpenHeatmapLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l OpenHeatmapAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openHeatmap()
 }
-func (l OpenHighlightSpansDialogLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l OpenHighlightSpansDialogAction) Open(gtx layout.Context, mwin *MainWindow) {
 	displayHighlightSpansDialog(mwin.twin, &mwin.canvas.timeline.filter)
 }
-func (l CanvasToggleTimelineLabelsLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasToggleTimelineLabelsAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.ToggleTimelineLabels()
 }
-func (l CanvasToggleCompactDisplayLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasToggleCompactDisplayAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.ToggleCompactDisplay()
 }
-func (l CanvasToggleStackTracksLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l CanvasToggleStackTracksAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.ToggleStackTracks()
 }
-func (l OpenScrollToTimelineDialog) Open(gtx layout.Context, mwin *MainWindow) {
+func (l OpenScrollToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
 	pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
 	mwin.twin.SetModal(pl.Layout)
 }
-func (l OpenFileOpenDialog) Open(gtx layout.Context, mwin *MainWindow) {
+func (l OpenFileOpenAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.showFileOpenDialog()
 }
-func (l ExitLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l ExitAction) Open(gtx layout.Context, mwin *MainWindow) {
 	os.Exit(0)
 }
-func (l WriteMemoryProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l WriteMemoryProfileAction) Open(gtx layout.Context, mwin *MainWindow) {
 	path, err := func() (string, error) {
 		runtime.GC()
 		path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
@@ -434,17 +434,17 @@ func (l WriteMemoryProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
 		mwin.twin.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
 	}
 }
-func (l RunGarbageCollectionLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l RunGarbageCollectionAction) Open(gtx layout.Context, mwin *MainWindow) {
 	start := time.Now()
 	runtime.GC()
 	d := time.Since(start)
 	mwin.twin.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
 }
-func (l RunFreeOSMemoryLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l RunFreeOSMemoryAction) Open(gtx layout.Context, mwin *MainWindow) {
 	rdebug.FreeOSMemory()
 	mwin.twin.ShowNotification(gtx, "Returned unused memory to OS")
 }
-func (l StartCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l StartCPUProfileAction) Open(gtx layout.Context, mwin *MainWindow) {
 	if mwin.cpuProfile == nil {
 		f, path, err := func() (*os.File, string, error) {
 			path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
@@ -466,7 +466,7 @@ func (l StartCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
 		mwin.cpuProfile = f
 	}
 }
-func (l StopCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l StopCPUProfileAction) Open(gtx layout.Context, mwin *MainWindow) {
 	if mwin.cpuProfile != nil {
 		pprof.StopCPUProfile()
 		if err := mwin.cpuProfile.Close(); err == nil {
@@ -478,11 +478,11 @@ func (l StopCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
 	}
 }
 
-func (l *OpenPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l *OpenPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openPanel(l.Panel)
 }
 
-func (PrevPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (PrevPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.prevPanel()
 }
 
@@ -494,8 +494,8 @@ func (l *GoroutineObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Aliases:        []string{"goto", "go to"},
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return (*ScrollToGoroutineLink)(l)
+			Fn: func() theme.Action {
+				return (*ScrollToGoroutineAction)(l)
 			},
 		},
 
@@ -504,8 +504,8 @@ func (l *GoroutineObjectLink) Commands() []theme.Command {
 			SecondaryLabel: l.Provenance,
 			Category:       "Link",
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return (*ZoomToGoroutineLink)(l)
+			Fn: func() theme.Action {
+				return (*ZoomToGoroutineAction)(l)
 			},
 		},
 
@@ -515,8 +515,8 @@ func (l *GoroutineObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Aliases:        []string{"open"},
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return (*OpenGoroutineLink)(l)
+			Fn: func() theme.Action {
+				return (*OpenGoroutineAction)(l)
 			},
 		},
 	}
@@ -529,8 +529,8 @@ func (l *ProcessorObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Aliases:        []string{"goto", "go to"},
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return (*ScrollToProcessorLink)(l)
+			Fn: func() theme.Action {
+				return (*ScrollToProcessorAction)(l)
 			},
 		},
 
@@ -539,8 +539,8 @@ func (l *ProcessorObjectLink) Commands() []theme.Command {
 			SecondaryLabel: l.Provenance,
 			Category:       "Link",
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return (*ZoomToProcessorLink)(l)
+			Fn: func() theme.Action {
+				return (*ZoomToProcessorAction)(l)
 			},
 		},
 	}
@@ -553,8 +553,8 @@ func (l *TimestampObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Aliases:        []string{"goto", "go to", "scroll", fmt.Sprintf("%d", l.Timestamp)},
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return ScrollToTimestampLink(l.Timestamp)
+			Fn: func() theme.Action {
+				return ScrollToTimestampAction(l.Timestamp)
 			},
 		},
 	}
@@ -567,8 +567,8 @@ func (l *FunctionObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Aliases:        []string{"open"},
 			Color:          colorLink,
-			Fn: func() theme.Link {
-				return (*OpenFunctionLink)(l)
+			Fn: func() theme.Action {
+				return (*OpenFunctionAction)(l)
 			},
 		},
 	}

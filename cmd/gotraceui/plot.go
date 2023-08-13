@@ -258,8 +258,8 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		items := []*theme.MenuItem{
 			{
 				Label: PlainLabel("Reset extents"),
-				Link: func() theme.Link {
-					return theme.ExecuteLink(func(gtx layout.Context) {
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.min = 0
 						_, pl.max = pl.computeExtents(0, math.MaxInt64)
 						pl.autoScale = false
@@ -268,32 +268,32 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			},
 			{
 				Label: PlainLabel("Set extents to global extrema"),
-				Link: func() theme.Link {
-					return theme.ExecuteLink(func(gtx layout.Context) {
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.min, pl.max = pl.computeExtents(0, math.MaxInt64)
 					})
 				},
 			},
 			{
 				Label: PlainLabel("Set extents to local extrema"),
-				Link: func() theme.Link {
-					return theme.ExecuteLink(func(gtx layout.Context) {
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
 					})
 				},
 			},
 			{
 				Label: ToggleLabel("Don't auto-set extents", "Auto-set extents to local extrema", &pl.autoScale),
-				Link: func() theme.Link {
-					return theme.ExecuteLink(func(gtx layout.Context) {
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.autoScale = !pl.autoScale
 					})
 				},
 			},
 			{
 				Label: ToggleLabel("Show legends", "Hide legends", &pl.hideLegends),
-				Link: func() theme.Link {
-					return theme.ExecuteLink(func(gtx layout.Context) {
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.hideLegends = !pl.hideLegends
 					})
 				},
@@ -309,8 +309,8 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			}
 			item := &theme.MenuItem{
 				Label: PlainLabel(label),
-				Link: func() theme.Link {
-					return theme.ExecuteLink(func(gtx layout.Context) {
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
 						s.disabled = !s.disabled
 					})
 				},

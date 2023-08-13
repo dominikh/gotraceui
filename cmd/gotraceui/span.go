@@ -98,13 +98,13 @@ type SpansInfoConfigNavigations struct {
 	Scroll struct {
 		ButtonLabel  string
 		CommandLabel string
-		Fn           func() theme.Link
+		Fn           func() theme.Action
 	}
 
 	Zoom struct {
 		ButtonLabel  string
 		CommandLabel string
-		Fn           func() theme.Link
+		Fn           func() theme.Action
 	}
 }
 
@@ -306,9 +306,9 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 
 func (si *SpansInfo) scrollAndPanToSpans(win *theme.Window) {
 	if si.cfg.Navigations.Scroll.Fn != nil {
-		win.EmitLink(si.cfg.Navigations.Scroll.Fn())
+		win.EmitAction(si.cfg.Navigations.Scroll.Fn())
 	} else {
-		win.EmitLink(&ScrollAndPanToSpansLink{
+		win.EmitAction(&ScrollAndPanToSpansAction{
 			Spans: si.spans.MustResult(),
 		})
 	}
@@ -316,9 +316,9 @@ func (si *SpansInfo) scrollAndPanToSpans(win *theme.Window) {
 
 func (si *SpansInfo) zoomToSpans(win *theme.Window) {
 	if si.cfg.Navigations.Zoom.Fn != nil {
-		win.EmitLink(si.cfg.Navigations.Zoom.Fn())
+		win.EmitAction(si.cfg.Navigations.Zoom.Fn())
 	} else {
-		win.EmitLink(&ZoomToSpansLink{
+		win.EmitAction(&ZoomToSpansAction{
 			Spans: si.spans.MustResult(),
 		})
 	}
@@ -410,8 +410,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					cmd := btn.cmd
 					cmd.Category = "Panel"
 					cmd.Color = colorPanel
-					cmd.Fn = func() theme.Link {
-						return theme.ExecuteLink(func(gtx layout.Context) {
+					cmd.Fn = func() theme.Action {
+						return theme.ExecuteAction(func(gtx layout.Context) {
 							btn.w.Click(pointer.ButtonPrimary)
 						})
 					}
@@ -555,7 +555,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.zoomToSpans(win)
 	}
 	for si.PanelButtons.Backed() {
-		si.mwin.EmitLink(PrevPanelLink{})
+		si.mwin.EmitAction(PrevPanelAction{})
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(spans.At(0).Event).Args[2]]
@@ -591,7 +591,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		si.mwin.EmitLink(&OpenPanelLink{NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines)})
+		si.mwin.EmitAction(&OpenPanelAction{NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines)})
 	}
 
 	if si.hist.Changed() {

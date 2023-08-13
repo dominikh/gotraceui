@@ -1206,8 +1206,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 					{
 						Label:    PlainLabel("Move origin to the left"),
 						Disabled: func() bool { return axis.anchor == AxisAnchorStart },
-						Link: func() theme.Link {
-							return theme.ExecuteLink(func(gtx layout.Context) {
+						Action: func() theme.Action {
+							return theme.ExecuteAction(func(gtx layout.Context) {
 								axis.anchor = AxisAnchorStart
 							})
 						},
@@ -1215,8 +1215,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 					{
 						Label:    PlainLabel("Move origin to the center"),
 						Disabled: func() bool { return axis.anchor == AxisAnchorCenter },
-						Link: func() theme.Link {
-							return theme.ExecuteLink(func(gtx layout.Context) {
+						Action: func() theme.Action {
+							return theme.ExecuteAction(func(gtx layout.Context) {
 								axis.anchor = AxisAnchorCenter
 							})
 						},
@@ -1224,8 +1224,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 					{
 						Label:    PlainLabel("Move origin to the right"),
 						Disabled: func() bool { return axis.anchor == AxisAnchorEnd },
-						Link: func() theme.Link {
-							return theme.ExecuteLink(func(gtx layout.Context) {
+						Action: func() theme.Action {
+							return theme.ExecuteAction(func(gtx layout.Context) {
 								axis.anchor = AxisAnchorEnd
 							})
 						},

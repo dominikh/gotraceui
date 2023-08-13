@@ -27,11 +27,11 @@ import (
 	"gioui.org/unit"
 )
 
-type Link interface{ IsLink() }
+type Action interface{ IsAction() }
 
-type ExecuteLink func(gtx layout.Context)
+type ExecuteAction func(gtx layout.Context)
 
-func (ExecuteLink) IsLink() {}
+func (ExecuteAction) IsAction() {}
 
 type Window struct {
 	AppWindow *app.Window
@@ -45,9 +45,9 @@ type Window struct {
 	commandProviders     []CommandProvider
 	prevCommandProviders []CommandProvider
 
-	linksMu          sync.Mutex
-	emittedLinks     []Link
-	prevEmittedLinks []Link
+	actionsMu          sync.Mutex
+	emittedActions     []Action
+	prevEmittedActions []Action
 
 	pointerAt f32.Point
 
@@ -142,15 +142,15 @@ func (win *Window) PressedShortcuts() []Shortcut {
 	return win.pressedShortcuts
 }
 
-func (win *Window) EmitLink(l Link) {
-	win.linksMu.Lock()
-	defer win.linksMu.Unlock()
-	win.emittedLinks = append(win.emittedLinks, l)
+func (win *Window) EmitAction(l Action) {
+	win.actionsMu.Lock()
+	defer win.actionsMu.Unlock()
+	win.emittedActions = append(win.emittedActions, l)
 	win.AppWindow.Invalidate()
 }
 
-func (win *Window) Links() []Link {
-	return win.prevEmittedLinks
+func (win *Window) Actions() []Action {
+	return win.prevEmittedActions
 }
 
 func doubleBuffer[E any, S ~[]E](dst, src *S) {
@@ -194,9 +194,9 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	}
 
 	doubleBuffer(&win.prevCommandProviders, &win.commandProviders)
-	win.linksMu.Lock()
-	doubleBuffer(&win.prevEmittedLinks, &win.emittedLinks)
-	win.linksMu.Unlock()
+	win.actionsMu.Lock()
+	doubleBuffer(&win.prevEmittedActions, &win.emittedActions)
+	win.actionsMu.Unlock()
 	{
 		// Use command providers in LIFO order, under the assumption that more specific providers get registered after
 		// general ones.
@@ -214,7 +214,7 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	for _, item := range win.contextMenu {
 		if item.Clicked() {
 			win.CloseModal()
-			win.EmitLink(item.Link())
+			win.EmitAction(item.Action())
 			win.contextMenu = nil
 		}
 	}

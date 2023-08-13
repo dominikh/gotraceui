@@ -75,8 +75,8 @@ func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) 
 			menu := []*theme.MenuItem{
 				{
 					Label: PlainLabel("Change settings"),
-					Link: func() theme.Link {
-						return theme.ExecuteLink(func(gtx layout.Context) {
+					Action: func() theme.Action {
+						return theme.ExecuteAction(func(gtx layout.Context) {
 							win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
 								gtx.Constraints.Max = gtx.Constraints.Min
@@ -89,8 +89,8 @@ func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) 
 				{
 					// TODO disable when there is nothing to zoom out to
 					Label: PlainLabel("Zoom out"),
-					Link: func() theme.Link {
-						return theme.ExecuteLink(func(gtx layout.Context) {
+					Action: func() theme.Action {
+						return theme.ExecuteAction(func(gtx layout.Context) {
 							hist.Config.Start = 0
 							hist.Config.End = 0
 							hist.changed = true

@@ -118,8 +118,8 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 		cmd := btn.cmd
 		cmd.Category = "Panel"
 		cmd.Color = mycolor.Oklch{L: 0.7862, C: 0.104, H: 140, Alpha: 1}
-		cmd.Fn = func() Link {
-			return ExecuteLink(func(gtx layout.Context) {
+		cmd.Fn = func() Action {
+			return ExecuteAction(func(gtx layout.Context) {
 				btn.w.Click()
 			})
 		}
