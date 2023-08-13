@@ -67,7 +67,7 @@ type SpansInfo struct {
 	tabbedState     theme.TabbedState
 	stackSelectable widget.Selectable
 
-	descriptionBuilder func(win *theme.Window, gtx layout.Context) Description
+	descriptionBuilder func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider)
 	descriptionText    Text
 
 	stacktraceList widget.List
@@ -87,7 +87,7 @@ type SpansInfo struct {
 type SpansInfoConfig struct {
 	Title              string
 	Label              string
-	DescriptionBuilder func(win *theme.Window, gtx layout.Context) Description
+	DescriptionBuilder func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider)
 	Stacktrace         string
 	Statistics         func(win *theme.Window) *theme.Future[*SpansStats]
 	Navigations        SpansInfoConfigNavigations
@@ -229,7 +229,7 @@ func textSpinner(now time.Time) string {
 	}
 }
 
-func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Context) Description {
+func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider) {
 	// OPT(dh): there's no need to store the spans in a slice, so TextBuilder isn't what we want
 	// OPT(dh): reuse memory
 	tb := TextBuilder{Theme: win.Theme}
@@ -238,18 +238,27 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: *tb.Span(si.cfg.Label)})
 	}
 
+	var cmds theme.CommandSlice
+	addCmds := func(cps []theme.Command) {
+		cmds = append(cmds, cps...)
+	}
+
 	spans := si.spans.MustResult()
 
 	firstSpan := spans.At(0)
 	lastSpan := LastSpan(spans)
+	link := *tb.DefaultLink(formatTimestamp(firstSpan.Start), "Start of current spans", firstSpan.Start)
+	addCmds(link.ObjectLink.Commands())
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
-		Value: *tb.DefaultLink(formatTimestamp(firstSpan.Start), firstSpan.Start),
+		Value: link,
 	})
 
+	link = *tb.DefaultLink(formatTimestamp(lastSpan.End), "End of current spans", lastSpan.End)
+	addCmds(link.ObjectLink.Commands())
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "End",
-		Value: *tb.DefaultLink(formatTimestamp(lastSpan.End), lastSpan.End),
+		Value: link,
 	})
 
 	a := DescriptionAttribute{
@@ -284,13 +293,15 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 
 	if c, ok := spans.Container(); ok {
 		tl := c.Timeline
+		link := *tb.DefaultLink(tl.shortName, "Timeline containing current spans", tl.item)
+		addCmds(link.ObjectLink.Commands())
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
-			Value: *tb.DefaultLink(tl.shortName, tl.item),
+			Value: link,
 		})
 	}
 
-	return Description{Attributes: attrs}
+	return Description{Attributes: attrs}, cmds
 }
 
 func (si *SpansInfo) scrollAndPanToSpans(win *theme.Window) {
@@ -419,7 +430,11 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
 				si.descriptionText.Reset(win.Theme)
-				return si.descriptionBuilder(win, gtx).Layout(win, gtx, &si.descriptionText)
+				desc, cp := si.descriptionBuilder(win, gtx)
+				if cp != nil {
+					win.AddCommandProvider(cp)
+				}
+				return desc.Layout(win, gtx, &si.descriptionText)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if spans.Len() == 1 && spans.At(0).State == ptrace.StateUserRegion {
@@ -681,7 +696,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 				Spans: spans.Spans.Slice(row, row+1),
 			})
 		case 1: // Time
-			tb.Link(formatTimestamp(span.Start), span, defaultObjectLink(span.Start))
+			tb.Link(formatTimestamp(span.Start), span, defaultObjectLink(span.Start, ""))
 			txt.Alignment = text.End
 		case 2: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())

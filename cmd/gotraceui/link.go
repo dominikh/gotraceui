@@ -8,6 +8,7 @@ import (
 	"runtime/pprof"
 	"time"
 
+	mycolor "honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -18,6 +19,8 @@ import (
 	"gioui.org/io/pointer"
 )
 
+var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
+
 type MainWindowLink interface {
 	theme.Link
 	Open(gtx layout.Context, mwin *MainWindow)
@@ -26,15 +29,34 @@ type MainWindowLink interface {
 type ObjectLink interface {
 	Link(ev gesture.ClickEvent) theme.Link
 	ContextMenu() []*theme.MenuItem
+	Commands() []theme.Command
 }
 
-type OpenGoroutineLink ptrace.Goroutine
-type ScrollToGoroutineLink ptrace.Goroutine
-type ZoomToGoroutineLink ptrace.Goroutine
+type OpenGoroutineLink struct {
+	Goroutine  *ptrace.Goroutine
+	Provenance string
+}
+type ScrollToGoroutineLink struct {
+	Goroutine  *ptrace.Goroutine
+	Provenance string
+}
+type ZoomToGoroutineLink struct {
+	Goroutine  *ptrace.Goroutine
+	Provenance string
+}
 type ScrollToTimestampLink trace.Timestamp
-type ScrollToProcessorLink ptrace.Processor
-type ZoomToProcessorLink ptrace.Processor
-type OpenFunctionLink ptrace.Function
+type ScrollToProcessorLink struct {
+	Processor  *ptrace.Processor
+	Provenance string
+}
+type ZoomToProcessorLink struct {
+	Processor  *ptrace.Processor
+	Provenance string
+}
+type OpenFunctionLink struct {
+	Function   *ptrace.Function
+	Provenance string
+}
 type SpansLink struct{ Spans Items[ptrace.Span] }
 type OpenSpansLink SpansLink
 type ScrollAndPanToSpansLink SpansLink
@@ -60,10 +82,22 @@ type StartCPUProfileLink struct{}
 type StopCPUProfileLink struct{}
 type OpenPanelLink struct{ Panel theme.Panel }
 type PrevPanelLink struct{}
-type GoroutineObjectLink ptrace.Goroutine
-type ProcessorObjectLink ptrace.Processor
-type TimestampObjectLink trace.Timestamp
-type FunctionObjectLink ptrace.Function
+type GoroutineObjectLink struct {
+	Goroutine  *ptrace.Goroutine
+	Provenance string
+}
+type ProcessorObjectLink struct {
+	Processor  *ptrace.Processor
+	Provenance string
+}
+type TimestampObjectLink struct {
+	Timestamp  trace.Timestamp
+	Provenance string
+}
+type FunctionObjectLink struct {
+	Function   *ptrace.Function
+	Provenance string
+}
 type SpansObjectLink struct{ Spans Items[ptrace.Span] }
 
 func (OpenGoroutineLink) IsLink()              {}
@@ -99,18 +133,18 @@ func (StopCPUProfileLink) IsLink()             {}
 func (*OpenPanelLink) IsLink()                 {}
 func (PrevPanelLink) IsLink()                  {}
 
-func defaultObjectLink(obj any) ObjectLink {
+func defaultObjectLink(obj any, provenance string) ObjectLink {
 	switch obj := obj.(type) {
 	case *ptrace.Goroutine:
-		return (*GoroutineObjectLink)(obj)
+		return &GoroutineObjectLink{obj, provenance}
 	case *ptrace.Processor:
-		return (*ProcessorObjectLink)(obj)
+		return &ProcessorObjectLink{obj, provenance}
 	case *trace.Timestamp:
-		return (*TimestampObjectLink)(obj)
+		return &TimestampObjectLink{*obj, provenance}
 	case trace.Timestamp:
-		return (*TimestampObjectLink)(&obj)
+		return &TimestampObjectLink{obj, provenance}
 	case *ptrace.Function:
-		return (*FunctionObjectLink)(obj)
+		return &FunctionObjectLink{obj, provenance}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}
@@ -178,7 +212,7 @@ func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 }
 
 func (l *TimestampObjectLink) Link(ev gesture.ClickEvent) theme.Link {
-	return (*ScrollToTimestampLink)(l)
+	return ScrollToTimestampLink(l.Timestamp)
 }
 
 func (l *TimestampObjectLink) ContextMenu() []*theme.MenuItem {
@@ -267,19 +301,19 @@ func (l *ScrollToTimelineLink) Open(gtx layout.Context, mwin *MainWindow) {
 }
 
 func (l *OpenGoroutineLink) Open(_ layout.Context, mwin *MainWindow) {
-	mwin.openGoroutine((*ptrace.Goroutine)(l))
+	mwin.openGoroutine(l.Goroutine)
 }
 
 func (l *ScrollToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToObject(gtx, (*ptrace.Goroutine)(l))
+	mwin.canvas.scrollToObject(gtx, l.Goroutine)
 }
 
 func (l *ZoomToGoroutineLink) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.objectY(gtx, (*ptrace.Goroutine)(l))
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans[0].Start, l.Spans[len(l.Spans)-1].End, y)
+	y := mwin.canvas.objectY(gtx, l.Goroutine)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans[0].Start, l.Goroutine.Spans[len(l.Goroutine.Spans)-1].End, y)
 }
 
-func (l *ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
+func (l ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
 	d := mwin.canvas.End() - mwin.canvas.start
 	var off trace.Timestamp
 	switch mwin.canvas.axis.anchor {
@@ -292,20 +326,20 @@ func (l *ScrollToTimestampLink) Open(gtx layout.Context, mwin *MainWindow) {
 	case AxisAnchorEnd:
 		off = d
 	}
-	mwin.canvas.navigateTo(gtx, trace.Timestamp(*l)-off, mwin.canvas.nsPerPx, mwin.canvas.y)
+	mwin.canvas.navigateTo(gtx, trace.Timestamp(l)-off, mwin.canvas.nsPerPx, mwin.canvas.y)
 }
 
 func (l *ScrollToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToObject(gtx, (*ptrace.Processor)(l))
+	mwin.canvas.scrollToObject(gtx, l.Processor)
 }
 
 func (l *ZoomToProcessorLink) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.objectY(gtx, (*ptrace.Processor)(l))
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans[0].Start, l.Spans[len(l.Spans)-1].End, y)
+	y := mwin.canvas.objectY(gtx, l.Processor)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.Processor.Spans[0].Start, l.Processor.Spans[len(l.Processor.Spans)-1].End, y)
 }
 
 func (l *OpenFunctionLink) Open(_ layout.Context, mwin *MainWindow) {
-	mwin.openFunction((*ptrace.Function)(l))
+	mwin.openFunction(l.Function)
 }
 
 func (l *OpenSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
@@ -451,3 +485,92 @@ func (l *OpenPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 func (PrevPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.prevPanel()
 }
+
+func (l *GoroutineObjectLink) Commands() []theme.Command {
+	return []theme.Command{
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Scroll to goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"goto", "go to"},
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return (*ScrollToGoroutineLink)(l)
+			},
+		},
+
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Zoom to goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return (*ZoomToGoroutineLink)(l)
+			},
+		},
+
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Show information for goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"open"},
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return (*OpenGoroutineLink)(l)
+			},
+		},
+	}
+}
+func (l *ProcessorObjectLink) Commands() []theme.Command {
+	return []theme.Command{
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Scroll to processor %d", l.Processor.ID),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"goto", "go to"},
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return (*ScrollToProcessorLink)(l)
+			},
+		},
+
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Zoom to processor %d", l.Processor.ID),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return (*ZoomToProcessorLink)(l)
+			},
+		},
+	}
+}
+func (l *TimestampObjectLink) Commands() []theme.Command {
+	return []theme.Command{
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Pan to %d ns", l.Timestamp),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"goto", "go to", "scroll", fmt.Sprintf("%d", l.Timestamp)},
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return ScrollToTimestampLink(l.Timestamp)
+			},
+		},
+	}
+}
+func (l *FunctionObjectLink) Commands() []theme.Command {
+	return []theme.Command{
+		theme.NormalCommand{
+			PrimaryLabel:   fmt.Sprintf("Show information for function %s", l.Function.Fn),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"open"},
+			Color:          colorLink,
+			Fn: func() theme.Link {
+				return (*OpenFunctionLink)(l)
+			},
+		},
+	}
+}
+func (l *SpansObjectLink) Commands() []theme.Command { return nil }

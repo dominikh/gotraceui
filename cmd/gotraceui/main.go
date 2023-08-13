@@ -1457,8 +1457,8 @@ func (txt *TextBuilder) Bold(label string) *TextSpan {
 	return s
 }
 
-func (txt *TextBuilder) DefaultLink(label string, obj any) *TextSpan {
-	return txt.Link(label, obj, defaultObjectLink(obj))
+func (txt *TextBuilder) DefaultLink(label, provenance string, obj any) *TextSpan {
+	return txt.Link(label, obj, defaultObjectLink(obj, provenance))
 }
 
 func (txt *TextBuilder) Link(label string, obj any, link ObjectLink) *TextSpan {
