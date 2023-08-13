@@ -1573,12 +1573,12 @@ func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text)
 	return txt.Layout(win, gtx, tb.Spans)
 }
 
-type GotoTimelineCommand struct {
+type ScrollToTimelineCommand struct {
 	MainWindow *theme.Window
 	Timeline   *Timeline
 }
 
-func (cmd GotoTimelineCommand) Layout(win *theme.Window, gtx layout.Context, current bool) layout.Dimensions {
+func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context, current bool) layout.Dimensions {
 	var (
 		numSpans   int
 		start, end trace.Timestamp
@@ -1612,11 +1612,11 @@ func (cmd GotoTimelineCommand) Layout(win *theme.Window, gtx layout.Context, cur
 	}.Layout(win, gtx, current)
 }
 
-func (cmd GotoTimelineCommand) Link() theme.Link {
+func (cmd ScrollToTimelineCommand) Link() theme.Link {
 	return (*ScrollToTimelineLink)(cmd.Timeline)
 }
 
-func (cmd GotoTimelineCommand) Filter(input string) bool {
+func (cmd ScrollToTimelineCommand) Filter(input string) bool {
 	for _, f := range strings.Fields(input) {
 		b := func() bool {
 			if strings.HasPrefix(f, "g") {
@@ -1678,7 +1678,7 @@ func (p GotoTimelineCommandProvider) Len() int {
 }
 
 func (p GotoTimelineCommandProvider) At(idx int) theme.Command {
-	return GotoTimelineCommand{
+	return ScrollToTimelineCommand{
 		MainWindow: p.MainWindow,
 		Timeline:   p.Timelines[idx],
 	}
