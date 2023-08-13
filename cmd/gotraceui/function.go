@@ -188,11 +188,11 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	)
 
 	for _, ev := range fi.goroutineList.Clicked() {
-		handleLinkClick(win, fi.mwin, ev)
+		handleLinkClick(win, ev)
 	}
 
 	for _, ev := range fi.descriptionText.Events() {
-		handleLinkClick(win, fi.mwin, ev)
+		handleLinkClick(win, ev)
 	}
 
 	for fi.PanelButtons.Backed() {

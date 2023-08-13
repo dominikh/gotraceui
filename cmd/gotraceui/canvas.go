@@ -1206,17 +1206,29 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 					{
 						Label:    PlainLabel("Move origin to the left"),
 						Disabled: func() bool { return axis.anchor == AxisAnchorStart },
-						Do:       func(gtx layout.Context) { axis.anchor = AxisAnchorStart },
+						Link: func() theme.Link {
+							return theme.ExecuteLink(func(gtx layout.Context) {
+								axis.anchor = AxisAnchorStart
+							})
+						},
 					},
 					{
 						Label:    PlainLabel("Move origin to the center"),
 						Disabled: func() bool { return axis.anchor == AxisAnchorCenter },
-						Do:       func(gtx layout.Context) { axis.anchor = AxisAnchorCenter },
+						Link: func() theme.Link {
+							return theme.ExecuteLink(func(gtx layout.Context) {
+								axis.anchor = AxisAnchorCenter
+							})
+						},
 					},
 					{
 						Label:    PlainLabel("Move origin to the right"),
 						Disabled: func() bool { return axis.anchor == AxisAnchorEnd },
-						Do:       func(gtx layout.Context) { axis.anchor = AxisAnchorEnd },
+						Link: func() theme.Link {
+							return theme.ExecuteLink(func(gtx layout.Context) {
+								axis.anchor = AxisAnchorEnd
+							})
+						},
 					},
 				},
 			)

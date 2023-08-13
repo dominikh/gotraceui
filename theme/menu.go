@@ -196,7 +196,7 @@ type MenuItem struct {
 	Label    func() string
 	Shortcut string
 	Disabled func() bool
-	Do       func(layout.Context)
+	Link     func() Link
 
 	click widget.PrimaryClickable
 }

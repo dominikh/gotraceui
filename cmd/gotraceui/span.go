@@ -460,14 +460,14 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 
 	for _, ev := range si.descriptionText.Events() {
-		handleLinkClick(win, si.mwin, ev)
+		handleLinkClick(win, ev)
 	}
 
 	for _, ev := range si.eventsList.Clicked() {
-		handleLinkClick(win, si.mwin, ev)
+		handleLinkClick(win, ev)
 	}
 	for _, ev := range si.spansList.Clicked() {
-		handleLinkClick(win, si.mwin, ev)
+		handleLinkClick(win, ev)
 	}
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {

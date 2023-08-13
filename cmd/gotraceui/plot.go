@@ -258,34 +258,44 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		items := []*theme.MenuItem{
 			{
 				Label: PlainLabel("Reset extents"),
-				Do: func(gtx layout.Context) {
-					pl.min = 0
-					_, pl.max = pl.computeExtents(0, math.MaxInt64)
-					pl.autoScale = false
+				Link: func() theme.Link {
+					return theme.ExecuteLink(func(gtx layout.Context) {
+						pl.min = 0
+						_, pl.max = pl.computeExtents(0, math.MaxInt64)
+						pl.autoScale = false
+					})
 				},
 			},
 			{
 				Label: PlainLabel("Set extents to global extrema"),
-				Do: func(gtx layout.Context) {
-					pl.min, pl.max = pl.computeExtents(0, math.MaxInt64)
+				Link: func() theme.Link {
+					return theme.ExecuteLink(func(gtx layout.Context) {
+						pl.min, pl.max = pl.computeExtents(0, math.MaxInt64)
+					})
 				},
 			},
 			{
 				Label: PlainLabel("Set extents to local extrema"),
-				Do: func(gtx layout.Context) {
-					pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
+				Link: func() theme.Link {
+					return theme.ExecuteLink(func(gtx layout.Context) {
+						pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
+					})
 				},
 			},
 			{
 				Label: ToggleLabel("Don't auto-set extents", "Auto-set extents to local extrema", &pl.autoScale),
-				Do: func(gtx layout.Context) {
-					pl.autoScale = !pl.autoScale
+				Link: func() theme.Link {
+					return theme.ExecuteLink(func(gtx layout.Context) {
+						pl.autoScale = !pl.autoScale
+					})
 				},
 			},
 			{
 				Label: ToggleLabel("Show legends", "Hide legends", &pl.hideLegends),
-				Do: func(gtx layout.Context) {
-					pl.hideLegends = !pl.hideLegends
+				Link: func() theme.Link {
+					return theme.ExecuteLink(func(gtx layout.Context) {
+						pl.hideLegends = !pl.hideLegends
+					})
 				},
 			},
 		}
@@ -299,8 +309,10 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			}
 			item := &theme.MenuItem{
 				Label: PlainLabel(label),
-				Do: func(gtx layout.Context) {
-					s.disabled = !s.disabled
+				Link: func() theme.Link {
+					return theme.ExecuteLink(func(gtx layout.Context) {
+						s.disabled = !s.disabled
+					})
 				},
 			}
 			items = append(items, item)

@@ -272,10 +272,12 @@ func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 	return &theme.MenuItem{
 		Label:    PlainLabel("Zoom"),
 		Shortcut: key.ModShortcut.String() + "+LMB",
-		Do: func(gtx layout.Context) {
-			start := spans.At(0).Start
-			end := LastSpan(spans).End
-			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
+		Link: func() theme.Link {
+			return theme.ExecuteLink(func(gtx layout.Context) {
+				start := spans.At(0).Start
+				end := LastSpan(spans).End
+				cv.navigateToStartAndEnd(gtx, start, end, cv.y)
+			})
 		},
 	}
 }

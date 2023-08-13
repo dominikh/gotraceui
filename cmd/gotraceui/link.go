@@ -37,7 +37,7 @@ type MainWindowLink interface {
 
 type ObjectLink interface {
 	Link(ev gesture.ClickEvent) theme.Link
-	ContextMenu(mwin *theme.Window) []*theme.MenuItem
+	ContextMenu() []*theme.MenuItem
 }
 
 type GoroutineObjectLink ptrace.Goroutine
@@ -59,24 +59,24 @@ func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	}
 }
 
-func (l *GoroutineObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
+func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to goroutine"),
-			Do: func(gtx layout.Context) {
-				mwin.EmitLink((*ScrollToGoroutineLink)(l))
+			Link: func() theme.Link {
+				return (*ScrollToGoroutineLink)(l)
 			},
 		},
 		{
 			Label: PlainLabel("Zoom to goroutine"),
-			Do: func(gtx layout.Context) {
-				mwin.EmitLink((*ZoomToGoroutineLink)(l))
+			Link: func() theme.Link {
+				return (*ZoomToGoroutineLink)(l)
 			},
 		},
 		{
 			Label: PlainLabel("Show goroutine information"),
-			Do: func(gtx layout.Context) {
-				mwin.EmitLink((*OpenGoroutineLink)(l))
+			Link: func() theme.Link {
+				return (*OpenGoroutineLink)(l)
 			},
 		},
 	}
@@ -92,18 +92,18 @@ func (l *ProcessorObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	}
 }
 
-func (l *ProcessorObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
+func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to processor"),
-			Do: func(gtx layout.Context) {
-				mwin.EmitLink((*ScrollToProcessorLink)(l))
+			Link: func() theme.Link {
+				return (*ScrollToProcessorLink)(l)
 			},
 		},
 		{
 			Label: PlainLabel("Zoom to processor"),
-			Do: func(gtx layout.Context) {
-				mwin.EmitLink((*ZoomToProcessorLink)(l))
+			Link: func() theme.Link {
+				return (*ZoomToProcessorLink)(l)
 			},
 		},
 	}
@@ -113,7 +113,7 @@ func (l *TimestampObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	return (*ScrollToTimestampLink)(l)
 }
 
-func (l *TimestampObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
+func (l *TimestampObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
@@ -121,7 +121,7 @@ func (l *FunctionObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	return (*OpenFunctionLink)(l)
 }
 
-func (l *FunctionObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
+func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
@@ -142,33 +142,31 @@ func (l *SpansObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	}
 }
 
-func (l *SpansObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
+func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 	if _, ok := l.Spans.Container(); ok {
 		return []*theme.MenuItem{
 			{
 				Label: PlainLabel("Scroll to span start"),
-				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.At(0).Start)
-					mwin.EmitLink(&ll)
+				Link: func() theme.Link {
+					return ScrollToTimestampLink(l.Spans.At(0).Start)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
-				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
-					mwin.EmitLink(&ll)
+				Link: func() theme.Link {
+					return ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
 				},
 			},
 			{
 				Label: PlainLabel("Zoom to span"),
-				Do: func(gtx layout.Context) {
-					mwin.EmitLink((*ZoomToSpansLink)(l))
+				Link: func() theme.Link {
+					return (*ZoomToSpansLink)(l)
 				},
 			},
 			{
 				Label: PlainLabel("Show span information"),
-				Do: func(gtx layout.Context) {
-					mwin.EmitLink((*OpenSpansLink)(l))
+				Link: func() theme.Link {
+					return (*OpenSpansLink)(l)
 				},
 			},
 		}
@@ -176,22 +174,20 @@ func (l *SpansObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
 		return []*theme.MenuItem{
 			{
 				Label: PlainLabel("Scroll to span start"),
-				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.At(0).Start)
-					mwin.EmitLink(&ll)
+				Link: func() theme.Link {
+					return ScrollToTimestampLink(l.Spans.At(0).Start)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
-				Do: func(gtx layout.Context) {
-					ll := ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
-					mwin.EmitLink(&ll)
+				Link: func() theme.Link {
+					return ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
 				},
 			},
 			{
 				Label: PlainLabel("Show span information"),
-				Do: func(gtx layout.Context) {
-					mwin.EmitLink((*OpenSpansLink)(l))
+				Link: func() theme.Link {
+					return (*OpenSpansLink)(l)
 				},
 			},
 		}
@@ -274,12 +270,12 @@ func (l *ZoomToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 }
 
-func handleLinkClick(win *theme.Window, mwin *theme.Window, ev TextEvent) {
+func handleLinkClick(win *theme.Window, ev TextEvent) {
 	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
 		link := ev.Span.ObjectLink.Link(ev.Event)
 		win.EmitLink(link)
 	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
-		menu := ev.Span.ObjectLink.ContextMenu(mwin)
+		menu := ev.Span.ObjectLink.ContextMenu()
 		if len(menu) != 0 {
 			win.SetContextMenu(menu)
 		}
