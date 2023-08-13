@@ -18,6 +18,87 @@ import (
 	"gioui.org/io/pointer"
 )
 
+type MainWindowLink interface {
+	theme.Link
+	Open(gtx layout.Context, mwin *MainWindow)
+}
+
+type ObjectLink interface {
+	Link(ev gesture.ClickEvent) theme.Link
+	ContextMenu() []*theme.MenuItem
+}
+
+type OpenGoroutineLink ptrace.Goroutine
+type ScrollToGoroutineLink ptrace.Goroutine
+type ZoomToGoroutineLink ptrace.Goroutine
+type ScrollToTimestampLink trace.Timestamp
+type ScrollToProcessorLink ptrace.Processor
+type ZoomToProcessorLink ptrace.Processor
+type OpenFunctionLink ptrace.Function
+type SpansLink struct{ Spans Items[ptrace.Span] }
+type OpenSpansLink SpansLink
+type ScrollAndPanToSpansLink SpansLink
+type ZoomToSpansLink SpansLink
+type ScrollToTimelineLink Timeline
+type CanvasJumpToBeginningLink struct{}
+type CanvasScrollToTopLink struct{}
+type CanvasUndoNavigationLink struct{}
+type CanvasZoomToFitCurrentViewLink struct{}
+type OpenFlameGraphLink struct{}
+type OpenHeatmapLink struct{}
+type OpenHighlightSpansDialogLink struct{}
+type CanvasToggleTimelineLabelsLink struct{}
+type CanvasToggleCompactDisplayLink struct{}
+type CanvasToggleStackTracksLink struct{}
+type OpenScrollToTimelineDialog struct{}
+type OpenFileOpenDialog struct{}
+type ExitLink struct{}
+type WriteMemoryProfileLink struct{}
+type RunGarbageCollectionLink struct{}
+type RunFreeOSMemoryLink struct{}
+type StartCPUProfileLink struct{}
+type StopCPUProfileLink struct{}
+type OpenPanelLink struct{ Panel theme.Panel }
+type PrevPanelLink struct{}
+type GoroutineObjectLink ptrace.Goroutine
+type ProcessorObjectLink ptrace.Processor
+type TimestampObjectLink trace.Timestamp
+type FunctionObjectLink ptrace.Function
+type SpansObjectLink struct{ Spans Items[ptrace.Span] }
+
+func (OpenGoroutineLink) IsLink()              {}
+func (ScrollToGoroutineLink) IsLink()          {}
+func (ZoomToGoroutineLink) IsLink()            {}
+func (ScrollToTimestampLink) IsLink()          {}
+func (ScrollToProcessorLink) IsLink()          {}
+func (ZoomToProcessorLink) IsLink()            {}
+func (OpenFunctionLink) IsLink()               {}
+func (SpansLink) IsLink()                      {}
+func (OpenSpansLink) IsLink()                  {}
+func (ScrollAndPanToSpansLink) IsLink()        {}
+func (ZoomToSpansLink) IsLink()                {}
+func (ScrollToTimelineLink) IsLink()           {}
+func (CanvasJumpToBeginningLink) IsLink()      {}
+func (CanvasScrollToTopLink) IsLink()          {}
+func (CanvasUndoNavigationLink) IsLink()       {}
+func (CanvasZoomToFitCurrentViewLink) IsLink() {}
+func (OpenFlameGraphLink) IsLink()             {}
+func (OpenHeatmapLink) IsLink()                {}
+func (OpenHighlightSpansDialogLink) IsLink()   {}
+func (CanvasToggleTimelineLabelsLink) IsLink() {}
+func (CanvasToggleCompactDisplayLink) IsLink() {}
+func (CanvasToggleStackTracksLink) IsLink()    {}
+func (OpenScrollToTimelineDialog) IsLink()     {}
+func (OpenFileOpenDialog) IsLink()             {}
+func (ExitLink) IsLink()                       {}
+func (WriteMemoryProfileLink) IsLink()         {}
+func (RunGarbageCollectionLink) IsLink()       {}
+func (RunFreeOSMemoryLink) IsLink()            {}
+func (StartCPUProfileLink) IsLink()            {}
+func (StopCPUProfileLink) IsLink()             {}
+func (*OpenPanelLink) IsLink()                 {}
+func (PrevPanelLink) IsLink()                  {}
+
 func defaultObjectLink(obj any) ObjectLink {
 	switch obj := obj.(type) {
 	case *ptrace.Goroutine:
@@ -33,24 +114,6 @@ func defaultObjectLink(obj any) ObjectLink {
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}
-}
-
-type MainWindowLink interface {
-	theme.Link
-	Open(gtx layout.Context, mwin *MainWindow)
-}
-
-type ObjectLink interface {
-	Link(ev gesture.ClickEvent) theme.Link
-	ContextMenu() []*theme.MenuItem
-}
-
-type GoroutineObjectLink ptrace.Goroutine
-type ProcessorObjectLink ptrace.Processor
-type TimestampObjectLink trace.Timestamp
-type FunctionObjectLink ptrace.Function
-type SpansObjectLink struct {
-	Spans Items[ptrace.Span]
 }
 
 func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) theme.Link {
@@ -199,21 +262,6 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 	}
 }
 
-type OpenGoroutineLink ptrace.Goroutine
-type ScrollToGoroutineLink ptrace.Goroutine
-type ZoomToGoroutineLink ptrace.Goroutine
-type ScrollToTimestampLink trace.Timestamp
-type ScrollToProcessorLink ptrace.Processor
-type ZoomToProcessorLink ptrace.Processor
-type OpenFunctionLink ptrace.Function
-type SpansLink struct {
-	Spans Items[ptrace.Span]
-}
-type OpenSpansLink SpansLink
-type ScrollAndPanToSpansLink SpansLink
-type ZoomToSpansLink SpansLink
-type ScrollToTimelineLink Timeline
-
 func (l *ScrollToTimelineLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.scrollToTimeline(gtx, (*Timeline)(l))
 }
@@ -291,25 +339,6 @@ func handleLinkClick(win *theme.Window, ev TextEvent) {
 		}
 	}
 }
-
-type CanvasJumpToBeginningLink struct{}
-type CanvasScrollToTopLink struct{}
-type CanvasUndoNavigationLink struct{}
-type CanvasZoomToFitCurrentViewLink struct{}
-type OpenFlameGraphLink struct{}
-type OpenHeatmapLink struct{}
-type OpenHighlightSpansDialogLink struct{}
-type CanvasToggleTimelineLabelsLink struct{}
-type CanvasToggleCompactDisplayLink struct{}
-type CanvasToggleStackTracksLink struct{}
-type OpenScrollToTimelineDialog struct{}
-type OpenFileOpenDialog struct{}
-type ExitLink struct{}
-type WriteMemoryProfileLink struct{}
-type RunGarbageCollectionLink struct{}
-type RunFreeOSMemoryLink struct{}
-type StartCPUProfileLink struct{}
-type StopCPUProfileLink struct{}
 
 func (l CanvasJumpToBeginningLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.JumpToBeginning(gtx)
@@ -415,15 +444,9 @@ func (l StopCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
 	}
 }
 
-type OpenPanelLink struct {
-	Panel theme.Panel
-}
-
 func (l *OpenPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openPanel(l.Panel)
 }
-
-type PrevPanelLink struct{}
 
 func (PrevPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.prevPanel()

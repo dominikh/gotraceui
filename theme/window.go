@@ -27,9 +27,11 @@ import (
 	"gioui.org/unit"
 )
 
-type Link interface{}
+type Link interface{ IsLink() }
 
 type ExecuteLink func(gtx layout.Context)
+
+func (ExecuteLink) IsLink() {}
 
 type Window struct {
 	AppWindow *app.Window
