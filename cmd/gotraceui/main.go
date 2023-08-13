@@ -184,11 +184,16 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 	var ops op.Ops
 	tWin := theme.NewWindow(win)
 
+	var dead bool
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
 			return ev.Err
 		case system.FrameEvent:
+			if dead {
+				// Don't render if we're waiting for the DestroyEvent because the panel was attached to the main window.
+				continue
+			}
 			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				for _, l := range win.Links() {
 					switch l := l.(type) {
@@ -210,6 +215,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			} else if pwin.Panel.Attached() {
 				pwin.MainWindow.EmitLink(&OpenPanelLink{pwin.Panel})
 				win.Perform(system.ActionClose)
+				dead = true
 			}
 
 			ev.Frame(&ops)
