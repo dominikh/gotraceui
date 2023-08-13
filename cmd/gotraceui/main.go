@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	rdebug "runtime/debug"
 	"runtime/pprof"
 	rtrace "runtime/trace"
 	"strconv"
@@ -278,7 +277,6 @@ type MainWindow struct {
 	progress       float64
 	progressStage  int
 	progressStages []string
-	ww             *theme.CommandPalette
 	err            error
 
 	debugWindow *DebugWindow
@@ -321,7 +319,6 @@ func (mwin *MainWindow) OpenTrace(r io.Reader) {
 func (mwin *MainWindow) setState(state string) {
 	mwin.state = state
 	mwin.progress = 0.0
-	mwin.ww = nil
 }
 
 func (mwin *MainWindow) SetState(state string) {
@@ -586,10 +583,9 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 						for _, s := range win.PressedShortcuts() {
 							switch s {
 							case theme.Shortcut{Name: "G"}:
-								pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
-								pl.Set(GotoTimelineCommandProvider{mwin, mwin.canvas.timelines})
-								mwin.ww = &pl
-								win.SetModal(mwin.ww.Layout)
+								pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
+								pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
+								win.SetModal(pl.Layout)
 
 							case theme.Shortcut{Name: "H"}:
 								displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
@@ -598,7 +594,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 								cmd := &theme.CommandPalette{}
 								cmd.Set(mwin.paletteCommands())
 								win.SetModal(cmd.Layout)
-								mwin.ww = cmd
 							}
 						}
 
@@ -608,14 +603,6 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 							} else if mwin.panel.Detached() {
 								mwin.openPanelWindow(mwin.panel)
 								mwin.ClosePanel()
-							}
-						}
-
-						if mwin.ww != nil {
-							if cmd := mwin.ww.Activated(); cmd != nil {
-								mwin.ww = nil
-								win.CloseModal()
-								cmd.Execute(win, gtx)
 							}
 						}
 
@@ -671,11 +658,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			Aliases:      []string{"goto", "go to"},
 			Shortcut:     "G",
 			Color:        colorNavigation,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
-				pl.Set(GotoTimelineCommandProvider{mwin, mwin.canvas.timelines})
-				mwin.ww = &pl
-				win.SetModal(mwin.ww.Layout)
+			Fn: func() theme.Link {
+				return &OpenScrollToTimelineDialog{}
 			}},
 
 		theme.NormalCommand{
@@ -683,8 +667,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Undo previous navigation",
 			Shortcut:     key.ModShortcut.String() + "+Z",
 			Color:        colorNavigation,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.UndoNavigation(gtx)
+			Fn: func() theme.Link {
+				return &CanvasUndoNavigationLink{}
 			}},
 
 		theme.NormalCommand{
@@ -693,8 +677,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			Aliases:      []string{"jump", "beginning"},
 			Shortcut:     "Home",
 			Color:        colorNavigation,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ScrollToTop(gtx)
+			Fn: func() theme.Link {
+				return &CanvasScrollToTopLink{}
 			}},
 
 		theme.NormalCommand{
@@ -702,8 +686,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Zoom to fit visible timelines",
 			Shortcut:     key.ModShortcut.String() + "+Home",
 			Color:        colorNavigation,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ZoomToFitCurrentView(gtx)
+			Fn: func() theme.Link {
+				return &CanvasZoomToFitCurrentViewLink{}
 			}},
 
 		theme.NormalCommand{
@@ -711,8 +695,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Highlight spans…",
 			Shortcut:     "H",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
+			Fn: func() theme.Link {
+				return &OpenHighlightSpansDialogLink{}
 			}},
 
 		theme.NormalCommand{
@@ -721,16 +705,16 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			Aliases:      []string{"scroll", "jump"},
 			Shortcut:     "Shift+Home",
 			Color:        colorNavigation,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.JumpToBeginning(gtx)
+			Fn: func() theme.Link {
+				return &CanvasJumpToBeginningLink{}
 			}},
 
 		theme.NormalCommand{
 			Category:     "Analysis",
 			PrimaryLabel: "Open processor utilization heatmap",
 			Color:        colorAnalysis,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.openHeatmap()
+			Fn: func() theme.Link {
+				return &OpenHeatmapLink{}
 			}},
 
 		theme.NormalCommand{
@@ -738,24 +722,24 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Open flame graph",
 			Aliases:      []string{"flamegraph"},
 			Color:        colorAnalysis,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.openFlameGraph()
+			Fn: func() theme.Link {
+				return &OpenFlameGraphLink{}
 			}},
 
 		theme.NormalCommand{
 			Category:     "General",
 			PrimaryLabel: "Open trace",
 			Color:        colorGeneral,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.showFileOpenDialog()
+			Fn: func() theme.Link {
+				return &OpenFileOpenDialog{}
 			}},
 
 		theme.NormalCommand{
 			Category:     "General",
 			PrimaryLabel: "Quit",
 			Color:        colorGeneral,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				os.Exit(0)
+			Fn: func() theme.Link {
+				return &ExitLink{}
 			}},
 	}
 
@@ -765,8 +749,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Hide stack tracks",
 			Shortcut:     "S",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ToggleStackTracks()
+			Fn: func() theme.Link {
+				return &CanvasToggleStackTracksLink{}
 			},
 		})
 	} else {
@@ -775,8 +759,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Show stack tracks",
 			Shortcut:     "S",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ToggleStackTracks()
+			Fn: func() theme.Link {
+				return &CanvasToggleStackTracksLink{}
 			},
 		})
 	}
@@ -787,8 +771,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Disable compact display",
 			Shortcut:     "C",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ToggleCompactDisplay()
+			Fn: func() theme.Link {
+				return &CanvasToggleCompactDisplayLink{}
 			}})
 	} else {
 		cmds = append(cmds, theme.NormalCommand{
@@ -796,8 +780,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Enable compact display",
 			Shortcut:     "C",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ToggleCompactDisplay()
+			Fn: func() theme.Link {
+				return &CanvasToggleCompactDisplayLink{}
 			}})
 	}
 
@@ -807,8 +791,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Hide timeline labels",
 			Shortcut:     "X",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ToggleTimelineLabels()
+			Fn: func() theme.Link {
+				return &CanvasToggleTimelineLabelsLink{}
 			}})
 	} else {
 		cmds = append(cmds, theme.NormalCommand{
@@ -816,8 +800,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 			PrimaryLabel: "Show timeline labels",
 			Shortcut:     "X",
 			Color:        colorDisplay,
-			Fn: func(win *theme.Window, gtx layout.Context) {
-				mwin.canvas.ToggleTimelineLabels()
+			Fn: func() theme.Link {
+				return &CanvasToggleTimelineLabelsLink{}
 			}})
 	}
 
@@ -827,24 +811,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 				Category:     "Debug",
 				PrimaryLabel: "Write memory profile",
 				Color:        colorDebug,
-				Fn: func(win *theme.Window, gtx layout.Context) {
-					path, err := func() (string, error) {
-						runtime.GC()
-						path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
-						f, err := os.Create(path)
-						if err != nil {
-							return "", err
-						}
-						if err := pprof.WriteHeapProfile(f); err != nil {
-							return "", err
-						}
-						return path, f.Close()
-					}()
-					if err == nil {
-						win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
-					} else {
-						win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
-					}
+				Fn: func() theme.Link {
+					return &WriteMemoryProfileLink{}
 				}},
 
 			theme.NormalCommand{
@@ -852,11 +820,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 				PrimaryLabel: "Force garbage collection",
 				Aliases:      []string{"run", "gc"},
 				Color:        colorDebug,
-				Fn: func(win *theme.Window, gtx layout.Context) {
-					start := time.Now()
-					runtime.GC()
-					d := time.Since(start)
-					win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
+				Fn: func() theme.Link {
+					return &RunGarbageCollectionLink{}
 				}},
 
 			theme.NormalCommand{
@@ -864,9 +829,8 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 				PrimaryLabel: "Force garbage collection & return unused memory to OS",
 				Aliases:      []string{"run", "gc", "free", "operating system"},
 				Color:        colorDebug,
-				Fn: func(win *theme.Window, gtx layout.Context) {
-					rdebug.FreeOSMemory()
-					win.ShowNotification(gtx, "Returned unused memory to OS")
+				Fn: func() theme.Link {
+					return &RunFreeOSMemoryLink{}
 				}},
 		)
 
@@ -875,43 +839,16 @@ func (mwin *MainWindow) paletteCommands() theme.CommandProvider {
 				Category:     "Debug",
 				PrimaryLabel: "Start CPU profile",
 				Color:        colorDebug,
-				Fn: func(win *theme.Window, gtx layout.Context) {
-					if mwin.cpuProfile == nil {
-						f, path, err := func() (*os.File, string, error) {
-							path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
-							f, err := os.Create(path)
-							if err != nil {
-								return nil, "", err
-							}
-							if err := pprof.StartCPUProfile(f); err != nil {
-								f.Close()
-								return nil, "", err
-							}
-							return f, path, nil
-						}()
-						if err == nil {
-							win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
-						} else {
-							win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
-						}
-						mwin.cpuProfile = f
-					}
+				Fn: func() theme.Link {
+					return &StartCPUProfileLink{}
 				}})
 		} else {
 			cmds = append(cmds, theme.NormalCommand{
 				Category:     "Debug",
 				PrimaryLabel: "Stop CPU profile",
 				Color:        colorDebug,
-				Fn: func(win *theme.Window, gtx layout.Context) {
-					if mwin.cpuProfile != nil {
-						pprof.StopCPUProfile()
-						if err := mwin.cpuProfile.Close(); err == nil {
-							win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
-						} else {
-							win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
-						}
-						mwin.cpuProfile = nil
-					}
+				Fn: func() theme.Link {
+					return &StopCPUProfileLink{}
 				}})
 		}
 	}
@@ -970,7 +907,6 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.trace = res.trace
 	mwin.panel = nil
 	mwin.panelHistory = nil
-	mwin.ww = nil
 }
 
 type durationNumberFormat uint8
@@ -1638,7 +1574,7 @@ func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text)
 }
 
 type GotoTimelineCommand struct {
-	MainWindow *MainWindow
+	MainWindow *theme.Window
 	Timeline   *Timeline
 }
 
@@ -1676,8 +1612,8 @@ func (cmd GotoTimelineCommand) Layout(win *theme.Window, gtx layout.Context, cur
 	}.Layout(win, gtx, current)
 }
 
-func (cmd GotoTimelineCommand) Execute(win *theme.Window, gtx layout.Context) {
-	cmd.MainWindow.canvas.scrollToTimeline(gtx, cmd.Timeline)
+func (cmd GotoTimelineCommand) Link() theme.Link {
+	return (*ScrollToTimelineLink)(cmd.Timeline)
 }
 
 func (cmd GotoTimelineCommand) Filter(input string) bool {
@@ -1733,7 +1669,7 @@ func (cmd GotoTimelineCommand) Filter(input string) bool {
 }
 
 type GotoTimelineCommandProvider struct {
-	MainWindow *MainWindow
+	MainWindow *theme.Window
 	Timelines  []*Timeline
 }
 

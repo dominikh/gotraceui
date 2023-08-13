@@ -30,19 +30,18 @@ type CommandPalette struct {
 	editor widget.Editor
 	list   widget.List
 
-	activated Command
-	filtered  []int
-	active    int
-	clicked   int
-	cmds      CommandProvider
-	tags      []byte
-	gestures  []gesture.Click
+	filtered []int
+	active   int
+	clicked  int
+	cmds     CommandProvider
+	tags     []byte
+	gestures []gesture.Click
 }
 
 type Command interface {
 	Layout(win *Window, gtx layout.Context, current bool) layout.Dimensions
 	Filter(input string) bool
-	Execute(win *Window, gtx layout.Context)
+	Link() Link
 }
 
 type CommandProvider interface {
@@ -67,11 +66,11 @@ type NormalCommand struct {
 	Color          mycolor.Oklch
 	Shortcut       string
 	Aliases        []string
-	Fn             func(win *Window, gtx layout.Context)
+	Fn             func() Link
 }
 
-func (cmd NormalCommand) Execute(win *Window, gtx layout.Context) {
-	cmd.Fn(win, gtx)
+func (cmd NormalCommand) Link() Link {
+	return cmd.Fn()
 }
 
 func (cmd NormalCommand) Filter(input string) bool {
@@ -187,10 +186,6 @@ func (pl *CommandPalette) Set(cmds CommandProvider) {
 	pl.filter(pl.editor.Text())
 }
 
-func (pl *CommandPalette) Activated() Command {
-	return pl.activated
-}
-
 func (pl *CommandPalette) filter(input string) {
 	if input == "" {
 		if cap(pl.filtered) < pl.cmds.Len() {
@@ -301,7 +296,8 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 								}
 								for _, ev := range ges.Events(gtx.Queue) {
 									if ev.Type == gesture.TypeClick {
-										pl.activated = pl.cmds.At(pl.filtered[index])
+										win.EmitLink(pl.cmds.At(pl.filtered[index]).Link())
+										win.CloseModal()
 									}
 								}
 								dims := pl.cmds.At(pl.filtered[index]).Layout(win, gtx, pl.active == index)
@@ -344,7 +340,8 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 				// Do nothing, there is no active element
 				continue
 			}
-			pl.activated = pl.cmds.At(pl.filtered[pl.active])
+			win.EmitLink(pl.cmds.At(pl.filtered[pl.active]).Link())
+			win.CloseModal()
 		case widget.ChangeEvent:
 			pl.filter(pl.editor.Text())
 		}

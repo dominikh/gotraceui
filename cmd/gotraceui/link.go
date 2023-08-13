@@ -2,6 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"runtime"
+	rdebug "runtime/debug"
+	"runtime/pprof"
+	"time"
 
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
@@ -207,6 +212,11 @@ type SpansLink struct {
 type OpenSpansLink SpansLink
 type ScrollAndPanToSpansLink SpansLink
 type ZoomToSpansLink SpansLink
+type ScrollToTimelineLink Timeline
+
+func (l *ScrollToTimelineLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.scrollToTimeline(gtx, (*Timeline)(l))
+}
 
 func (l *OpenGoroutineLink) Open(_ layout.Context, mwin *MainWindow) {
 	mwin.openGoroutine((*ptrace.Goroutine)(l))
@@ -282,11 +292,132 @@ func handleLinkClick(win *theme.Window, ev TextEvent) {
 	}
 }
 
+type CanvasJumpToBeginningLink struct{}
+type CanvasScrollToTopLink struct{}
+type CanvasUndoNavigationLink struct{}
+type CanvasZoomToFitCurrentViewLink struct{}
+type OpenFlameGraphLink struct{}
+type OpenHeatmapLink struct{}
+type OpenHighlightSpansDialogLink struct{}
+type CanvasToggleTimelineLabelsLink struct{}
+type CanvasToggleCompactDisplayLink struct{}
+type CanvasToggleStackTracksLink struct{}
+type OpenScrollToTimelineDialog struct{}
+type OpenFileOpenDialog struct{}
+type ExitLink struct{}
+type WriteMemoryProfileLink struct{}
+type RunGarbageCollectionLink struct{}
+type RunFreeOSMemoryLink struct{}
+type StartCPUProfileLink struct{}
+type StopCPUProfileLink struct{}
+
+func (l CanvasJumpToBeginningLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.JumpToBeginning(gtx)
+}
+func (l CanvasScrollToTopLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.ScrollToTop(gtx)
+}
+func (l CanvasUndoNavigationLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.UndoNavigation(gtx)
+}
+func (l CanvasZoomToFitCurrentViewLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.ZoomToFitCurrentView(gtx)
+}
+func (l OpenFlameGraphLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.openFlameGraph()
+}
+func (l OpenHeatmapLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.openHeatmap()
+}
+func (l OpenHighlightSpansDialogLink) Open(gtx layout.Context, mwin *MainWindow) {
+	displayHighlightSpansDialog(mwin.twin, &mwin.canvas.timeline.filter)
+}
+func (l CanvasToggleTimelineLabelsLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.ToggleTimelineLabels()
+}
+func (l CanvasToggleCompactDisplayLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.ToggleCompactDisplay()
+}
+func (l CanvasToggleStackTracksLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.ToggleStackTracks()
+}
+func (l OpenScrollToTimelineDialog) Open(gtx layout.Context, mwin *MainWindow) {
+	pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
+	pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
+	mwin.twin.SetModal(pl.Layout)
+}
+func (l OpenFileOpenDialog) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.showFileOpenDialog()
+}
+func (l ExitLink) Open(gtx layout.Context, mwin *MainWindow) {
+	os.Exit(0)
+}
+func (l WriteMemoryProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
+	path, err := func() (string, error) {
+		runtime.GC()
+		path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
+		f, err := os.Create(path)
+		if err != nil {
+			return "", err
+		}
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			return "", err
+		}
+		return path, f.Close()
+	}()
+	if err == nil {
+		mwin.twin.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
+	} else {
+		mwin.twin.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
+	}
+}
+func (l RunGarbageCollectionLink) Open(gtx layout.Context, mwin *MainWindow) {
+	start := time.Now()
+	runtime.GC()
+	d := time.Since(start)
+	mwin.twin.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
+}
+func (l RunFreeOSMemoryLink) Open(gtx layout.Context, mwin *MainWindow) {
+	rdebug.FreeOSMemory()
+	mwin.twin.ShowNotification(gtx, "Returned unused memory to OS")
+}
+func (l StartCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
+	if mwin.cpuProfile == nil {
+		f, path, err := func() (*os.File, string, error) {
+			path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
+			f, err := os.Create(path)
+			if err != nil {
+				return nil, "", err
+			}
+			if err := pprof.StartCPUProfile(f); err != nil {
+				f.Close()
+				return nil, "", err
+			}
+			return f, path, nil
+		}()
+		if err == nil {
+			mwin.twin.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
+		} else {
+			mwin.twin.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
+		}
+		mwin.cpuProfile = f
+	}
+}
+func (l StopCPUProfileLink) Open(gtx layout.Context, mwin *MainWindow) {
+	if mwin.cpuProfile != nil {
+		pprof.StopCPUProfile()
+		if err := mwin.cpuProfile.Close(); err == nil {
+			mwin.twin.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
+		} else {
+			mwin.twin.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
+		}
+		mwin.cpuProfile = nil
+	}
+}
+
 type OpenPanelLink struct {
 	Panel theme.Panel
 }
-
-func (*OpenPanelLink) IsLink() {}
 
 func (l *OpenPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openPanel(l.Panel)
@@ -294,7 +425,6 @@ func (l *OpenPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 
 type PrevPanelLink struct{}
 
-func (PrevPanelLink) IsLink() {}
 func (PrevPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.prevPanel()
 }
