@@ -364,7 +364,7 @@ func (mwin *MainWindow) LoadTrace(res loadTraceResult) {
 	}))
 }
 
-func (mwin *MainWindow) OpenLink(gtx layout.Context, l theme.Action) {
+func (mwin *MainWindow) openLink(gtx layout.Context, l theme.Action) {
 	switch l := l.(type) {
 	case MainWindowAction:
 		l.Open(gtx, mwin)
@@ -449,7 +449,7 @@ func (mwin *MainWindow) Run() error {
 					cmd(mwin, gtx)
 				}
 				for _, l := range win.Actions() {
-					mwin.OpenLink(gtx, l)
+					mwin.openLink(gtx, l)
 				}
 				commands = commands[:0]
 
