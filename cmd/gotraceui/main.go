@@ -122,13 +122,13 @@ var (
 )
 
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
-	gi := NewGoroutineInfo(mwin.trace, mwin, &mwin.canvas, g, mwin.canvas.timelines)
-	mwin.OpenPanel(gi)
+	gi := NewGoroutineInfo(mwin.trace, mwin.twin, &mwin.canvas, g, mwin.canvas.timelines)
+	mwin.openPanel(gi)
 }
 
 func (mwin *MainWindow) openFunction(fn *ptrace.Function) {
-	fi := NewFunctionInfo(mwin.trace, mwin, fn)
-	mwin.OpenPanel(fi)
+	fi := NewFunctionInfo(mwin.trace, mwin.twin, fn)
+	mwin.openPanel(fi)
 }
 
 func (mwin *MainWindow) openSpan(s Items[ptrace.Span]) {
@@ -145,11 +145,11 @@ func (mwin *MainWindow) openSpan(s Items[ptrace.Span]) {
 	cfg := SpansInfoConfig{
 		Label: label,
 	}
-	si := NewSpansInfo(cfg, mwin.trace, mwin, theme.Immediate[Items[ptrace.Span]](s), mwin.canvas.timelines)
-	mwin.OpenPanel(si)
+	si := NewSpansInfo(cfg, mwin.trace, mwin.twin, theme.Immediate[Items[ptrace.Span]](s), mwin.canvas.timelines)
+	mwin.openPanel(si)
 }
 
-func (mwin *MainWindow) OpenPanel(p theme.Panel) {
+func (mwin *MainWindow) openPanel(p theme.Panel) {
 	if mwin.panel != nil {
 		mwin.panelHistory = append(mwin.panelHistory, mwin.panel)
 		if len(mwin.panelHistory) == 101 {
@@ -161,7 +161,7 @@ func (mwin *MainWindow) OpenPanel(p theme.Panel) {
 	mwin.panel = p
 }
 
-func (mwin *MainWindow) PrevPanel() bool {
+func (mwin *MainWindow) prevPanel() bool {
 	if len(mwin.panelHistory) == 0 {
 		return false
 	}
@@ -176,7 +176,7 @@ func (mwin *MainWindow) ClosePanel() {
 }
 
 type PanelWindow struct {
-	MainWindow MainWindowIface
+	MainWindow *theme.Window
 	Panel      theme.Panel
 }
 
@@ -190,6 +190,17 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			return ev.Err
 		case system.FrameEvent:
 			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				for _, l := range win.Links() {
+					switch l := l.(type) {
+					case MainWindowLink:
+						pwin.MainWindow.EmitLink(l)
+					case theme.ExecuteLink:
+						l(gtx)
+					default:
+						panic(fmt.Sprintf("%T", l))
+					}
+				}
+
 				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
 				return pwin.Panel.Layout(win, gtx)
 			})
@@ -197,7 +208,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			if pwin.Panel.Closed() {
 				win.Perform(system.ActionClose)
 			} else if pwin.Panel.Attached() {
-				pwin.MainWindow.OpenPanel(pwin.Panel)
+				pwin.MainWindow.EmitLink(&OpenPanelLink{pwin.Panel})
 				win.Perform(system.ActionClose)
 			}
 
@@ -209,7 +220,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 }
 
 func (mwin *MainWindow) openPanelWindow(p theme.Panel) {
-	win := &PanelWindow{MainWindow: mwin, Panel: p}
+	win := &PanelWindow{MainWindow: mwin.twin, Panel: p}
 	p.SetWindowed(true)
 	go func() {
 		// XXX handle error?
@@ -363,9 +374,14 @@ func (mwin *MainWindow) LoadTrace(res loadTraceResult) {
 	}
 }
 
-func (mwin *MainWindow) OpenLink(l Link) {
-	mwin.commands <- func(mwin *MainWindow, gtx layout.Context) {
+func (mwin *MainWindow) OpenLink(gtx layout.Context, l theme.Link) {
+	switch l := l.(type) {
+	case MainWindowLink:
 		l.Open(gtx, mwin)
+	case theme.ExecuteLink:
+		l(gtx)
+	default:
+		panic(fmt.Sprintf("unsupported link type %T", l))
 	}
 }
 
@@ -450,6 +466,9 @@ func (mwin *MainWindow) Run(win *app.Window) error {
 
 					for _, cmd := range commands {
 						cmd(mwin, gtx)
+					}
+					for _, l := range win.Links() {
+						mwin.OpenLink(gtx, l)
 					}
 					commands = commands[:0]
 
@@ -1073,14 +1092,6 @@ func scientificDuration(d time.Duration, digits int) string {
 type Window interface {
 	Run(win *app.Window) error
 	Invalidate()
-}
-
-// XXX find a less embarassing name
-type MainWindowIface interface {
-	OpenLink(l Link)
-	PrevPanel() bool
-	OpenPanel(p theme.Panel)
-	ClosePanel()
 }
 
 func span(th *theme.Theme, text string) styledtext.SpanStyle {

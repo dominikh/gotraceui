@@ -818,7 +818,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	tl.tracks = append(tl.tracks, stackTracks...)
 }
 
-func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, canvas *Canvas, g *ptrace.Goroutine, allTimelines []*Timeline) *SpansInfo {
+func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.Goroutine, allTimelines []*Timeline) *SpansInfo {
 	var title string
 	if g.Function.Fn != "" {
 		title = local.Sprintf("goroutine %d: %s", g.ID, g.Function)
@@ -925,12 +925,12 @@ func NewGoroutineInfo(tr *Trace, mwin MainWindowIface, canvas *Canvas, g *ptrace
 		Stacktrace: stacktrace,
 		Navigations: SpansInfoConfigNavigations{
 			ScrollLabel: "Scroll to goroutine",
-			ScrollFn: func() Link {
+			ScrollFn: func() theme.Link {
 				return (*ScrollToGoroutineLink)(g)
 			},
 
 			ZoomLabel: "Zoom to goroutine",
-			ZoomFn: func() Link {
+			ZoomFn: func() theme.Link {
 				return (*ZoomToGoroutineLink)(g)
 			},
 		},

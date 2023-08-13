@@ -6,6 +6,7 @@ import (
 	"image/color"
 	rtrace "runtime/trace"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -26,6 +27,10 @@ import (
 	"gioui.org/unit"
 )
 
+type Link interface{}
+
+type ExecuteLink func(gtx layout.Context)
+
 type Window struct {
 	AppWindow *app.Window
 	Futures   *Futures
@@ -35,6 +40,10 @@ type Window struct {
 	contextMenu      []*MenuItem
 	shortcuts        map[Shortcut]struct{}
 	pressedShortcuts []Shortcut
+
+	linksMu          sync.Mutex
+	emittedLinks     []Link
+	prevEmittedLinks []Link
 
 	pointerAt f32.Point
 
@@ -125,6 +134,26 @@ func (win *Window) PressedShortcuts() []Shortcut {
 	return win.pressedShortcuts
 }
 
+func (win *Window) EmitLink(l Link) {
+	win.linksMu.Lock()
+	defer win.linksMu.Unlock()
+	win.emittedLinks = append(win.emittedLinks, l)
+	win.AppWindow.Invalidate()
+}
+
+func (win *Window) Links() []Link {
+	return win.prevEmittedLinks
+}
+
+func doubleBuffer[E any, S ~[]E](dst, src *S) {
+	if cap(*dst) < len(*src) {
+		*dst = make(S, len(*src))
+	}
+	*dst = (*dst)[:len(*src)]
+	copy(*dst, *src)
+	*src = (*src)[:0]
+}
+
 func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
 	win.Frame++
@@ -151,6 +180,10 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	for k := range win.shortcuts {
 		delete(win.shortcuts, k)
 	}
+
+	win.linksMu.Lock()
+	doubleBuffer(&win.prevEmittedLinks, &win.emittedLinks)
+	win.linksMu.Unlock()
 
 	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 	// Handle all keyboard input that wasn't handled by the window contents

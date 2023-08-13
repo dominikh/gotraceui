@@ -24,7 +24,7 @@ import (
 )
 
 type FunctionInfo struct {
-	mwin          MainWindowIface
+	mwin          *theme.Window
 	fn            *ptrace.Function
 	trace         *Trace
 	title         string
@@ -42,7 +42,7 @@ type FunctionInfo struct {
 	theme.PanelButtons
 }
 
-func NewFunctionInfo(tr *Trace, mwin MainWindowIface, fn *ptrace.Function) *FunctionInfo {
+func NewFunctionInfo(tr *Trace, mwin *theme.Window, fn *ptrace.Function) *FunctionInfo {
 	fi := &FunctionInfo{
 		fn:             fn,
 		mwin:           mwin,
@@ -196,7 +196,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	}
 
 	for fi.PanelButtons.Backed() {
-		fi.mwin.PrevPanel()
+		fi.mwin.EmitLink(PrevPanelLink{})
 	}
 
 	if fi.hist.Changed() {

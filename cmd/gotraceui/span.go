@@ -46,7 +46,7 @@ type ItemContainer struct {
 }
 
 type SpansInfo struct {
-	mwin         MainWindowIface
+	mwin         *theme.Window
 	spans        *theme.Future[Items[ptrace.Span]]
 	trace        *Trace
 	allTimelines []*Timeline
@@ -95,13 +95,13 @@ type SpansInfoConfig struct {
 
 type SpansInfoConfigNavigations struct {
 	ScrollLabel string
-	ScrollFn    func() Link
+	ScrollFn    func() theme.Link
 
 	ZoomLabel string
-	ZoomFn    func() Link
+	ZoomFn    func() theme.Link
 }
 
-func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin MainWindowIface, spans *theme.Future[Items[ptrace.Span]], allTimelines []*Timeline) *SpansInfo {
+func NewSpansInfo(cfg SpansInfoConfig, tr *Trace, mwin *theme.Window, spans *theme.Future[Items[ptrace.Span]], allTimelines []*Timeline) *SpansInfo {
 	si := &SpansInfo{
 		mwin:         mwin,
 		spans:        spans,
@@ -472,24 +472,24 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {
 		if si.cfg.Navigations.ScrollFn != nil {
-			si.mwin.OpenLink(si.cfg.Navigations.ScrollFn())
+			si.mwin.EmitLink(si.cfg.Navigations.ScrollFn())
 		} else {
-			si.mwin.OpenLink(&ScrollAndPanToSpansLink{
+			si.mwin.EmitLink(&ScrollAndPanToSpansLink{
 				Spans: spans,
 			})
 		}
 	}
 	for si.buttons.zoomToSpans.Clicked() {
 		if si.cfg.Navigations.ZoomFn != nil {
-			si.mwin.OpenLink(si.cfg.Navigations.ZoomFn())
+			si.mwin.EmitLink(si.cfg.Navigations.ZoomFn())
 		} else {
-			si.mwin.OpenLink(&ZoomToSpansLink{
+			si.mwin.EmitLink(&ZoomToSpansLink{
 				Spans: spans,
 			})
 		}
 	}
 	for si.PanelButtons.Backed() {
-		si.mwin.PrevPanel()
+		si.mwin.EmitLink(PrevPanelLink{})
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(spans.At(0).Event).Args[2]]
@@ -525,7 +525,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			Label:         fmt.Sprintf("All %q user regions", needle),
 			ShowHistogram: true,
 		}
-		si.mwin.OpenPanel(NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines))
+		si.mwin.EmitLink(&OpenPanelLink{NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines)})
 	}
 
 	if si.hist.Changed() {

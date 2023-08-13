@@ -30,13 +30,14 @@ func defaultObjectLink(obj any) ObjectLink {
 	}
 }
 
-type Link interface {
+type MainWindowLink interface {
+	theme.Link
 	Open(gtx layout.Context, mwin *MainWindow)
 }
 
 type ObjectLink interface {
-	Link(ev gesture.ClickEvent) Link
-	ContextMenu(mwin MainWindowIface) []*theme.MenuItem
+	Link(ev gesture.ClickEvent) theme.Link
+	ContextMenu(mwin *theme.Window) []*theme.MenuItem
 }
 
 type GoroutineObjectLink ptrace.Goroutine
@@ -47,7 +48,7 @@ type SpansObjectLink struct {
 	Spans Items[ptrace.Span]
 }
 
-func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) Link {
+func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	switch ev.Modifiers {
 	default:
 		return (*ScrollToGoroutineLink)(l)
@@ -58,30 +59,30 @@ func (l *GoroutineObjectLink) Link(ev gesture.ClickEvent) Link {
 	}
 }
 
-func (l *GoroutineObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
+func (l *GoroutineObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to goroutine"),
 			Do: func(gtx layout.Context) {
-				mwin.OpenLink((*ScrollToGoroutineLink)(l))
+				mwin.EmitLink((*ScrollToGoroutineLink)(l))
 			},
 		},
 		{
 			Label: PlainLabel("Zoom to goroutine"),
 			Do: func(gtx layout.Context) {
-				mwin.OpenLink((*ZoomToGoroutineLink)(l))
+				mwin.EmitLink((*ZoomToGoroutineLink)(l))
 			},
 		},
 		{
 			Label: PlainLabel("Show goroutine information"),
 			Do: func(gtx layout.Context) {
-				mwin.OpenLink((*OpenGoroutineLink)(l))
+				mwin.EmitLink((*OpenGoroutineLink)(l))
 			},
 		},
 	}
 }
 
-func (l *ProcessorObjectLink) Link(ev gesture.ClickEvent) Link {
+func (l *ProcessorObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	// There are no processor panels yet, so key.ModShift doesn't do anything
 	switch ev.Modifiers {
 	default:
@@ -91,40 +92,40 @@ func (l *ProcessorObjectLink) Link(ev gesture.ClickEvent) Link {
 	}
 }
 
-func (l *ProcessorObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
+func (l *ProcessorObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
 			Label: PlainLabel("Scroll to processor"),
 			Do: func(gtx layout.Context) {
-				mwin.OpenLink((*ScrollToProcessorLink)(l))
+				mwin.EmitLink((*ScrollToProcessorLink)(l))
 			},
 		},
 		{
 			Label: PlainLabel("Zoom to processor"),
 			Do: func(gtx layout.Context) {
-				mwin.OpenLink((*ZoomToProcessorLink)(l))
+				mwin.EmitLink((*ZoomToProcessorLink)(l))
 			},
 		},
 	}
 }
 
-func (l *TimestampObjectLink) Link(ev gesture.ClickEvent) Link {
+func (l *TimestampObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	return (*ScrollToTimestampLink)(l)
 }
 
-func (l *TimestampObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
+func (l *TimestampObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
 	return nil
 }
 
-func (l *FunctionObjectLink) Link(ev gesture.ClickEvent) Link {
+func (l *FunctionObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	return (*OpenFunctionLink)(l)
 }
 
-func (l *FunctionObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
+func (l *FunctionObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
 	return nil
 }
 
-func (l *SpansObjectLink) Link(ev gesture.ClickEvent) Link {
+func (l *SpansObjectLink) Link(ev gesture.ClickEvent) theme.Link {
 	switch ev.Modifiers {
 	default:
 		ll := ScrollToTimestampLink(l.Spans.At(0).Start)
@@ -141,33 +142,33 @@ func (l *SpansObjectLink) Link(ev gesture.ClickEvent) Link {
 	}
 }
 
-func (l *SpansObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
+func (l *SpansObjectLink) ContextMenu(mwin *theme.Window) []*theme.MenuItem {
 	if _, ok := l.Spans.Container(); ok {
 		return []*theme.MenuItem{
 			{
 				Label: PlainLabel("Scroll to span start"),
 				Do: func(gtx layout.Context) {
 					ll := ScrollToTimestampLink(l.Spans.At(0).Start)
-					mwin.OpenLink(&ll)
+					mwin.EmitLink(&ll)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
 				Do: func(gtx layout.Context) {
 					ll := ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
-					mwin.OpenLink(&ll)
+					mwin.EmitLink(&ll)
 				},
 			},
 			{
 				Label: PlainLabel("Zoom to span"),
 				Do: func(gtx layout.Context) {
-					mwin.OpenLink((*ZoomToSpansLink)(l))
+					mwin.EmitLink((*ZoomToSpansLink)(l))
 				},
 			},
 			{
 				Label: PlainLabel("Show span information"),
 				Do: func(gtx layout.Context) {
-					mwin.OpenLink((*OpenSpansLink)(l))
+					mwin.EmitLink((*OpenSpansLink)(l))
 				},
 			},
 		}
@@ -177,20 +178,20 @@ func (l *SpansObjectLink) ContextMenu(mwin MainWindowIface) []*theme.MenuItem {
 				Label: PlainLabel("Scroll to span start"),
 				Do: func(gtx layout.Context) {
 					ll := ScrollToTimestampLink(l.Spans.At(0).Start)
-					mwin.OpenLink(&ll)
+					mwin.EmitLink(&ll)
 				},
 			},
 			{
 				Label: PlainLabel("Scroll to span end"),
 				Do: func(gtx layout.Context) {
 					ll := ScrollToTimestampLink(l.Spans.At(l.Spans.Len() - 1).End)
-					mwin.OpenLink(&ll)
+					mwin.EmitLink(&ll)
 				},
 			},
 			{
 				Label: PlainLabel("Show span information"),
 				Do: func(gtx layout.Context) {
-					mwin.OpenLink((*OpenSpansLink)(l))
+					mwin.EmitLink((*OpenSpansLink)(l))
 				},
 			},
 		}
@@ -273,16 +274,31 @@ func (l *ZoomToSpansLink) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 }
 
-func handleLinkClick(win *theme.Window, mwin MainWindowIface, ev TextEvent) {
+func handleLinkClick(win *theme.Window, mwin *theme.Window, ev TextEvent) {
 	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
 		link := ev.Span.ObjectLink.Link(ev.Event)
-		if link != nil {
-			mwin.OpenLink(link)
-		}
+		win.EmitLink(link)
 	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
 		menu := ev.Span.ObjectLink.ContextMenu(mwin)
 		if len(menu) != 0 {
 			win.SetContextMenu(menu)
 		}
 	}
+}
+
+type OpenPanelLink struct {
+	Panel theme.Panel
+}
+
+func (*OpenPanelLink) IsLink() {}
+
+func (l *OpenPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.openPanel(l.Panel)
+}
+
+type PrevPanelLink struct{}
+
+func (PrevPanelLink) IsLink() {}
+func (PrevPanelLink) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.prevPanel()
 }
