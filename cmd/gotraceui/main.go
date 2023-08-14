@@ -534,7 +534,12 @@ func (mwin *MainWindow) Run() error {
 							progress := math.Float64frombits(mwin.progress.Load())
 							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									name := mwin.progressStages[mwin.progressStage]
+									var name string
+									if mwin.progressStage < len(mwin.progressStages) {
+										name = mwin.progressStages[mwin.progressStage]
+									} else {
+										name = "Unknown"
+									}
 									gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
 									gtx.Constraints.Max.X = gtx.Constraints.Min.X
 									pct := fmt.Sprintf("%5.2f%%", progress*100)
