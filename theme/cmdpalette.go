@@ -32,7 +32,6 @@ type CommandPalette struct {
 
 	filtered []int
 	active   int
-	clicked  int
 	cmds     CommandProvider
 	tags     []byte
 	gestures []gesture.Click
