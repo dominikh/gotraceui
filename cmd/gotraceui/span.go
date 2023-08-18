@@ -92,6 +92,7 @@ type SpansInfoConfig struct {
 	Statistics         func(win *theme.Window) *theme.Future[*SpansStats]
 	Navigations        SpansInfoConfigNavigations
 	ShowHistogram      bool
+	Commands           func() theme.CommandProvider
 }
 
 type SpansInfoConfigNavigations struct {
@@ -327,7 +328,7 @@ func (si *SpansInfo) zoomToSpans(win *theme.Window) {
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
 
-	var cmds []theme.Command
+	var cmds theme.CommandSlice
 
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
@@ -598,7 +599,11 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.computeHistogram(win, &si.hist.Config)
 	}
 
-	win.AddCommandProvider(theme.CommandSlice(cmds))
+	var allCmds theme.CommandProvider = cmds
+	if si.cfg.Commands != nil {
+		allCmds = theme.MultiCommandProvider{Providers: []theme.CommandProvider{cmds, si.cfg.Commands()}}
+	}
+	win.AddCommandProvider(allCmds)
 
 	return dims
 }

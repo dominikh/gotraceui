@@ -245,11 +245,11 @@ func (mwin *MainWindow) openHeatmap() {
 	}()
 }
 
-func (mwin *MainWindow) openFlameGraph() {
+func (mwin *MainWindow) openFlameGraph(g *ptrace.Goroutine) {
 	win := &FlameGraphWindow{}
 	go func() {
 		// XXX handle error?
-		win.Run(app.NewWindow(app.Title("gotraceui - flame graph")), mwin.trace.Trace)
+		win.Run(app.NewWindow(app.Title("gotraceui - flame graph")), mwin.trace.Trace, g)
 	}()
 }
 

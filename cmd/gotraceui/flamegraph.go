@@ -23,7 +23,7 @@ type FlameGraphWindow struct {
 	fg *theme.Future[*widget.FlameGraph]
 }
 
-func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
+func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace, g *ptrace.Goroutine) error {
 	tWin := theme.NewWindow(win)
 	fgwin.fg = theme.NewFuture(tWin, func(cancelled <-chan struct{}) *widget.FlameGraph {
 		// Compute the sample duration by dividing the active time of all Ps by the total number of samples. This should
@@ -53,7 +53,7 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
 		sampleDuration = time.Duration(math.Round(float64(totalDuration) / float64(totalSamples)))
 
 		var fg widget.FlameGraph
-		for _, samples := range trace.CPUSamples {
+		do := func(samples []ptrace.EventID) {
 			for _, sample := range samples {
 				stack := trace.Stacks[trace.Event(sample).StkID]
 				var frames widget.FlamegraphSample
@@ -68,6 +68,14 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
 				fg.AddSample(frames, "Running")
 			}
 		}
+		if g == nil {
+			for _, samples := range trace.CPUSamples {
+				do(samples)
+			}
+		} else {
+			do(trace.CPUSamples[g.ID])
+		}
+
 		fg.Compute()
 		return &fg
 	})

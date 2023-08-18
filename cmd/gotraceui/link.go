@@ -44,6 +44,10 @@ type ZoomToGoroutineAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
+type OpenGoroutineFlameGraphAction struct {
+	Goroutine  *ptrace.Goroutine
+	Provenance string
+}
 type ScrollToTimestampAction trace.Timestamp
 type ScrollToProcessorAction struct {
 	Processor  *ptrace.Processor
@@ -103,6 +107,7 @@ type SpansObjectLink struct{ Spans Items[ptrace.Span] }
 func (OpenGoroutineAction) IsAction()              {}
 func (ScrollToGoroutineAction) IsAction()          {}
 func (ZoomToGoroutineAction) IsAction()            {}
+func (OpenGoroutineFlameGraphAction) IsAction()    {}
 func (ScrollToTimestampAction) IsAction()          {}
 func (ScrollToProcessorAction) IsAction()          {}
 func (ZoomToProcessorAction) IsAction()            {}
@@ -179,6 +184,12 @@ func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 			Label: PlainLabel("Show goroutine information"),
 			Action: func() theme.Action {
 				return (*OpenGoroutineAction)(l)
+			},
+		},
+		{
+			Label: PlainLabel("Open flame graph"),
+			Action: func() theme.Action {
+				return (*OpenGoroutineFlameGraphAction)(l)
 			},
 		},
 	}
@@ -313,6 +324,10 @@ func (l *ZoomToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans[0].Start, l.Goroutine.Spans[len(l.Goroutine.Spans)-1].End, y)
 }
 
+func (l *OpenGoroutineFlameGraphAction) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.openFlameGraph(l.Goroutine)
+}
+
 func (l ScrollToTimestampAction) Open(gtx layout.Context, mwin *MainWindow) {
 	d := mwin.canvas.End() - mwin.canvas.start
 	var off trace.Timestamp
@@ -387,7 +402,7 @@ func (l CanvasZoomToFitCurrentViewAction) Open(gtx layout.Context, mwin *MainWin
 	mwin.canvas.ZoomToFitCurrentView(gtx)
 }
 func (l OpenFlameGraphAction) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.openFlameGraph()
+	mwin.openFlameGraph(nil)
 }
 func (l OpenHeatmapAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openHeatmap()
@@ -517,6 +532,17 @@ func (l *GoroutineObjectLink) Commands() []theme.Command {
 			Color:          colorLink,
 			Fn: func() theme.Action {
 				return (*OpenGoroutineAction)(l)
+			},
+		},
+
+		theme.NormalCommand{
+			PrimaryLabel:   local.Sprintf("Open flame graph for goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"show", "flamegraph"},
+			Color:          colorLink,
+			Fn: func() theme.Action {
+				return (*OpenGoroutineFlameGraphAction)(l)
 			},
 		},
 	}

@@ -977,6 +977,18 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 				},
 			},
 		},
+		Commands: func() theme.CommandProvider {
+			return theme.CommandSlice{
+				theme.NormalCommand{
+					PrimaryLabel: local.Sprintf("Open flame graph for goroutine %d: %s", g.ID, g.Function.Fn),
+					Category:     "Panel",
+					Color:        colorPanel,
+					Fn: func() theme.Action {
+						return &OpenGoroutineFlameGraphAction{Goroutine: g}
+					},
+				},
+			}
+		},
 		Statistics: func(win *theme.Window) *theme.Future[*SpansStats] {
 			return theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {
 				return NewGoroutineStats(g)
