@@ -8,6 +8,7 @@ import (
 )
 
 var colors [colorLast]color.NRGBA
+var colorsOklch [colorLast]mycolor.Oklch
 
 func init() {
 	// Our base lightness is 56.51, and our base chroma is 0.122
@@ -16,40 +17,39 @@ func init() {
 	const lStep1 = 15
 	const lStep2 = 10
 
-	var cs [colorLast]mycolor.Oklch
-	cs[colorStateActive] = oklch(l, c, 143.74) // Manually chosen
-	cs[colorStateStack] = oklchDelta(cs[colorStateActive], lStep1, -0.01, 0)
-	cs[colorStateCPUSample] = oklchDelta(cs[colorStateStack], lStep2, -0.01, 0)
+	colorsOklch[colorStateActive] = oklch(l, c, 143.74) // Manually chosen
+	colorsOklch[colorStateStack] = oklchDelta(colorsOklch[colorStateActive], lStep1, -0.01, 0)
+	colorsOklch[colorStateCPUSample] = oklchDelta(colorsOklch[colorStateStack], lStep2, -0.01, 0)
 
-	cs[colorStateReady] = oklch(l, c, 206.35) // Manually chosen
-	cs[colorStateInactive] = oklch(l, 0, 0)
+	colorsOklch[colorStateReady] = oklch(l, c, 206.35) // Manually chosen
+	colorsOklch[colorStateInactive] = oklch(l, 0, 0)
 
-	cs[colorStateUserRegion] = oklch(l+lStep1+lStep2, c, 331.18) // Manually chosen
+	colorsOklch[colorStateUserRegion] = oklch(l+lStep1+lStep2, c, 331.18) // Manually chosen
 
 	// Manually chosen. This is the rarest blocked state, so we darken it to have more range for the other states.
-	cs[colorStateBlocked] = oklch(l-5, c, 23.89)
-	cs[colorStateBlockedSyscall] = oklch(l, c, 23.89)
-	cs[colorStateBlockedNet] = oklch(l+6, c-0.01, 23.89)
-	cs[colorStateBlockedHappensBefore] = oklch(l+lStep2, c, 23.89)
-	cs[colorStateBlockedGC] = oklch(l, c, 0) // a blend of colorStateGC and red
+	colorsOklch[colorStateBlocked] = oklch(l-5, c, 23.89)
+	colorsOklch[colorStateBlockedSyscall] = oklch(l, c, 23.89)
+	colorsOklch[colorStateBlockedNet] = oklch(l+6, c-0.01, 23.89)
+	colorsOklch[colorStateBlockedHappensBefore] = oklch(l+lStep2, c, 23.89)
+	colorsOklch[colorStateBlockedGC] = oklch(l, c, 0) // a blend of colorStateGC and red
 
-	cs[colorStateGC] = oklch(l, c, 302.36)
-	cs[colorStateSTW] = oklch(l, c+0.072, 23.89) // STW is the most severe form of blocking, hence the increased chroma
+	colorsOklch[colorStateGC] = oklch(l, c, 302.36)
+	colorsOklch[colorStateSTW] = oklch(l, c+0.072, 23.89) // STW is the most severe form of blocking, hence the increased chroma
 
-	cs[colorTimelineLabel] = oklch(62.68, 0, 0)
-	cs[colorTimelineBorder] = oklch(89.75, 0, 0)
+	colorsOklch[colorTimelineLabel] = oklch(62.68, 0, 0)
+	colorsOklch[colorTimelineBorder] = oklch(89.75, 0, 0)
 
 	// 	// TODO(dh): find a nice color for this
 	// We don't use the l constant for thse colors because they're independent from the span colors
-	cs[colorSpanHighlightedPrimaryOutline] = oklch(70.71, 0.322, 328.36)
-	cs[colorSpanHighlightedSecondaryOutline] = oklch(88.44, 0.27, 137.68)
+	colorsOklch[colorSpanHighlightedPrimaryOutline] = oklch(70.71, 0.322, 328.36)
+	colorsOklch[colorSpanHighlightedSecondaryOutline] = oklch(88.44, 0.27, 137.68)
 
-	cs[colorStateMerged] = oklch(l+lStep1, c, 109.91) // Manually chosen, made brighter so it stands out in gradients
+	colorsOklch[colorStateMerged] = oklch(l+lStep1, c, 109.91) // Manually chosen, made brighter so it stands out in gradients
 
-	cs[colorStateStuck] = oklch(0, 0, 0)
-	cs[colorStateDone] = oklch(0, 0, 0)
+	colorsOklch[colorStateStuck] = oklch(0, 0, 0)
+	colorsOklch[colorStateDone] = oklch(0, 0, 0)
 
-	for i, c := range cs {
+	for i, c := range colorsOklch {
 		colors[i] = c.NRGBA()
 	}
 

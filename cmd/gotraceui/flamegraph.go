@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"hash/fnv"
 	"math"
 	"reflect"
@@ -74,6 +75,63 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace, g *ptra
 			}
 		} else {
 			do(trace.CPUSamples[g.ID])
+
+			for _, span := range g.Spans {
+				var root string
+
+				switch span.State {
+				case ptrace.StateInactive:
+				case ptrace.StateActive:
+				case ptrace.StateGCIdle:
+				case ptrace.StateGCDedicated:
+				case ptrace.StateGCFractional:
+				case ptrace.StateBlocked:
+					root = "blocked"
+				case ptrace.StateBlockedSend:
+					root = "send"
+				case ptrace.StateBlockedRecv:
+					root = "recv"
+				case ptrace.StateBlockedSelect:
+					root = "select"
+				case ptrace.StateBlockedSync:
+					root = "sync"
+				case ptrace.StateBlockedSyncOnce:
+					root = "sync.Once"
+				case ptrace.StateBlockedSyncTriggeringGC:
+					root = "triggering GC"
+				case ptrace.StateBlockedCond:
+					root = "sync.Cond"
+				case ptrace.StateBlockedNet:
+					root = "I/O"
+				case ptrace.StateBlockedGC:
+					root = "GC"
+				case ptrace.StateBlockedSyscall:
+					root = "blocking syscall"
+				case ptrace.StateStuck:
+				case ptrace.StateReady, ptrace.StateCreated:
+					root = "ready"
+				case ptrace.StateDone:
+				case ptrace.StateGCMarkAssist:
+				case ptrace.StateGCSweep:
+				default:
+					panic(fmt.Sprintf("unhandled state %d", span.State))
+				}
+
+				if root != "" {
+					var frames widget.FlamegraphSample
+					if root != "ready" {
+						stack := trace.Stacks[trace.Event(span.Event).StkID]
+						for i := len(stack) - 1; i >= 0; i-- {
+							fn := trace.PCs[stack[i]].Fn
+							frames = append(frames, widget.FlamegraphFrame{
+								Name:     fn,
+								Duration: span.Duration(),
+							})
+						}
+					}
+					fg.AddSample(frames, root)
+				}
+			}
 		}
 
 		fg.Compute()
@@ -121,6 +179,48 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 			C:     0.222,
 			H:     119,
 			Alpha: 1,
+		}
+	}
+
+	// Mapping from index to color adjustments. The adjustments are sorted to maximize
+	// the differences between neighboring spans.
+	offsets := [...]float32{4, 9, 3, 8, 2, 7, 1, 6, 0, 5}
+	adjustLight := func(mc mycolor.Oklch) mycolor.Oklch {
+		var (
+			oldMax = float32(len(offsets))
+			newMin = float32(-0.05)
+			newMax = float32(0.12)
+		)
+
+		v := offsets[idx%len(offsets)]
+		delta := (v/oldMax)*(newMax-newMin) + newMin
+		mc.L += delta
+		if mc.L < 0 {
+			mc.L = 0
+		}
+		if mc.L > 1 {
+			mc.L = 1
+		}
+
+		return mc
+	}
+
+	if level == 0 {
+		switch f.Name {
+		case "Running":
+			return adjustLight(colorsOklch[colorStateActive])
+		case "blocked":
+			return adjustLight(colorsOklch[colorStateBlocked])
+		case "send", "recv", "select", "sync", "sync.Once", "sync.Cond":
+			return adjustLight(colorsOklch[colorStateBlockedHappensBefore])
+		case "GC", "triggering GC":
+			return adjustLight(colorsOklch[colorStateBlockedGC])
+		case "I/O":
+			return adjustLight(colorsOklch[colorStateBlockedNet])
+		case "blocking syscall":
+			return adjustLight(colorsOklch[colorStateBlockedSyscall])
+		case "ready":
+			return adjustLight(colorsOklch[colorStateReady])
 		}
 	}
 
@@ -184,25 +284,5 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 		}
 	}
 
-	mc := c
-	mod := 10
-	oldMax := float32(mod)
-	newMin := float32(-0.05)
-	newMax := float32(0.12)
-
-	// Mapping from index to color adjustments. The adjustments are sorted to maximize
-	// the differences between neighboring spans.
-	offsets := [...]float32{4, 9, 3, 8, 2, 7, 1, 6, 0, 5}
-	v := offsets[idx%mod]
-
-	delta := (v/oldMax)*(newMax-newMin) + newMin
-	mc.L += delta
-	if mc.L < 0 {
-		mc.L = 0
-	}
-	if mc.L > 1 {
-		mc.L = 1
-	}
-
-	return mc
+	return adjustLight(c)
 }
