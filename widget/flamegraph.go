@@ -17,27 +17,21 @@ type FlamegraphFrame struct {
 
 type FlamegraphSample []FlamegraphFrame
 
-func (fg *FlameGraph) AddSample(sample FlamegraphSample) {
+func (fg *FlameGraph) AddSample(sample FlamegraphSample, root string) {
 	if len(sample) == 0 {
 		return
 	}
 
 	toplevel := FlamegraphFrame{
-		Name:     "",
+		Name:     root,
 		Duration: sample[0].Duration,
-		Children: []FlamegraphFrame{
-			{
-				Name:     sample[0].Name,
-				Duration: sample[0].Duration,
-			},
-		},
 	}
 
-	cur := &toplevel.Children[0]
-	for i := range sample[1:] {
+	cur := &toplevel
+	for i := range sample {
 		child := FlamegraphFrame{
-			Name:     sample[i+1].Name,
-			Duration: sample[i+1].Duration,
+			Name:     sample[i].Name,
+			Duration: sample[i].Duration,
 		}
 		cur.Children = append(cur.Children, child)
 		cur = &cur.Children[0]
@@ -102,8 +96,4 @@ func (fg *FlameGraph) Compute() {
 	}
 
 	fg.Samples = merge(fg.Samples)
-
-	if len(fg.Samples) > 1 {
-		panic("too many top-level samples")
-	}
 }

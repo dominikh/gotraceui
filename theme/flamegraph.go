@@ -126,10 +126,16 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 			return op.Affine(f32.Affine2D{}.Offset(off))
 		}
 
-		root = fg.State.Samples[0]
+		totalDuration = func() time.Duration {
+			var total time.Duration
+			for _, root := range fg.State.Samples {
+				total += root.Duration
+			}
+			return total
+		}()
 		// fgPerNs is strictly speaking a Unit, but we only use it to scale sample counts, which are
 		// float64.
-		fgPerNs     = 1.0 / float64(root.Duration.Nanoseconds())
+		fgPerNs     = 1.0 / float64(totalDuration)
 		clickedSpan = fgSpanLocation{nil, -1, -1, -1}
 		hoveredSpan = fgSpanLocation{nil, -1, -1, -1}
 		ptPx        = fg.StyleState.hover.Pointer()

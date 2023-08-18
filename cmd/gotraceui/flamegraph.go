@@ -65,7 +65,7 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
 					})
 				}
 
-				fg.AddSample(frames)
+				fg.AddSample(frames, "Running")
 			}
 		}
 		fg.Compute()
