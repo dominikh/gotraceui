@@ -1,15 +1,18 @@
 package widget
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 type FlameGraph struct {
 	Samples []FlamegraphFrame
 }
 
 type FlamegraphFrame struct {
-	Name       string
-	NumSamples float64
-	Children   []FlamegraphFrame
+	Name     string
+	Duration time.Duration
+	Children []FlamegraphFrame
 }
 
 type FlamegraphSample []FlamegraphFrame
@@ -20,12 +23,12 @@ func (fg *FlameGraph) AddSample(sample FlamegraphSample) {
 	}
 
 	toplevel := FlamegraphFrame{
-		Name:       "",
-		NumSamples: 1,
+		Name:     "",
+		Duration: sample[0].Duration,
 		Children: []FlamegraphFrame{
 			{
-				Name:       sample[0].Name,
-				NumSamples: 1,
+				Name:     sample[0].Name,
+				Duration: sample[0].Duration,
 			},
 		},
 	}
@@ -33,8 +36,8 @@ func (fg *FlameGraph) AddSample(sample FlamegraphSample) {
 	cur := &toplevel.Children[0]
 	for i := range sample[1:] {
 		child := FlamegraphFrame{
-			Name:       sample[i+1].Name,
-			NumSamples: 1,
+			Name:     sample[i+1].Name,
+			Duration: sample[i+1].Duration,
 		}
 		cur.Children = append(cur.Children, child)
 		cur = &cur.Children[0]
@@ -49,7 +52,7 @@ func (fg *FlameGraph) Compute() {
 			{
 				Name: "",
 				// Technically this span has no samples, but that would result in a zero-width span.
-				NumSamples: 1,
+				Duration: 1,
 			},
 		}
 		return
@@ -67,7 +70,7 @@ func (fg *FlameGraph) Compute() {
 		})
 		for i := range slice[:len(slice)-1] {
 			frame := &slice[i]
-			if frame.NumSamples == 0 {
+			if frame.Duration == 0 {
 				continue
 			}
 
@@ -77,14 +80,14 @@ func (fg *FlameGraph) Compute() {
 					break
 				}
 				frame.Children = append(frame.Children, next.Children...)
-				frame.NumSamples += next.NumSamples
-				next.NumSamples = 0
+				frame.Duration += next.Duration
+				next.Duration = 0
 			}
 		}
 
 		compacted := slice[:0]
 		for i := range slice {
-			if slice[i].NumSamples > 0 {
+			if slice[i].Duration > 0 {
 				compacted = append(compacted, slice[i])
 			}
 		}

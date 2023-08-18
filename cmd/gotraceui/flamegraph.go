@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 	"reflect"
 	"strings"
+	"time"
 	"unsafe"
 
 	"gioui.org/app"
@@ -36,6 +37,8 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
 					fn := trace.PCs[stack[i]].Fn
 					frames = append(frames, widget.FlamegraphFrame{
 						Name: fn,
+						// XXX compute approximate sample rate
+						Duration: 10 * time.Millisecond,
 					})
 				}
 

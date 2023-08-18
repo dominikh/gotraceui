@@ -127,9 +127,9 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		}
 
 		root = fg.State.Samples[0]
-		// fgPerSample is strictly speaking a Unit, but we only use it to scale sample counts, which are
+		// fgPerNs is strictly speaking a Unit, but we only use it to scale sample counts, which are
 		// float64.
-		fgPerSample = float64(1.0 / root.NumSamples)
+		fgPerNs     = 1.0 / float64(root.Duration.Nanoseconds())
 		clickedSpan = fgSpanLocation{nil, -1, -1, -1}
 		hoveredSpan = fgSpanLocation{nil, -1, -1, -1}
 		ptPx        = fg.StyleState.hover.Pointer()
@@ -219,7 +219,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 				var (
 					frame  = &samples[i]
-					width  = Unit(frame.NumSamples * fgPerSample)
+					width  = Unit(float64(frame.Duration) * fgPerNs)
 					pxSize = f32.Pt(
 						toReal(width*fg.StyleState.zoom.scale),
 						float32(height),
@@ -354,7 +354,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 				var (
 					frame  = &samples[i]
-					width  = Unit(frame.NumSamples * fgPerSample)
+					width  = Unit(float64(frame.Duration) * fgPerNs)
 					pxSize = f32.Pt(
 						toReal(width*fg.StyleState.zoom.scale),
 						float32(height),
@@ -436,15 +436,26 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 	if hoveredSpan.frame != nil {
 		// TODO(dh): use formatting in tooltip, like bold labels
-		self := hoveredSpan.frame.NumSamples
+		self := hoveredSpan.frame.Duration
 		for _, child := range hoveredSpan.frame.Children {
-			self -= child.NumSamples
+			self -= child.Duration
 		}
-		l := fmt.Sprintf("Name: %s\nStack depth: %d\nSamples: %d (%d self)\nImmediate children: %d",
-			hoveredSpan.frame.Name, hoveredSpan.level, int(hoveredSpan.frame.NumSamples), int(self), len(hoveredSpan.frame.Children))
+		l := fmt.Sprintf("Name: %s\nStack depth: %d\nDuration: %s (%s self)\nImmediate children: %d",
+			hoveredSpan.frame.Name, hoveredSpan.level, roundDuration(hoveredSpan.frame.Duration), roundDuration(self), len(hoveredSpan.frame.Children))
 		fg.StyleState.tooltip = l
 		win.SetTooltip(Tooltip(win.Theme, l).Layout)
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Min}
+}
+
+func roundDuration(d time.Duration) time.Duration {
+	switch {
+	case d < time.Millisecond:
+		return d
+	case d < time.Second:
+		return d.Round(time.Microsecond)
+	default:
+		return d.Round(time.Millisecond)
+	}
 }
