@@ -2,6 +2,7 @@ package main
 
 import (
 	"hash/fnv"
+	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -23,11 +24,34 @@ type FlameGraphWindow struct {
 }
 
 func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
-	var ops op.Ops
 	tWin := theme.NewWindow(win)
-	var fgState theme.FlameGraphState
-
 	fgwin.fg = theme.NewFuture(tWin, func(cancelled <-chan struct{}) *widget.FlameGraph {
+		// Compute the sample duration by dividing the active time of all Ps by the total number of samples. This should
+		// closely approximate the inverse of the configured sampling rate.
+		//
+		// For the global flame graph, this is the most obvious choice. For goroutine flame graphs, we could arguably
+		// compute per-G averages, so that a goroutine that ran for 1ms won't show a flame graph span that's 10ms long.
+		// However, this wouldn't solve other, related problems, such as limiting the global flame graph to a portion of
+		// time.
+		//
+		// In the end, samples happen on Ms, not Gs, and using an average is the simplest approximation that we can
+		// explain. It also corresponds to what go tool pprof does, although it doesn't have the trouble of showing
+		// graphs for individual goroutines.
+		var (
+			totalDuration  time.Duration
+			totalSamples   uint64
+			sampleDuration time.Duration
+		)
+		for _, p := range trace.Processors {
+			for _, s := range p.Spans {
+				totalDuration += s.Duration()
+			}
+		}
+		for _, samples := range trace.CPUSamples {
+			totalSamples += uint64(len(samples))
+		}
+		sampleDuration = time.Duration(math.Round(float64(totalDuration) / float64(totalSamples)))
+
 		var fg widget.FlameGraph
 		for _, samples := range trace.CPUSamples {
 			for _, sample := range samples {
@@ -36,9 +60,8 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
 				for i := len(stack) - 1; i >= 0; i-- {
 					fn := trace.PCs[stack[i]].Fn
 					frames = append(frames, widget.FlamegraphFrame{
-						Name: fn,
-						// XXX compute approximate sample rate
-						Duration: 10 * time.Millisecond,
+						Name:     fn,
+						Duration: sampleDuration,
 					})
 				}
 
@@ -49,6 +72,10 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace) error {
 		return &fg
 	})
 
+	var (
+		ops     op.Ops
+		fgState theme.FlameGraphState
+	)
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
