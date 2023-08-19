@@ -190,9 +190,7 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		}
 	}
 
-	for k := range win.shortcuts {
-		delete(win.shortcuts, k)
-	}
+	clear(win.shortcuts)
 
 	doubleBuffer(&win.prevCommandProviders, &win.commandProviders)
 	win.actionsMu.Lock()

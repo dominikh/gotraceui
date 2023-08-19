@@ -320,9 +320,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		if fg.StyleState.pathsByColor == nil {
 			fg.StyleState.pathsByColor = map[mycolor.Oklch]*clip.Path{}
 		} else {
-			for k := range fg.StyleState.pathsByColor {
-				delete(fg.StyleState.pathsByColor, k)
-			}
+			clear(fg.StyleState.pathsByColor)
 		}
 		getPath := func(c mycolor.Oklch) *clip.Path {
 			p := fg.StyleState.pathsByColor[c]
