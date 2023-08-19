@@ -6,7 +6,9 @@ import (
 	"image/color"
 	"math"
 	rtrace "runtime/trace"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"honnef.co/go/gotraceui/clip"
 	mycolor "honnef.co/go/gotraceui/color"
@@ -400,7 +402,28 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 						if hovered {
 							f.Weight = font.Bold
 						}
-						widget.Label{MaxLines: 1, Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, f, 12, frame.Name, black)
+
+						shortenFunctionName := func(s string) string {
+							idx := strings.LastIndex(s, ".")
+							if idx == -1 {
+								return s
+							} else {
+								return s[idx:]
+							}
+						}
+						m := op.Record(gtx.Ops)
+						l := frame.Name
+						if float32(win.TextLength(gtx, widget.Label{}, f, 12, l)) > pxSize.X {
+							l = shortenFunctionName(frame.Name)
+						}
+						_, tinf := widget.Label{MaxLines: 1, Alignment: text.Middle}.LayoutDetailed(gtx, win.Theme.Shaper, f, 12, l, black)
+						c := m.Stop()
+						// Don't display a label if it's just a period followed by an ellipsis
+						if tinf.Truncated == 0 {
+							c.Add(gtx.Ops)
+						} else if utf8.RuneCountInString(l)-tinf.Truncated != 1 || l[0] != '.' {
+							c.Add(gtx.Ops)
+						}
 						stack.Pop()
 					}
 				}
