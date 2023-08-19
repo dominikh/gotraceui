@@ -167,12 +167,6 @@ func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace, g *ptra
 }
 
 func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) mycolor.Oklch {
-	// For this combination of lightness and chroma, all hues are representable in sRGB, with enough
-	// room to adjust the lightness in both directions for varying shades.
-	baseLightness := float32(0.699)
-	baseChroma := float32(0.103)
-	hueStep := float32(20)
-
 	if hovered {
 		return mycolor.Oklch{
 			L:     0.94,
@@ -224,9 +218,9 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 		}
 	}
 
-	cRuntime := mycolor.Oklch{ // #b400d7
-		L:     0.5639,
-		C:     0.272,
+	cRuntime := mycolor.Oklch{ // #cb77e1
+		L:     0.699,
+		C:     0.173,
 		H:     318.89,
 		Alpha: 1.0,
 	}
@@ -272,6 +266,14 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 			key := unsafe.Slice((*byte)(unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&pkg)).Data)), len(pkg))
 			h.Write(key)
 			sum := h.Sum64()
+
+			// For this combination of lightness and chroma, all hues are representable in sRGB, with enough
+			// room to adjust the lightness in both directions for varying shades.
+			const (
+				baseLightness = float32(0.699)
+				baseChroma    = float32(0.103)
+				hueStep       = float32(20)
+			)
 
 			hue := hueStep * float32(sum%uint64(360.0/hueStep))
 
