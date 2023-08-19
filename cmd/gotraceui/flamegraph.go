@@ -249,15 +249,9 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 			// No dot in the first path element means it has to be in the standard library
 			c = cStdlib
 		} else {
-			var pkg string
-			if strings.HasPrefix(f.Name, "main.") {
-				// XXX this is impossible, right?
-				pkg = "main"
-			} else {
-				last := strings.LastIndex(f.Name, "/")
-				dot := strings.Index(f.Name[last:], ".")
-				pkg = f.Name[:last+dot]
-			}
+			last := strings.LastIndex(f.Name, "/")
+			dot := strings.Index(f.Name[last:], ".")
+			pkg := f.Name[:last+dot]
 
 			// Select color by hashing the import path
 			h := fnv.New64()
