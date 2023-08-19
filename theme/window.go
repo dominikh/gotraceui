@@ -92,6 +92,7 @@ func (win *Window) TextDimensions(gtx layout.Context, l widget.Label, font font.
 	}
 
 	gtx.Constraints.Min = image.Point{}
+	gtx.Constraints.Max = image.Point{1e6, 1e6}
 	dims := labelDimensions(gtx, l, win.Theme.Shaper, font, size, s)
 	win.textLengths.Add(key, dims)
 	return dims
