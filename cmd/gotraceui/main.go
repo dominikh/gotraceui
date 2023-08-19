@@ -770,6 +770,7 @@ func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 		cmds = append(cmds, theme.NormalCommand{
 			Category:     "Display",
 			PrimaryLabel: "Hide timeline labels",
+			Aliases:      []string{"show"},
 			Shortcut:     "X",
 			Color:        colorDisplay,
 			Fn: func() theme.Action {
@@ -779,6 +780,7 @@ func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 		cmds = append(cmds, theme.NormalCommand{
 			Category:     "Display",
 			PrimaryLabel: "Show timeline labels",
+			Aliases:      []string{"hide"},
 			Shortcut:     "X",
 			Color:        colorDisplay,
 			Fn: func() theme.Action {
