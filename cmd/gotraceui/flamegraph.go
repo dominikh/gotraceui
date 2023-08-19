@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
-	"reflect"
 	"strings"
 	"time"
-	"unsafe"
 
 	"gioui.org/app"
 	"gioui.org/io/system"
@@ -263,8 +261,8 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 
 			// Select color by hashing the import path
 			h := fnv.New64()
-			key := unsafe.Slice((*byte)(unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&pkg)).Data)), len(pkg))
-			h.Write(key)
+			// Note that Go 1.22 doesn't allocate for this conversion from string to []byte.
+			h.Write([]byte(pkg))
 			sum := h.Sum64()
 
 			// For this combination of lightness and chroma, all hues are representable in sRGB, with enough
