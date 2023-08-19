@@ -733,16 +733,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		case theme.Shortcut{Name: "T"}:
 			cv.timeline.showTooltips = (cv.timeline.showTooltips + 1) % (showTooltipsNone + 1)
-			var s string
-			switch cv.timeline.showTooltips {
-			case showTooltipsBoth:
-				s = "Showing all tooltips"
-			case showTooltipsSpans:
-				s = "Showing span tooltips only"
-			case showTooltipsNone:
-				s = "Showing no tooltips"
-			}
-			win.ShowNotification(gtx, s)
+			showTooltipSettingNotification(win, gtx, cv.timeline.showTooltips)
 
 		case theme.Shortcut{Name: "O"}:
 			cv.timeline.showGCOverlays = (cv.timeline.showGCOverlays + 1) % (showGCOverlaysBoth + 1)

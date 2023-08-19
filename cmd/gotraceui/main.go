@@ -786,6 +786,48 @@ func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 			}})
 	}
 
+	cmds = append(cmds,
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show all tooltips",
+			Aliases:      []string{"toggle", "hide"},
+			Shortcut:     "T",
+			Color:        colorDisplay,
+			Fn: func() theme.Action {
+				return theme.ExecuteAction(func(gtx layout.Context) {
+					mwin.canvas.timeline.showTooltips = showTooltipsBoth
+					showTooltipSettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showTooltips)
+				})
+			},
+		},
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show no tooltips",
+			Aliases:      []string{"toggle", "hide"},
+			Shortcut:     "T",
+			Color:        colorDisplay,
+			Fn: func() theme.Action {
+				return theme.ExecuteAction(func(gtx layout.Context) {
+					mwin.canvas.timeline.showTooltips = showTooltipsNone
+					showTooltipSettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showTooltips)
+				})
+			},
+		},
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show span tooltips only",
+			Aliases:      []string{"toggle", "hide"},
+			Shortcut:     "T",
+			Color:        colorDisplay,
+			Fn: func() theme.Action {
+				return theme.ExecuteAction(func(gtx layout.Context) {
+					mwin.canvas.timeline.showTooltips = showTooltipsSpans
+					showTooltipSettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showTooltips)
+				})
+			},
+		},
+	)
+
 	if softDebug {
 		cmds = append(cmds,
 			theme.NormalCommand{
@@ -1664,4 +1706,17 @@ func (p GotoTimelineCommandProvider) At(idx int) theme.Command {
 		MainWindow: p.MainWindow,
 		Timeline:   p.Timelines[idx],
 	}
+}
+
+func showTooltipSettingNotification(win *theme.Window, gtx layout.Context, t showTooltips) {
+	var s string
+	switch t {
+	case showTooltipsBoth:
+		s = "Showing all tooltips"
+	case showTooltipsSpans:
+		s = "Showing span tooltips only"
+	case showTooltipsNone:
+		s = "Showing no tooltips"
+	}
+	win.ShowNotification(gtx, s)
 }
