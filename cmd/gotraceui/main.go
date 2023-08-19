@@ -828,6 +828,46 @@ func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 				})
 			},
 		},
+
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show STW and GC overlays",
+			Aliases:      []string{"hide"},
+			Shortcut:     "O",
+			Color:        colorDisplay,
+			Fn: func() theme.Action {
+				return theme.ExecuteAction(func(gtx layout.Context) {
+					mwin.canvas.timeline.showGCOverlays = showGCOverlaysBoth
+					showGCOverlaySettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showGCOverlays)
+				})
+			},
+		},
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show STW overlays only",
+			Aliases:      []string{"hide"},
+			Shortcut:     "O",
+			Color:        colorDisplay,
+			Fn: func() theme.Action {
+				return theme.ExecuteAction(func(gtx layout.Context) {
+					mwin.canvas.timeline.showGCOverlays = showGCOverlaysSTW
+					showGCOverlaySettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showGCOverlays)
+				})
+			},
+		},
+		theme.NormalCommand{
+			Category:     "Display",
+			PrimaryLabel: "Show no STW or GC overlays",
+			Aliases:      []string{"hide"},
+			Shortcut:     "O",
+			Color:        colorDisplay,
+			Fn: func() theme.Action {
+				return theme.ExecuteAction(func(gtx layout.Context) {
+					mwin.canvas.timeline.showGCOverlays = showGCOverlaysNone
+					showGCOverlaySettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showGCOverlays)
+				})
+			},
+		},
 	)
 
 	if softDebug {
@@ -1719,6 +1759,19 @@ func showTooltipSettingNotification(win *theme.Window, gtx layout.Context, t sho
 		s = "Showing span tooltips only"
 	case showTooltipsNone:
 		s = "Showing no tooltips"
+	}
+	win.ShowNotification(gtx, s)
+}
+
+func showGCOverlaySettingNotification(win *theme.Window, gtx layout.Context, t showGCOverlays) {
+	var s string
+	switch t {
+	case showGCOverlaysBoth:
+		s = "Showing STW and GC overlays"
+	case showGCOverlaysSTW:
+		s = "Showing STW overlays"
+	case showGCOverlaysNone:
+		s = "Showing no overlays"
 	}
 	win.ShowNotification(gtx, s)
 }

@@ -737,16 +737,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		case theme.Shortcut{Name: "O"}:
 			cv.timeline.showGCOverlays = (cv.timeline.showGCOverlays + 1) % (showGCOverlaysBoth + 1)
-			var s string
-			switch cv.timeline.showGCOverlays {
-			case showGCOverlaysBoth:
-				s = "Showing STW and GC overlays"
-			case showGCOverlaysSTW:
-				s = "Showing STW overlays"
-			case showGCOverlaysNone:
-				s = "Showing no overlays"
-			}
-			win.ShowNotification(gtx, s)
+			showGCOverlaySettingNotification(win, gtx, cv.timeline.showGCOverlays)
 		}
 	}
 
