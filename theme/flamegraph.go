@@ -137,11 +137,12 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		}()
 		// fgPerNs is strictly speaking a Unit, but we only use it to scale sample counts, which are
 		// float64.
-		fgPerNs     = 1.0 / float64(totalDuration)
-		clickedSpan = fgSpanLocation{nil, -1, -1, -1}
-		hoveredSpan = fgSpanLocation{nil, -1, -1, -1}
-		ptPx        = fg.StyleState.hover.Pointer()
-		levelHeight = float32(height + gtx.Dp(rowSpacingDp))
+		fgPerNs        = 1.0 / float64(totalDuration)
+		clickedSpan    = fgSpanLocation{nil, -1, -1, -1}
+		hoveredSpan    = fgSpanLocation{nil, -1, -1, -1}
+		hoveredWidthPx float32
+		ptPx           = fg.StyleState.hover.Pointer()
+		levelHeight    = float32(height + gtx.Dp(rowSpacingDp))
 
 		flipY = func(y float32) float32 {
 			return float32(gtx.Constraints.Min.Y) - y
@@ -377,6 +378,9 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 					// TODO don't render off-screen in the Y direction
 
 					hovered := hoveredSpan.frame == frame
+					if hovered {
+						hoveredWidthPx = pxSize.X
+					}
 					mc := fg.Color(level, *idx, frame, hovered)
 					p := getPath(mc)
 
@@ -450,6 +454,14 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		}
 		c.Add(gtx.Ops)
 
+	}
+
+	// Clear old tooltip
+	fg.StyleState.tooltip = ""
+
+	// Don't react to interactions with spans that are less than one pixel wide. They're either entirely invisible,
+	// or multiple spans occupy the same pixel.
+	if hoveredWidthPx >= 1 {
 		if clickedSpan.x != -1 {
 			fg.StyleState.zoomHistory = append(fg.StyleState.zoomHistory, fg.StyleState.zoom)
 
@@ -461,18 +473,18 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 			fg.StyleState.animateTo.target.scale = Unit(scale)
 			fg.StyleState.animateTo.startedAt = gtx.Now
 		}
-	}
 
-	if hoveredSpan.frame != nil {
-		// TODO(dh): use formatting in tooltip, like bold labels
-		self := hoveredSpan.frame.Duration
-		for _, child := range hoveredSpan.frame.Children {
-			self -= child.Duration
+		if hoveredSpan.frame != nil {
+			// TODO(dh): use formatting in tooltip, like bold labels
+			self := hoveredSpan.frame.Duration
+			for _, child := range hoveredSpan.frame.Children {
+				self -= child.Duration
+			}
+			l := fmt.Sprintf("Name: %s\nStack depth: %d\nDuration: %s (%s self)\nImmediate children: %d",
+				hoveredSpan.frame.Name, hoveredSpan.level, roundDuration(hoveredSpan.frame.Duration), roundDuration(self), len(hoveredSpan.frame.Children))
+			fg.StyleState.tooltip = l
+			win.SetTooltip(Tooltip(win.Theme, l).Layout)
 		}
-		l := fmt.Sprintf("Name: %s\nStack depth: %d\nDuration: %s (%s self)\nImmediate children: %d",
-			hoveredSpan.frame.Name, hoveredSpan.level, roundDuration(hoveredSpan.frame.Duration), roundDuration(self), len(hoveredSpan.frame.Children))
-		fg.StyleState.tooltip = l
-		win.SetTooltip(Tooltip(win.Theme, l).Layout)
 	}
 
 	return layout.Dimensions{Size: gtx.Constraints.Min}
