@@ -254,8 +254,12 @@ func (mwin *MainWindow) openFlameGraph(g *ptrace.Goroutine) {
 }
 
 func shortenFunctionName(s string) string {
-	fields := strings.Split(s, ".")
-	return fields[len(fields)-1]
+	idx := strings.LastIndex(s, ".")
+	if idx == -1 {
+		return s
+	} else {
+		return s[idx+1:]
+	}
 }
 
 type Command func(*MainWindow, layout.Context)
