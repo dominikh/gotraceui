@@ -70,9 +70,10 @@ type Timeline struct {
 }
 
 type TimelineWidget struct {
-	cv          *Canvas
-	labelClick  widget.PrimaryClickable
-	labelClicks int
+	cv               *Canvas
+	labelClick       widget.Clickable
+	labelClicks      int
+	labelRightClicks int
 
 	hover gesture.Hover
 
@@ -357,6 +358,15 @@ func (tw *TimelineWidget) LabelClicked() bool {
 	}
 }
 
+func (tw *TimelineWidget) LabelRightClicked() bool {
+	if tw.labelRightClicks > 0 {
+		tw.labelRightClicks--
+		return true
+	} else {
+		return false
+	}
+}
+
 func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
 	timelineGap := gtx.Dp(timelineGapDp)
 	enabledTracks := 0
@@ -491,12 +501,18 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 
 	tl.labelClicks = 0
 	for _, click := range tl.labelClick.Clicks() {
-		if click.Modifiers == 0 {
-			tl.labelClicks++
-		} else if click.Modifiers == key.ModShortcut {
-			// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
-			// assumption to make.
-			tl.navigatedSpans = tl.tracks[0].Spans(win).Wait()
+		switch click.Button {
+		case pointer.ButtonPrimary:
+			if click.Modifiers == 0 {
+				tl.labelClicks++
+			} else if click.Modifiers == key.ModShortcut {
+				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
+				// assumption to make.
+				tl.navigatedSpans = tl.tracks[0].Spans(win).Wait()
+			}
+
+		case pointer.ButtonSecondary:
+			tl.labelRightClicks++
 		}
 	}
 

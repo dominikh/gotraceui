@@ -75,8 +75,10 @@ type Canvas struct {
 
 	debugWindow *DebugWindow
 
-	clickedGoroutineTimelines []*ptrace.Goroutine
-	clickedSpans              []Items[ptrace.Span]
+	// TODO(dh): make Canvas agnostic of the kinds of timelines it is showing
+	clickedGoroutineTimelines      []*ptrace.Goroutine
+	rightClickedGoroutineTimelines []*ptrace.Goroutine
+	clickedSpans                   []Items[ptrace.Span]
 
 	// The start of the timeline
 	start   trace.Timestamp
@@ -807,6 +809,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		cv.hover.Add(gtx.Ops)
 
 		cv.clickedGoroutineTimelines = cv.clickedGoroutineTimelines[:0]
+		cv.rightClickedGoroutineTimelines = cv.rightClickedGoroutineTimelines[:0]
 
 		if d := cv.scrollbar.ScrollDistance(); d != 0 {
 			// TODO(dh): because scroll amounts are relative even when the user clicks on a specific spot on the
@@ -1111,6 +1114,11 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		if tl.LabelClicked() {
 			if g, ok := tl.item.(*ptrace.Goroutine); ok {
 				cv.clickedGoroutineTimelines = append(cv.clickedGoroutineTimelines, g)
+			}
+		}
+		if tl.LabelRightClicked() {
+			if g, ok := tl.item.(*ptrace.Goroutine); ok {
+				cv.rightClickedGoroutineTimelines = append(cv.rightClickedGoroutineTimelines, g)
 			}
 		}
 	}

@@ -396,6 +396,9 @@ func ToggleLabel(t, f string, b *bool) func() string {
 		}
 	}
 }
+
+// TODO(dh): remove dynamic label logic. this was useful for RM-style main menus, but is not useful for context menus,
+// which are the only remaining user.
 func PlainLabel(s string) func() string { return func() string { return s } }
 
 func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
@@ -652,11 +655,15 @@ func (mwin *MainWindow) Run() error {
 
 					dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mainArea, panelArea)
 
+					// TODO(dh): add a public API to Canvas
 					for _, g := range mwin.canvas.clickedGoroutineTimelines {
 						mwin.openGoroutine(g)
 					}
 					for _, clicked := range mwin.canvas.clickedSpans {
 						mwin.openSpan(clicked)
+					}
+					for _, g := range mwin.canvas.rightClickedGoroutineTimelines {
+						win.SetContextMenu((&GoroutineObjectLink{Goroutine: g}).ContextMenu())
 					}
 					closedAny := false
 					for _, click := range mwin.tabbedState.Clicked() {
