@@ -2,6 +2,7 @@ package theme
 
 import (
 	"context"
+	"fmt"
 	rtrace "runtime/trace"
 
 	mycolor "honnef.co/go/gotraceui/color"
@@ -10,12 +11,7 @@ import (
 )
 
 type Panel interface {
-	Layout(win *Window, gtx layout.Context) layout.Dimensions
-	Title() string
-	Closed() bool
-	Detached() bool
-	Attached() bool
-	SetWindowed(bool)
+	Component
 }
 
 type PanelButtons struct {
@@ -27,20 +23,29 @@ type PanelButtons struct {
 	windowed bool
 }
 
-func (pb *PanelButtons) SetWindowed(b bool) { pb.windowed = b }
-
-func (pb *PanelButtons) Windowed() bool { return pb.windowed }
-
-func (pb *PanelButtons) Closed() bool {
-	return pb.close.Clicked()
+func (pb *PanelButtons) Transition(state ComponentState) {
+	switch state {
+	case ComponentStatePanel:
+		pb.windowed = false
+	case ComponentStateWindow:
+		pb.windowed = true
+	case ComponentStateClosed:
+		// Nothing to do
+	default:
+		panic(fmt.Sprintf("unsupported transition to state %q", state))
+	}
 }
 
-func (pb *PanelButtons) Detached() bool {
-	return pb.detach.Clicked()
-}
-
-func (pb *PanelButtons) Attached() bool {
-	return pb.attach.Clicked()
+func (pb *PanelButtons) WantsTransition() ComponentState {
+	if pb.detach.Clicked() {
+		return ComponentStateWindow
+	} else if pb.attach.Clicked() {
+		return ComponentStatePanel
+	} else if pb.close.Clicked() {
+		return ComponentStateClosed
+	} else {
+		return ComponentStateNone
+	}
 }
 
 func (pb *PanelButtons) Backed() bool {

@@ -157,7 +157,7 @@ func (mwin *MainWindow) openPanel(p theme.Panel) {
 			mwin.panelHistory = mwin.panelHistory[:100]
 		}
 	}
-	p.SetWindowed(false)
+	p.Transition(theme.ComponentStatePanel)
 	mwin.panel = p
 }
 
@@ -210,12 +210,17 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 				return pwin.Panel.Layout(win, gtx)
 			})
 
-			if pwin.Panel.Closed() {
+			switch state := pwin.Panel.WantsTransition(); state {
+			case theme.ComponentStateClosed:
 				win.Perform(system.ActionClose)
-			} else if pwin.Panel.Attached() {
+			case theme.ComponentStatePanel:
 				pwin.MainWindow.EmitAction(&OpenPanelAction{pwin.Panel})
 				win.Perform(system.ActionClose)
 				dead = true
+			case theme.ComponentStateWindow, theme.ComponentStateNone:
+				// Nothing to do
+			default:
+				panic(fmt.Sprintf("unsupported state transition to %q", state))
 			}
 
 			ev.Frame(&ops)
@@ -227,7 +232,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 
 func (mwin *MainWindow) openPanelWindow(p theme.Panel) {
 	win := &PanelWindow{MainWindow: mwin.twin, Panel: p}
-	p.SetWindowed(true)
+	p.Transition(theme.ComponentStateWindow)
 	go func() {
 		// XXX handle error?
 		win.Run(app.NewWindow(app.Title("gotraceui - " + p.Title())))
@@ -582,11 +587,16 @@ func (mwin *MainWindow) Run() error {
 					}
 
 					if mwin.panel != nil {
-						if mwin.panel.Closed() {
+						switch state := mwin.panel.WantsTransition(); state {
+						case theme.ComponentStateClosed:
 							mwin.ClosePanel()
-						} else if mwin.panel.Detached() {
+						case theme.ComponentStateWindow:
 							mwin.openPanelWindow(mwin.panel)
 							mwin.ClosePanel()
+						case theme.ComponentStatePanel, theme.ComponentStateNone:
+							// Nothing to do
+						default:
+							panic(fmt.Sprintf("unsupported state transition to %q", state))
 						}
 					}
 
