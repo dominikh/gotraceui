@@ -27,7 +27,7 @@ func (fc *FlameGraphComponent) Title() string {
 		return "Flame graph"
 	} else {
 		// OPT(dh): avoid the allocation
-		return local.Sprintf("Flame graph for goroutine %d: %s", fc.g.ID, fc.g.Function.Fn)
+		return local.Sprintf("Flame graph for goroutine %d", fc.g.ID)
 	}
 }
 
