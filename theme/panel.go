@@ -98,14 +98,6 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 					PrimaryLabel: "Detach panel",
 				},
 			},
-
-			{
-				&pb.close,
-				"Close",
-				NormalCommand{
-					PrimaryLabel: "Close panel",
-				},
-			},
 		}
 	}
 
