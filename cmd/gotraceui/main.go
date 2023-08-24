@@ -163,16 +163,13 @@ func (mwin *MainWindow) openPanel(p theme.Panel) {
 
 func (mwin *MainWindow) prevPanel() bool {
 	if len(mwin.panelHistory) == 0 {
+		mwin.panel = nil
 		return false
 	}
 	p := mwin.panelHistory[len(mwin.panelHistory)-1]
 	mwin.panelHistory = mwin.panelHistory[:len(mwin.panelHistory)-1]
 	mwin.panel = p
 	return true
-}
-
-func (mwin *MainWindow) ClosePanel() {
-	mwin.panel = nil
 }
 
 type PanelWindow struct {
@@ -612,10 +609,10 @@ func (mwin *MainWindow) Run() error {
 					if mwin.panel != nil {
 						switch state := mwin.panel.WantsTransition(); state {
 						case theme.ComponentStateClosed:
-							mwin.ClosePanel()
+							mwin.prevPanel()
 						case theme.ComponentStateWindow:
 							mwin.openPanelWindow(mwin.panel)
-							mwin.ClosePanel()
+							mwin.prevPanel()
 						case theme.ComponentStatePanel, theme.ComponentStateNone:
 							// Nothing to do
 						default:
