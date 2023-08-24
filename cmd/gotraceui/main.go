@@ -638,6 +638,10 @@ func (mwin *MainWindow) Run() error {
 							titles[i] = tab.Title()
 						}
 						return theme.Tabbed(&mwin.tabbedState, titles).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+							if mwin.tabbedState.Current < 0 {
+								return layout.Dimensions{}
+							}
+
 							return mwin.tabs[mwin.tabbedState.Current].Layout(win, gtx)
 						})
 					}
@@ -656,6 +660,27 @@ func (mwin *MainWindow) Run() error {
 					}
 					for _, clicked := range mwin.canvas.clickedSpans {
 						mwin.openSpan(clicked)
+					}
+					closedAny := false
+					for _, click := range mwin.tabbedState.Clicked() {
+						if click.Click.Button == pointer.ButtonTertiary {
+							if click.Index == 0 {
+								// Don't allow closing the timelines tab
+								continue
+							}
+
+							mwin.tabs[click.Index] = nil
+							closedAny = true
+						}
+					}
+					if closedAny {
+						compacted := mwin.tabs[:0]
+						for _, tab := range mwin.tabs {
+							if tab != nil {
+								compacted = append(compacted, tab)
+							}
+						}
+						mwin.tabs = compacted
 					}
 
 					return dims

@@ -847,8 +847,14 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 
 type TabbedState struct {
 	Current    int
-	clickables []widget.PrimaryClickable
+	clickables []widget.Clickable
 	list       layout.List
+	clicked    []TabClick
+}
+
+type TabClick struct {
+	Index int
+	Click widget.Click
 }
 
 type TabbedStyle struct {
@@ -863,8 +869,14 @@ func Tabbed(state *TabbedState, tabs []string) TabbedStyle {
 	}
 }
 
+func (ts TabbedState) Clicked() []TabClick {
+	return ts.clicked
+}
+
 func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.TabbedStyle.Layout").End()
+
+	ts.State.clicked = ts.State.clicked[:0]
 
 	if ts.State.Current >= len(ts.Tabs) {
 		ts.State.Current = len(ts.Tabs) - 1
@@ -920,8 +932,16 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	)
 
 	for i := range ts.State.clickables {
-		for ts.State.clickables[i].Clicked() {
-			ts.State.Current = i
+		for {
+			click, ok := ts.State.clickables[i].Clicked()
+			if !ok {
+				break
+			}
+			if click.Modifiers == 0 && click.Button == pointer.ButtonPrimary {
+				ts.State.Current = i
+			} else {
+				ts.State.clicked = append(ts.State.clicked, TabClick{i, click})
+			}
 		}
 	}
 
