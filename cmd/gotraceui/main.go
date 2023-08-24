@@ -241,21 +241,18 @@ func (mwin *MainWindow) openPanelWindow(p theme.Panel) {
 }
 
 func (mwin *MainWindow) openHeatmap() {
-	win := &HeatmapWindow{
-		trace: mwin.trace,
-	}
-	go func() {
-		// XXX handle error?
-		win.Run(app.NewWindow(app.Title("gotraceui - heatmap")))
-	}()
+	c := NewHeatmapComponent(mwin.trace)
+	mwin.openTab(c)
 }
 
 func (mwin *MainWindow) openFlameGraph(g *ptrace.Goroutine) {
-	win := &FlameGraphWindow{}
-	go func() {
-		// XXX handle error?
-		win.Run(app.NewWindow(app.Title("gotraceui - flame graph")), mwin.trace.Trace, g)
-	}()
+	c := NewFlameGraphComponent(mwin.twin, mwin.trace.Trace, g)
+	mwin.openTab(c)
+}
+
+func (mwin *MainWindow) openTab(c theme.Component) {
+	mwin.tabs = append(mwin.tabs, c)
+	mwin.tabbedState.Current = len(mwin.tabs) - 1
 }
 
 func shortenFunctionName(s string) string {
@@ -282,6 +279,9 @@ type MainWindow struct {
 
 	panel        theme.Panel
 	panelHistory []theme.Panel
+
+	tabs        []theme.Component
+	tabbedState theme.TabbedState
 
 	pointerAt f32.Point
 
@@ -412,6 +412,25 @@ func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 	})
 }
 
+type TimelinesComponent struct {
+	cv *Canvas
+}
+
+func (tlc *TimelinesComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	return tlc.cv.Layout(win, gtx)
+}
+
+func (tlc *TimelinesComponent) Title() string {
+	return "Timelines"
+}
+
+func (tlc *TimelinesComponent) Transition(theme.ComponentState) {
+}
+
+func (tlc *TimelinesComponent) WantsTransition() theme.ComponentState {
+	return theme.ComponentStateNone
+}
+
 func (mwin *MainWindow) Run() error {
 	win := mwin.win
 	profileTag := new(int)
@@ -429,6 +448,10 @@ func (mwin *MainWindow) Run() error {
 	var mem runtime.MemStats
 	var frameCounter uint64
 	var openTraceButton widget.PrimaryClickable
+
+	mwin.tabs = []theme.Component{
+		&TimelinesComponent{cv: &mwin.canvas},
+	}
 
 	for e := range win.Events() {
 		mwin.explorer.ListenEvents(e)
@@ -606,11 +629,27 @@ func (mwin *MainWindow) Run() error {
 
 					win.AddCommandProvider(mwin.defaultCommands())
 					var dims layout.Dimensions
-					if mwin.panel == nil {
-						dims = mwin.canvas.Layout(win, gtx)
-					} else {
-						dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mwin.canvas.Layout, mwin.panel.Layout)
+
+					mainArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						// OPT(dh): avoid allocation
+						// OPT(dh): cache titles
+						titles := make([]string, len(mwin.tabs))
+						for i, tab := range mwin.tabs {
+							titles[i] = tab.Title()
+						}
+						return theme.Tabbed(&mwin.tabbedState, titles).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+							return mwin.tabs[mwin.tabbedState.Current].Layout(win, gtx)
+						})
 					}
+					panelArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						if mwin.panel != nil {
+							return mwin.panel.Layout(win, gtx)
+						} else {
+							return layout.Dimensions{Size: gtx.Constraints.Constrain(image.Point{})}
+						}
+					}
+
+					dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mainArea, panelArea)
 
 					for _, g := range mwin.canvas.clickedGoroutineTimelines {
 						mwin.openGoroutine(g)

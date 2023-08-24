@@ -7,10 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/app"
-	"gioui.org/io/system"
-	"gioui.org/op"
 	"gioui.org/op/paint"
+	"honnef.co/go/gotraceui/clip"
 	mycolor "honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
@@ -18,150 +16,156 @@ import (
 	"honnef.co/go/gotraceui/widget"
 )
 
-type FlameGraphWindow struct {
-	fg *theme.Future[*widget.FlameGraph]
+type FlameGraphComponent struct {
+	g     *ptrace.Goroutine
+	fg    *theme.Future[*widget.FlameGraph]
+	state theme.FlameGraphState
 }
 
-func (fgwin *FlameGraphWindow) Run(win *app.Window, trace *ptrace.Trace, g *ptrace.Goroutine) error {
-	tWin := theme.NewWindow(win)
-	fgwin.fg = theme.NewFuture(tWin, func(cancelled <-chan struct{}) *widget.FlameGraph {
-		// Compute the sample duration by dividing the active time of all Ps by the total number of samples. This should
-		// closely approximate the inverse of the configured sampling rate.
-		//
-		// For the global flame graph, this is the most obvious choice. For goroutine flame graphs, we could arguably
-		// compute per-G averages, so that a goroutine that ran for 1ms won't show a flame graph span that's 10ms long.
-		// However, this wouldn't solve other, related problems, such as limiting the global flame graph to a portion of
-		// time.
-		//
-		// In the end, samples happen on Ms, not Gs, and using an average is the simplest approximation that we can
-		// explain. It also corresponds to what go tool pprof does, although it doesn't have the trouble of showing
-		// graphs for individual goroutines.
-		var (
-			totalDuration  time.Duration
-			totalSamples   uint64
-			sampleDuration time.Duration
-		)
-		for _, p := range trace.Processors {
-			for _, s := range p.Spans {
-				totalDuration += s.Duration()
-			}
-		}
-		for _, samples := range trace.CPUSamples {
-			totalSamples += uint64(len(samples))
-		}
-		sampleDuration = time.Duration(math.Round(float64(totalDuration) / float64(totalSamples)))
-
-		var fg widget.FlameGraph
-		do := func(samples []ptrace.EventID) {
-			for _, sample := range samples {
-				stack := trace.Stacks[trace.Event(sample).StkID]
-				var frames widget.FlamegraphSample
-				for i := len(stack) - 1; i >= 0; i-- {
-					fn := trace.PCs[stack[i]].Fn
-					frames = append(frames, widget.FlamegraphFrame{
-						Name:     fn,
-						Duration: sampleDuration,
-					})
-				}
-
-				fg.AddSample(frames, "Running")
-			}
-		}
-		if g == nil {
-			for _, samples := range trace.CPUSamples {
-				do(samples)
-			}
-		} else {
-			do(trace.CPUSamples[g.ID])
-
-			for _, span := range g.Spans {
-				var root string
-
-				switch span.State {
-				case ptrace.StateInactive:
-				case ptrace.StateActive:
-				case ptrace.StateGCIdle:
-				case ptrace.StateGCDedicated:
-				case ptrace.StateGCFractional:
-				case ptrace.StateBlocked:
-					root = "blocked"
-				case ptrace.StateBlockedSend:
-					root = "send"
-				case ptrace.StateBlockedRecv:
-					root = "recv"
-				case ptrace.StateBlockedSelect:
-					root = "select"
-				case ptrace.StateBlockedSync:
-					root = "sync"
-				case ptrace.StateBlockedSyncOnce:
-					root = "sync.Once"
-				case ptrace.StateBlockedSyncTriggeringGC:
-					root = "triggering GC"
-				case ptrace.StateBlockedCond:
-					root = "sync.Cond"
-				case ptrace.StateBlockedNet:
-					root = "I/O"
-				case ptrace.StateBlockedGC:
-					root = "GC"
-				case ptrace.StateBlockedSyscall:
-					root = "blocking syscall"
-				case ptrace.StateStuck:
-				case ptrace.StateReady, ptrace.StateCreated:
-					root = "ready"
-				case ptrace.StateDone:
-				case ptrace.StateGCMarkAssist:
-				case ptrace.StateGCSweep:
-				default:
-					panic(fmt.Sprintf("unhandled state %d", span.State))
-				}
-
-				if root != "" {
-					var frames widget.FlamegraphSample
-					if root != "ready" {
-						stack := trace.Stacks[trace.Event(span.Event).StkID]
-						for i := len(stack) - 1; i >= 0; i-- {
-							fn := trace.PCs[stack[i]].Fn
-							frames = append(frames, widget.FlamegraphFrame{
-								Name:     fn,
-								Duration: span.Duration(),
-							})
-						}
-					}
-					fg.AddSample(frames, root)
-				}
-			}
-		}
-
-		fg.Compute()
-		return &fg
-	})
-
-	var (
-		ops     op.Ops
-		fgState theme.FlameGraphState
-	)
-	for e := range win.Events() {
-		switch ev := e.(type) {
-		case system.DestroyEvent:
-			return ev.Err
-		case system.FrameEvent:
-			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
-				fg, ok := fgwin.fg.Result()
-				if !ok {
-					// XXX
-					return layout.Dimensions{}
-				}
-				fgs := theme.FlameGraph(fg, &fgState)
-				fgs.Color = flameGraphColorFn
-				return fgs.Layout(win, gtx)
-			})
-
-			ev.Frame(&ops)
-		}
+func (fc *FlameGraphComponent) Title() string {
+	if fc.g == nil {
+		return "Flame graph"
+	} else {
+		// OPT(dh): avoid the allocation
+		return local.Sprintf("Flame graph for goroutine %d: %s", fc.g.ID, fc.g.Function.Fn)
 	}
+}
 
-	return nil
+func (tlc *FlameGraphComponent) Transition(theme.ComponentState) {
+}
+
+func (tlc *FlameGraphComponent) WantsTransition() theme.ComponentState {
+	return theme.ComponentStateNone
+}
+
+func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Goroutine) *FlameGraphComponent {
+	return &FlameGraphComponent{
+		g: g,
+		fg: theme.NewFuture(win, func(cancelled <-chan struct{}) *widget.FlameGraph {
+			// Compute the sample duration by dividing the active time of all Ps by the total number of samples. This should
+			// closely approximate the inverse of the configured sampling rate.
+			//
+			// For the global flame graph, this is the most obvious choice. For goroutine flame graphs, we could arguably
+			// compute per-G averages, so that a goroutine that ran for 1ms won't show a flame graph span that's 10ms long.
+			// However, this wouldn't solve other, related problems, such as limiting the global flame graph to a portion of
+			// time.
+			//
+			// In the end, samples happen on Ms, not Gs, and using an average is the simplest approximation that we can
+			// explain. It also corresponds to what go tool pprof does, although it doesn't have the trouble of showing
+			// graphs for individual goroutines.
+			var (
+				totalDuration  time.Duration
+				totalSamples   uint64
+				sampleDuration time.Duration
+			)
+			for _, p := range trace.Processors {
+				for _, s := range p.Spans {
+					totalDuration += s.Duration()
+				}
+			}
+			for _, samples := range trace.CPUSamples {
+				totalSamples += uint64(len(samples))
+			}
+			sampleDuration = time.Duration(math.Round(float64(totalDuration) / float64(totalSamples)))
+
+			var fg widget.FlameGraph
+			do := func(samples []ptrace.EventID) {
+				for _, sample := range samples {
+					stack := trace.Stacks[trace.Event(sample).StkID]
+					var frames widget.FlamegraphSample
+					for i := len(stack) - 1; i >= 0; i-- {
+						fn := trace.PCs[stack[i]].Fn
+						frames = append(frames, widget.FlamegraphFrame{
+							Name:     fn,
+							Duration: sampleDuration,
+						})
+					}
+
+					fg.AddSample(frames, "Running")
+				}
+			}
+			if g == nil {
+				for _, samples := range trace.CPUSamples {
+					do(samples)
+				}
+			} else {
+				do(trace.CPUSamples[g.ID])
+
+				for _, span := range g.Spans {
+					var root string
+
+					switch span.State {
+					case ptrace.StateInactive:
+					case ptrace.StateActive:
+					case ptrace.StateGCIdle:
+					case ptrace.StateGCDedicated:
+					case ptrace.StateGCFractional:
+					case ptrace.StateBlocked:
+						root = "blocked"
+					case ptrace.StateBlockedSend:
+						root = "send"
+					case ptrace.StateBlockedRecv:
+						root = "recv"
+					case ptrace.StateBlockedSelect:
+						root = "select"
+					case ptrace.StateBlockedSync:
+						root = "sync"
+					case ptrace.StateBlockedSyncOnce:
+						root = "sync.Once"
+					case ptrace.StateBlockedSyncTriggeringGC:
+						root = "triggering GC"
+					case ptrace.StateBlockedCond:
+						root = "sync.Cond"
+					case ptrace.StateBlockedNet:
+						root = "I/O"
+					case ptrace.StateBlockedGC:
+						root = "GC"
+					case ptrace.StateBlockedSyscall:
+						root = "blocking syscall"
+					case ptrace.StateStuck:
+					case ptrace.StateReady, ptrace.StateCreated:
+						root = "ready"
+					case ptrace.StateDone:
+					case ptrace.StateGCMarkAssist:
+					case ptrace.StateGCSweep:
+					default:
+						panic(fmt.Sprintf("unhandled state %d", span.State))
+					}
+
+					if root != "" {
+						var frames widget.FlamegraphSample
+						if root != "ready" {
+							stack := trace.Stacks[trace.Event(span.Event).StkID]
+							for i := len(stack) - 1; i >= 0; i-- {
+								fn := trace.PCs[stack[i]].Fn
+								frames = append(frames, widget.FlamegraphFrame{
+									Name:     fn,
+									Duration: span.Duration(),
+								})
+							}
+						}
+						fg.AddSample(frames, root)
+					}
+				}
+			}
+
+			fg.Compute()
+			return &fg
+		}),
+	}
+}
+
+func (fgc *FlameGraphComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, win.Theme.Palette.Background)
+	fg, ok := fgc.fg.Result()
+	if !ok {
+		// XXX
+		return layout.Dimensions{}
+	}
+	fgs := theme.FlameGraph(fg, &fgc.state)
+	fgs.Color = flameGraphColorFn
+	return fgs.Layout(win, gtx)
 }
 
 func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) mycolor.Oklch {

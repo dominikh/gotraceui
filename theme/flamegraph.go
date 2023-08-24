@@ -141,7 +141,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		clickedSpan    = fgSpanLocation{nil, -1, -1, -1}
 		hoveredSpan    = fgSpanLocation{nil, -1, -1, -1}
 		hoveredWidthPx float32
-		ptPx           = fg.StyleState.hover.Pointer()
+		ptPx           = f32.Pt(-1, -1)
 		levelHeight    = float32(height + gtx.Dp(rowSpacingDp))
 
 		flipY = func(y float32) float32 {
@@ -153,6 +153,10 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		radius     = float32(gtx.Dp(radiusDp))
 		rowPadding = float32(gtx.Dp(rowPaddingDp))
 	)
+
+	if fg.StyleState.hover.Hovered() {
+		ptPx = fg.StyleState.hover.Pointer()
+	}
 
 	if fg.StyleState.zoom.scale <= 0 {
 		fg.StyleState.zoom.scale = 1

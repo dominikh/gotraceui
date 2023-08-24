@@ -15,12 +15,10 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/app"
 	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
-	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
@@ -288,112 +286,117 @@ func (hm *Heatmap) SetData(data [][]int) {
 	hm.cacheKey = heatmapCacheKey{}
 }
 
-type HeatmapWindow struct {
+type HeatmapComponent struct {
 	trace *Trace
+	hm    *Heatmap
+
+	yStep     int
+	useLinear widget.Bool
 }
 
-func (hwin *HeatmapWindow) Run(win *app.Window) error {
+// bucketByX computes processor busyness for time intervals of size xStep.
+// The returned value maps processor -> x bucket -> busy time.
+func bucketByX(tr *Trace, xStep time.Duration) [][]int {
+	buckets := make([][]int, len(tr.Processors))
+	for i, p := range tr.Processors {
+		buckets[i] = ptrace.ComputeProcessorBusy(tr.Trace, p, xStep)
+	}
+	return buckets
+}
+
+func NewHeatmapComponent(trace *Trace) *HeatmapComponent {
 	const initialXStep = 100 * time.Millisecond
 	const initialYStep = 1
 	const maxY = 100
-
-	ySteps := [...]int{1, 2, 4, 5, 10, 20, 25, 50, 100}
-	yStep := 0
-
-	// bucketByX computes processor business for time intervals of size xStep.
-	// The returned value maps processor -> x bucket -> busy time.
-	bucketByX := func(tr *Trace, xStep time.Duration) [][]int {
-		buckets := make([][]int, len(tr.Processors))
-		for i, p := range tr.Processors {
-			buckets[i] = ptrace.ComputeProcessorBusy(tr.Trace, p, xStep)
-		}
-		return buckets
-	}
-
 	hm := &Heatmap{
 		UseLinearColors: false,
 		XBucketSize:     initialXStep,
 		YBucketSize:     initialYStep,
 		MaxY:            maxY,
 	}
-	hm.SetData(bucketByX(hwin.trace, initialXStep))
+	hm.SetData(bucketByX(trace, initialXStep))
 
-	var useLinear widget.Bool
-	var ops op.Ops
-	tWin := theme.NewWindow(win)
-	for e := range win.Events() {
-		switch ev := e.(type) {
-		case system.DestroyEvent:
-			return ev.Err
-		case system.FrameEvent:
-			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
+	return &HeatmapComponent{
+		trace: trace,
+		hm:    hm,
+	}
+}
 
-				if useLinear.Changed() {
-					hm.UseLinearColors = useLinear.Value
+func (hmc *HeatmapComponent) Title() string {
+	return "Processor utilization heatmap"
+}
+
+func (hmc *HeatmapComponent) Transition(theme.ComponentState) {
+}
+
+func (hmc *HeatmapComponent) WantsTransition() theme.ComponentState {
+	return theme.ComponentStateNone
+}
+
+func (hmc *HeatmapComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	ySteps := [...]int{1, 2, 4, 5, 10, 20, 25, 50, 100}
+
+	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+	paint.Fill(gtx.Ops, win.Theme.Palette.Background)
+
+	if hmc.useLinear.Changed() {
+		hmc.hm.UseLinearColors = hmc.useLinear.Value
+	}
+
+	for _, e := range gtx.Events(hmc) {
+		if ev, ok := e.(key.Event); ok && ev.State == key.Press {
+			// TODO(dh): provide visual feedback, displaying the bucket size
+			switch ev.Name {
+			case "↑":
+				hmc.yStep++
+				if hmc.yStep >= len(ySteps) {
+					hmc.yStep = len(ySteps) - 1
 				}
-
-				for _, e := range gtx.Events(hwin) {
-					if ev, ok := e.(key.Event); ok && ev.State == key.Press {
-						// TODO(dh): provide visual feedback, displaying the bucket size
-						switch ev.Name {
-						case "↑":
-							yStep++
-							if yStep >= len(ySteps) {
-								yStep = len(ySteps) - 1
-							}
-							hm.YBucketSize = ySteps[yStep]
-						case "↓":
-							yStep--
-							if yStep < 0 {
-								yStep = 0
-							}
-							hm.YBucketSize = ySteps[yStep]
-						case "←":
-							hm.XBucketSize -= 10 * time.Millisecond
-							if hm.XBucketSize < 10*time.Millisecond {
-								hm.XBucketSize = 10 * time.Millisecond
-							}
-							hm.SetData(bucketByX(hwin.trace, hm.XBucketSize))
-						case "→":
-							hm.XBucketSize += 10 * time.Millisecond
-							hm.SetData(bucketByX(hwin.trace, hm.XBucketSize))
-						}
-					}
+				hmc.hm.YBucketSize = ySteps[hmc.yStep]
+			case "↓":
+				hmc.yStep--
+				if hmc.yStep < 0 {
+					hmc.yStep = 0
 				}
-
-				key.InputOp{Tag: hwin, Keys: "↑|↓|←|→"}.Add(gtx.Ops)
-				key.FocusOp{Tag: hwin}.Add(gtx.Ops)
-
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return hm.Layout(win, gtx)
-					}),
-					// TODO(dh): add some padding between elements
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						var label string
-
-						if b, ok := hm.HoveredBucket(); ok {
-							close := ')'
-							if b.YEnd >= hm.MaxY {
-								close = ']'
-							}
-							label = local.Sprintf("time [%s, %s), range [%d, %d%c, count: %d", b.XStart, b.XEnd, b.YStart, b.YEnd, close, b.Count)
-						}
-						return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and
-						// ranked). With the checkbox, the user doesn't know what's being used when the checkbox isn't
-						// ticked.
-						return theme.CheckBox(win.Theme, &useLinear, "Use linear saturation").Layout(win, gtx)
-					}),
-				)
-			})
-
-			ev.Frame(&ops)
+				hmc.hm.YBucketSize = ySteps[hmc.yStep]
+			case "←":
+				hmc.hm.XBucketSize -= 10 * time.Millisecond
+				if hmc.hm.XBucketSize < 10*time.Millisecond {
+					hmc.hm.XBucketSize = 10 * time.Millisecond
+				}
+				hmc.hm.SetData(bucketByX(hmc.trace, hmc.hm.XBucketSize))
+			case "→":
+				hmc.hm.XBucketSize += 10 * time.Millisecond
+				hmc.hm.SetData(bucketByX(hmc.trace, hmc.hm.XBucketSize))
+			}
 		}
 	}
 
-	return nil
+	key.InputOp{Tag: hmc, Keys: "↑|↓|←|→"}.Add(gtx.Ops)
+	key.FocusOp{Tag: hmc}.Add(gtx.Ops)
+
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return hmc.hm.Layout(win, gtx)
+		}),
+		// TODO(dh): add some padding between elements
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			var label string
+
+			if b, ok := hmc.hm.HoveredBucket(); ok {
+				close := ')'
+				if b.YEnd >= hmc.hm.MaxY {
+					close = ']'
+				}
+				label = local.Sprintf("time [%s, %s), range [%d, %d%c, count: %d", b.XStart, b.XEnd, b.YStart, b.YEnd, close, b.Count)
+			}
+			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and
+			// ranked). With the checkbox, the user doesn't know what's being used when the checkbox isn't
+			// ticked.
+			return theme.CheckBox(win.Theme, &hmc.useLinear, "Use linear saturation").Layout(win, gtx)
+		}),
+	)
 }
