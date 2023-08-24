@@ -848,6 +848,7 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 type TabbedState struct {
 	Current    int
 	clickables []widget.PrimaryClickable
+	list       layout.List
 }
 
 type TabbedStyle struct {
@@ -879,13 +880,11 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		// Tabs
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			var lineHeight int
-			for i, tab := range ts.Tabs {
-				dims := ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return ts.State.list.Layout(gtx, len(ts.Tabs), func(gtx layout.Context, i int) layout.Dimensions {
+				return ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
 
-					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, tab, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, ts.Tabs[i], widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 					stack.Pop()
 
 					dims.Size.X += 2 * gtx.Dp(padding)
@@ -901,13 +900,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 
 					return dims
 				})
-
-				defer op.Offset(image.Pt(dims.Size.X, 0)).Push(gtx.Ops).Pop()
-				lineHeight = dims.Size.Y
-			}
-
-			// The X size is bogus, but nobody cares.
-			return layout.Dimensions{Size: image.Pt(0, lineHeight)}
+			})
 		}),
 
 		// Line
