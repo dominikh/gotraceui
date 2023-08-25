@@ -61,7 +61,7 @@ func machineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 			items = append(items, &theme.MenuItem{
 				Label: local.Sprintf("Scroll to processor %d", pid),
 				Action: func() theme.Action {
-					return &ScrollToProcessorAction{Processor: cv.trace.P(pid)}
+					return &ScrollToObjectAction{Object: cv.trace.P(pid)}
 				},
 			})
 		case ptrace.StateBlockedSyscall:
@@ -124,8 +124,8 @@ func machineTrack1SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 			items = append(items, &theme.MenuItem{
 				Label: local.Sprintf("Scroll to goroutine %d", gid),
 				Action: func() theme.Action {
-					return &ScrollToGoroutineAction{
-						Goroutine: cv.trace.G(gid),
+					return &ScrollToObjectAction{
+						Object: cv.trace.G(gid),
 					}
 				},
 			})

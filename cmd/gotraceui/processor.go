@@ -209,7 +209,7 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 		items = append(items, &theme.MenuItem{
 			Label: local.Sprintf("Scroll to goroutine %d", gid),
 			Action: func() theme.Action {
-				return &ScrollToGoroutineAction{Goroutine: cv.trace.G(gid)}
+				return &ScrollToObjectAction{Object: cv.trace.G(gid)}
 			},
 		})
 	}

@@ -36,43 +36,11 @@ type OpenGoroutineAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
-type ScrollToGoroutineAction struct {
-	Goroutine  *ptrace.Goroutine
-	Provenance string
-}
-type ZoomToGoroutineAction struct {
-	Goroutine  *ptrace.Goroutine
-	Provenance string
-}
 type OpenGoroutineFlameGraphAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
 type ScrollToTimestampAction trace.Timestamp
-type ScrollToProcessorAction struct {
-	Processor  *ptrace.Processor
-	Provenance string
-}
-type ZoomToProcessorAction struct {
-	Processor  *ptrace.Processor
-	Provenance string
-}
-type ScrollToGCAction struct {
-	GC         *GC
-	Provenance string
-}
-type ZoomToGCAction struct {
-	GC         *GC
-	Provenance string
-}
-type ScrollToSTWAction struct {
-	STW        *STW
-	Provenance string
-}
-type ZoomToSTWAction struct {
-	STW        *STW
-	Provenance string
-}
 type OpenFunctionAction struct {
 	Function   *ptrace.Function
 	Provenance string
@@ -81,7 +49,22 @@ type SpansAction struct{ Spans Items[ptrace.Span] }
 type OpenSpansAction SpansAction
 type ScrollAndPanToSpansAction SpansAction
 type ZoomToSpansAction SpansAction
-type ScrollToTimelineAction Timeline
+type ScrollToTimelineAction struct {
+	Timeline   *Timeline
+	Provenance string
+}
+type ZoomToTimelineAction struct {
+	Timeline   *Timeline
+	Provenance string
+}
+type ScrollToObjectAction struct {
+	Object     any
+	Provenance string
+}
+type ZoomToObjectAction struct {
+	Object     any
+	Provenance string
+}
 type CanvasJumpToBeginningAction struct{}
 type CanvasScrollToTopAction struct{}
 type CanvasUndoNavigationAction struct{}
@@ -129,22 +112,17 @@ type STWObjectLink struct {
 type SpansObjectLink struct{ Spans Items[ptrace.Span] }
 
 func (*OpenGoroutineAction) IsAction()              {}
-func (*ScrollToGoroutineAction) IsAction()          {}
-func (*ZoomToGoroutineAction) IsAction()            {}
 func (*OpenGoroutineFlameGraphAction) IsAction()    {}
 func (ScrollToTimestampAction) IsAction()           {}
-func (*ScrollToProcessorAction) IsAction()          {}
-func (*ZoomToProcessorAction) IsAction()            {}
-func (*ScrollToGCAction) IsAction()                 {}
-func (*ZoomToGCAction) IsAction()                   {}
-func (*ScrollToSTWAction) IsAction()                {}
-func (*ZoomToSTWAction) IsAction()                  {}
 func (*OpenFunctionAction) IsAction()               {}
 func (*SpansAction) IsAction()                      {}
 func (*OpenSpansAction) IsAction()                  {}
 func (*ScrollAndPanToSpansAction) IsAction()        {}
 func (*ZoomToSpansAction) IsAction()                {}
 func (*ScrollToTimelineAction) IsAction()           {}
+func (*ZoomToTimelineAction) IsAction()             {}
+func (*ScrollToObjectAction) IsAction()             {}
+func (*ZoomToObjectAction) IsAction()               {}
 func (*CanvasJumpToBeginningAction) IsAction()      {}
 func (*CanvasScrollToTopAction) IsAction()          {}
 func (*CanvasUndoNavigationAction) IsAction()       {}
@@ -190,9 +168,15 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 func (l *GoroutineObjectLink) Action(ev gesture.ClickEvent) theme.Action {
 	switch ev.Modifiers {
 	default:
-		return (*ScrollToGoroutineAction)(l)
+		return &ScrollToObjectAction{
+			Object:     l.Goroutine,
+			Provenance: l.Provenance,
+		}
 	case key.ModShortcut:
-		return (*ZoomToGoroutineAction)(l)
+		return &ZoomToObjectAction{
+			Object:     l.Goroutine,
+			Provenance: l.Provenance,
+		}
 	case key.ModShift:
 		return (*OpenGoroutineAction)(l)
 	}
@@ -203,13 +187,19 @@ func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 		{
 			Label: "Scroll to goroutine",
 			Action: func() theme.Action {
-				return (*ScrollToGoroutineAction)(l)
+				return &ScrollToObjectAction{
+					Object:     l.Goroutine,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 		{
 			Label: "Zoom to goroutine",
 			Action: func() theme.Action {
-				return (*ZoomToGoroutineAction)(l)
+				return &ZoomToObjectAction{
+					Object:     l.Goroutine,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 		{
@@ -231,9 +221,15 @@ func (l *ProcessorObjectLink) Action(ev gesture.ClickEvent) theme.Action {
 	// There are no processor panels yet, so key.ModShift doesn't do anything
 	switch ev.Modifiers {
 	default:
-		return (*ScrollToProcessorAction)(l)
+		return &ScrollToObjectAction{
+			Object:     l.Processor,
+			Provenance: l.Provenance,
+		}
 	case key.ModShortcut:
-		return (*ZoomToProcessorAction)(l)
+		return &ZoomToObjectAction{
+			Object:     l.Processor,
+			Provenance: l.Provenance,
+		}
 	}
 }
 
@@ -242,13 +238,19 @@ func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 		{
 			Label: "Scroll to processor",
 			Action: func() theme.Action {
-				return (*ScrollToProcessorAction)(l)
+				return &ScrollToObjectAction{
+					Object:     l.Processor,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 		{
 			Label: "Zoom to processor",
 			Action: func() theme.Action {
-				return (*ZoomToProcessorAction)(l)
+				return &ZoomToObjectAction{
+					Object:     l.Processor,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 	}
@@ -271,7 +273,11 @@ func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 }
 
 func (l *GCObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	return &ScrollToGCAction{GC: l.GC}
+	// TODO(dh): respect modifiers
+	return &ScrollToObjectAction{
+		Object:     l.GC,
+		Provenance: l.Provenance,
+	}
 }
 
 func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
@@ -279,20 +285,30 @@ func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 		{
 			Label: "Scroll to GC timeline",
 			Action: func() theme.Action {
-				return (*ScrollToGCAction)(l)
+				return &ScrollToObjectAction{
+					Object:     l.GC,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 		{
 			Label: "Zoom to GC timeline",
 			Action: func() theme.Action {
-				return (*ZoomToGCAction)(l)
+				return &ZoomToObjectAction{
+					Object:     l.GC,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 	}
 }
 
 func (l *STWObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	return &ScrollToSTWAction{STW: l.STW}
+	// TODO(dh): respect modifiers
+	return &ScrollToObjectAction{
+		Object:     l.STW,
+		Provenance: l.Provenance,
+	}
 }
 
 func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
@@ -300,13 +316,19 @@ func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 		{
 			Label: "Scroll to STW timeline",
 			Action: func() theme.Action {
-				return (*ScrollToSTWAction)(l)
+				return &ScrollToObjectAction{
+					Object:     l.STW,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 		{
 			Label: "Zoom to STW timeline",
 			Action: func() theme.Action {
-				return (*ZoomToSTWAction)(l)
+				return &ZoomToObjectAction{
+					Object:     l.STW,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 	}
@@ -382,40 +404,41 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 }
 
 func (l *ScrollToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToTimeline(gtx, (*Timeline)(l))
+	mwin.canvas.scrollToTimeline(gtx, l.Timeline)
+}
+
+func (l *ZoomToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
+	// TODO(dh): this assumes that the first track is always the longest
+	tr := l.Timeline.tracks[0]
+	y := mwin.canvas.timelineY(gtx, l.Timeline)
+	mwin.canvas.navigateToStartAndEnd(gtx, tr.Start, tr.End, y)
+}
+
+func (l *ScrollToObjectAction) Open(gtx layout.Context, mwin *MainWindow) {
+	// OPT(dh): don't be O(n)
+	for _, tl := range mwin.canvas.timelines {
+		if tl.item == l.Object {
+			mwin.canvas.scrollToTimeline(gtx, tl)
+			return
+		}
+	}
+}
+
+func (l *ZoomToObjectAction) Open(gtx layout.Context, mwin *MainWindow) {
+	// TODO(dh): this assumes that the first track is always the longest
+	// OPT(dh): don't be O(n)
+	for _, tl := range mwin.canvas.timelines {
+		if tl.item == l.Object {
+			tr := tl.tracks[0]
+			y := mwin.canvas.timelineY(gtx, tl)
+			mwin.canvas.navigateToStartAndEnd(gtx, tr.Start, tr.End, y)
+			return
+		}
+	}
 }
 
 func (l *OpenGoroutineAction) Open(_ layout.Context, mwin *MainWindow) {
 	mwin.openGoroutine(l.Goroutine)
-}
-
-func (l *ScrollToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToObject(gtx, l.Goroutine)
-}
-
-func (l *ZoomToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.objectY(gtx, l.Goroutine)
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans[0].Start, l.Goroutine.Spans[len(l.Goroutine.Spans)-1].End, y)
-}
-
-func (l *ScrollToGCAction) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToObject(gtx, l.GC)
-}
-
-func (l *ZoomToGCAction) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.objectY(gtx, l.GC)
-	mwin.canvas.navigateToStartAndEnd(gtx, l.GC.Spans.At(0).Start, l.GC.Spans.At(l.GC.Spans.Len()-1).End, y)
-
-}
-
-func (l *ScrollToSTWAction) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToObject(gtx, l.STW)
-}
-
-func (l *ZoomToSTWAction) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.objectY(gtx, l.STW)
-	mwin.canvas.navigateToStartAndEnd(gtx, l.STW.Spans.At(0).Start, l.STW.Spans.At(l.STW.Spans.Len()-1).End, y)
-
 }
 
 func (l *OpenGoroutineFlameGraphAction) Open(gtx layout.Context, mwin *MainWindow) {
@@ -436,15 +459,6 @@ func (l ScrollToTimestampAction) Open(gtx layout.Context, mwin *MainWindow) {
 		off = d
 	}
 	mwin.canvas.navigateTo(gtx, trace.Timestamp(l)-off, mwin.canvas.nsPerPx, mwin.canvas.y)
-}
-
-func (l *ScrollToProcessorAction) Open(gtx layout.Context, mwin *MainWindow) {
-	mwin.canvas.scrollToObject(gtx, l.Processor)
-}
-
-func (l *ZoomToProcessorAction) Open(gtx layout.Context, mwin *MainWindow) {
-	y := mwin.canvas.objectY(gtx, l.Processor)
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Processor.Spans[0].Start, l.Processor.Spans[len(l.Processor.Spans)-1].End, y)
 }
 
 func (l *OpenFunctionAction) Open(_ layout.Context, mwin *MainWindow) {
@@ -604,7 +618,10 @@ func (l *GoroutineObjectLink) Commands() []theme.Command {
 			Aliases:        []string{"goto", "go to"},
 			Color:          colorLink,
 			Fn: func() theme.Action {
-				return (*ScrollToGoroutineAction)(l)
+				return &ScrollToObjectAction{
+					Object:     l.Goroutine,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 
@@ -614,7 +631,10 @@ func (l *GoroutineObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Color:          colorLink,
 			Fn: func() theme.Action {
-				return (*ZoomToGoroutineAction)(l)
+				return &ZoomToObjectAction{
+					Object:     l.Goroutine,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 
@@ -650,7 +670,10 @@ func (l *ProcessorObjectLink) Commands() []theme.Command {
 			Aliases:        []string{"goto", "go to"},
 			Color:          colorLink,
 			Fn: func() theme.Action {
-				return (*ScrollToProcessorAction)(l)
+				return &ScrollToObjectAction{
+					Object:     l.Processor,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 
@@ -660,7 +683,10 @@ func (l *ProcessorObjectLink) Commands() []theme.Command {
 			Category:       "Link",
 			Color:          colorLink,
 			Fn: func() theme.Action {
-				return (*ZoomToProcessorAction)(l)
+				return &ZoomToObjectAction{
+					Object:     l.Processor,
+					Provenance: l.Provenance,
+				}
 			},
 		},
 	}

@@ -1745,7 +1745,9 @@ func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context,
 }
 
 func (cmd ScrollToTimelineCommand) Link() theme.Action {
-	return (*ScrollToTimelineAction)(cmd.Timeline)
+	return &ScrollToTimelineAction{
+		Timeline: cmd.Timeline,
+	}
 }
 
 func (cmd ScrollToTimelineCommand) Filter(input string) bool {
