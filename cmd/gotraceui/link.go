@@ -21,6 +21,14 @@ import (
 
 var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
 
+type NavigationAction interface {
+	IsNavigationAction()
+}
+
+type OpenAction interface {
+	IsOpenAction()
+}
+
 type MainWindowAction interface {
 	theme.Action
 	Open(gtx layout.Context, mwin *MainWindow)
@@ -762,3 +770,28 @@ func (l *STWObjectLink) Commands() []theme.Command {
 	}
 }
 func (l *SpansObjectLink) Commands() []theme.Command { return nil }
+
+func (*OpenGoroutineAction) IsOpenAction()                    {}
+func (*OpenGoroutineFlameGraphAction) IsOpenAction()          {}
+func (ScrollToTimestampAction) IsNavigationAction()           {}
+func (*OpenFunctionAction) IsOpenAction()                     {}
+func (*SpansAction) IsOpenAction()                            {}
+func (*OpenSpansAction) IsOpenAction()                        {}
+func (*ScrollAndPanToSpansAction) IsNavigationAction()        {}
+func (*ZoomToSpansAction) IsNavigationAction()                {}
+func (*ScrollToTimelineAction) IsNavigationAction()           {}
+func (*ZoomToTimelineAction) IsNavigationAction()             {}
+func (*ScrollToObjectAction) IsNavigationAction()             {}
+func (*ZoomToObjectAction) IsNavigationAction()               {}
+func (*CanvasJumpToBeginningAction) IsNavigationAction()      {}
+func (*CanvasScrollToTopAction) IsNavigationAction()          {}
+func (*CanvasUndoNavigationAction) IsNavigationAction()       {}
+func (*CanvasZoomToFitCurrentViewAction) IsNavigationAction() {}
+func (*OpenFlameGraphAction) IsOpenAction()                   {}
+func (*OpenHeatmapAction) IsOpenAction()                      {}
+
+func (*OpenHighlightSpansDialogAction) IsOpenAction() {}
+func (*OpenScrollToTimelineAction) IsOpenAction()     {}
+func (*OpenFileOpenAction) IsOpenAction()             {}
+
+func (*OpenPanelAction) IsOpenAction() {}

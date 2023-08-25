@@ -38,6 +38,8 @@ type Palette struct {
 	Background         color.NRGBA
 	Foreground         color.NRGBA
 	ForegroundDisabled color.NRGBA
+	OpenLink           color.NRGBA
+	NavigationLink     color.NRGBA
 	Link               color.NRGBA
 	PrimarySelection   color.NRGBA
 
@@ -61,6 +63,8 @@ var DefaultPalette = Palette{
 	Background:         rgba(0xFFFFEAFF),
 	Foreground:         rgba(0x000000FF),
 	ForegroundDisabled: rgba(0x727272FF),
+	NavigationLink:     rgba(0xE20000FF),
+	OpenLink:           rgba(0x0000FFFF),
 	Link:               rgba(0x0000FFFF),
 	PrimarySelection:   rgba(0xeeee9e99),
 	Border:             rgba(0x000000FF),

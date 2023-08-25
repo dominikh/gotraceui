@@ -1618,9 +1618,17 @@ func (txt *TextBuilder) DefaultLink(label, provenance string, obj any) *TextSpan
 
 func (txt *TextBuilder) Link(label string, obj any, link ObjectLink) *TextSpan {
 	s := txt.Span(label)
-	s.Color = txt.Theme.Palette.Link
 	s.Object = obj
 	s.ObjectLink = link
+	a := link.Action(0)
+	switch a.(type) {
+	case NavigationAction:
+		s.Color = txt.Theme.Palette.NavigationLink
+	case OpenAction:
+		s.Color = txt.Theme.Palette.OpenLink
+	default:
+		s.Color = txt.Theme.Palette.Link
+	}
 	return s
 }
 
