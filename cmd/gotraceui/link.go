@@ -104,39 +104,39 @@ type FunctionObjectLink struct {
 }
 type SpansObjectLink struct{ Spans Items[ptrace.Span] }
 
-func (OpenGoroutineAction) IsAction()              {}
-func (ScrollToGoroutineAction) IsAction()          {}
-func (ZoomToGoroutineAction) IsAction()            {}
-func (OpenGoroutineFlameGraphAction) IsAction()    {}
-func (ScrollToTimestampAction) IsAction()          {}
-func (ScrollToProcessorAction) IsAction()          {}
-func (ZoomToProcessorAction) IsAction()            {}
-func (OpenFunctionAction) IsAction()               {}
-func (SpansAction) IsAction()                      {}
-func (OpenSpansAction) IsAction()                  {}
-func (ScrollAndPanToSpansAction) IsAction()        {}
-func (ZoomToSpansAction) IsAction()                {}
-func (ScrollToTimelineAction) IsAction()           {}
-func (CanvasJumpToBeginningAction) IsAction()      {}
-func (CanvasScrollToTopAction) IsAction()          {}
-func (CanvasUndoNavigationAction) IsAction()       {}
-func (CanvasZoomToFitCurrentViewAction) IsAction() {}
-func (OpenFlameGraphAction) IsAction()             {}
-func (OpenHeatmapAction) IsAction()                {}
-func (OpenHighlightSpansDialogAction) IsAction()   {}
-func (CanvasToggleTimelineLabelsAction) IsAction() {}
-func (CanvasToggleCompactDisplayAction) IsAction() {}
-func (CanvasToggleStackTracksAction) IsAction()    {}
-func (OpenScrollToTimelineAction) IsAction()       {}
-func (OpenFileOpenAction) IsAction()               {}
-func (ExitAction) IsAction()                       {}
-func (WriteMemoryProfileAction) IsAction()         {}
-func (RunGarbageCollectionAction) IsAction()       {}
-func (RunFreeOSMemoryAction) IsAction()            {}
-func (StartCPUProfileAction) IsAction()            {}
-func (StopCPUProfileAction) IsAction()             {}
-func (*OpenPanelAction) IsAction()                 {}
-func (PrevPanelAction) IsAction()                  {}
+func (*OpenGoroutineAction) IsAction()              {}
+func (*ScrollToGoroutineAction) IsAction()          {}
+func (*ZoomToGoroutineAction) IsAction()            {}
+func (*OpenGoroutineFlameGraphAction) IsAction()    {}
+func (ScrollToTimestampAction) IsAction()           {}
+func (*ScrollToProcessorAction) IsAction()          {}
+func (*ZoomToProcessorAction) IsAction()            {}
+func (*OpenFunctionAction) IsAction()               {}
+func (*SpansAction) IsAction()                      {}
+func (*OpenSpansAction) IsAction()                  {}
+func (*ScrollAndPanToSpansAction) IsAction()        {}
+func (*ZoomToSpansAction) IsAction()                {}
+func (*ScrollToTimelineAction) IsAction()           {}
+func (*CanvasJumpToBeginningAction) IsAction()      {}
+func (*CanvasScrollToTopAction) IsAction()          {}
+func (*CanvasUndoNavigationAction) IsAction()       {}
+func (*CanvasZoomToFitCurrentViewAction) IsAction() {}
+func (*OpenFlameGraphAction) IsAction()             {}
+func (*OpenHeatmapAction) IsAction()                {}
+func (*OpenHighlightSpansDialogAction) IsAction()   {}
+func (*CanvasToggleTimelineLabelsAction) IsAction() {}
+func (*CanvasToggleCompactDisplayAction) IsAction() {}
+func (*CanvasToggleStackTracksAction) IsAction()    {}
+func (*OpenScrollToTimelineAction) IsAction()       {}
+func (*OpenFileOpenAction) IsAction()               {}
+func (*ExitAction) IsAction()                       {}
+func (*WriteMemoryProfileAction) IsAction()         {}
+func (*RunGarbageCollectionAction) IsAction()       {}
+func (*RunFreeOSMemoryAction) IsAction()            {}
+func (*StartCPUProfileAction) IsAction()            {}
+func (*StopCPUProfileAction) IsAction()             {}
+func (*OpenPanelAction) IsAction()                  {}
+func (*PrevPanelAction) IsAction()                  {}
 
 func defaultObjectLink(obj any, provenance string) ObjectLink {
 	switch obj := obj.(type) {
@@ -497,7 +497,7 @@ func (l *OpenPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openPanel(l.Panel)
 }
 
-func (PrevPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
+func (*PrevPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.prevPanel()
 }
 

@@ -556,7 +556,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.zoomToSpans(win)
 	}
 	for si.PanelButtons.Backed() {
-		si.mwin.EmitAction(PrevPanelAction{})
+		si.mwin.EmitAction(&PrevPanelAction{})
 	}
 	for si.buttons.selectUserRegion.Clicked() {
 		needle := si.trace.Strings[si.trace.Event(spans.At(0).Event).Args[2]]

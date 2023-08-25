@@ -105,7 +105,7 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 			items = append(items, &theme.MenuItem{
 				Label: local.Sprintf("Scroll to processor %d", pid),
 				Action: func() theme.Action {
-					return ScrollToProcessorAction{
+					return &ScrollToProcessorAction{
 						Processor: cv.trace.P(cv.trace.Event((spans.At(0).Event)).P),
 					}
 				},
@@ -119,7 +119,7 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 					Label: local.Sprintf("Scroll to unblocking goroutine %d", gid),
 					Action: func() theme.Action {
 						gid, _ := unblockedByGoroutine(cv.trace, spans.At(0))
-						return ScrollToGoroutineAction{
+						return &ScrollToGoroutineAction{
 							Goroutine: cv.trace.G(gid),
 						}
 					},

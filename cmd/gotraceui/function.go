@@ -196,7 +196,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	}
 
 	for fi.PanelButtons.Backed() {
-		fi.mwin.EmitAction(PrevPanelAction{})
+		fi.mwin.EmitAction(&PrevPanelAction{})
 	}
 
 	if fi.hist.Changed() {
