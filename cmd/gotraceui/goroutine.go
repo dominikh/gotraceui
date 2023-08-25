@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -195,57 +194,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	}
 
 	tl := &Timeline{
-		buildTrackWidgets: func(tracks []*Track) {
-			stackTrackBase := -1
-			for i, track := range tracks {
-				if track.kind == TrackKindStack {
-					stackTrackBase = i
-					break
-				}
-			}
-			mysync.Distribute(tracks, 4, func(g int, step int, subset []*Track) error {
-				for i, track := range subset {
-					i += g * step
-					switch track.kind {
-					case TrackKindUnspecified:
-						*track.TrackWidget = TrackWidget{
-							spanLabel:       goroutineTrack0SpanLabel,
-							spanTooltip:     goroutineSpanTooltip,
-							spanContextMenu: goroutineTrack0SpanContextMenu,
-						}
-
-					case TrackKindUserRegions:
-						*track.TrackWidget = TrackWidget{
-							spanLabel:   userRegionSpanLabel,
-							spanTooltip: userRegionSpanTooltip,
-							spanColor:   singleSpanColor(colorStateUserRegion),
-						}
-
-					case TrackKindStack:
-						*track.TrackWidget = TrackWidget{
-							// TODO(dh): should we highlight hovered spans that share the same function?
-							spanLabel:   stackSpanLabel,
-							spanTooltip: stackSpanTooltip(i - stackTrackBase),
-							spanColor: func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
-								if spans.Len() == 1 {
-									if state := spans.At(0).State; state == statePlaceholder {
-										return [2]colorIndex{colorStatePlaceholderStackSpan, 0}
-									} else {
-										return [2]colorIndex{stateColors[state], 0}
-									}
-								} else {
-									return [2]colorIndex{colorStateStack, colorStateMerged}
-								}
-							},
-						}
-
-					default:
-						panic(fmt.Sprintf("unexpected timeline track kind %d", track.kind))
-					}
-				}
-				return nil
-			})
-		},
+		cv: cv,
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return GoroutineTooltip{g, cv.trace}.Layout(win, gtx)
 		},
@@ -266,6 +215,10 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		},
 		subslice: true,
 	})
+
+	track.spanLabel = goroutineTrack0SpanLabel
+	track.spanTooltip = goroutineSpanTooltip
+	track.spanContextMenu = goroutineTrack0SpanContextMenu
 	track.events = g.Events
 	tl.tracks = []*Track{track}
 
@@ -284,6 +237,9 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 			},
 			subslice: true,
 		})
+		track.spanLabel = userRegionSpanLabel
+		track.spanTooltip = userRegionSpanTooltip
+		track.spanColor = singleSpanColor(colorStateUserRegion)
 		tl.tracks = append(tl.tracks, track)
 	}
 
@@ -633,6 +589,7 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	offSpans := 0
 	offSamples := 0
 	cpuSamples := tr.CPUSamples[g.ID]
+	stackTrackBase := len(tl.tracks)
 
 	nextEvent := func(advance bool) (ptrace.EventID, bool, bool) {
 		if offSpans == len(g.Spans) && offSamples == len(cpuSamples) {
@@ -814,6 +771,20 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 			pcs:         dup(Encode(track.pcs, track.pcs[:0])),
 			nums:        dup(Encode(track.nums, track.nums[:0])),
 			isCPUSample: bitpack(track.isCPUSample),
+		}
+		// TODO(dh): should we highlight hovered spans that share the same function?
+		tr.spanLabel = stackSpanLabel
+		tr.spanTooltip = stackSpanTooltip(i - stackTrackBase)
+		tr.spanColor = func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex {
+			if spans.Len() == 1 {
+				if state := spans.At(0).State; state == statePlaceholder {
+					return [2]colorIndex{colorStatePlaceholderStackSpan, 0}
+				} else {
+					return [2]colorIndex{stateColors[state], 0}
+				}
+			} else {
+				return [2]colorIndex{colorStateStack, colorStateMerged}
+			}
 		}
 		boolSliceCache.Put(track.isCPUSample)
 		stackTracks[i] = tr

@@ -225,29 +225,10 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	}
 	l := local.Sprintf("Machine %d", m.ID)
 	tl := &Timeline{
+		cv:        cv,
 		item:      m,
 		label:     l,
 		shortName: l,
-
-		buildTrackWidgets: func(tracks []*Track) {
-			for i, track := range tracks {
-				switch i {
-				case 0:
-					*track.TrackWidget = TrackWidget{
-						spanLabel:       machineTrack0SpanLabel,
-						spanTooltip:     machineTrack0SpanTooltip,
-						spanContextMenu: machineTrack0SpanContextMenu,
-					}
-				case 1:
-					*track.TrackWidget = TrackWidget{
-						spanLabel:       machineTrack1SpanLabel,
-						spanColor:       machineTrack1SpanColor,
-						spanTooltip:     processorTrackSpanTooltip,
-						spanContextMenu: machineTrack1SpanContextMenu,
-					}
-				}
-			}
-		},
 
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return MachineTooltip{m, cv.trace}.Layout(win, gtx)
@@ -271,6 +252,10 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		},
 		subslice: true,
 	})
+	tl.tracks[0].spanLabel = machineTrack0SpanLabel
+	tl.tracks[0].spanTooltip = machineTrack0SpanTooltip
+	tl.tracks[0].spanContextMenu = machineTrack0SpanContextMenu
+
 	tl.tracks[1].Start = m.Goroutines[0].Start
 	tl.tracks[1].End = m.Goroutines[len(m.Goroutines)-1].End
 	tl.tracks[1].Len = len(m.Goroutines)
@@ -282,6 +267,10 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		},
 		subslice: true,
 	})
+	tl.tracks[1].spanLabel = machineTrack1SpanLabel
+	tl.tracks[1].spanColor = machineTrack1SpanColor
+	tl.tracks[1].spanTooltip = processorTrackSpanTooltip
+	tl.tracks[1].spanContextMenu = machineTrack1SpanContextMenu
 
 	return tl
 }

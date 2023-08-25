@@ -60,6 +60,7 @@ type Timeline struct {
 	label             string
 	// Set to true by Timeline.Layout. This is used to track which timelines have been shown during a frame.
 	displayed bool
+	cv        *Canvas
 
 	// This cache is stored per timeline, not per timeline widget, because 1) only processors use it 2) it's expensive
 	// to populate. There aren't enough processors or items in the cache to worry about its permanent memory usage, but
@@ -70,7 +71,6 @@ type Timeline struct {
 }
 
 type TimelineWidget struct {
-	cv               *Canvas
 	labelClick       widget.Clickable
 	labelClicks      int
 	labelRightClicks int
@@ -111,6 +111,11 @@ type Track struct {
 	Start trace.Timestamp
 	End   trace.Timestamp
 	Len   int
+
+	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
+	spanColor       func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex
+	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
+	spanContextMenu func(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem
 
 	*TrackWidget
 }
@@ -284,11 +289,6 @@ func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 }
 
 type TrackWidget struct {
-	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
-	spanColor       func(spans Items[ptrace.Span], tr *Trace) [2]colorIndex
-	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
-	spanContextMenu func(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem
-
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in TimelineWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because TimelineWidgetTrack doesn't have to
 	// mutate TimelineWidget's state.
@@ -413,7 +413,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	if tl.TimelineWidget == nil {
 		rtrace.Logf(context.Background(), "", "loading timeline widget %q", tl.label)
 		tl.TimelineWidget = cv.timelineWidgetsCache.Get()
-		*tl.TimelineWidget = TimelineWidget{cv: cv}
+		*tl.TimelineWidget = TimelineWidget{}
 	}
 
 	tl.hover.Update(gtx.Queue)
@@ -1108,13 +1108,7 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 	tl := &Timeline{
 		label:     "GC",
 		shortName: "GC",
-
-		buildTrackWidgets: func(tracks []*Track) {
-			*tracks[0].TrackWidget = TrackWidget{
-				spanLabel: singleSpanLabel("GC", true),
-				spanColor: singleSpanColor(colorStateGC),
-			}
-		},
+		cv:        cv,
 	}
 	tl.tracks = []*Track{
 		NewTrack(tl, TrackKindUnspecified),
@@ -1135,6 +1129,8 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 		tl.tracks[0].Len = len(spans)
 	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
+	tl.tracks[0].spanLabel = singleSpanLabel("GC", true)
+	tl.tracks[0].spanColor = singleSpanColor(colorStateGC)
 	tl.item = &GC{ss}
 
 	return tl
@@ -1144,20 +1140,7 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	tl := &Timeline{
 		label:     "STW",
 		shortName: "STW",
-
-		buildTrackWidgets: func(tracks []*Track) {
-			*tracks[0].TrackWidget = TrackWidget{
-				// spanLabel: singleSpanLabel("STW", true),
-				spanLabel: func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
-					if spans.Len() != 1 {
-						return nil
-					}
-					kindID := tr.Events[spans.At(0).Event].Args[trace.ArgSTWStartKind]
-					return append(out, stwSpanLabels[tr.STWReason(kindID)])
-				},
-				spanColor: singleSpanColor(colorStateSTW),
-			}
-		},
+		cv:        cv,
 	}
 
 	tl.tracks = []*Track{
@@ -1178,6 +1161,14 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 		tl.tracks[0].Len = len(spans)
 	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
+	tl.tracks[0].spanLabel = func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
+		if spans.Len() != 1 {
+			return nil
+		}
+		kindID := tr.Events[spans.At(0).Event].Args[trace.ArgSTWStartKind]
+		return append(out, stwSpanLabels[tr.STWReason(kindID)])
+	}
+	tl.tracks[0].spanColor = singleSpanColor(colorStateSTW)
 	tl.item = &STW{ss}
 
 	return tl

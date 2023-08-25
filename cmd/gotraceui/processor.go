@@ -220,17 +220,7 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
 	l := local.Sprintf("Processor %d", p.ID)
 	tl := &Timeline{
-		buildTrackWidgets: func(tracks []*Track) {
-			for _, track := range tracks {
-				*track.TrackWidget = TrackWidget{
-					spanLabel:       processorTrackSpanLabel,
-					spanColor:       processorTrackSpanColor,
-					spanTooltip:     processorTrackSpanTooltip,
-					spanContextMenu: processorTrackSpanContextMenu,
-				}
-			}
-		},
-
+		cv:             cv,
 		spanColorCache: container.NewIntervalTree[trace.Timestamp, [2]colorIndex](),
 
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
@@ -257,6 +247,10 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 	tl.tracks[0].End = p.Spans[len(p.Spans)-1].End
 	tl.tracks[0].Len = len(p.Spans)
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
+	tl.tracks[0].spanLabel = processorTrackSpanLabel
+	tl.tracks[0].spanColor = processorTrackSpanColor
+	tl.tracks[0].spanTooltip = processorTrackSpanTooltip
+	tl.tracks[0].spanContextMenu = processorTrackSpanContextMenu
 
 	return tl
 }
