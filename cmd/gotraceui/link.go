@@ -273,10 +273,17 @@ func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 }
 
 func (l *GCObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	// TODO(dh): respect modifiers
-	return &ScrollToObjectAction{
-		Object:     l.GC,
-		Provenance: l.Provenance,
+	switch ev.Modifiers {
+	default:
+		return &ScrollToObjectAction{
+			Object:     l.GC,
+			Provenance: l.Provenance,
+		}
+	case key.ModShortcut:
+		return &ZoomToObjectAction{
+			Object:     l.GC,
+			Provenance: l.Provenance,
+		}
 	}
 }
 
@@ -304,10 +311,17 @@ func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 }
 
 func (l *STWObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	// TODO(dh): respect modifiers
-	return &ScrollToObjectAction{
-		Object:     l.STW,
-		Provenance: l.Provenance,
+	switch ev.Modifiers {
+	default:
+		return &ScrollToObjectAction{
+			Object:     l.STW,
+			Provenance: l.Provenance,
+		}
+	case key.ModShortcut:
+		return &ZoomToObjectAction{
+			Object:     l.STW,
+			Provenance: l.Provenance,
+		}
 	}
 }
 
