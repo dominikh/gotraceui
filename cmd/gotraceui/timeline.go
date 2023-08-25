@@ -67,7 +67,7 @@ type Timeline struct {
 	// we definitely care about the poor performance of the first few frames rendered with an unpopulated cache.
 	spanColorCache *container.IntervalTree[trace.Timestamp, [2]colorIndex]
 
-	*TimelineWidget
+	widget *TimelineWidget
 }
 
 type TimelineWidget struct {
@@ -117,7 +117,7 @@ type Track struct {
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
 	spanContextMenu func(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem
 
-	*TrackWidget
+	widget *TrackWidget
 }
 
 func NewTrack(parent *Timeline, kind TrackKind) *Track {
@@ -386,8 +386,8 @@ func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
 func (tl *Timeline) notifyHidden(cv *Canvas) {
 	rtrace.Logf(context.Background(), "", "unloading track widget %q", tl.label)
 	for _, track := range tl.tracks {
-		cv.trackWidgetsCache.Put(track.TrackWidget)
-		track.TrackWidget = nil
+		cv.trackWidgetsCache.Put(track.widget)
+		track.widget = nil
 		// TODO(dh): this code is ugly and punches through abstractions.
 		if track.compressedSpans.count != 0 {
 			if track.spans != nil {
@@ -403,20 +403,20 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 			track.spans = nil
 		}
 	}
-	cv.timelineWidgetsCache.Put(tl.TimelineWidget)
-	tl.TimelineWidget = nil
+	cv.timelineWidgetsCache.Put(tl.widget)
+	tl.widget = nil
 }
 
 func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, forceLabel bool, compact bool, topBorder bool, trackSpanLabels *[]string) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidget.Layout").End()
 
-	if tl.TimelineWidget == nil {
+	if tl.widget == nil {
 		rtrace.Logf(context.Background(), "", "loading timeline widget %q", tl.label)
-		tl.TimelineWidget = cv.timelineWidgetsCache.Get()
-		*tl.TimelineWidget = TimelineWidget{}
+		tl.widget = cv.timelineWidgetsCache.Get()
+		*tl.widget = TimelineWidget{}
 	}
 
-	tl.hover.Update(gtx.Queue)
+	tl.widget.hover.Update(gtx.Queue)
 
 	// TODO(dh): we could replace all uses of timelineHeight by using normal Gio widget patterns: lay out all the
 	// tracks, sum their heights and the gaps we apply. We'd use a macro to get the total size and then set up the clip
@@ -430,21 +430,21 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 
 	tl.displayed = true
 
-	tl.clickedSpans = NoItems[ptrace.Span]{}
-	tl.navigatedSpans = NoItems[ptrace.Span]{}
-	tl.hoveredSpans = NoItems[ptrace.Span]{}
+	tl.widget.clickedSpans = NoItems[ptrace.Span]{}
+	tl.widget.navigatedSpans = NoItems[ptrace.Span]{}
+	tl.widget.hoveredSpans = NoItems[ptrace.Span]{}
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
-	tl.hover.Add(gtx.Ops)
+	tl.widget.hover.Add(gtx.Ops)
 
 	if !compact {
-		if tl.Hovered() || forceLabel || topBorder {
+		if tl.widget.Hovered() || forceLabel || topBorder {
 			// Draw border at top of the timeline
 			paint.FillShape(gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
-		if tl.Hovered() || forceLabel {
-			tl.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		if tl.widget.Hovered() || forceLabel {
+			tl.widget.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				labelGtx := gtx
 				labelGtx.Constraints.Min = image.Point{}
 				labelDims := widget.Label{MaxLines: 1}.Layout(labelGtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, tl.label, widget.ColorTextMaterial(gtx, colors[colorTimelineLabel]))
@@ -456,7 +456,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			})
 		}
 
-		if tl.widgetTooltip != nil && tl.cv.timeline.showTooltips == showTooltipsBoth && tl.labelClick.Hovered() {
+		if tl.widgetTooltip != nil && tl.cv.timeline.showTooltips == showTooltipsBoth && tl.widget.labelClick.Hovered() {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
@@ -468,13 +468,13 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	}
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
-	if len(tl.tracks) > 0 && tl.tracks[0].TrackWidget == nil {
+	if len(tl.tracks) > 0 && tl.tracks[0].widget == nil {
 		// If the first track doesn't have a widget then none of them do. Initialize them.
 		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
 		// timelines.
 		for i := range tl.tracks {
-			tl.tracks[i].TrackWidget = cv.trackWidgetsCache.Get()
-			*tl.tracks[i].TrackWidget = TrackWidget{}
+			tl.tracks[i].widget = cv.trackWidgetsCache.Get()
+			*tl.tracks[i].widget = TrackWidget{}
 		}
 		if tl.buildTrackWidgets != nil {
 			tl.buildTrackWidgets(tl.tracks)
@@ -487,32 +487,32 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 		}
 		dims := track.Layout(win, gtx, tl, cv.timeline.filter, cv.timeline.automaticFilter, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
-		if spans := track.HoveredSpans(); spans.Len() != 0 {
-			tl.hoveredSpans = spans
+		if spans := track.widget.HoveredSpans(); spans.Len() != 0 {
+			tl.widget.hoveredSpans = spans
 		}
-		if spans := track.NavigatedSpans(); spans.Len() != 0 {
-			tl.navigatedSpans = spans
+		if spans := track.widget.NavigatedSpans(); spans.Len() != 0 {
+			tl.widget.navigatedSpans = spans
 		}
-		if spans := track.ClickedSpans(); spans.Len() != 0 {
-			tl.clickedSpans = spans
+		if spans := track.widget.ClickedSpans(); spans.Len() != 0 {
+			tl.widget.clickedSpans = spans
 		}
 	}
 	stack.Pop()
 
-	tl.labelClicks = 0
-	for _, click := range tl.labelClick.Clicks() {
+	tl.widget.labelClicks = 0
+	for _, click := range tl.widget.labelClick.Clicks() {
 		switch click.Button {
 		case pointer.ButtonPrimary:
 			if click.Modifiers == 0 {
-				tl.labelClicks++
+				tl.widget.labelClicks++
 			} else if click.Modifiers == key.ModShortcut {
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
-				tl.navigatedSpans = tl.tracks[0].Spans(win).Wait()
+				tl.widget.navigatedSpans = tl.tracks[0].Spans(win).Wait()
 			}
 
 		case pointer.ButtonSecondary:
-			tl.labelRightClicks++
+			tl.widget.labelRightClicks++
 		}
 	}
 
@@ -642,12 +642,12 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
 	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
-	track.click.Add(gtx.Ops)
-	track.hover.Add(gtx.Ops)
+	track.widget.click.Add(gtx.Ops)
+	track.widget.hover.Add(gtx.Ops)
 
-	track.clickedSpans = NoItems[ptrace.Span]{}
-	track.navigatedSpans = NoItems[ptrace.Span]{}
-	track.hoveredSpans = NoItems[ptrace.Span]{}
+	track.widget.clickedSpans = NoItems[ptrace.Span]{}
+	track.widget.navigatedSpans = NoItems[ptrace.Span]{}
+	track.widget.hoveredSpans = NoItems[ptrace.Span]{}
 
 	trackClickedSpans := false
 	trackNavigatedSpans := false
@@ -655,7 +655,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
-	for _, ev := range track.click.Events(gtx.Queue) {
+	for _, ev := range track.widget.click.Events(gtx.Queue) {
 		if ev.Type == gesture.TypeClick && ev.Button == pointer.ButtonPrimary {
 			switch ev.Modifiers {
 			case key.ModShortcut:
@@ -667,7 +667,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			trackContextMenuSpans = true
 		}
 	}
-	track.hover.Update(gtx.Queue)
+	track.widget.hover.Update(gtx.Queue)
 
 	spans, haveSpans := track.Spans(win).ResultNoWait()
 	if !haveSpans {
@@ -687,29 +687,29 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	}
 
 	// // OPT(dh): don't redraw if the only change is cv.y
-	if !track.hover.Hovered() && !track.prevFrame.hovered &&
+	if !track.widget.hover.Hovered() && !track.widget.prevFrame.hovered &&
 		cv.unchanged() &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
-		track.prevFrame.placeholder == !haveSpans &&
-		gtx.Constraints == track.prevFrame.constraints {
+		track.widget.prevFrame.placeholder == !haveSpans &&
+		gtx.Constraints == track.widget.prevFrame.constraints {
 
-		track.prevFrame.call.Add(gtx.Ops)
+		track.widget.prevFrame.call.Add(gtx.Ops)
 		debugCaching(gtx)
-		return track.prevFrame.dims
+		return track.widget.prevFrame.dims
 	}
 
-	track.prevFrame.hovered = track.hover.Hovered()
-	track.prevFrame.constraints = gtx.Constraints
+	track.widget.prevFrame.hovered = track.widget.hover.Hovered()
+	track.widget.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
-	gtx.Ops = track.prevFrame.ops.Get()
+	gtx.Ops = track.widget.prevFrame.ops.Get()
 	macro := op.Record(gtx.Ops)
 	defer func() {
 		call := macro.Stop()
 		call.Add(origOps)
-		track.prevFrame.placeholder = !haveSpans
-		track.prevFrame.call = call
-		track.prevFrame.dims = dims
+		track.widget.prevFrame.placeholder = !haveSpans
+		track.widget.prevFrame.call = call
+		track.widget.prevFrame.dims = dims
 	}()
 
 	// Draw timeline lifetimes
@@ -717,8 +717,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	// We batch draw operations by color to avoid making thousands of draw calls. See
 	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
 	//
-	for i := range track.ops {
-		track.ops[i].Reset()
+	for i := range track.widget.ops {
+		track.widget.ops[i].Reset()
 	}
 	// one path per single-color span and one path per merged+color gradient
 	//
@@ -729,31 +729,31 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	var highlightedPrimaryOutlinesPath clip.Path
 	var highlightedSecondaryOutlinesPath clip.Path
 	var eventsPath clip.Path
-	outlinesPath.Begin(track.outlinesOps.Get())
-	highlightedPrimaryOutlinesPath.Begin(track.highlightedPrimaryOutlinesOps.Get())
-	highlightedSecondaryOutlinesPath.Begin(track.highlightedSecondaryOutlinesOps.Get())
-	eventsPath.Begin(track.eventsOps.Get())
-	labelsOps := track.labelsOps.Get()
+	outlinesPath.Begin(track.widget.outlinesOps.Get())
+	highlightedPrimaryOutlinesPath.Begin(track.widget.highlightedPrimaryOutlinesOps.Get())
+	highlightedSecondaryOutlinesPath.Begin(track.widget.highlightedSecondaryOutlinesOps.Get())
+	eventsPath.Begin(track.widget.eventsOps.Get())
+	labelsOps := track.widget.labelsOps.Get()
 	labelsMacro := op.Record(labelsOps)
 
 	for i := range paths {
-		paths[i].Begin(&track.ops[i])
+		paths[i].Begin(&track.widget.ops[i])
 	}
 
 	first := true
 	var prevEndPx float32
 	doSpans := func(dspSpans Items[ptrace.Span], startPx, endPx float32) {
 		hovered := false
-		if track.hover.Hovered() && track.hover.Pointer().X >= startPx && track.hover.Pointer().X < endPx && haveSpans {
+		if track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= startPx && track.widget.hover.Pointer().X < endPx && haveSpans {
 			// Highlight the span under the cursor
 			hovered = true
-			track.hoveredSpans = dspSpans
+			track.widget.hoveredSpans = dspSpans
 
 			if trackNavigatedSpans {
-				track.navigatedSpans = dspSpans
+				track.widget.navigatedSpans = dspSpans
 			}
 			if trackClickedSpans {
-				track.clickedSpans = dspSpans
+				track.widget.clickedSpans = dspSpans
 			}
 			if trackContextMenuSpans {
 				if track.spanContextMenu != nil {
@@ -901,7 +901,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				eventsPath.LineTo(f32.Pt(minX, maxY))
 				eventsPath.Close()
 
-				if cv.timeline.showTooltips < showTooltipsNone && track.hover.Hovered() && track.hover.Pointer().X >= minX && track.hover.Pointer().X < maxX {
+				if cv.timeline.showTooltips < showTooltipsNone && track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= minX && track.widget.hover.Pointer().X < maxX {
 					spanTooltipState.eventsUnderCursor = events.Slice(oldi, i+1)
 				}
 			}
@@ -972,12 +972,12 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		first = false
 	}
 
-	if cv.unchanged() && track.prevFrame.dspSpans != nil && track.prevFrame.placeholder == !haveSpans {
-		for _, prevSpans := range track.prevFrame.dspSpans {
+	if cv.unchanged() && track.widget.prevFrame.dspSpans != nil && track.widget.prevFrame.placeholder == !haveSpans {
+		for _, prevSpans := range track.widget.prevFrame.dspSpans {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
 	} else {
-		allDspSpans := track.prevFrame.dspSpans[:0]
+		allDspSpans := track.widget.prevFrame.dspSpans[:0]
 		it := renderedSpansIterator{
 			cv:    cv,
 			spans: cv.visibleSpans(spans),
@@ -993,7 +993,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			}{dspSpans, startPx, endPx})
 			doSpans(dspSpans, startPx, endPx)
 		}
-		track.prevFrame.dspSpans = allDspSpans
+		track.widget.prevFrame.dspSpans = allDspSpans
 	}
 
 	if track.kind == TrackKindUnspecified {
@@ -1007,10 +1007,10 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 			// A track with no spans is similar to a track that's always dead
 			deadFromPx = 0
 		} else {
-			if len(track.prevFrame.dspSpans) > 0 {
+			if len(track.widget.prevFrame.dspSpans) > 0 {
 				// If the first displayed span is also the first overall span, display an indicator that the
 				// goroutine/processor hasn't been created yet.
-				dspFirst := track.prevFrame.dspSpans[0]
+				dspFirst := track.widget.prevFrame.dspSpans[0]
 				if dspFirst.dspSpans.At(0) == spans.At(0) {
 					end := dspFirst.startPx
 					unbornUntilPx = end
@@ -1018,7 +1018,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 				// If the last displayed span is also the last overall span, display an indicator that the
 				// goroutine/processor is dead.
-				dspLast := track.prevFrame.dspSpans[len(track.prevFrame.dspSpans)-1]
+				dspLast := track.widget.prevFrame.dspSpans[len(track.widget.prevFrame.dspSpans)-1]
 				if LastSpan(dspLast.dspSpans) == LastSpan(spans) {
 					start := dspLast.endPx
 					deadFromPx = start

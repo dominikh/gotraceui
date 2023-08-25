@@ -694,12 +694,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			if h := cv.timeline.hoveredTimeline; h != nil {
 				cv.cancelNavigation()
 				y := cv.timelineY(gtx, h)
-				offset := h.hover.Pointer().Y
+				offset := h.widget.hover.Pointer().Y
 				if !cv.timeline.displayStackTracks {
 					// We're going from stacks to no stacks. This shrinks the timeline and the cursor might end
 					// up on the next timeline. Prevent that.
-					if h.hover.Pointer().Y > float32(h.Height(gtx, cv)) {
-						offset -= h.hover.Pointer().Y - float32(h.Height(gtx, cv))
+					if h.widget.hover.Pointer().Y > float32(h.Height(gtx, cv)) {
+						offset -= h.widget.hover.Pointer().Y - float32(h.Height(gtx, cv))
 					}
 				}
 				cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
@@ -717,14 +717,14 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.cancelNavigation()
 				y := cv.timelineY(gtx, h)
 
-				offset := h.hover.Pointer().Y
+				offset := h.widget.hover.Pointer().Y
 				if cv.timeline.compact {
 					// We're going from expanded to compact. This reduces the offset from the top of the
 					// timeline to the first track to zero.
 					offset -= float32(gtx.Dp(timelineLabelHeightDp))
-					if h.hover.Pointer().Y < float32(gtx.Dp(timelineLabelHeightDp)) {
+					if h.widget.hover.Pointer().Y < float32(gtx.Dp(timelineLabelHeightDp)) {
 						// The cursor is above the first track; adjust the offset so that the cursor lands on the first track
-						offset += float32(gtx.Dp(timelineLabelHeightDp)) - h.hover.Pointer().Y
+						offset += float32(gtx.Dp(timelineLabelHeightDp)) - h.widget.hover.Pointer().Y
 					}
 				}
 
@@ -792,7 +792,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	}
 
 	for _, tl := range cv.prevFrame.displayedTls {
-		if spans := tl.NavigatedSpans(); spans.Len() > 0 {
+		if spans := tl.widget.NavigatedSpans(); spans.Len() > 0 {
 			start := spans.At(0).Start
 			end := LastSpan(spans).End
 			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
@@ -1020,12 +1020,12 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.timeline.hoveredTimeline = nil
 	cv.timeline.automaticFilter = Filter{Mode: FilterModeAnd}
 	for _, tl := range cv.prevFrame.displayedTls {
-		if clicked := tl.ClickedSpans(); clicked.Len() > 0 {
+		if clicked := tl.widget.ClickedSpans(); clicked.Len() > 0 {
 			cv.clickedSpans = append(cv.clickedSpans, clicked)
 		}
-		if tl.Hovered() {
+		if tl.widget.Hovered() {
 			cv.timeline.hoveredTimeline = tl
-			spans := tl.HoveredSpans()
+			spans := tl.widget.HoveredSpans()
 			if spans.Len() > 0 {
 				cv.timeline.hoveredSpans = spans
 			}
@@ -1103,16 +1103,16 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 	for i := start; i < end; i++ {
 		tl := cv.timelines[i]
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		topBorder := i > 0 && cv.timelines[i-1].Hovered()
+		topBorder := i > 0 && cv.timelines[i-1].widget.Hovered()
 		tl.Layout(win, gtx, cv, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
 		y += tl.Height(gtx, cv)
 
-		if tl.LabelClicked() {
+		if tl.widget.LabelClicked() {
 			cv.clickedTimelines = append(cv.clickedTimelines, tl)
 		}
-		if tl.LabelRightClicked() {
+		if tl.widget.LabelRightClicked() {
 			cv.rightClickedTimelines = append(cv.rightClickedTimelines, tl)
 		}
 	}
