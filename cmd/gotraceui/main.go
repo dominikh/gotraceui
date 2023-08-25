@@ -636,14 +636,18 @@ func (mwin *MainWindow) Run() error {
 					dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mainArea, panelArea)
 
 					// TODO(dh): add a public API to Canvas
-					for _, g := range mwin.canvas.clickedGoroutineTimelines {
-						mwin.openGoroutine(g)
+					for _, tl := range mwin.canvas.clickedTimelines {
+						if g, ok := tl.item.(*ptrace.Goroutine); ok {
+							mwin.openGoroutine(g)
+						}
+					}
+					for _, tl := range mwin.canvas.rightClickedTimelines {
+						if g, ok := tl.item.(*ptrace.Goroutine); ok {
+							win.SetContextMenu((&GoroutineObjectLink{Goroutine: g}).ContextMenu())
+						}
 					}
 					for _, clicked := range mwin.canvas.clickedSpans {
 						mwin.openSpan(clicked)
-					}
-					for _, g := range mwin.canvas.rightClickedGoroutineTimelines {
-						win.SetContextMenu((&GoroutineObjectLink{Goroutine: g}).ContextMenu())
 					}
 					closedAny := false
 					for _, click := range mwin.tabbedState.Clicked() {

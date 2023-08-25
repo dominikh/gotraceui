@@ -75,10 +75,9 @@ type Canvas struct {
 
 	debugWindow *DebugWindow
 
-	// TODO(dh): make Canvas agnostic of the kinds of timelines it is showing
-	clickedGoroutineTimelines      []*ptrace.Goroutine
-	rightClickedGoroutineTimelines []*ptrace.Goroutine
-	clickedSpans                   []Items[ptrace.Span]
+	clickedTimelines      []*Timeline
+	rightClickedTimelines []*Timeline
+	clickedSpans          []Items[ptrace.Span]
 
 	// The start of the timeline
 	start   trace.Timestamp
@@ -808,8 +807,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		cv.hover.Add(gtx.Ops)
 
-		cv.clickedGoroutineTimelines = cv.clickedGoroutineTimelines[:0]
-		cv.rightClickedGoroutineTimelines = cv.rightClickedGoroutineTimelines[:0]
+		cv.clickedTimelines = cv.clickedTimelines[:0]
+		cv.rightClickedTimelines = cv.rightClickedTimelines[:0]
 
 		if d := cv.scrollbar.ScrollDistance(); d != 0 {
 			// TODO(dh): because scroll amounts are relative even when the user clicks on a specific spot on the
@@ -1112,14 +1111,10 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 		y += tl.Height(gtx, cv)
 
 		if tl.LabelClicked() {
-			if g, ok := tl.item.(*ptrace.Goroutine); ok {
-				cv.clickedGoroutineTimelines = append(cv.clickedGoroutineTimelines, g)
-			}
+			cv.clickedTimelines = append(cv.clickedTimelines, tl)
 		}
 		if tl.LabelRightClicked() {
-			if g, ok := tl.item.(*ptrace.Goroutine); ok {
-				cv.rightClickedGoroutineTimelines = append(cv.rightClickedGoroutineTimelines, g)
-			}
+			cv.rightClickedTimelines = append(cv.rightClickedTimelines, tl)
 		}
 	}
 
