@@ -1,7 +1,5 @@
 package main
 
-// OPT(dh): cache the plot the same way we cache timelines, to avoid redrawing them when nothing has changed.
-
 import (
 	"context"
 	"fmt"
