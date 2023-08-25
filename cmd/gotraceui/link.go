@@ -283,12 +283,16 @@ func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 func (l *GCObjectLink) Action(mods key.Modifiers) theme.Action {
 	switch mods {
 	default:
-		return &ScrollToObjectAction{
-			Object:     l.GC,
-			Provenance: l.Provenance,
+		return &OpenSpansAction{
+			Spans: l.GC.Spans,
 		}
 	case key.ModShortcut:
 		return &ZoomToObjectAction{
+			Object:     l.GC,
+			Provenance: l.Provenance,
+		}
+	case key.ModShift:
+		return &ScrollToObjectAction{
 			Object:     l.GC,
 			Provenance: l.Provenance,
 		}
@@ -315,18 +319,30 @@ func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 				}
 			},
 		},
+		{
+			Label: "Show GC information",
+			Action: func() theme.Action {
+				return &OpenSpansAction{
+					Spans: l.GC.Spans,
+				}
+			},
+		},
 	}
 }
 
 func (l *STWObjectLink) Action(mods key.Modifiers) theme.Action {
 	switch mods {
 	default:
-		return &ScrollToObjectAction{
-			Object:     l.STW,
-			Provenance: l.Provenance,
+		return &OpenSpansAction{
+			Spans: l.STW.Spans,
 		}
 	case key.ModShortcut:
 		return &ZoomToObjectAction{
+			Object:     l.STW,
+			Provenance: l.Provenance,
+		}
+	case key.ModShift:
+		return &ScrollToObjectAction{
 			Object:     l.STW,
 			Provenance: l.Provenance,
 		}
@@ -350,6 +366,14 @@ func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 				return &ZoomToObjectAction{
 					Object:     l.STW,
 					Provenance: l.Provenance,
+				}
+			},
+		},
+		{
+			Label: "Show STW information",
+			Action: func() theme.Action {
+				return &OpenSpansAction{
+					Spans: l.STW.Spans,
 				}
 			},
 		},
