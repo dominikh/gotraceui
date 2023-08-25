@@ -27,7 +27,7 @@ type MainWindowAction interface {
 }
 
 type ObjectLink interface {
-	Action(ev gesture.ClickEvent) theme.Action
+	Action(mods key.Modifiers) theme.Action
 	ContextMenu() []*theme.MenuItem
 	Commands() []theme.Command
 }
@@ -165,8 +165,8 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 	}
 }
 
-func (l *GoroutineObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	switch ev.Modifiers {
+func (l *GoroutineObjectLink) Action(mods key.Modifiers) theme.Action {
+	switch mods {
 	default:
 		return &ScrollToObjectAction{
 			Object:     l.Goroutine,
@@ -217,9 +217,9 @@ func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 	}
 }
 
-func (l *ProcessorObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+func (l *ProcessorObjectLink) Action(mods key.Modifiers) theme.Action {
 	// There are no processor panels yet, so key.ModShift doesn't do anything
-	switch ev.Modifiers {
+	switch mods {
 	default:
 		return &ScrollToObjectAction{
 			Object:     l.Processor,
@@ -256,7 +256,7 @@ func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 	}
 }
 
-func (l *TimestampObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+func (l *TimestampObjectLink) Action(mods key.Modifiers) theme.Action {
 	return ScrollToTimestampAction(l.Timestamp)
 }
 
@@ -264,7 +264,7 @@ func (l *TimestampObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
-func (l *FunctionObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+func (l *FunctionObjectLink) Action(mods key.Modifiers) theme.Action {
 	return (*OpenFunctionAction)(l)
 }
 
@@ -272,8 +272,8 @@ func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
-func (l *GCObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	switch ev.Modifiers {
+func (l *GCObjectLink) Action(mods key.Modifiers) theme.Action {
+	switch mods {
 	default:
 		return &ScrollToObjectAction{
 			Object:     l.GC,
@@ -310,8 +310,8 @@ func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 	}
 }
 
-func (l *STWObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	switch ev.Modifiers {
+func (l *STWObjectLink) Action(mods key.Modifiers) theme.Action {
+	switch mods {
 	default:
 		return &ScrollToObjectAction{
 			Object:     l.STW,
@@ -348,8 +348,8 @@ func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 	}
 }
 
-func (l *SpansObjectLink) Action(ev gesture.ClickEvent) theme.Action {
-	switch ev.Modifiers {
+func (l *SpansObjectLink) Action(mods key.Modifiers) theme.Action {
+	switch mods {
 	default:
 		ll := ScrollToTimestampAction(l.Spans.At(0).Start)
 		return &ll
@@ -501,7 +501,7 @@ func (l *ZoomToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 
 func handleLinkClick(win *theme.Window, ev TextEvent) {
 	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
-		link := ev.Span.ObjectLink.Action(ev.Event)
+		link := ev.Span.ObjectLink.Action(ev.Event.Modifiers)
 		win.EmitAction(link)
 	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
 		menu := ev.Span.ObjectLink.ContextMenu()
