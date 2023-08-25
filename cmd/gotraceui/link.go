@@ -57,6 +57,22 @@ type ZoomToProcessorAction struct {
 	Processor  *ptrace.Processor
 	Provenance string
 }
+type ScrollToGCAction struct {
+	GC         *GC
+	Provenance string
+}
+type ZoomToGCAction struct {
+	GC         *GC
+	Provenance string
+}
+type ScrollToSTWAction struct {
+	STW        *STW
+	Provenance string
+}
+type ZoomToSTWAction struct {
+	STW        *STW
+	Provenance string
+}
 type OpenFunctionAction struct {
 	Function   *ptrace.Function
 	Provenance string
@@ -102,6 +118,14 @@ type FunctionObjectLink struct {
 	Function   *ptrace.Function
 	Provenance string
 }
+type GCObjectLink struct {
+	GC         *GC
+	Provenance string
+}
+type STWObjectLink struct {
+	STW        *STW
+	Provenance string
+}
 type SpansObjectLink struct{ Spans Items[ptrace.Span] }
 
 func (*OpenGoroutineAction) IsAction()              {}
@@ -111,6 +135,10 @@ func (*OpenGoroutineFlameGraphAction) IsAction()    {}
 func (ScrollToTimestampAction) IsAction()           {}
 func (*ScrollToProcessorAction) IsAction()          {}
 func (*ZoomToProcessorAction) IsAction()            {}
+func (*ScrollToGCAction) IsAction()                 {}
+func (*ZoomToGCAction) IsAction()                   {}
+func (*ScrollToSTWAction) IsAction()                {}
+func (*ZoomToSTWAction) IsAction()                  {}
 func (*OpenFunctionAction) IsAction()               {}
 func (*SpansAction) IsAction()                      {}
 func (*OpenSpansAction) IsAction()                  {}
@@ -150,6 +178,10 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 		return &TimestampObjectLink{obj, provenance}
 	case *ptrace.Function:
 		return &FunctionObjectLink{obj, provenance}
+	case *GC:
+		return &GCObjectLink{obj, provenance}
+	case *STW:
+		return &STWObjectLink{obj, provenance}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}
@@ -238,6 +270,48 @@ func (l *FunctionObjectLink) ContextMenu() []*theme.MenuItem {
 	return nil
 }
 
+func (l *GCObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+	return &ScrollToGCAction{GC: l.GC}
+}
+
+func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
+	return []*theme.MenuItem{
+		{
+			Label: "Scroll to GC timeline",
+			Action: func() theme.Action {
+				return (*ScrollToGCAction)(l)
+			},
+		},
+		{
+			Label: "Zoom to GC timeline",
+			Action: func() theme.Action {
+				return (*ZoomToGCAction)(l)
+			},
+		},
+	}
+}
+
+func (l *STWObjectLink) Action(ev gesture.ClickEvent) theme.Action {
+	return &ScrollToSTWAction{STW: l.STW}
+}
+
+func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
+	return []*theme.MenuItem{
+		{
+			Label: "Scroll to STW timeline",
+			Action: func() theme.Action {
+				return (*ScrollToSTWAction)(l)
+			},
+		},
+		{
+			Label: "Zoom to STW timeline",
+			Action: func() theme.Action {
+				return (*ZoomToSTWAction)(l)
+			},
+		},
+	}
+}
+
 func (l *SpansObjectLink) Action(ev gesture.ClickEvent) theme.Action {
 	switch ev.Modifiers {
 	default:
@@ -322,6 +396,26 @@ func (l *ScrollToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
 func (l *ZoomToGoroutineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	y := mwin.canvas.objectY(gtx, l.Goroutine)
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Goroutine.Spans[0].Start, l.Goroutine.Spans[len(l.Goroutine.Spans)-1].End, y)
+}
+
+func (l *ScrollToGCAction) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.scrollToObject(gtx, l.GC)
+}
+
+func (l *ZoomToGCAction) Open(gtx layout.Context, mwin *MainWindow) {
+	y := mwin.canvas.objectY(gtx, l.GC)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.GC.Spans.At(0).Start, l.GC.Spans.At(l.GC.Spans.Len()-1).End, y)
+
+}
+
+func (l *ScrollToSTWAction) Open(gtx layout.Context, mwin *MainWindow) {
+	mwin.canvas.scrollToObject(gtx, l.STW)
+}
+
+func (l *ZoomToSTWAction) Open(gtx layout.Context, mwin *MainWindow) {
+	y := mwin.canvas.objectY(gtx, l.STW)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.STW.Spans.At(0).Start, l.STW.Spans.At(l.STW.Spans.Len()-1).End, y)
+
 }
 
 func (l *OpenGoroutineFlameGraphAction) Open(gtx layout.Context, mwin *MainWindow) {
@@ -595,6 +689,34 @@ func (l *FunctionObjectLink) Commands() []theme.Command {
 			Color:          colorLink,
 			Fn: func() theme.Action {
 				return (*OpenFunctionAction)(l)
+			},
+		},
+	}
+}
+func (l *GCObjectLink) Commands() []theme.Command {
+	return []theme.Command{
+		theme.NormalCommand{
+			PrimaryLabel:   "Show GC spans",
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"open"},
+			Color:          colorLink,
+			Fn: func() theme.Action {
+				return &OpenSpansAction{l.GC.Spans}
+			},
+		},
+	}
+}
+func (l *STWObjectLink) Commands() []theme.Command {
+	return []theme.Command{
+		theme.NormalCommand{
+			PrimaryLabel:   "Show STW spans",
+			SecondaryLabel: l.Provenance,
+			Category:       "Link",
+			Aliases:        []string{"open"},
+			Color:          colorLink,
+			Fn: func() theme.Action {
+				return &OpenSpansAction{l.STW.Spans}
 			},
 		},
 	}
