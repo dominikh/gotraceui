@@ -162,7 +162,6 @@ type Canvas struct {
 	// between frames if the canvas hasn't changed.
 	prevFrame struct {
 		start              trace.Timestamp
-		end                trace.Timestamp
 		y                  int
 		nsPerPx            float64
 		compact            bool
