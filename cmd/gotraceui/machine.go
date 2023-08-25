@@ -59,7 +59,7 @@ func machineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 		case ptrace.StateRunningP:
 			pid := cv.trace.Event(s.Event).P
 			items = append(items, &theme.MenuItem{
-				Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
+				Label: local.Sprintf("Scroll to processor %d", pid),
 				Action: func() theme.Action {
 					return &ScrollToProcessorAction{Processor: cv.trace.P(pid)}
 				},
@@ -122,7 +122,7 @@ func machineTrack1SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 		case ptrace.StateRunningG:
 			gid := cv.trace.Event(s.Event).G
 			items = append(items, &theme.MenuItem{
-				Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
+				Label: local.Sprintf("Scroll to goroutine %d", gid),
 				Action: func() theme.Action {
 					return &ScrollToGoroutineAction{
 						Goroutine: cv.trace.G(gid),

@@ -1194,8 +1194,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			win.SetContextMenu(
 				[]*theme.MenuItem{
 					{
-						Label:    PlainLabel("Move origin to the left"),
-						Disabled: func() bool { return axis.anchor == AxisAnchorStart },
+						Label:    "Move origin to the left",
+						Disabled: axis.anchor == AxisAnchorStart,
 						Action: func() theme.Action {
 							return theme.ExecuteAction(func(gtx layout.Context) {
 								axis.anchor = AxisAnchorStart
@@ -1203,8 +1203,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 						},
 					},
 					{
-						Label:    PlainLabel("Move origin to the center"),
-						Disabled: func() bool { return axis.anchor == AxisAnchorCenter },
+						Label:    "Move origin to the center",
+						Disabled: axis.anchor == AxisAnchorCenter,
 						Action: func() theme.Action {
 							return theme.ExecuteAction(func(gtx layout.Context) {
 								axis.anchor = AxisAnchorCenter
@@ -1212,8 +1212,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 						},
 					},
 					{
-						Label:    PlainLabel("Move origin to the right"),
-						Disabled: func() bool { return axis.anchor == AxisAnchorEnd },
+						Label:    "Move origin to the right",
+						Disabled: axis.anchor == AxisAnchorEnd,
 						Action: func() theme.Action {
 							return theme.ExecuteAction(func(gtx layout.Context) {
 								axis.anchor = AxisAnchorEnd

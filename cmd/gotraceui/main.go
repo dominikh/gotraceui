@@ -381,26 +381,6 @@ func (mwin *MainWindow) openLink(gtx layout.Context, l theme.Action) {
 	}
 }
 
-type ToggleLable struct {
-	// LabelTrue = "Disable compact display"
-	LabelTrue, LabelFalse string
-	Value                 *bool
-}
-
-func ToggleLabel(t, f string, b *bool) func() string {
-	return func() string {
-		if *b {
-			return t
-		} else {
-			return f
-		}
-	}
-}
-
-// TODO(dh): remove dynamic label logic. this was useful for RM-style main menus, but is not useful for context menus,
-// which are the only remaining user.
-func PlainLabel(s string) func() string { return func() string { return s } }
-
 func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 	hd := HighlightDialog(win, filter)
 	win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -1856,4 +1836,12 @@ func showGCOverlaySettingNotification(win *theme.Window, gtx layout.Context, t s
 		s = "Showing no overlays"
 	}
 	win.ShowNotification(gtx, s)
+}
+
+func ifelse[T any](b bool, x, y T) T {
+	if b {
+		return x
+	} else {
+		return y
+	}
 }

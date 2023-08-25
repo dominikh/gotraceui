@@ -103,7 +103,7 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 			// These are the states that are actually on-CPU
 			pid := cv.trace.Event((spans.At(0).Event)).P
 			items = append(items, &theme.MenuItem{
-				Label: PlainLabel(local.Sprintf("Scroll to processor %d", pid)),
+				Label: local.Sprintf("Scroll to processor %d", pid),
 				Action: func() theme.Action {
 					return ScrollToProcessorAction{
 						Processor: cv.trace.P(cv.trace.Event((spans.At(0).Event)).P),
@@ -116,7 +116,7 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 			gid, ok := unblockedByGoroutine(cv.trace, spans.At(0))
 			if ok {
 				items = append(items, &theme.MenuItem{
-					Label: PlainLabel(local.Sprintf("Scroll to unblocking goroutine %d", gid)),
+					Label: local.Sprintf("Scroll to unblocking goroutine %d", gid),
 					Action: func() theme.Action {
 						gid, _ := unblockedByGoroutine(cv.trace, spans.At(0))
 						return ScrollToGoroutineAction{

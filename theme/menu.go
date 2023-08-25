@@ -193,9 +193,9 @@ func (g MenuGroupStyle) Layout(win *Window, gtx layout.Context) layout.Dimension
 }
 
 type MenuItem struct {
-	Label    func() string
+	Label    string
 	Shortcut string
-	Disabled func() bool
+	Disabled bool
 	Action   func() Action
 
 	click widget.PrimaryClickable
@@ -223,7 +223,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 	defer rtrace.StartRegion(context.Background(), "theme.MenuItemStyle.Layout").End()
 
 	fg := item.Foreground
-	disabled := item.Item.Disabled != nil && item.Item.Disabled()
+	disabled := item.Item.Disabled
 	if disabled {
 		fg = item.Disabled
 	}
@@ -235,7 +235,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 		return item.Item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				l := func(gtx layout.Context) layout.Dimensions {
-					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, item.Item.Label(), widget.ColorTextMaterial(gtx, fg))
+					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, item.Item.Label, widget.ColorTextMaterial(gtx, fg))
 					if item.Item.Shortcut != "" {
 						// add padding between label and shortcut
 						dims.Size.X += gtx.Dp(10)
@@ -258,7 +258,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 }
 
 func (item *MenuItem) Clicked() bool {
-	if item.Disabled != nil && item.Disabled() {
+	if item.Disabled {
 		return false
 	}
 	return item.click.Clicked()
