@@ -168,17 +168,17 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 func (l *GoroutineObjectLink) Action(mods key.Modifiers) theme.Action {
 	switch mods {
 	default:
-		return &ScrollToObjectAction{
-			Object:     l.Goroutine,
-			Provenance: l.Provenance,
-		}
+		return (*OpenGoroutineAction)(l)
 	case key.ModShortcut:
 		return &ZoomToObjectAction{
 			Object:     l.Goroutine,
 			Provenance: l.Provenance,
 		}
 	case key.ModShift:
-		return (*OpenGoroutineAction)(l)
+		return &ScrollToObjectAction{
+			Object:     l.Goroutine,
+			Provenance: l.Provenance,
+		}
 	}
 }
 
@@ -351,8 +351,7 @@ func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 func (l *SpansObjectLink) Action(mods key.Modifiers) theme.Action {
 	switch mods {
 	default:
-		ll := ScrollToTimestampAction(l.Spans.At(0).Start)
-		return &ll
+		return (*OpenSpansAction)(l)
 	case key.ModShortcut:
 		if _, ok := l.Spans.Container(); ok {
 			return (*ZoomToSpansAction)(l)
@@ -361,7 +360,8 @@ func (l *SpansObjectLink) Action(mods key.Modifiers) theme.Action {
 			return &ll
 		}
 	case key.ModShift:
-		return (*OpenSpansAction)(l)
+		ll := ScrollToTimestampAction(l.Spans.At(0).Start)
+		return &ll
 	}
 }
 
