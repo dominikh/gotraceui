@@ -201,8 +201,10 @@ func processorTrackSpanColor(spans Items[ptrace.Span], tr *Trace) (out [2]colorI
 }
 
 func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
-	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spans))
+	items := []*theme.MenuItem{
+		newZoomMenuItem(cv, spans),
+		newOpenSpansMenuItem(spans),
+	}
 
 	if spans.Len() == 1 {
 		gid := cv.trace.Event((spans.At(0).Event)).G

@@ -288,6 +288,17 @@ func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 	}
 }
 
+func newOpenSpansMenuItem(spans Items[ptrace.Span]) *theme.MenuItem {
+	return &theme.MenuItem{
+		Label: "Show span info",
+		Action: func() theme.Action {
+			return &OpenSpansAction{
+				Spans: spans,
+			}
+		},
+	}
+}
+
 type TrackWidget struct {
 	// OPT(dh): Only one track can have hovered or activated spans, so we could track this directly in TimelineWidget,
 	// and save 48 bytes per track. However, the current API is cleaner, because TimelineWidgetTrack doesn't have to
@@ -759,7 +770,10 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 				if track.spanContextMenu != nil {
 					win.SetContextMenu(track.spanContextMenu(dspSpans, cv))
 				} else {
-					win.SetContextMenu([]*theme.MenuItem{newZoomMenuItem(cv, dspSpans)})
+					win.SetContextMenu([]*theme.MenuItem{
+						newZoomMenuItem(cv, dspSpans),
+						newOpenSpansMenuItem(dspSpans),
+					})
 				}
 			}
 		}

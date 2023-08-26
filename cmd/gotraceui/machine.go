@@ -50,8 +50,10 @@ func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, 
 }
 
 func machineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
-	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spans))
+	items := []*theme.MenuItem{
+		newZoomMenuItem(cv, spans),
+		newOpenSpansMenuItem(spans),
+	}
 
 	if spans.Len() == 1 {
 		s := spans.At(0)

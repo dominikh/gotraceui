@@ -93,8 +93,10 @@ func goroutineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string)
 }
 
 func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
-	var items []*theme.MenuItem
-	items = append(items, newZoomMenuItem(cv, spans))
+	items := []*theme.MenuItem{
+		newZoomMenuItem(cv, spans),
+		newOpenSpansMenuItem(spans),
+	}
 
 	if spans.Len() == 1 {
 		switch spans.At(0).State {
