@@ -95,7 +95,9 @@ type RunGarbageCollectionAction struct{}
 type RunFreeOSMemoryAction struct{}
 type StartCPUProfileAction struct{}
 type StopCPUProfileAction struct{}
-type OpenPanelAction struct{ Panel Panel }
+type OpenPanelAction struct {
+	Panel Panel
+}
 type PrevPanelAction struct{}
 type GoroutineObjectLink struct {
 	Goroutine  *ptrace.Goroutine
@@ -121,7 +123,9 @@ type STWObjectLink struct {
 	STW        *STW
 	Provenance string
 }
-type SpansObjectLink struct{ Spans Items[ptrace.Span] }
+type SpansObjectLink struct {
+	Spans Items[ptrace.Span]
+}
 
 func (*OpenGoroutineAction) IsAction()              {}
 func (*OpenGoroutineFlameGraphAction) IsAction()    {}
@@ -817,9 +821,7 @@ func (*CanvasUndoNavigationAction) IsNavigationAction()       {}
 func (*CanvasZoomToFitCurrentViewAction) IsNavigationAction() {}
 func (*OpenFlameGraphAction) IsOpenAction()                   {}
 func (*OpenHeatmapAction) IsOpenAction()                      {}
-
-func (*OpenHighlightSpansDialogAction) IsOpenAction() {}
-func (*OpenScrollToTimelineAction) IsOpenAction()     {}
-func (*OpenFileOpenAction) IsOpenAction()             {}
-
-func (*OpenPanelAction) IsOpenAction() {}
+func (*OpenHighlightSpansDialogAction) IsOpenAction()         {}
+func (*OpenScrollToTimelineAction) IsOpenAction()             {}
+func (*OpenFileOpenAction) IsOpenAction()                     {}
+func (*OpenPanelAction) IsOpenAction()                        {}

@@ -185,26 +185,26 @@ type Canvas struct {
 }
 
 func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
-	*cv = Canvas{}
-
-	cv.resizeMemoryTimelines.Axis = layout.Vertical
-	cv.resizeMemoryTimelines.Ratio = 0.1
+	*cv = Canvas{
+		resizeMemoryTimelines: component.Resize{
+			Axis:  layout.Vertical,
+			Ratio: 0.1,
+		},
+		axis:           Axis{cv: cv, anchor: AxisAnchorCenter},
+		trace:          t,
+		debugWindow:    dwin,
+		itemToTimeline: make(map[any]*Timeline),
+		timelines:      make([]*Timeline, 0, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2),
+	}
 	cv.timeline.displayAllLabels = true
-	cv.axis = Axis{cv: cv, anchor: AxisAnchorCenter}
-	cv.trace = t
-	cv.debugWindow = dwin
+	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
 
-	cv.timelines = make([]*Timeline, 0, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
 	if len(t.GC) != 0 {
 		cv.timelines = append(cv.timelines, NewGCTimeline(cv, t, t.GC))
 	}
 	if len(t.STW) != 0 {
 		cv.timelines = append(cv.timelines, NewSTWTimeline(cv, t, t.STW))
 	}
-
-	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
-
-	cv.itemToTimeline = make(map[any]*Timeline)
 }
 
 func (cv *Canvas) End() trace.Timestamp {
