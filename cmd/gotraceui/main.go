@@ -1156,7 +1156,6 @@ func scientificDuration(d time.Duration, digits int) string {
 
 type Window interface {
 	Run(win *app.Window) error
-	Invalidate()
 }
 
 func span(th *theme.Theme, text string) styledtext.SpanStyle {
