@@ -579,7 +579,7 @@ func (l CanvasToggleStackTracksAction) Open(gtx layout.Context, mwin *MainWindow
 }
 func (l OpenScrollToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	pl := theme.CommandPalette{Prompt: "Scroll to timeline"}
-	pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
+	pl.Set(ScrollToTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
 	mwin.twin.SetModal(pl.Layout)
 }
 func (l OpenFileOpenAction) Open(gtx layout.Context, mwin *MainWindow) {

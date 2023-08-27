@@ -631,7 +631,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 		switch s {
 		case theme.Shortcut{Name: "G"}:
 			pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
-			pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
+			pl.Set(ScrollToTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
 			win.SetModal(pl.Layout)
 
 		case theme.Shortcut{Name: "H"}:
@@ -1730,16 +1730,16 @@ func (cmd ScrollToTimelineCommand) Filter(input string) bool {
 	return true
 }
 
-type GotoTimelineCommandProvider struct {
+type ScrollToTimelineCommandProvider struct {
 	MainWindow *theme.Window
 	Timelines  []*Timeline
 }
 
-func (p GotoTimelineCommandProvider) Len() int {
+func (p ScrollToTimelineCommandProvider) Len() int {
 	return len(p.Timelines)
 }
 
-func (p GotoTimelineCommandProvider) At(idx int) theme.Command {
+func (p ScrollToTimelineCommandProvider) At(idx int) theme.Command {
 	return ScrollToTimelineCommand{
 		MainWindow: p.MainWindow,
 		Timeline:   p.Timelines[idx],
