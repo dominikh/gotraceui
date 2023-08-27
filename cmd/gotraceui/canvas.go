@@ -194,9 +194,13 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	cv.trace = t
 	cv.debugWindow = dwin
 
-	cv.timelines = make([]*Timeline, 2, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
-	cv.timelines[0] = NewGCTimeline(cv, t, t.GC)
-	cv.timelines[1] = NewSTWTimeline(cv, t, t.STW)
+	cv.timelines = make([]*Timeline, 0, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2)
+	if len(t.GC) != 0 {
+		cv.timelines = append(cv.timelines, NewGCTimeline(cv, t, t.GC))
+	}
+	if len(t.STW) != 0 {
+		cv.timelines = append(cv.timelines, NewSTWTimeline(cv, t, t.STW))
+	}
 
 	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
 
