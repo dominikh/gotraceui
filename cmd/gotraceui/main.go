@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,7 +24,6 @@ import (
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
 	mycolor "honnef.co/go/gotraceui/color"
 	ourfont "honnef.co/go/gotraceui/font"
-	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
@@ -44,7 +42,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
 	"gioui.org/x/component"
 	"gioui.org/x/explorer"
 	"gioui.org/x/styledtext"
@@ -307,6 +304,9 @@ type MainWindow struct {
 	tabs        []theme.Component
 	tabbedState theme.TabbedState
 
+	openTraceButton widget.PrimaryClickable
+	resize          component.Resize
+
 	subwindowsMu sync.RWMutex
 	subwindows   map[Window]struct{}
 
@@ -325,13 +325,21 @@ type MainWindow struct {
 }
 
 func NewMainWindow() *MainWindow {
-	mwin := &MainWindow{
+	var mwin MainWindow
+	mwin = MainWindow{
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
 		subwindows:  map[Window]struct{}{},
+		resize: component.Resize{
+			Axis:  layout.Horizontal,
+			Ratio: 0.70,
+		},
+		tabs: []theme.Component{
+			&TimelinesComponent{cv: &mwin.canvas},
+		},
 	}
 
-	return mwin
+	return &mwin
 }
 
 // OpenTrace initiates loading of a trace. It changes the state to loadingTrace, loads the trace, and notifies the
@@ -449,20 +457,10 @@ func (mwin *MainWindow) Run() error {
 
 	var commands []Command
 
-	resize := component.Resize{
-		Axis:  layout.Horizontal,
-		Ratio: 0.70,
-	}
-
 	var prevTotalAlloc uint64
 	var prevMallocs uint64
 	var mem runtime.MemStats
 	var frameCounter uint64
-	var openTraceButton widget.PrimaryClickable
-
-	mwin.tabs = []theme.Component{
-		&TimelinesComponent{cv: &mwin.canvas},
-	}
 
 	for e := range win.Events() {
 		mwin.explorer.ListenEvents(e)
@@ -526,207 +524,14 @@ func (mwin *MainWindow) Run() error {
 				switch mwin.state {
 				case "empty":
 					return layout.Dimensions{}
-
 				case "start":
-					gtx.Constraints.Min = gtx.Constraints.Max
-
-					for openTraceButton.Clicked() {
-						mwin.showFileOpenDialog()
-					}
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Center.Layout(gtx, widget.Image{Src: assets.Image(gtx, "logo", 128), Scale: 1.0 / gtx.Metric.PxPerDp}.Layout)
-							}),
-
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &openTraceButton.Clickable, "Open trace").Layout))
-							}),
-						)
-					})
-
+					return mwin.renderStartScene(win, gtx)
 				case "error":
-					gtx.Constraints.Min = gtx.Constraints.Max
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-							return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-						})
-					})
-
+					return mwin.renderErrorScene(win, gtx)
 				case "loadingTrace":
-					paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
-
-					// OPT(dh): only compute this once
-					var maxNameWidth int
-					for _, name := range mwin.progressStages {
-						width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, name)
-						if width > maxNameWidth {
-							maxNameWidth = width
-						}
-					}
-					maxLabelWidth := maxNameWidth
-					{
-						width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
-						maxLabelWidth += width
-					}
-
-					gtx.Constraints.Min = gtx.Constraints.Max
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return theme.Dialog(win.Theme, "Opening trace").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-							progress := math.Float64frombits(mwin.progress.Load())
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									var name string
-									if mwin.progressStage < len(mwin.progressStages) {
-										name = mwin.progressStages[mwin.progressStage]
-									} else {
-										name = "Unknown"
-									}
-									gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
-									gtx.Constraints.Max.X = gtx.Constraints.Min.X
-									pct := fmt.Sprintf("%5.2f%%", progress*100)
-									// Replace space with figure space for correct alignment
-									pct = strings.ReplaceAll(pct, " ", "\u2007")
-									return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-								}),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
-									gtx.Constraints.Max = gtx.Constraints.Min
-									return theme.ProgressBar(mwin.twin.Theme, float32(progress)).Layout(gtx)
-								}))
-						})
-					})
-
+					return mwin.renderLoadingTraceScene(win, gtx)
 				case "main":
-					win.AddShortcut(theme.Shortcut{Name: "G"})
-					win.AddShortcut(theme.Shortcut{Name: "H"})
-					win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
-
-					for _, s := range win.PressedShortcuts() {
-						switch s {
-						case theme.Shortcut{Name: "G"}:
-							pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
-							pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
-							win.SetModal(pl.Layout)
-
-						case theme.Shortcut{Name: "H"}:
-							displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-
-						case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
-							cmd := &theme.CommandPalette{}
-							cmd.Set(theme.MultiCommandProvider{win.CommandProviders()})
-							win.SetModal(cmd.Layout)
-						}
-					}
-
-					mwin.canvas.indicateTimestamp = None[trace.Timestamp]()
-					if mwin.panel != nil {
-						if l := mwin.panel.HoveredLink(); l != nil {
-							switch a := l.ObjectLink.Action(0).(type) {
-							case ScrollToTimestampAction:
-								mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
-							}
-						}
-
-						switch state := mwin.panel.WantsTransition(); state {
-						case theme.ComponentStateClosed:
-							mwin.prevPanel()
-						case theme.ComponentStateWindow:
-							mwin.openPanelWindow(mwin.panel)
-							mwin.prevPanel()
-						case theme.ComponentStatePanel, theme.ComponentStateNone:
-							// Nothing to do
-						default:
-							panic(fmt.Sprintf("unsupported state transition to %q", state))
-						}
-					}
-
-					mwin.subwindowsMu.RLock()
-					for w := range mwin.subwindows {
-						if l := w.HoveredLink(); l != nil {
-							// TODO(dh): factor out into own function, remove duplication from here and earlier
-							switch a := l.ObjectLink.Action(0).(type) {
-							case ScrollToTimestampAction:
-								mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
-							}
-
-							// Only one link can be hovered at a time
-							break
-						}
-					}
-					mwin.subwindowsMu.RUnlock()
-
-					mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
-					mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
-					mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
-
-					win.AddCommandProvider(mwin.defaultCommands())
-					var dims layout.Dimensions
-
-					mainArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						// OPT(dh): avoid allocation
-						// OPT(dh): cache titles
-						titles := make([]string, len(mwin.tabs))
-						for i, tab := range mwin.tabs {
-							titles[i] = tab.Title()
-						}
-						return theme.Tabbed(&mwin.tabbedState, titles).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-							if mwin.tabbedState.Current < 0 {
-								return layout.Dimensions{}
-							}
-
-							return mwin.tabs[mwin.tabbedState.Current].Layout(win, gtx)
-						})
-					}
-					panelArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						if mwin.panel != nil {
-							return mwin.panel.Layout(win, gtx)
-						} else {
-							return layout.Dimensions{Size: gtx.Constraints.Constrain(image.Point{})}
-						}
-					}
-
-					dims = theme.Resize(win.Theme, &resize).Layout(win, gtx, mainArea, panelArea)
-
-					// TODO(dh): add a public API to Canvas
-					for _, tl := range mwin.canvas.clickedTimelines {
-						if g, ok := tl.item.(*ptrace.Goroutine); ok {
-							mwin.openGoroutine(g)
-						}
-					}
-					for _, tl := range mwin.canvas.rightClickedTimelines {
-						if g, ok := tl.item.(*ptrace.Goroutine); ok {
-							win.SetContextMenu((&GoroutineObjectLink{Goroutine: g}).ContextMenu())
-						}
-					}
-					for _, clicked := range mwin.canvas.clickedSpans {
-						mwin.openSpan(clicked)
-					}
-					closedAny := false
-					for _, click := range mwin.tabbedState.Clicked() {
-						if click.Click.Button == pointer.ButtonTertiary {
-							if click.Index == 0 {
-								// Don't allow closing the timelines tab
-								continue
-							}
-
-							mwin.tabs[click.Index] = nil
-							closedAny = true
-						}
-					}
-					if closedAny {
-						compacted := mwin.tabs[:0]
-						for _, tab := range mwin.tabs {
-							if tab != nil {
-								compacted = append(compacted, tab)
-							}
-						}
-						mwin.tabs = compacted
-					}
-
-					return dims
-
+					return mwin.renderMainScene(win, gtx)
 				default:
 					return layout.Dimensions{}
 				}
@@ -741,6 +546,210 @@ func (mwin *MainWindow) Run() error {
 	}
 
 	return nil
+}
+
+func (mwin *MainWindow) renderStartScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	gtx.Constraints.Min = gtx.Constraints.Max
+
+	for mwin.openTraceButton.Clicked() {
+		mwin.showFileOpenDialog()
+	}
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Center.Layout(gtx, widget.Image{Src: assets.Image(gtx, "logo", 128), Scale: 1.0 / gtx.Metric.PxPerDp}.Layout)
+			}),
+
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &mwin.openTraceButton.Clickable, "Open trace").Layout))
+			}),
+		)
+	})
+}
+
+func (mwin *MainWindow) renderErrorScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	gtx.Constraints.Min = gtx.Constraints.Max
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, win.Theme.TextSize, mwin.err.Error(), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+		})
+	})
+}
+
+func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
+
+	// OPT(dh): only compute this once
+	var maxNameWidth int
+	for _, name := range mwin.progressStages {
+		width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, name)
+		if width > maxNameWidth {
+			maxNameWidth = width
+		}
+	}
+	maxLabelWidth := maxNameWidth
+	{
+		width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
+		maxLabelWidth += width
+	}
+
+	gtx.Constraints.Min = gtx.Constraints.Max
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return theme.Dialog(win.Theme, "Opening trace").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			progress := math.Float64frombits(mwin.progress.Load())
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					var name string
+					if mwin.progressStage < len(mwin.progressStages) {
+						name = mwin.progressStages[mwin.progressStage]
+					} else {
+						name = "Unknown"
+					}
+					gtx.Constraints.Min.X = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 0)).X
+					gtx.Constraints.Max.X = gtx.Constraints.Min.X
+					pct := fmt.Sprintf("%5.2f%%", progress*100)
+					// Replace space with figure space for correct alignment
+					pct = strings.ReplaceAll(pct, " ", "\u2007")
+					return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
+					gtx.Constraints.Max = gtx.Constraints.Min
+					return theme.ProgressBar(mwin.twin.Theme, float32(progress)).Layout(gtx)
+				}))
+		})
+	})
+}
+
+func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	win.AddShortcut(theme.Shortcut{Name: "G"})
+	win.AddShortcut(theme.Shortcut{Name: "H"})
+	win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
+
+	for _, s := range win.PressedShortcuts() {
+		switch s {
+		case theme.Shortcut{Name: "G"}:
+			pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
+			pl.Set(GotoTimelineCommandProvider{mwin.twin, mwin.canvas.timelines})
+			win.SetModal(pl.Layout)
+
+		case theme.Shortcut{Name: "H"}:
+			displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
+
+		case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
+			cmd := &theme.CommandPalette{}
+			cmd.Set(theme.MultiCommandProvider{win.CommandProviders()})
+			win.SetModal(cmd.Layout)
+		}
+	}
+
+	mwin.canvas.indicateTimestamp = None[trace.Timestamp]()
+	if mwin.panel != nil {
+		if l := mwin.panel.HoveredLink(); l != nil {
+			switch a := l.ObjectLink.Action(0).(type) {
+			case ScrollToTimestampAction:
+				mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
+			}
+		}
+
+		switch state := mwin.panel.WantsTransition(); state {
+		case theme.ComponentStateClosed:
+			mwin.prevPanel()
+		case theme.ComponentStateWindow:
+			mwin.openPanelWindow(mwin.panel)
+			mwin.prevPanel()
+		case theme.ComponentStatePanel, theme.ComponentStateNone:
+			// Nothing to do
+		default:
+			panic(fmt.Sprintf("unsupported state transition to %q", state))
+		}
+	}
+
+	mwin.subwindowsMu.RLock()
+	for w := range mwin.subwindows {
+		if l := w.HoveredLink(); l != nil {
+			// TODO(dh): factor out into own function, remove duplication from here and earlier
+			switch a := l.ObjectLink.Action(0).(type) {
+			case ScrollToTimestampAction:
+				mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
+			}
+
+			// Only one link can be hovered at a time
+			break
+		}
+	}
+	mwin.subwindowsMu.RUnlock()
+
+	mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
+	mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
+	mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
+
+	win.AddCommandProvider(mwin.defaultCommands())
+	var dims layout.Dimensions
+
+	mainArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		// OPT(dh): avoid allocation
+		// OPT(dh): cache titles
+		titles := make([]string, len(mwin.tabs))
+		for i, tab := range mwin.tabs {
+			titles[i] = tab.Title()
+		}
+		return theme.Tabbed(&mwin.tabbedState, titles).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			if mwin.tabbedState.Current < 0 {
+				return layout.Dimensions{}
+			}
+
+			return mwin.tabs[mwin.tabbedState.Current].Layout(win, gtx)
+		})
+	}
+	panelArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		if mwin.panel != nil {
+			return mwin.panel.Layout(win, gtx)
+		} else {
+			return layout.Dimensions{Size: gtx.Constraints.Constrain(image.Point{})}
+		}
+	}
+
+	dims = theme.Resize(win.Theme, &mwin.resize).Layout(win, gtx, mainArea, panelArea)
+
+	// TODO(dh): add a public API to Canvas
+	for _, tl := range mwin.canvas.clickedTimelines {
+		if g, ok := tl.item.(*ptrace.Goroutine); ok {
+			mwin.openGoroutine(g)
+		}
+	}
+	for _, tl := range mwin.canvas.rightClickedTimelines {
+		if g, ok := tl.item.(*ptrace.Goroutine); ok {
+			win.SetContextMenu((&GoroutineObjectLink{Goroutine: g}).ContextMenu())
+		}
+	}
+	for _, clicked := range mwin.canvas.clickedSpans {
+		mwin.openSpan(clicked)
+	}
+	closedAny := false
+	for _, click := range mwin.tabbedState.Clicked() {
+		if click.Click.Button == pointer.ButtonTertiary {
+			if click.Index == 0 {
+				// Don't allow closing the timelines tab
+				continue
+			}
+
+			mwin.tabs[click.Index] = nil
+			closedAny = true
+		}
+	}
+	if closedAny {
+		compacted := mwin.tabs[:0]
+		for _, tab := range mwin.tabs {
+			if tab != nil {
+				compacted = append(compacted, tab)
+			}
+		}
+		mwin.tabs = compacted
+	}
+
+	return dims
 }
 
 func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
@@ -1600,159 +1609,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		end:       end,
 		timelines: timelines,
 	}, nil
-}
-
-type Text struct {
-	// The theme must only be used for building the Text, with methods like Span. The Layout function has to use the
-	// theme provided to it, to avoid race conditions when texts transition from widgets to independent windows.
-	//
-	// The theme must be reset in Reset.
-	styles    []styledtext.SpanStyle
-	Alignment text.Alignment
-
-	events  []TextEvent
-	hovered *TextSpan
-
-	// Clickables we use for spans and reuse between frames. We allocate them one by one because it really doesn't
-	// matter; we have hundreds of these at most. This won't make the GC sweat, and it avoids us having to do a bunch of
-	// semi-manual memory management.
-	clickables []*gesture.Click
-}
-
-type TextBuilder struct {
-	Theme *theme.Theme
-	Spans []TextSpan
-}
-
-type TextEvent struct {
-	Span  *TextSpan
-	Event gesture.ClickEvent
-}
-
-type TextSpan struct {
-	styledtext.SpanStyle
-	Object     any
-	ObjectLink ObjectLink
-
-	Click *gesture.Click
-}
-
-func (txt *TextBuilder) Add(s TextSpan) {
-	txt.Spans = append(txt.Spans, s)
-}
-
-func (txt *TextBuilder) Span(label string) *TextSpan {
-	style := styledtext.SpanStyle{
-		Content: label,
-		Size:    txt.Theme.TextSize,
-		Color:   txt.Theme.Palette.Foreground,
-		Font:    ourfont.Collection()[0].Font,
-	}
-	s := TextSpan{
-		SpanStyle: style,
-	}
-	txt.Spans = append(txt.Spans, s)
-	return &txt.Spans[len(txt.Spans)-1]
-}
-
-func (txt *TextBuilder) SpanWith(label string, fn func(s *TextSpan)) *TextSpan {
-	s := txt.Span(label)
-	fn(s)
-	return s
-}
-
-func (txt *TextBuilder) Bold(label string) *TextSpan {
-	s := txt.Span(label)
-	s.Font.Weight = font.Bold
-	return s
-}
-
-func (txt *TextBuilder) DefaultLink(label, provenance string, obj any) *TextSpan {
-	return txt.Link(label, obj, defaultObjectLink(obj, provenance))
-}
-
-func (txt *TextBuilder) Link(label string, obj any, link ObjectLink) *TextSpan {
-	s := txt.Span(label)
-	s.Object = obj
-	s.ObjectLink = link
-	a := link.Action(0)
-	switch a.(type) {
-	case NavigationAction:
-		s.Color = txt.Theme.Palette.NavigationLink
-	case OpenAction:
-		s.Color = txt.Theme.Palette.OpenLink
-	default:
-		s.Color = txt.Theme.Palette.Link
-	}
-	return s
-}
-
-func (txt *Text) Reset(th *theme.Theme) {
-	txt.events = txt.events[:0]
-	txt.styles = txt.styles[:0]
-	txt.Alignment = 0
-}
-
-func (txt *Text) Events() []TextEvent {
-	return txt.events
-}
-
-// Hovered returns the interactive span that was hovered in the last call to Layout.
-func (txt *Text) Hovered() *TextSpan {
-	return txt.hovered
-}
-
-func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "main.Text.Layout").End()
-
-	var clickableIdx int
-	for i := range spans {
-		s := &spans[i]
-		if s.Object != nil {
-			var clk *gesture.Click
-			if clickableIdx < len(txt.clickables) {
-				clk = txt.clickables[clickableIdx]
-				clickableIdx++
-			} else {
-				clk = &gesture.Click{}
-				txt.clickables = append(txt.clickables, clk)
-				clickableIdx++
-			}
-			s.Click = clk
-		}
-	}
-
-	txt.events = txt.events[:0]
-	txt.hovered = nil
-	for i := range spans {
-		s := &spans[i]
-		if s.Click != nil {
-			for _, ev := range s.Click.Events(gtx.Queue) {
-				txt.events = append(txt.events, TextEvent{s, ev})
-			}
-			if s.Click.Hovered() {
-				txt.hovered = s
-			}
-		}
-	}
-
-	txt.styles = txt.styles[:0]
-	for _, s := range spans {
-		txt.styles = append(txt.styles, s.SpanStyle)
-	}
-	ptxt := styledtext.Text(win.Theme.Shaper, txt.styles...)
-	ptxt.Alignment = txt.Alignment
-	if txt.Alignment == text.Start {
-		gtx.Constraints.Max.X = 1e6
-	}
-	return ptxt.Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
-		defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
-		s := &spans[i]
-		if s.Object != nil {
-			s.Click.Add(gtx.Ops)
-			pointer.CursorPointer.Add(gtx.Ops)
-		}
-	})
 }
 
 type Description struct {
