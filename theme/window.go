@@ -51,6 +51,8 @@ type Window struct {
 
 	pointerAt f32.Point
 
+	scale float32
+
 	modal struct {
 		cancelled bool
 		at        f32.Point
@@ -112,6 +114,7 @@ func NewWindow(win *app.Window) *Window {
 		textLengths: tinylfu.New[string, layout.Dimensions](1024, 1024*10),
 		oklchToSRGB: tinylfu.New[mycolor.Oklch, color.NRGBA](1024, 1024*10),
 		shortcuts:   map[Shortcut]struct{}{},
+		scale:       1,
 	}
 }
 
@@ -171,6 +174,8 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
 	win.Frame++
 	gtx := layout.NewContext(ops, ev)
+	gtx.Metric.PxPerDp *= win.scale
+	gtx.Metric.PxPerSp *= win.scale
 
 	win.windowFrameState = windowFrameState{}
 
@@ -181,6 +186,17 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 			if ev.State != key.Press {
 				continue
 			}
+
+			if ev.Modifiers == key.ModCtrl {
+				if ev.Name == "=" || ev.Name == "+" {
+					win.scale = min(win.scale+0.1, 5)
+				} else if ev.Name == "-" {
+					win.scale = max(win.scale-0.1, 0.3)
+				} else if ev.Name == "0" {
+					win.scale = 1
+				}
+			}
+
 			key := Shortcut{ev.Modifiers, ev.Name}
 			if _, ok := win.shortcuts[key]; ok {
 				win.pressedShortcuts = append(win.pressedShortcuts, key)
