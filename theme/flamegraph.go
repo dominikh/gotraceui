@@ -110,13 +110,11 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 	defer rtrace.StartRegion(context.Background(), "theme.Flamegraph.Layout").End()
 
 	const (
-		animateLength = 500 * time.Millisecond
-		// XXX figure out decent height. at least be high enough for the chosen font
-		height       int     = 30
-		rowSpacingDp unit.Dp = 1
-		rowPaddingDp unit.Dp = 1
-		radiusDp     unit.Dp = 2
-		debugCaching         = false
+		animateLength         = 500 * time.Millisecond
+		rowSpacingDp  unit.Dp = 1
+		spanPaddingDp unit.Dp = 1
+		radiusDp      unit.Dp = 2
+		debugCaching          = false
 	)
 
 	var (
@@ -142,7 +140,6 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		hoveredSpan    = fgSpanLocation{nil, -1, -1, -1}
 		hoveredWidthPx float32
 		ptPx           = f32.Pt(-1, -1)
-		levelHeight    = float32(height + gtx.Dp(rowSpacingDp))
 
 		flipY = func(y float32) float32 {
 			return float32(gtx.Constraints.Min.Y) - y
@@ -150,8 +147,11 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 		// Calling gtx.Dp has non-negligible cost, so lift it ouside of the loop. We also convert values that
 		// are always used as floats.
-		radius     = float32(gtx.Dp(radiusDp))
-		rowPadding = float32(gtx.Dp(rowPaddingDp))
+		radius      = float32(gtx.Dp(radiusDp))
+		spanPadding = float32(gtx.Dp(spanPaddingDp))
+
+		height      = win.TextDimensions(gtx, widget.Label{}, font.Font{}, 12, "").Size.Y + 2*int(spanPadding)
+		levelHeight = float32(height + gtx.Dp(rowSpacingDp))
 	)
 
 	if fg.StyleState.hover.Hovered() {
@@ -309,7 +309,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 		// Only display labels in spans that can fit more than just the ellipsis and 1-2 characters. This assumes that there
 		// are no labels that are shorter than that, which will be true for all real Go programs.
-		pxMinLabelWidth := float32(win.TextDimensions(gtx, widget.Label{}, font.Font{}, 12, " … ").Size.X) + 2*rowPadding
+		pxMinLabelWidth := float32(win.TextDimensions(gtx, widget.Label{}, font.Font{}, 12, " … ").Size.X) + 2*spanPadding
 
 		fg.StyleState.hover.Add(gtx.Ops)
 		fg.StyleState.click.Add(gtx.Ops)
@@ -398,10 +398,9 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 					}
 
 					if pxSize.X >= pxMinLabelWidth {
-						// XXX center label in the Y direction, too. right now it only looks right by chance
-						stack := offset(dspSpan.Min.Add(f32.Pt(rowPadding, -float32(height)))).Push(gtx.Ops)
+						stack := offset(dspSpan.Min.Add(f32.Pt(spanPadding, -float32(height)+spanPadding))).Push(gtx.Ops)
 						gtx := gtx
-						gtx.Constraints.Max.X = int(math.Ceil(float64(pxSize.X - 2*rowPadding)))
+						gtx.Constraints.Max.X = int(math.Ceil(float64(pxSize.X - 2*spanPadding)))
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
 
 						var f font.Font
@@ -425,9 +424,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 						_, tinf := widget.Label{MaxLines: 1, Alignment: text.Middle}.LayoutDetailed(gtx, win.Theme.Shaper, f, 12, l, black)
 						c := m.Stop()
 						// Don't display a label if it's just a period followed by an ellipsis
-						if tinf.Truncated == 0 {
-							c.Add(gtx.Ops)
-						} else if utf8.RuneCountInString(l)-tinf.Truncated != 1 || l[0] != '.' {
+						if tinf.Truncated == 0 || utf8.RuneCountInString(l)-tinf.Truncated != 1 || l[0] != '.' {
 							c.Add(gtx.Ops)
 						}
 						stack.Pop()
