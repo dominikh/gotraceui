@@ -21,6 +21,10 @@ import (
 
 var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
 
+type HoveredLinker interface {
+	HoveredLink() *TextSpan
+}
+
 type NavigationAction interface {
 	IsNavigationAction()
 }
@@ -91,7 +95,7 @@ type RunGarbageCollectionAction struct{}
 type RunFreeOSMemoryAction struct{}
 type StartCPUProfileAction struct{}
 type StopCPUProfileAction struct{}
-type OpenPanelAction struct{ Panel theme.Panel }
+type OpenPanelAction struct{ Panel Panel }
 type PrevPanelAction struct{}
 type GoroutineObjectLink struct {
 	Goroutine  *ptrace.Goroutine

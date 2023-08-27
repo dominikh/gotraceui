@@ -17,6 +17,7 @@ import (
 	rtrace "runtime/trace"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -149,7 +150,7 @@ func (mwin *MainWindow) openSpan(s Items[ptrace.Span]) {
 	mwin.openPanel(si)
 }
 
-func (mwin *MainWindow) openPanel(p theme.Panel) {
+func (mwin *MainWindow) openPanel(p Panel) {
 	if mwin.panel != nil {
 		mwin.panelHistory = append(mwin.panelHistory, mwin.panel)
 		if len(mwin.panelHistory) == 101 {
@@ -174,7 +175,14 @@ func (mwin *MainWindow) prevPanel() bool {
 
 type PanelWindow struct {
 	MainWindow *theme.Window
-	Panel      theme.Panel
+	Panel      Panel
+
+	hoveredLink     atomic.Pointer[TextSpan]
+	prevHoveredLink *TextSpan
+}
+
+func (pwin *PanelWindow) HoveredLink() *TextSpan {
+	return pwin.hoveredLink.Load()
 }
 
 func (pwin *PanelWindow) Run(win *app.Window) error {
@@ -191,6 +199,8 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 				// Don't render if we're waiting for the DestroyEvent because the panel was attached to the main window.
 				continue
 			}
+
+			pwin.prevHoveredLink = pwin.hoveredLink.Load()
 			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				for _, l := range win.Actions() {
 					switch l := l.(type) {
@@ -206,6 +216,12 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
 				return pwin.Panel.Layout(win, gtx)
 			})
+
+			l := pwin.Panel.HoveredLink()
+			pwin.hoveredLink.Store(l)
+			if l != pwin.prevHoveredLink {
+				pwin.MainWindow.AppWindow.Invalidate()
+			}
 
 			switch state := pwin.Panel.WantsTransition(); state {
 			case theme.ComponentStateClosed:
@@ -227,12 +243,18 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 	return nil
 }
 
-func (mwin *MainWindow) openPanelWindow(p theme.Panel) {
+func (mwin *MainWindow) openPanelWindow(p Panel) {
 	win := &PanelWindow{MainWindow: mwin.twin, Panel: p}
 	p.Transition(theme.ComponentStateWindow)
+	mwin.subwindowsMu.Lock()
+	mwin.subwindows[win] = struct{}{}
+	mwin.subwindowsMu.Unlock()
 	go func() {
 		// XXX handle error?
 		win.Run(app.NewWindow(app.Title("gotraceui - " + p.Title())))
+		mwin.subwindowsMu.Lock()
+		delete(mwin.subwindows, win)
+		mwin.subwindowsMu.Unlock()
 	}()
 
 }
@@ -263,6 +285,11 @@ func shortenFunctionName(s string) string {
 
 type Command func(*MainWindow, layout.Context)
 
+type Panel interface {
+	theme.Panel
+	HoveredLinker
+}
+
 type MainWindow struct {
 	canvas          Canvas
 	trace           *Trace
@@ -274,11 +301,14 @@ type MainWindow struct {
 	// Channel used by goroutines to report critical errors.
 	errs chan error
 
-	panel        theme.Panel
-	panelHistory []theme.Panel
+	panel        Panel
+	panelHistory []Panel
 
 	tabs        []theme.Component
 	tabbedState theme.TabbedState
+
+	subwindowsMu sync.RWMutex
+	subwindows   map[Window]struct{}
 
 	pointerAt f32.Point
 
@@ -298,6 +328,7 @@ func NewMainWindow() *MainWindow {
 	mwin := &MainWindow{
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
+		subwindows:  map[Window]struct{}{},
 	}
 
 	return mwin
@@ -589,7 +620,15 @@ func (mwin *MainWindow) Run() error {
 						}
 					}
 
+					mwin.canvas.indicateTimestamp = None[trace.Timestamp]()
 					if mwin.panel != nil {
+						if l := mwin.panel.HoveredLink(); l != nil {
+							switch a := l.ObjectLink.Action(0).(type) {
+							case ScrollToTimestampAction:
+								mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
+							}
+						}
+
 						switch state := mwin.panel.WantsTransition(); state {
 						case theme.ComponentStateClosed:
 							mwin.prevPanel()
@@ -602,6 +641,21 @@ func (mwin *MainWindow) Run() error {
 							panic(fmt.Sprintf("unsupported state transition to %q", state))
 						}
 					}
+
+					mwin.subwindowsMu.RLock()
+					for w := range mwin.subwindows {
+						if l := w.HoveredLink(); l != nil {
+							// TODO(dh): factor out into own function, remove duplication from here and earlier
+							switch a := l.ObjectLink.Action(0).(type) {
+							case ScrollToTimestampAction:
+								mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
+							}
+
+							// Only one link can be hovered at a time
+							break
+						}
+					}
+					mwin.subwindowsMu.RUnlock()
 
 					mwin.debugWindow.cvStart.addValue(gtx.Now, float64(mwin.canvas.start))
 					mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
@@ -1156,6 +1210,7 @@ func scientificDuration(d time.Duration, digits int) string {
 
 type Window interface {
 	Run(win *app.Window) error
+	HoveredLinker
 }
 
 func span(th *theme.Theme, text string) styledtext.SpanStyle {
@@ -1555,7 +1610,8 @@ type Text struct {
 	styles    []styledtext.SpanStyle
 	Alignment text.Alignment
 
-	events []TextEvent
+	events  []TextEvent
+	hovered *TextSpan
 
 	// Clickables we use for spans and reuse between frames. We allocate them one by one because it really doesn't
 	// matter; we have hundreds of these at most. This won't make the GC sweat, and it avoids us having to do a bunch of
@@ -1641,6 +1697,11 @@ func (txt *Text) Events() []TextEvent {
 	return txt.events
 }
 
+// Hovered returns the interactive span that was hovered in the last call to Layout.
+func (txt *Text) Hovered() *TextSpan {
+	return txt.hovered
+}
+
 func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Text.Layout").End()
 
@@ -1662,11 +1723,15 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan)
 	}
 
 	txt.events = txt.events[:0]
+	txt.hovered = nil
 	for i := range spans {
 		s := &spans[i]
 		if s.Click != nil {
 			for _, ev := range s.Click.Events(gtx.Queue) {
 				txt.events = append(txt.events, TextEvent{s, ev})
+			}
+			if s.Click.Hovered() {
+				txt.hovered = s
 			}
 		}
 	}
@@ -1849,12 +1914,4 @@ func showGCOverlaySettingNotification(win *theme.Window, gtx layout.Context, t s
 		s = "Showing no overlays"
 	}
 	win.ShowNotification(gtx, s)
-}
-
-func ifelse[T any](b bool, x, y T) T {
-	if b {
-		return x
-	} else {
-		return y
-	}
 }

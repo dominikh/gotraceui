@@ -82,7 +82,7 @@ func (evs *EventList) UpdateFilter() {
 	}
 }
 
-// Clicked returns all objects of text spans that have been clicked since the last call to Layout.
+// Clicked returns all objects of text spans that have been clicked during the last call to Layout.
 func (evs *EventList) Clicked() []TextEvent {
 	// This only allocates when links have been clicked, which is a very low frequency event.
 	var out []TextEvent
@@ -91,6 +91,17 @@ func (evs *EventList) Clicked() []TextEvent {
 		out = append(out, txt.Events()...)
 	}
 	return out
+}
+
+// Hovered returns the text span that has been hovered during the last call to Layout.
+func (evs *EventList) Hovered() *TextSpan {
+	for i := 0; i < evs.texts.Len(); i++ {
+		txt := evs.texts.Ptr(i)
+		if h := txt.Hovered(); h != nil {
+			return h
+		}
+	}
+	return nil
 }
 
 func (evs *EventList) eventMessage(ev *trace.Event) []string {

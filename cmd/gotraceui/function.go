@@ -36,6 +36,7 @@ type FunctionInfo struct {
 	hist             InteractiveHistogram
 
 	descriptionText Text
+	hoveredLink     *TextSpan
 
 	initialized bool
 
@@ -51,6 +52,10 @@ func NewFunctionInfo(tr *Trace, mwin *theme.Window, fn *ptrace.Function) *Functi
 	}
 
 	return fi
+}
+
+func (fi *FunctionInfo) HoveredLink() *TextSpan {
+	return fi.hoveredLink
 }
 
 func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) Description {
@@ -190,10 +195,13 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	for _, ev := range fi.goroutineList.Clicked() {
 		handleLinkClick(win, ev)
 	}
-
 	for _, ev := range fi.descriptionText.Events() {
 		handleLinkClick(win, ev)
 	}
+	fi.hoveredLink = firstNonNil(
+		fi.goroutineList.Hovered(),
+		fi.descriptionText.Hovered(),
+	)
 
 	for fi.PanelButtons.Backed() {
 		fi.mwin.EmitAction(&PrevPanelAction{})
@@ -228,6 +236,17 @@ type GoroutineList struct {
 
 	timestampObjects mem.BucketSlice[trace.Timestamp]
 	texts            mem.BucketSlice[Text]
+}
+
+// Hovered returns the text span that has been hovered during the last call to Layout.
+func (evs *GoroutineList) Hovered() *TextSpan {
+	for i := 0; i < evs.texts.Len(); i++ {
+		txt := evs.texts.Ptr(i)
+		if h := txt.Hovered(); h != nil {
+			return h
+		}
+	}
+	return nil
 }
 
 func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutines []*ptrace.Goroutine) layout.Dimensions {

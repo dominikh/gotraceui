@@ -94,6 +94,8 @@ type Canvas struct {
 	// Scratch space used by ActivityWidgetTrack.Layout
 	trackSpanLabels []string
 
+	indicateTimestamp Option[trace.Timestamp]
+
 	animateTo struct {
 		animating bool
 
@@ -1001,6 +1003,52 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			Max: image.Pt(int(round32(cv.pointerAt.X+1)), gtx.Constraints.Max.Y),
 		}
 		paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, rect.Op())
+
+		// cv.indicateTimestamp is set when the user hovers over a timestamp link. We indicate the destination of the
+		// link by drawing a cursor, or by highlighting the left or right edge of the canvas if the timestamp isn't
+		// visible.
+		if hts, ok := cv.indicateTimestamp.Get(); ok {
+			px := cv.tsToPx(hts)
+			if px < 0 {
+				stack := clip.Rect{
+					Min: image.Pt(int(round32(0)), 0),
+					Max: image.Pt(int(round32(55)), gtx.Constraints.Max.Y),
+				}.Push(gtx.Ops)
+				c1 := win.Theme.Palette.NavigationLink
+				c2 := c1
+				c2.A = 0
+				paint.LinearGradientOp{
+					Stop1:  f32.Pt(-5, 0),
+					Color1: c1,
+					Stop2:  f32.Pt(55, 0),
+					Color2: c2,
+				}.Add(gtx.Ops)
+				paint.PaintOp{}.Add(gtx.Ops)
+				stack.Pop()
+			} else if px >= float32(gtx.Constraints.Max.X) {
+				stack := clip.Rect{
+					Min: image.Pt(int(gtx.Constraints.Max.X-55), 0),
+					Max: image.Pt(int(gtx.Constraints.Max.X), gtx.Constraints.Max.Y),
+				}.Push(gtx.Ops)
+				c1 := win.Theme.Palette.NavigationLink
+				c2 := c1
+				c2.A = 0
+				paint.LinearGradientOp{
+					Stop1:  f32.Pt(float32(gtx.Constraints.Max.X-55), 0),
+					Color1: c2,
+					Stop2:  f32.Pt(float32(gtx.Constraints.Max.X+5), 0),
+					Color2: c1,
+				}.Add(gtx.Ops)
+				paint.PaintOp{}.Add(gtx.Ops)
+				stack.Pop()
+			} else {
+				rect := clip.Rect{
+					Min: image.Pt(int(round32(px)), 0),
+					Max: image.Pt(int(round32(px+1)), gtx.Constraints.Max.Y),
+				}
+				paint.FillShape(gtx.Ops, win.Theme.Palette.NavigationLink, rect.Op())
+			}
+		}
 
 	}(gtx)
 

@@ -69,6 +69,7 @@ type SpansInfo struct {
 
 	descriptionBuilder func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider)
 	descriptionText    Text
+	hoveredLink        *TextSpan
 
 	stacktraceList widget.List
 	statsList      widget.List
@@ -325,6 +326,10 @@ func (si *SpansInfo) zoomToSpans(win *theme.Window) {
 	}
 }
 
+func (si *SpansInfo) HoveredLink() *TextSpan {
+	return si.hoveredLink
+}
+
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
 
@@ -541,13 +546,16 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	for _, ev := range si.descriptionText.Events() {
 		handleLinkClick(win, ev)
 	}
-
 	for _, ev := range si.eventsList.Clicked() {
 		handleLinkClick(win, ev)
 	}
 	for _, ev := range si.spansList.Clicked() {
 		handleLinkClick(win, ev)
 	}
+	si.hoveredLink = firstNonNil(
+		si.descriptionText.Hovered(),
+		si.eventsList.Hovered(),
+		si.spansList.Hovered())
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {
 		si.scrollAndPanToSpans(win)
@@ -730,7 +738,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 	return tbl.Layout(win, gtx, spans.Spans.Len(), cellFn)
 }
 
-// Clicked returns all objects of text spans that have been clicked since the last call to Layout.
+// Clicked returns all objects of text spans that have been clicked hovered the last call to Layout.
 func (spans *SpanList) Clicked() []TextEvent {
 	// This only allocates when links have been clicked, which is a very low frequency event.
 	var out []TextEvent
@@ -741,3 +749,13 @@ func (spans *SpanList) Clicked() []TextEvent {
 	return out
 }
 
+// Hovered returns the interactive text span that has been hovered during the last call to Layout.
+func (spans *SpanList) Hovered() *TextSpan {
+	for i := 0; i < spans.texts.Len(); i++ {
+		txt := spans.texts.Ptr(i)
+		if h := txt.Hovered(); h != nil {
+			return h
+		}
+	}
+	return nil
+}
