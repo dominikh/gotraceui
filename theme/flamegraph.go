@@ -388,6 +388,10 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 					dspSpan.Min.Y = flipY(pxSpan.Min.Y)
 					dspSpan.Max.Y = flipY(pxSpan.Max.Y)
 
+					// Swap min and max Y so that the first point is in the top-left and the second point in the
+					// bottom-right. Otherwise, the code that draws rounded rectangles gets confused.
+					dspSpan.Min.Y, dspSpan.Max.Y = dspSpan.Max.Y, dspSpan.Min.Y
+
 					if pxSize.X >= radius {
 						shape := clip.UniformFRRect(dspSpan, radius)
 						shape.IntoPath(p)
@@ -396,7 +400,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 					}
 
 					if pxSize.X >= pxMinLabelWidth {
-						stack := offset(dspSpan.Min.Add(f32.Pt(spanPadding, -float32(height)+spanPadding))).Push(gtx.Ops)
+						stack := offset(dspSpan.Min.Add(f32.Pt(spanPadding, spanPadding))).Push(gtx.Ops)
 						gtx := gtx
 						gtx.Constraints.Max.X = int(math.Ceil(float64(pxSize.X - 2*spanPadding)))
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
