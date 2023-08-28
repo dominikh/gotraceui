@@ -152,8 +152,9 @@ type Goroutine struct {
 	Spans    []Span
 	// The actual Start and end times of the goroutine. While spans are bounded to 0 and the end of the trace, the
 	// actual Start and end of the goroutine might be unknown.
-	Start       container.Option[trace.Timestamp]
-	End         container.Option[trace.Timestamp]
+	Start container.Option[trace.Timestamp]
+	End   container.Option[trace.Timestamp]
+	// User regions, indexed by nesting level
 	UserRegions [][]Span
 	Events      []EventID
 }
@@ -209,17 +210,25 @@ type Processor struct {
 }
 
 type Task struct {
-	// OPT(dh): Technically we only need the EventID field, everything else can be extracted from the event on demand.
-	// But there are probably not enough tasks to make that worth it.
 	ID uint64
 	// Sequential ID of task in the trace
 	SeqID int
-	Name  string
-	Event EventID
+	// The event that created the task. May be unset for tasks that started before tracing began.
+	StartEvent EventID
+	// The event that ended the task. May be unset for tasks that haven't ended when tracing stopped.
+	EndEvent EventID
 }
 
 func (t *Task) Stub() bool {
-	return t.Event == 0
+	return t.StartEvent == 0
+}
+
+func (t *Task) Name(tr *Trace) string {
+	if t.StartEvent == 0 {
+		return ""
+	}
+	ev := tr.Event(t.StartEvent)
+	return tr.Strings[ev.Args[trace.ArgUserTaskCreateTypeID]]
 }
 
 type Span struct {
@@ -676,13 +685,23 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 
 		case trace.EvUserTaskCreate:
 			t := &Task{
-				ID:    ev.Args[trace.ArgUserTaskCreateTaskID],
-				Name:  res.Strings[ev.Args[trace.ArgUserTaskCreateTypeID]],
-				Event: EventID(evID),
+				ID:         ev.Args[trace.ArgUserTaskCreateTaskID],
+				StartEvent: EventID(evID),
 			}
 			tr.Tasks = append(tr.Tasks, t)
 			continue
 		case trace.EvUserTaskEnd:
+			taskID := ev.Args[trace.ArgUserTaskEndTaskID]
+			idx, ok := tr.task(taskID)
+			if !ok {
+				// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
+				// was created before tracing began.
+				task := &Task{
+					ID: taskID,
+				}
+				tr.Tasks = slices.Insert(tr.Tasks, idx, task)
+			}
+			tr.Tasks[idx].EndEvent = EventID(evID)
 			continue
 
 		case trace.EvUserRegion:
@@ -1003,7 +1022,7 @@ func (t *Trace) Event(ev EventID) *trace.Event {
 func (t *Trace) Task(id uint64) *Task {
 	idx, ok := t.task(id)
 	if !ok {
-		panic("couldn't find task")
+		panic(fmt.Sprintf("couldn't find task %d", id))
 	}
 	return t.Tasks[idx]
 }

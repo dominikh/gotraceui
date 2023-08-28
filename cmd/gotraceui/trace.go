@@ -24,6 +24,7 @@ var reasonByEventType = [256]reason{
 
 type Trace struct {
 	*ptrace.Trace
+	Tasks []Task
 
 	GOROOT string
 	GOPATH string

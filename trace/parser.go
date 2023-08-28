@@ -1458,7 +1458,7 @@ const (
 	EvUserTaskCreate    = 45 // trace.NewTask [timestamp, internal task id, internal parent id, stack, name string]
 	EvUserTaskEnd       = 46 // end of task [timestamp, internal task id, stack]
 	EvUserRegion        = 47 // trace.WithRegion [timestamp, internal task id, mode(0:start, 1:end), stack, name string]
-	EvUserLog           = 48 // trace.Log [timestamp, internal id, key string id, stack, value string]
+	EvUserLog           = 48 // trace.Log [timestamp, internal task id, key string id, stack, value string]
 	EvCPUSample         = 49 // CPU profiling sample [timestamp, stack, real timestamp, real P id (-1 when absent), goroutine id]
 	EvCount             = 50
 )
@@ -1546,6 +1546,7 @@ const (
 	ArgGoCreateStack        = 1
 	ArgGoStartLabelLabelID  = 2
 	ArgGoUnblockG           = 0
+	ArgUserLogTaskID        = 0
 	ArgUserLogKeyID         = 1
 	ArgUserLogMessage       = 3
 	ArgUserRegionMode       = 1
@@ -1553,6 +1554,7 @@ const (
 	ArgUserRegionTypeID     = 2
 	ArgUserTaskCreateTaskID = 0
 	ArgUserTaskCreateTypeID = 2
+	ArgUserTaskEndTaskID    = 0
 	ArgHeapAllocMem         = 0
 	ArgHeapGoalMem          = 0
 	ArgSTWStartKind         = 0

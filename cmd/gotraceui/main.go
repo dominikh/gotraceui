@@ -15,6 +15,7 @@ import (
 	"runtime/pprof"
 	rtrace "runtime/trace"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1636,6 +1637,54 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 
 	tr.GOROOT = goroot
 	tr.GOPATH = gopath
+
+	tasks := make([]Task, len(tr.Trace.Tasks))
+	for i := range tasks {
+		tasks[i].ID = i
+	}
+	taskGs := map[struct {
+		task int
+		g    int
+	}]struct{}{}
+
+	for evID, ev := range tr.Events {
+		switch ev.Type {
+		case trace.EvUserRegion:
+			taskID := ev.Args[trace.ArgUserRegionTaskID]
+			if taskID == 0 {
+				continue
+			}
+			taskSeqID := tr.Task(taskID).SeqID
+			gSeqID := tr.G(ev.G).SeqID
+			taskGs[struct {
+				task int
+				g    int
+			}{taskSeqID, gSeqID}] = struct{}{}
+			task := &tasks[tr.Task(taskID).SeqID]
+			task.NumRegions++
+
+		case trace.EvUserLog:
+			taskID := ev.Args[trace.ArgUserLogTaskID]
+			if taskID == 0 {
+				continue
+			}
+			task := &tasks[tr.Task(taskID).SeqID]
+			task.Logs = append(task.Logs, ptrace.EventID(evID))
+		}
+	}
+
+	for tg := range taskGs {
+		t := &tasks[tg.task]
+		t.Goroutines = append(t.Goroutines, tg.g)
+	}
+	for _, t := range tasks {
+		sort.Ints(t.Goroutines)
+		sort.Slice(t.Logs, func(i, j int) bool {
+			return t.Logs[i] < t.Logs[j]
+		})
+	}
+
+	tr.Tasks = tasks
 
 	return loadTraceResult{
 		trace:     tr,
