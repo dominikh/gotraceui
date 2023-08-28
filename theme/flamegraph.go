@@ -376,9 +376,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 				)
 				pxSpan.Max = pxSpan.Min.Add(pxSize)
 
-				if draw && pxSpan.Max.X >= 0 {
-					// TODO don't render off-screen in the Y direction
-
+				if draw && pxSpan.Max.X >= 0 && pxSpan.Max.Y >= 0 {
 					hovered := hoveredSpan.frame == frame
 					if hovered {
 						hoveredWidthPx = pxSize.X
