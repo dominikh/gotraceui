@@ -32,6 +32,16 @@ import (
 
 type showTooltips uint8
 
+type normalizedY float64
+
+func (cv *Canvas) denormalizeY(gtx layout.Context, y normalizedY) int {
+	return int(math.Round(float64(cv.height(gtx)) * float64(y)))
+}
+
+func (cv *Canvas) normalizeY(gtx layout.Context, y int) normalizedY {
+	return normalizedY(float64(y) / float64(cv.height(gtx)))
+}
+
 const (
 	showTooltipsBoth = iota
 	showTooltipsSpans
@@ -67,7 +77,7 @@ const maxLocationHistoryEntries = 1024
 type LocationHistoryEntry struct {
 	start   trace.Timestamp
 	nsPerPx float64
-	y       int
+	y       normalizedY
 }
 
 type Canvas struct {
@@ -88,7 +98,7 @@ type Canvas struct {
 
 	// Imagine we're drawing all timelines onto an infinitely long canvas. Canvas.y specifies the y of that infinite
 	// canvas that the timeline section's y == 0 is displaying.
-	y            int
+	y            normalizedY
 	cachedHeight int
 
 	// Scratch space used by ActivityWidgetTrack.Layout
@@ -101,11 +111,11 @@ type Canvas struct {
 
 		initialStart   trace.Timestamp
 		initialNsPerPx float64
-		initialY       int
+		initialY       normalizedY
 
 		targetStart   trace.Timestamp
 		targetNsPerPx float64
-		targetY       int
+		targetY       normalizedY
 
 		startedAt time.Time
 	}
@@ -127,7 +137,7 @@ type Canvas struct {
 		active  bool
 		start   trace.Timestamp
 		end     trace.Timestamp
-		startY  int
+		startY  normalizedY
 	}
 
 	// State for zooming to a selection
@@ -164,7 +174,7 @@ type Canvas struct {
 	// between frames if the canvas hasn't changed.
 	prevFrame struct {
 		start              trace.Timestamp
-		y                  int
+		y                  normalizedY
 		metric             unit.Metric
 		nsPerPx            float64
 		compact            bool
@@ -246,7 +256,7 @@ func (cv *Canvas) rememberLocation() {
 	}
 }
 
-func (cv *Canvas) navigateToChecks(start trace.Timestamp, nsPerPx float64, y int) bool {
+func (cv *Canvas) navigateToChecks(start trace.Timestamp, nsPerPx float64, y normalizedY) bool {
 	if start == cv.start && nsPerPx == cv.nsPerPx && y == cv.y {
 		// We're already there, do nothing. In particular, don't push to the location history.
 		return false
@@ -265,7 +275,7 @@ func (cv *Canvas) cancelNavigation() {
 
 // navigateTo modifes the canvas's start, end and y values, recording the previous location in the undo stack.
 // navigateTo rejects invalid operations, like setting start = end.
-func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y int) {
+func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
 	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
@@ -274,12 +284,12 @@ func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx 
 	cv.navigateToImpl(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToStartAndEnd(gtx layout.Context, start, end trace.Timestamp, y int) {
+func (cv *Canvas) navigateToStartAndEnd(gtx layout.Context, start, end trace.Timestamp, y normalizedY) {
 	nsPerPx := float64(end-start) / float64(cv.width)
 	cv.navigateTo(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y int) {
+func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
 	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
@@ -287,7 +297,7 @@ func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp,
 	cv.navigateToImpl(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToImpl(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y int) {
+func (cv *Canvas) navigateToImpl(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
 	cv.animateTo.animating = true
 
 	cv.animateTo.initialStart = cv.start
@@ -390,7 +400,7 @@ func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
 	cv.start = cv.drag.start + trace.Timestamp(td)
 
 	yd := int(round32(cv.drag.clickAt.Y - pos.Y))
-	cv.y = cv.drag.startY + yd
+	cv.y = cv.drag.startY + cv.normalizeY(gtx, yd)
 	if cv.y < 0 {
 		cv.y = 0
 	}
@@ -488,26 +498,26 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	cv.navigateToStartAndEnd(gtx, first, last, cv.y)
 }
 
-func (cv *Canvas) timelineY(gtx layout.Context, dst *Timeline) int {
+func (cv *Canvas) timelineY(gtx layout.Context, dst *Timeline) normalizedY {
 	// OPT(dh): don't be O(n)
 	off := 0
 	for _, tl := range cv.timelines {
 		if tl == dst {
 			// TODO(dh): show goroutine at center of window, not the top
-			return off
+			return cv.normalizeY(gtx, off)
 		}
 		off += tl.Height(gtx, cv)
 	}
 	panic("unreachable")
 }
 
-func (cv *Canvas) objectY(gtx layout.Context, act any) int {
+func (cv *Canvas) objectY(gtx layout.Context, act any) normalizedY {
 	// OPT(dh): don't be O(n)
 	off := 0
 	for _, tl := range cv.timelines {
 		if act == tl.item {
 			// TODO(dh): show goroutine at center of window, not the top
-			return off
+			return cv.normalizeY(gtx, off)
 		}
 		off += tl.Height(gtx, cv)
 	}
@@ -584,7 +594,7 @@ func (cv *Canvas) ToggleTimelineLabels() {
 func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 	// TODO(dh): implement location history for scrolling. We shouldn't record one entry per call to scroll, and instead
 	// only record on calls that weren't immediately preceeded by other calls to scroll.
-	cv.y += int(round32(dy))
+	cv.y += cv.normalizeY(gtx, int(round32(dy)))
 	if cv.y < 0 {
 		cv.y = 0
 	}
@@ -668,10 +678,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			// if the distances are different.
 
 			{
-				initialY := float64(cv.animateTo.initialY)
-				targetY := float64(cv.animateTo.targetY)
+				initialY := cv.animateTo.initialY
+				targetY := cv.animateTo.targetY
 
-				cv.y = int(initialY + (targetY-initialY)*r)
+				cv.y = initialY + (targetY-initialY)*normalizedY(r)
 			}
 
 			op.InvalidateOp{}.Add(gtx.Ops)
@@ -712,7 +722,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 						offset -= h.widget.hover.Pointer().Y - float32(h.Height(gtx, cv))
 					}
 				}
-				cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
+				cv.y = y - cv.normalizeY(gtx, int(cv.timeline.hover.Pointer().Y)-int(offset))
 			}
 
 		case theme.Shortcut{Name: "Z", Modifiers: key.ModShortcut}:
@@ -738,7 +748,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					}
 				}
 
-				cv.y = y - (int(cv.timeline.hover.Pointer().Y) - int(offset))
+				cv.y = y - cv.normalizeY(gtx, int(cv.timeline.hover.Pointer().Y)-int(offset))
 			}
 
 		case theme.Shortcut{Name: "T"}:
@@ -828,8 +838,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 			cv.cancelNavigation()
 
-			totalHeight := cv.height(gtx)
-			cv.y += int(round32(d * float32(totalHeight)))
+			cv.y += normalizedY(d)
 			if cv.y < 0 {
 				cv.y = 0
 			}
@@ -1128,17 +1137,18 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 }
 
 func (cv *Canvas) visibleTimelines(gtx layout.Context) (start, end int) {
+	cvy := cv.denormalizeY(gtx, cv.y)
 	// start at first timeline that ends within or after the visible range
 	// end at first timeline that starts after the visible range
 	start = sort.Search(len(cv.timelines), func(i int) bool {
-		return cv.timelineEnds[i]-cv.y >= 0
+		return cv.timelineEnds[i]-cvy >= 0
 	})
 	end = sort.Search(len(cv.timelines), func(i int) bool {
 		start := 0
 		if i != 0 {
 			start = cv.timelineEnds[i-1]
 		}
-		return start-cv.y >= gtx.Constraints.Max.Y
+		return start-cvy >= gtx.Constraints.Max.Y
 	})
 	return start, end
 }
@@ -1152,9 +1162,10 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 
 	start, end := cv.visibleTimelines(gtx)
 
-	y := -cv.y
+	cvy := cv.denormalizeY(gtx, cv.y)
+	y := -cvy
 	if start < len(cv.timelines) && start > 0 {
-		y = cv.timelineEnds[start-1] - cv.y
+		y = cv.timelineEnds[start-1] - cvy
 	}
 
 	for i := start; i < end; i++ {
