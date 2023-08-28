@@ -165,6 +165,7 @@ type Canvas struct {
 	prevFrame struct {
 		start              trace.Timestamp
 		y                  int
+		metric             unit.Metric
 		nsPerPx            float64
 		compact            bool
 		displayStackTracks bool
@@ -214,7 +215,8 @@ func (cv *Canvas) End() trace.Timestamp {
 func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
 	if len(cv.timelineEnds) == len(cv.timelines) &&
 		cv.timeline.compact == cv.prevFrame.compact &&
-		cv.timeline.displayStackTracks == cv.prevFrame.displayStackTracks {
+		cv.timeline.displayStackTracks == cv.prevFrame.displayStackTracks &&
+		gtx.Metric == cv.prevFrame.metric {
 		return
 	}
 
@@ -319,7 +321,7 @@ func (cv *Canvas) popLocationHistory() (LocationHistoryEntry, bool) {
 	return e, true
 }
 
-func (cv *Canvas) unchanged() bool {
+func (cv *Canvas) unchanged(gtx layout.Context) bool {
 	if disableCaching {
 		return false
 	}
@@ -331,7 +333,8 @@ func (cv *Canvas) unchanged() bool {
 		cv.prevFrame.compact == cv.timeline.compact &&
 		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
 		cv.prevFrame.filter == cv.timeline.filter &&
-		cv.prevFrame.automaticFilter == cv.timeline.automaticFilter
+		cv.prevFrame.automaticFilter == cv.timeline.automaticFilter &&
+		cv.prevFrame.metric == gtx.Metric
 }
 
 func (cv *Canvas) startZoomSelection(pos f32.Point) {
@@ -539,6 +542,7 @@ func easeInQuart(progress float64) float64 {
 func (cv *Canvas) height(gtx layout.Context) int {
 	if cv.prevFrame.compact == cv.timeline.compact &&
 		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
+		cv.prevFrame.metric == gtx.Metric &&
 		cv.cachedHeight != 0 {
 		return cv.cachedHeight
 	}
@@ -1066,6 +1070,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 	cv.prevFrame.filter = cv.timeline.filter
 	cv.prevFrame.automaticFilter = cv.timeline.automaticFilter
+	cv.prevFrame.metric = gtx.Metric
 
 	cv.clickedSpans = cv.clickedSpans[:0]
 	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
@@ -1315,7 +1320,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		origin = max
 	}
 
-	if axis.cv.unchanged() && axis.prevFrame.origin == origin {
+	if axis.cv.unchanged(gtx) && axis.prevFrame.origin == origin {
 		axis.prevFrame.call.Add(gtx.Ops)
 		debugCaching(gtx)
 		return axis.prevFrame.dims

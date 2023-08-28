@@ -150,7 +150,12 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		}
 	}
 
-	if cv.unchanged() && gtx.Constraints == pl.prevFrame.constraints && bitmap == pl.prevFrame.disabledSeries && pl.hideLegends == pl.prevFrame.hideLegends && pl.autoScale == pl.prevFrame.autoScale {
+	if cv.unchanged(gtx) &&
+		gtx.Constraints == pl.prevFrame.constraints &&
+		bitmap == pl.prevFrame.disabledSeries &&
+		pl.hideLegends == pl.prevFrame.hideLegends &&
+		pl.autoScale == pl.prevFrame.autoScale {
+
 		pl.prevFrame.call.Add(gtx.Ops)
 		debugCaching(gtx)
 	} else {

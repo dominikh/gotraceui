@@ -698,8 +698,9 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	}
 
 	// // OPT(dh): don't redraw if the only change is cv.y
-	if !track.widget.hover.Hovered() && !track.widget.prevFrame.hovered &&
-		cv.unchanged() &&
+	if !track.widget.hover.Hovered() &&
+		!track.widget.prevFrame.hovered &&
+		cv.unchanged(gtx) &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
 		track.widget.prevFrame.placeholder == !haveSpans &&
 		gtx.Constraints == track.widget.prevFrame.constraints {
@@ -986,7 +987,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		first = false
 	}
 
-	if cv.unchanged() && track.widget.prevFrame.dspSpans != nil && track.widget.prevFrame.placeholder == !haveSpans {
+	if cv.unchanged(gtx) && track.widget.prevFrame.dspSpans != nil && track.widget.prevFrame.placeholder == !haveSpans {
 		for _, prevSpans := range track.widget.prevFrame.dspSpans {
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
