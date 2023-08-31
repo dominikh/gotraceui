@@ -2,8 +2,23 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"math/big"
+	"time"
 
+	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/gesture"
+	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
+	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	"honnef.co/go/gotraceui/widget"
+
+	"gioui.org/font"
+	"gioui.org/io/pointer"
+	"gioui.org/op"
+	"gioui.org/text"
 )
 
 type Task struct {
@@ -19,6 +34,254 @@ type Task struct {
 
 func (t *Task) PTask(tr *ptrace.Trace) *ptrace.Task {
 	return tr.Tasks[t.ID]
+}
+
+// TODO(dh): separate tasks table from TasksComponent
+type TasksComponent struct {
+	Trace *Trace
+	Tasks []Task
+
+	mwin               *theme.Window
+	openTasks          big.Int
+	table              theme.Table
+	idClicks           mem.BucketSlice[ClickWithData[int]]
+	tsClicks           mem.BucketSlice[ClickWithData[trace.Timestamp]]
+	scrollState        theme.YScrollableListState
+	tabbedStates       map[int]*theme.TabbedState
+	expandedAnimations map[int]time.Time
+
+	nfTs     *NumberFormatter[trace.Timestamp]
+	nfInt    *NumberFormatter[int]
+	nfUint64 *NumberFormatter[uint64]
+}
+
+type ClickWithData[T any] struct {
+	gesture.Click
+	Data T
+}
+
+// Title implements theme.Component.
+func (*TasksComponent) Title() string {
+	return "Tasks"
+}
+
+// Transition implements theme.Component.
+func (*TasksComponent) Transition(state theme.ComponentState) {}
+
+// WantsTransition implements theme.Component.
+func (*TasksComponent) WantsTransition() theme.ComponentState { return theme.ComponentStateNone }
+
+func (l *ClickWithData[T]) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	return layout.Overlay(gtx, w, func(gtx layout.Context) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
+		l.Click.Add(gtx.Ops)
+		return layout.Dimensions{Size: gtx.Constraints.Min}
+	})
+}
+
+// Layout implements theme.Component.
+func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	const (
+		cID         = 0
+		cName       = 1
+		cStart      = 2
+		cEnd        = 3
+		cDuration   = 4
+		cNumG       = 5
+		cNumRegions = 6
+		cNumLogs    = 7
+	)
+
+	if cp.table.Columns == nil {
+		cp.table.SetColumns(win, gtx, []theme.Column{
+			{Name: "ID", Alignment: text.End},
+			{Name: "Name", Alignment: text.Start},
+			{Name: "Start", Alignment: text.End},
+			{Name: "End", Alignment: text.End},
+			{Name: "Duration", Alignment: text.End},
+			{Name: "# goroutines", Alignment: text.End},
+			{Name: "# regions", Alignment: text.End},
+			{Name: "# logs", Alignment: text.End},
+		})
+	}
+
+	for i, n := 0, cp.tsClicks.Len(); i < n; i++ {
+		click := cp.tsClicks.Ptr(i)
+		for _, ev := range click.Events(gtx.Queue) {
+			handleLinkClick(win, ev, &TimestampObjectLink{Timestamp: click.Data})
+		}
+	}
+
+	for i, n := 0, cp.idClicks.Len(); i < n; i++ {
+		click := cp.idClicks.Ptr(i)
+		for _, ev := range click.Events(gtx.Queue) {
+			if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
+				var bit uint
+				if cp.openTasks.Bit(click.Data) == 0 {
+					bit = 1
+				}
+				cp.openTasks.SetBit(&cp.openTasks, click.Data, bit)
+				cp.expandedAnimations[click.Data] = gtx.Now
+			}
+		}
+	}
+
+	cp.idClicks.Reset()
+	cp.tsClicks.Reset()
+
+	return cp.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		return theme.YScrollableList(&cp.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return theme.TableHeaderRow(&cp.table).Layout(win, gtx)
+				}),
+
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
+					linkFg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Link)
+					objectLinkFg := widget.ColorTextMaterial(gtx, win.Theme.Palette.NavigationLink)
+					return list.Layout(gtx, len(cp.Tasks), func(gtx layout.Context, index int) layout.Dimensions {
+						var (
+							task  = &cp.Tasks[index]
+							ptask = cp.Trace.Trace.Tasks[task.ID]
+						)
+						return layout.Rigids(gtx, layout.Vertical,
+							func(gtx layout.Context) layout.Dimensions {
+								return theme.TableSimpleRow(&cp.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+									var (
+										left  = widget.Label{MaxLines: 1, Alignment: text.Start}
+										right = widget.Label{MaxLines: 1, Alignment: text.End}
+									)
+									switch col {
+									case cID:
+										click := cp.idClicks.Grow()
+										click.Data = task.ID
+										// ogtx := gtx
+										return layout.Overlay(gtx,
+											func(gtx layout.Context) layout.Dimensions {
+												// // Restore the constraints that layout.Stacked inconveniently dropped.
+												// gtx = ogtx
+												// We intentionally right-align the ID using the widget.Label alignment, because we
+												// want the entire cell to be clickable.
+												return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfUint64.Format("%d", ptask.ID), linkFg)
+											},
+
+											func(gtx layout.Context) layout.Dimensions {
+												defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+												pointer.CursorPointer.Add(gtx.Ops)
+												click.Add(gtx.Ops)
+												return layout.Dimensions{Size: gtx.Constraints.Min}
+											},
+										)
+									case cName:
+										if ptask.Stub() {
+											return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
+										} else {
+											name := ptask.Name(cp.Trace.Trace)
+											return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, name, fg)
+										}
+									case cStart:
+										if ptask.StartEvent == 0 {
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
+										} else {
+											ts := cp.Trace.Event(ptask.StartEvent).Ts
+											link := cp.tsClicks.Grow()
+											link.Data = ts
+											return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
+												return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+													return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, formatTimestamp(cp.nfTs, ts), objectLinkFg)
+												})
+											})
+										}
+									case cEnd:
+										if ptask.EndEvent == 0 {
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
+										} else {
+											ts := cp.Trace.Event(ptask.EndEvent).Ts
+											link := cp.tsClicks.Grow()
+											link.Data = ts
+											return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
+												return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+													return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, formatTimestamp(cp.nfTs, ts), objectLinkFg)
+												})
+											})
+										}
+									case cDuration:
+										if ptask.StartEvent == 0 || ptask.EndEvent == 0 {
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
+										} else {
+											d := roundDuration(time.Duration(cp.Trace.Event(ptask.EndEvent).Ts - cp.Trace.Event(ptask.StartEvent).Ts))
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, d.String(), fg)
+										}
+									case cNumG:
+										return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfInt.Format("%d", len(task.Goroutines)), fg)
+									case cNumRegions:
+										return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfInt.Format("%d", task.NumRegions), fg)
+									case cNumLogs:
+										return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfInt.Format("%d", len(task.Logs)), fg)
+									default:
+										panic(col)
+									}
+								})
+							},
+
+							func(gtx layout.Context) layout.Dimensions {
+								taskOpen := cp.openTasks.Bit(task.ID) != 0
+								anim, ok := cp.expandedAnimations[task.ID]
+
+								if !taskOpen {
+									if !ok {
+										return layout.Dimensions{}
+									} else if gtx.Now.Sub(anim) >= 500*time.Millisecond {
+										delete(cp.expandedAnimations, task.ID)
+										return layout.Dimensions{}
+									}
+								}
+
+								ratio := float64(1)
+								if ok {
+									if gtx.Now.Sub(anim) >= 500*time.Millisecond {
+										delete(cp.expandedAnimations, task.ID)
+									} else {
+										if taskOpen {
+											ratio = easeOutQuart(float64(gtx.Now.Sub(anim)) / float64(500*time.Millisecond))
+										} else {
+											ratio = easeInQuart(float64(500*time.Millisecond-gtx.Now.Sub(anim)) / float64(500*time.Millisecond))
+										}
+										op.InvalidateOp{}.Add(gtx.Ops)
+									}
+								}
+								return theme.TableExpandedRow(&cp.table).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+									r := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+										return layout.PixelInset{Top: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+											state, ok := cp.tabbedStates[task.ID]
+											if !ok {
+												state = &theme.TabbedState{}
+												cp.tabbedStates[task.ID] = state
+											}
+											return theme.Tabbed(state, []string{"Goroutines", "Regions", "Logs"}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+												gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(0, 400))
+
+												return layout.Dimensions{
+													Size: gtx.Constraints.Min,
+												}
+											})
+										})
+									})
+									size := image.Pt(r.Dimensions.Size.X, int(float64(r.Dimensions.Size.Y)*ratio))
+									defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+									r.Layout(win, gtx)
+									return layout.Dimensions{Size: size}
+								})
+
+							},
+						)
+					})
+				}),
+			)
+		})
+	})
 }
 
 // printTask is a debug helper that prints a textual representation of a task to stdout.
