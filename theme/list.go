@@ -15,12 +15,12 @@ import (
 	"gioui.org/op/clip"
 )
 
-// fromListPosition converts a layout.Position into two floats representing
+// FromListPosition converts a layout.Position into two floats representing
 // the location of the viewport on the underlying content. It needs to know
 // the number of elements in the list and the major-axis size of the list
 // in order to do this. The returned values will be in the range [0,1], and
 // start will be less than or equal to end.
-func fromListPosition(lp layout.Position, elements int, majorAxisSize int) (start, end float32) {
+func FromListPosition(lp layout.Position, elements int, majorAxisSize int) (start, end float32) {
 	// Approximate the size of the scrollable content.
 	lengthPx := float32(lp.Length)
 	meanElementHeight := lengthPx / float32(elements)
@@ -185,7 +185,7 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 			gtx.Constraints = layout.Normalize(gtx.Constraints)
 		}
 
-		start, end := fromListPosition(l.state.Position, length, majorAxisSize)
+		start, end := FromListPosition(l.state.Position, length, majorAxisSize)
 		return l.Main.Layout(gtx, l.state.Axis, start, end)
 	})
 

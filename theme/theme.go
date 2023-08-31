@@ -57,6 +57,14 @@ type Palette struct {
 		Border     color.NRGBA
 		Disabled   color.NRGBA
 	}
+
+	Table struct {
+		EvenRowBackground color.NRGBA
+		OddRowBackground  color.NRGBA
+		HeaderBackground  color.NRGBA
+		Divider           color.NRGBA
+		DragHandle        color.NRGBA
+	}
 }
 
 var DefaultPalette = Palette{
@@ -89,6 +97,20 @@ var DefaultPalette = Palette{
 		Selected:   rgba(0x9CEFEFFF),
 		Border:     rgba(0x9CEFEFFF),
 		Disabled:   rgba(0xAAAAAAFF),
+	},
+
+	Table: struct {
+		EvenRowBackground color.NRGBA
+		OddRowBackground  color.NRGBA
+		HeaderBackground  color.NRGBA
+		Divider           color.NRGBA
+		DragHandle        color.NRGBA
+	}{
+		EvenRowBackground: rgba(0xFFFFEAFF),
+		OddRowBackground:  rgba(0xFFFFEAFF),
+		HeaderBackground:  rgba(0xF5F5E1FF),
+		Divider:           rgba(0xBEBEBEFF),
+		DragHandle:        rgba(0x000000FF),
 	},
 }
 
