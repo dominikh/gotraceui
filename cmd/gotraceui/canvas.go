@@ -961,9 +961,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 								}
 
 								fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
-								offset := float32(cv.y) / float32(totalHeight)
 								sb := theme.Scrollbar(win.Theme, &cv.scrollbar)
-								return sb.Layout(gtx, layout.Vertical, offset, offset+fraction)
+								return sb.Layout(gtx, layout.Vertical, float32(cv.y), float32(cv.y)+fraction)
 							}),
 						)
 					},
