@@ -463,6 +463,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					tabs = append(tabs, "Histogram")
 				}
 				return theme.Tabbed(&si.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min = gtx.Constraints.Max
 					switch tabs[si.tabbedState.Current] {
 					case "Stack trace":
 						return theme.List(win.Theme, &si.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {

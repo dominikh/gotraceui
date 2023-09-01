@@ -696,6 +696,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 			titles[i] = tab.Title()
 		}
 		return theme.Tabbed(&mwin.tabbedState, titles).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = gtx.Constraints.Max
 			if mwin.tabbedState.Current < 0 {
 				return layout.Dimensions{}
 			}

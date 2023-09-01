@@ -937,7 +937,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: padding}.Layout(gtx) }),
 
 		// Content
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return w(win, gtx)
 		}),
 	)

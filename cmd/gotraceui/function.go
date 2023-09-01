@@ -166,6 +166,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) }),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return theme.Tabbed(&fi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min = gtx.Constraints.Max
 				switch tabs[fi.tabbedState.Current] {
 				case "Goroutines":
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
