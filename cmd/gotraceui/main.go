@@ -28,6 +28,7 @@ import (
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
@@ -45,6 +46,7 @@ import (
 	"gioui.org/x/component"
 	"gioui.org/x/explorer"
 	"gioui.org/x/styledtext"
+	"golang.org/x/exp/constraints"
 	"golang.org/x/exp/slices"
 	"golang.org/x/text/message"
 )
@@ -1238,8 +1240,12 @@ func spanWith(th *theme.Theme, text string, fn func(styledtext.SpanStyle) styled
 
 var local = message.NewPrinter(message.MatchLanguage("en"))
 
-func formatTimestamp(ts trace.Timestamp) string {
-	return local.Sprintf("%d ns", ts)
+func formatTimestamp(nf *NumberFormatter[trace.Timestamp], ts trace.Timestamp) string {
+	if nf != nil {
+		return nf.Format("%d ns", ts)
+	} else {
+		return local.Sprintf("%d ns", ts)
+	}
 }
 
 func openTraceFromCmdline(mwin *MainWindow) {
@@ -1771,4 +1777,36 @@ func showGCOverlaySettingNotification(win *theme.Window, gtx layout.Context, t s
 		s = "Showing no overlays"
 	}
 	win.ShowNotification(gtx, s)
+}
+
+type NumberFormatter[T constraints.Integer] struct {
+	Printer *message.Printer
+	cache   *tinylfu.T[struct {
+		Format string
+		Number T
+	}, string]
+}
+
+func NewNumberFormatter[T constraints.Integer](p *message.Printer) *NumberFormatter[T] {
+	return &NumberFormatter[T]{
+		Printer: p,
+		cache: tinylfu.New[struct {
+			Format string
+			Number T
+		}, string](2048, 2048*10),
+	}
+}
+
+func (nf *NumberFormatter[T]) Format(f string, n T) string {
+	key := struct {
+		Format string
+		Number T
+	}{f, n}
+	if s, ok := nf.cache.Get(key); ok {
+		return s
+	}
+
+	s := nf.Printer.Sprintf(f, n)
+	nf.cache.Add(key, s)
+	return s
 }

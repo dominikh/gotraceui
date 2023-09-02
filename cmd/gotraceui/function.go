@@ -278,7 +278,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 			txt.Alignment = text.End
 		case 1: // Time
 			start := g.Spans[0].Start
-			tb.DefaultLink(formatTimestamp(start), "", gs.timestampObjects.Append(start))
+			tb.DefaultLink(formatTimestamp(nil, start), "", gs.timestampObjects.Append(start))
 			txt.Alignment = text.End
 		case 2: // Duration
 			start := g.Spans[0].Start

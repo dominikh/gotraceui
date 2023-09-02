@@ -1451,7 +1451,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 		rec := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 			f := font.Font{Weight: font.Bold}
-			label := formatTimestamp(t)
+			label := formatTimestamp(nil, t)
 			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 		})
 		// TODO separate value and unit symbol with a space

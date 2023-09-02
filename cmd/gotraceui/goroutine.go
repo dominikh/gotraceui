@@ -288,14 +288,14 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	observedEnd := tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone
 	if observedStart {
 		fmts = append(fmts, "Created at: %s")
-		args = append(args, formatTimestamp(start))
+		args = append(args, formatTimestamp(nil, start))
 	} else {
 		fmts = append(fmts, "Created at: before trace start")
 	}
 
 	if observedEnd {
 		fmts = append(fmts, "Returned at: %s")
-		args = append(args, formatTimestamp(end))
+		args = append(args, formatTimestamp(nil, end))
 	} else {
 		fmts = append(fmts, "Returned at: after trace end")
 	}
@@ -875,7 +875,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		})
 
 		if observedStart {
-			link := *(tb.DefaultLink(formatTimestamp(start), "Start of current goroutine", start))
+			link := *(tb.DefaultLink(formatTimestamp(nil, start), "Start of current goroutine", start))
 			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
@@ -891,7 +891,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		}
 
 		if observedEnd {
-			link := *(tb.DefaultLink(formatTimestamp(end), "End of current goroutine", end))
+			link := *(tb.DefaultLink(formatTimestamp(nil, end), "End of current goroutine", end))
 			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",

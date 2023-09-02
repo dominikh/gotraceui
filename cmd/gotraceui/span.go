@@ -249,14 +249,14 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 
 	firstSpan := spans.At(0)
 	lastSpan := LastSpan(spans)
-	link := *tb.DefaultLink(formatTimestamp(firstSpan.Start), "Start of current spans", firstSpan.Start)
+	link := *tb.DefaultLink(formatTimestamp(nil, firstSpan.Start), "Start of current spans", firstSpan.Start)
 	addCmds(link.ObjectLink.Commands())
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
 		Value: link,
 	})
 
-	link = *tb.DefaultLink(formatTimestamp(lastSpan.End), "End of current spans", lastSpan.End)
+	link = *tb.DefaultLink(formatTimestamp(nil, lastSpan.End), "End of current spans", lastSpan.End)
 	addCmds(link.ObjectLink.Commands())
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "End",
@@ -711,7 +711,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 				Spans: spans.Spans.Slice(row, row+1),
 			})
 		case 1: // Time
-			tb.Link(formatTimestamp(span.Start), span, defaultObjectLink(span.Start, ""))
+			tb.Link(formatTimestamp(nil, span.Start), span, defaultObjectLink(span.Start, ""))
 			txt.Alignment = text.End
 		case 2: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())

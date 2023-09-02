@@ -183,7 +183,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		}
 
 		addSpanTs := func(ts trace.Timestamp) {
-			tb.DefaultLink(formatTimestamp(ts), "", evs.timestampObjects.Append(ts))
+			tb.DefaultLink(formatTimestamp(nil, ts), "", evs.timestampObjects.Append(ts))
 		}
 
 		switch col {
