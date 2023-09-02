@@ -647,36 +647,10 @@ func spanTagStrings(tags ptrace.SpanTags) []string {
 	return out
 }
 
-var spanListColumns = []theme.TableListColumn{
-	{
-		// XXX the width depends on the font and scaling
-		Name:     "Span",
-		MinWidth: 80,
-		MaxWidth: 80,
-	},
-
-	{
-		Name: "Start time",
-		// XXX the width depends on the font and scaling
-		MinWidth: 200,
-		MaxWidth: 200,
-	},
-
-	{
-		Name: "Duration",
-		// XXX the width depends on the font and scaling
-		MinWidth: 120,
-		MaxWidth: 120,
-	},
-
-	{
-		Name: "State",
-	},
-}
-
 type SpanList struct {
-	Spans Items[ptrace.Span]
-	list  widget.List
+	Spans       Items[ptrace.Span]
+	table       theme.Table
+	scrollState theme.YScrollableListState
 
 	// FIXME(dh): OPT we're not actually using timestampObjects. And our use of defaultObjectLink allocates.
 	timestampObjects mem.BucketSlice[trace.Timestamp]
@@ -686,12 +660,20 @@ type SpanList struct {
 func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpanList.Layout").End()
 
-	spans.list.Axis = layout.Vertical
+	if spans.table.Columns == nil {
+		cols := []theme.Column{
+			{Name: "Span", Alignment: text.Start},
+			{Name: "Start time", Alignment: text.End},
+			{Name: "Duration", Alignment: text.End},
+			{Name: "State", Alignment: text.Start},
+		}
+		spans.table.SetColumns(win, gtx, cols)
+	}
 	spans.timestampObjects.Reset()
 
 	var txtCnt int
 	// OPT(dh): reuse memory
-	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 		tb := TextBuilder{Theme: win.Theme}
@@ -730,14 +712,8 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		return dims
 	}
 
-	tbl := theme.TableListStyle{
-		Columns:       spanListColumns,
-		List:          &spans.list,
-		ColumnPadding: gtx.Dp(10),
-	}
-
 	gtx.Constraints.Min = gtx.Constraints.Max
-	return tbl.Layout(win, gtx, spans.Spans.Len(), cellFn)
+	return theme.SimpleTable(win, gtx, &spans.table, &spans.scrollState, spans.Spans.Len(), cellFn)
 }
 
 // Clicked returns all objects of text spans that have been clicked hovered the last call to Layout.
