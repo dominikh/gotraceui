@@ -848,7 +848,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 
 			if parent.Function != nil {
 				link := *tb.DefaultLink(
-					local.Sprintf("Goroutine %d (%s)\n", g.Parent, parent.Function.Fn),
+					local.Sprintf("Goroutine %d (%s)", g.Parent, parent.Function.Fn),
 					"Parent of current goroutine",
 					parent)
 				addCmds(link.ObjectLink.Commands())
@@ -858,7 +858,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 				})
 			} else {
 				link := *tb.DefaultLink(
-					local.Sprintf("Goroutine %d\n", g.Parent),
+					local.Sprintf("Goroutine %d", g.Parent),
 					"Parent of current goroutine",
 					parent)
 				addCmds(link.ObjectLink.Commands())
@@ -871,7 +871,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Goroutine",
-			Value: *tb.Span(local.Sprintf("%d\n", g.ID)),
+			Value: *tb.Span(local.Sprintf("%d", g.ID)),
 		})
 
 		link := *(tb.DefaultLink(g.Function.Fn, "Function of current goroutine", g.Function))
