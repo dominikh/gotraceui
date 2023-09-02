@@ -5,6 +5,7 @@ import (
 	"image"
 	rtrace "runtime/trace"
 
+	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/x/outlay"
 )
@@ -141,4 +142,35 @@ func Cross(a Axis, pt *image.Point) *int {
 		return &pt.Y
 	}
 	return &pt.X
+}
+func Rigids(gtx Context, axis layout.Axis, ws ...Widget) layout.Dimensions {
+	cs := gtx.Constraints
+	_, mainMax := axisMainConstraint(axis, cs)
+	crossMin, crossMax := axisCrossConstraint(axis, cs)
+	remaining := mainMax
+	maxCross := crossMin
+	var mainSize int
+	for _, child := range ws {
+		cgtx := gtx
+		cgtx.Constraints = axisConstraints(axis, 0, remaining, crossMin, crossMax)
+
+		pt := axis.Convert(image.Pt(mainSize, 0))
+		trans := op.Offset(pt).Push(gtx.Ops)
+		dims := child(cgtx)
+		trans.Pop()
+		mainSize += axis.Convert(dims.Size).X
+
+		sz := axis.Convert(dims.Size).X
+		remaining -= sz
+		if remaining < 0 {
+			remaining = 0
+		}
+
+		if c := axis.Convert(dims.Size).Y; c > maxCross {
+			maxCross = c
+		}
+	}
+	sz := axis.Convert(image.Pt(mainSize, maxCross))
+	sz = cs.Constrain(sz)
+	return Dimensions{Size: sz}
 }
