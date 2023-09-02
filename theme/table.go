@@ -477,9 +477,7 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return FauxTableRow(ex.Table, win.Theme.Palette.Background).Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 				return widget.Background{Color: rgba(0xF5F5E1FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.PixelInset{Top: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return w(win, gtx)
-					})
+					return w(win, gtx)
 				})
 			})
 		}),
