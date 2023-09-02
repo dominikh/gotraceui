@@ -29,7 +29,9 @@ type EventList struct {
 		ShowUserLog   widget.Bool
 	}
 	filteredEvents Items[ptrace.EventID]
-	list           widget.List
+
+	table       theme.Table
+	scrollState theme.YScrollableListState
 
 	timestampObjects mem.BucketSlice[trace.Timestamp]
 	texts            mem.BucketSlice[Text]
@@ -131,23 +133,16 @@ func (evs *EventList) eventMessage(ev *trace.Event) []string {
 	}
 }
 
-var eventListColumns = []theme.TableListColumn{
-	{
-		Name: "Time",
-		// FIXME(dh): the width depends on the font size and scaling
-		MinWidth: 200,
-		MaxWidth: 200,
-	},
-
-	{
-		Name: "Message",
-	},
-}
-
 func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.EventList.Layout").End()
 
-	evs.list.Axis = layout.Vertical
+	if evs.table.Columns == nil {
+		cols := []theme.Column{
+			{Name: "Time", Alignment: text.End},
+			{Name: "Message", Alignment: text.Start},
+		}
+		evs.table.SetColumns(win, gtx, cols)
+	}
 
 	evs.timestampObjects.Reset()
 
@@ -263,13 +258,22 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
 
-			tbl := theme.TableListStyle{
-				Columns:       eventListColumns,
-				List:          &evs.list,
-				ColumnPadding: gtx.Dp(10),
-			}
-
-			return tbl.Layout(win, gtx, evs.filteredEvents.Len(), cellFn)
+			return evs.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				return theme.YScrollableList(&evs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
+					return layout.Rigids(gtx, layout.Vertical,
+						func(gtx layout.Context) layout.Dimensions {
+							return theme.TableHeaderRow(&evs.table).Layout(win, gtx)
+						},
+						func(gtx layout.Context) layout.Dimensions {
+							return list.Layout(gtx, evs.filteredEvents.Len(), func(gtx layout.Context, index int) layout.Dimensions {
+								return theme.TableSimpleRow(&evs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+									return cellFn(gtx, row, col)
+								})
+							})
+						},
+					)
+				})
+			})
 		},
 	)
 
