@@ -160,11 +160,6 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 	}
 
 	for {
-		var (
-			dividerHandleHeight    = min(tallestHeight-2*dividerHandleMinVerticalMargin, dividerHandleMaxHeight)
-			dividerHandleTopMargin = (tallestHeight - dividerHandleHeight) / 2
-		)
-
 		// First draw all columns, leaving gaps for the drag handlers
 		var (
 			start             = 0
@@ -183,6 +178,9 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			dims := w(win, gtx, i)
 			dims.Size = gtx.Constraints.Constrain(dims.Size)
 			tallestHeight = dims.Size.Y
+			if i == 0 && tallestHeight > origTallestHeight {
+				origTallestHeight = tallestHeight
+			}
 
 			start += colWidth + dividerWidth
 			stack.Pop()
@@ -196,7 +194,11 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 		call.Add(gtx.Ops)
 
 		// Then draw the drag handlers. The handlers overdraw the columns when hovered.
-		dividerStart := 0
+		var (
+			dividerHandleHeight    = min(tallestHeight-2*dividerHandleMinVerticalMargin, dividerHandleMaxHeight)
+			dividerHandleTopMargin = (tallestHeight - dividerHandleHeight) / 2
+			dividerStart           = 0
+		)
 		for i := range row.Table.drags {
 			var (
 				drag     = &row.Table.drags[i]
