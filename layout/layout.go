@@ -5,8 +5,10 @@ import (
 	"image"
 	rtrace "runtime/trace"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
 	"gioui.org/x/outlay"
 )
 
@@ -173,4 +175,15 @@ func Rigids(gtx Context, axis layout.Axis, ws ...Widget) layout.Dimensions {
 	sz := axis.Convert(image.Pt(mainSize, maxCross))
 	sz = cs.Constrain(sz)
 	return Dimensions{Size: sz}
+}
+
+func WithCursor(gtx Context, p pointer.Cursor, w Widget) layout.Dimensions {
+	r := op.Record(gtx.Ops)
+	dims := w(gtx)
+	m := r.Stop()
+
+	defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
+	p.Add(gtx.Ops)
+	m.Add(gtx.Ops)
+	return dims
 }
