@@ -3,16 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
+	"image"
+	"image/color"
 	rtrace "runtime/trace"
 	"strings"
 	"time"
 	"unsafe"
 
+	"gioui.org/font"
+	"gioui.org/text"
+	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	myunsafe "honnef.co/go/gotraceui/unsafe"
+	"honnef.co/go/gotraceui/widget"
 )
 
 var stateNames = [ptrace.StateLast]string{
@@ -980,4 +987,137 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		subslice: true,
 	}
 	return NewSpansInfo(cfg, tr, mwin, theme.Immediate[Items[ptrace.Span]](ss), allTimelines)
+}
+
+type GoroutineList struct {
+	table       *theme.Table
+	scrollState theme.YScrollableListState
+
+	timestampObjects mem.BucketSlice[trace.Timestamp]
+	texts            mem.BucketSlice[Text]
+}
+
+// Hovered returns the text span that has been hovered during the last call to Layout.
+func (evs *GoroutineList) Hovered() *TextSpan {
+	for i := 0; i < evs.texts.Len(); i++ {
+		txt := evs.texts.Ptr(i)
+		if h := txt.Hovered(); h != nil {
+			return h
+		}
+	}
+	return nil
+}
+
+func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutines []*ptrace.Goroutine) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.GoroutineList.Layout").End()
+
+	if gs.table == nil {
+		gs.table = &theme.Table{}
+		gs.table.SetColumns(win, gtx, "Goroutine", "Start time", "Duration")
+
+		// Find space needed for largest goroutine ID
+		n := len(goroutines)
+		s := n - 32
+		if s < 0 {
+			s = 0
+		}
+		var maxID uint64
+		// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
+		for _, g := range goroutines[s:n] {
+			if g.ID > maxID {
+				maxID = g.ID
+			}
+		}
+		r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			gtx.Constraints.Max = image.Pt(99999, 99999)
+			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, "Goroutine", widget.ColorTextMaterial(gtx, color.NRGBA{}))
+		})
+		r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			gtx.Constraints.Max = image.Pt(99999, 99999)
+			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
+		})
+		w := r0.Dimensions.Size.X
+		if x := r1.Dimensions.Size.X; x > w {
+			w = x
+		}
+
+		w += gtx.Dp(5) * 2
+		d := float32(w) - gs.table.ColumnWidths[0]
+		gs.table.ColumnWidths[0] = float32(w)
+		gs.table.ColumnWidths[1] = max(0, gs.table.ColumnWidths[1]-float32(d))
+	}
+
+	gs.table.Resize(win, gtx)
+	gs.timestampObjects.Reset()
+
+	var txtCnt int
+	// OPT(dh): reuse memory
+	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+		tb := TextBuilder{Theme: win.Theme}
+		var txt *Text
+		if txtCnt < gs.texts.Len() {
+			txt = gs.texts.Ptr(txtCnt)
+		} else {
+			txt = gs.texts.Append(Text{})
+		}
+		txtCnt++
+		txt.Reset(win.Theme)
+
+		g := goroutines[row]
+		switch col {
+		case 0: // ID
+			tb.DefaultLink(local.Sprintf("%d", g.ID), "", g)
+			txt.Alignment = text.End
+		case 1: // Time
+			start := g.Spans[0].Start
+			tb.DefaultLink(formatTimestamp(nil, start), "", gs.timestampObjects.Append(start))
+			txt.Alignment = text.End
+		case 2: // Duration
+			start := g.Spans[0].Start
+			end := g.Spans[len(g.Spans)-1].End
+			d := time.Duration(end - start)
+			value, unit := durationNumberFormatSITable.format(d)
+			tb.Span(value)
+			tb.Span(" ")
+			s := tb.Span(unit)
+			s.Font.Typeface = "Go Mono"
+			txt.Alignment = text.End
+		}
+
+		dims := txt.Layout(win, gtx, tb.Spans)
+		dims.Size = gtx.Constraints.Constrain(dims.Size)
+		return dims
+	}
+
+	return theme.YScrollableList(&gs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Vertical,
+			func(gtx layout.Context) layout.Dimensions {
+				return theme.TableHeaderRow(gs.table).Layout(win, gtx, gs.table.ColumnNames, []bool{true, true, true})
+			},
+
+			func(gtx layout.Context) layout.Dimensions {
+				return list.Layout(gtx, len(goroutines), func(gtx layout.Context, index int) layout.Dimensions {
+					return theme.TableSimpleRow(gs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+						// g := goroutines[row]
+						return cellFn(gtx, row, col)
+					})
+				})
+			},
+		)
+	})
+}
+
+// Clicked returns all objects of text spans that have been clicked since the last call to Layout.
+func (gs *GoroutineList) Clicked() []TextEvent {
+	// This only allocates when links have been clicked, which is a very low frequency event.
+	var out []TextEvent
+	for i := 0; i < gs.texts.Len(); i++ {
+		txt := gs.texts.Ptr(i)
+		out = append(out, txt.Events()...)
+	}
+	return out
 }
