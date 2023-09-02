@@ -900,9 +900,9 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	const lineThickness = 1
 	const activeLineThickness = 3
 
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+	dims := layout.Rigids(gtx, layout.Vertical,
 		// Tabs
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return ts.State.list.Layout(gtx, len(ts.Tabs), func(gtx layout.Context, i int) layout.Dimensions {
 				return ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
@@ -924,22 +924,22 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 					return dims
 				})
 			})
-		}),
+		},
 
 		// Line
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			r := clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, gtx.Dp(lineThickness))}
 			paint.FillShape(gtx.Ops, rgba(0x000000FF), r.Op())
 			return layout.Dimensions{Size: r.Max}
-		}),
+		},
 
 		// Padding
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: padding}.Layout(gtx) }),
+		func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: padding}.Layout(gtx) },
 
 		// Content
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return w(win, gtx)
-		}),
+		},
 	)
 
 	for i := range ts.State.clickables {

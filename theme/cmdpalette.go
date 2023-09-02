@@ -2,7 +2,6 @@ package theme
 
 import (
 	"context"
-	"fmt"
 	"image"
 	rtrace "runtime/trace"
 	"strings"
@@ -134,50 +133,58 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 		if current {
 			gtx.Constraints.Max.X -= gtx.Dp(indicatorWidth)
 		}
-		return layout.UniformInset(5).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal, Spacing: layout.SpaceBetween, Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		var dims layout.Dimensions
+		return layout.UniformInset(5).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Rigids(gtx, layout.Horizontal,
+				func(gtx layout.Context) layout.Dimensions {
+					dims = layout.Rigids(gtx, layout.Vertical,
+						func(gtx layout.Context) layout.Dimensions {
 							f := font.Font{Weight: font.Bold}
 							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.PrimaryLabel, black)
-						}),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						},
+						func(gtx layout.Context) layout.Dimensions {
 							if cmd.SecondaryLabel == "" {
 								return layout.Dimensions{}
 							}
 							f := font.Font{}
 							return widget.Label{MaxLines: 0}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.SecondaryLabel, black)
-						}),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						},
+						func(gtx layout.Context) layout.Dimensions {
 							if cmd.Category == "" {
 								return layout.Dimensions{}
 							}
-							// XXX we'd prefer real italics, not oblique
 							f := font.Font{Style: font.Italic}
 							// XXX avoid the allocation
-							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 12, fmt.Sprintf("Category: %s", cmd.Category), black)
-						}),
+							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 12, "Category: "+cmd.Category, black)
+						},
 					)
-				}),
 
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return dims
+				},
+
+				func(gtx layout.Context) layout.Dimensions {
 					if cmd.Shortcut == "" {
 						return layout.Dimensions{}
 					}
 
-					return widget.Bordered{Width: 1, Color: rgba(0x000000FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return widget.Background{Color: rgba(0xFFFFFFFF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								f := font.Font{
-									Weight: font.Bold,
-								}
-								return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.Shortcut, black)
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					gtx.Constraints.Min.Y = dims.Size.Y
+					return layout.MiddleAligned(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
+							return widget.Bordered{Width: 1, Color: rgba(0x000000FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return widget.Background{Color: rgba(0xFFFFFFFF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										f := font.Font{
+											Weight: font.Bold,
+										}
+										return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.Shortcut, black)
+									})
+								})
 							})
 						})
 					})
-				}),
+				},
 			)
 		})
 	})
@@ -307,8 +314,8 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 						tag := &pl.tags[cnt]
 						ges := &pl.gestures[cnt]
 						cnt++
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Rigids(gtx, layout.Vertical,
+							func(gtx layout.Context) layout.Dimensions {
 								for _, ev := range gtx.Events(tag) {
 									if ev, ok := ev.(pointer.Event); ok && ev.Type == pointer.Move {
 										pl.active = index
@@ -326,8 +333,8 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 								pointer.InputOp{Types: pointer.Move, Tag: tag}.Add(gtx.Ops)
 								ges.Add(gtx.Ops)
 								return dims
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							},
+							func(gtx layout.Context) layout.Dimensions {
 								if index < len(pl.filtered)-1 {
 									size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(separatorHeight)/2)
 									defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
@@ -338,7 +345,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 								} else {
 									return layout.Dimensions{}
 								}
-							}),
+							},
 						)
 					})
 				},

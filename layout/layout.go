@@ -199,8 +199,26 @@ func RightAligned(gtx Context, w Widget) layout.Dimensions {
 		defer op.Offset(image.Pt(gtx.Constraints.Min.X-dims.Size.X, 0)).Push(gtx.Ops).Pop()
 	}
 	m.Add(gtx.Ops)
+
 	return layout.Dimensions{
-		Size: gtx.Constraints.Min,
+		Size: image.Pt(max(gtx.Constraints.Min.X, dims.Size.X), dims.Size.Y),
+	}
+}
+
+func MiddleAligned(gtx Context, w Widget) layout.Dimensions {
+	ngtx := gtx
+	r := op.Record(gtx.Ops)
+	ngtx.Constraints.Min.Y = 0
+	dims := w(ngtx)
+	m := r.Stop()
+
+	if dims.Size.Y < gtx.Constraints.Min.Y {
+		defer op.Offset(image.Pt(0, (gtx.Constraints.Min.Y-dims.Size.Y)/2)).Push(gtx.Ops).Pop()
+	}
+	m.Add(gtx.Ops)
+
+	return layout.Dimensions{
+		Size: image.Pt(dims.Size.X, max(gtx.Constraints.Min.Y, dims.Size.Y)),
 	}
 }
 

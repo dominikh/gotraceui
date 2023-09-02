@@ -256,5 +256,16 @@ func (c LinearSRGB) SRGB() SRGB {
 }
 
 func (c Oklch) NRGBA() color.NRGBA {
-	return color.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(color.NRGBA)
+	r, g, b, a := c.MapToSRGBGamut().SRGB().RGBA()
+	if a == 0xffff {
+		return color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 0xff}
+	}
+	if a == 0 {
+		return color.NRGBA{0, 0, 0, 0}
+	}
+	// Since Color.RGBA returns an alpha-premultiplied color, we should have r <= a && g <= a && b <= a.
+	r = (r * 0xffff) / a
+	g = (g * 0xffff) / a
+	b = (b * 0xffff) / a
+	return color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
 }
