@@ -154,7 +154,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 	}
 
 	var txtCnt int
-	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 		var txt *Text
@@ -258,22 +258,14 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
 
-			return evs.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return theme.YScrollableList(&evs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
-					return layout.Rigids(gtx, layout.Vertical,
-						func(gtx layout.Context) layout.Dimensions {
-							return theme.TableHeaderRow(&evs.table).Layout(win, gtx)
-						},
-						func(gtx layout.Context) layout.Dimensions {
-							return list.Layout(gtx, evs.filteredEvents.Len(), func(gtx layout.Context, index int) layout.Dimensions {
-								return theme.TableSimpleRow(&evs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
-									return cellFn(gtx, row, col)
-								})
-							})
-						},
-					)
-				})
-			})
+			return theme.SimpleTable(
+				win,
+				gtx,
+				&evs.table,
+				&evs.scrollState,
+				evs.filteredEvents.Len(),
+				cellFn,
+			)
 		},
 	)
 

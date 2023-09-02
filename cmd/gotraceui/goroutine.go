@@ -1058,7 +1058,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 
 	var txtCnt int
 	// OPT(dh): reuse memory
-	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
+	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 		tb := TextBuilder{Theme: win.Theme}
@@ -1097,23 +1097,13 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		return dims
 	}
 
-	return gs.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-		return theme.YScrollableList(&gs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
-			return layout.Rigids(gtx, layout.Vertical,
-				func(gtx layout.Context) layout.Dimensions {
-					return theme.TableHeaderRow(gs.table).Layout(win, gtx)
-				},
-
-				func(gtx layout.Context) layout.Dimensions {
-					return list.Layout(gtx, len(goroutines), func(gtx layout.Context, index int) layout.Dimensions {
-						return theme.TableSimpleRow(gs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
-							return cellFn(gtx, row, col)
-						})
-					})
-				},
-			)
-		})
-	})
+	return theme.SimpleTable(win,
+		gtx,
+		gs.table,
+		&gs.scrollState,
+		len(goroutines),
+		cellFn,
+	)
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.

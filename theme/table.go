@@ -535,3 +535,22 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 		}),
 	)
 }
+
+func SimpleTable(win *Window, gtx layout.Context, tbl *Table, scroll *YScrollableListState, nrows int, cellFn func(win *Window, gtx layout.Context, row, col int) layout.Dimensions) layout.Dimensions {
+	return tbl.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+		return YScrollableList(scroll).Layout(win, gtx, func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions {
+			return layout.Rigids(gtx, layout.Vertical,
+				func(gtx layout.Context) layout.Dimensions {
+					return TableHeaderRow(tbl).Layout(win, gtx)
+				},
+				func(gtx layout.Context) layout.Dimensions {
+					return list.Layout(gtx, nrows, func(gtx layout.Context, index int) layout.Dimensions {
+						return TableSimpleRow(tbl).Layout(win, gtx, index, func(win *Window, gtx layout.Context, row, col int) layout.Dimensions {
+							return cellFn(win, gtx, row, col)
+						})
+					})
+				},
+			)
+		})
+	})
+}
