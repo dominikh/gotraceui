@@ -21,26 +21,40 @@ import (
 
 // TODO(dh): this should be in package widget
 type Table struct {
-	ColumnNames  []string
-	ColumnWidths []float32
+	Columns []Column
 
 	prevMetric   unit.Metric
 	prevMaxWidth int
 	drags        []tableDrag
 }
 
-func (tbl *Table) SetColumns(win *Window, gtx layout.Context, names ...string) {
+type Column struct {
+	Name      string
+	Width     float32
+	Alignment text.Alignment
+}
+
+func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 	var (
-		total = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width()) - len(names)*gtx.Dp(DefaultDividerWidth)
-		width = float32(total) / float32(len(names))
+		total = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width()) - len(cols)*gtx.Dp(DefaultDividerWidth)
+		width = float32(total) / float32(len(cols))
 	)
 
-	tbl.ColumnNames = make([]string, len(names))
-	tbl.ColumnWidths = make([]float32, len(names))
-	for i, name := range names {
-		tbl.ColumnNames[i] = name
-		tbl.ColumnWidths[i] = width
+	allZero := true
+	for _, col := range cols {
+		if col.Width != 0 {
+			allZero = false
+			break
+		}
 	}
+
+	if allZero {
+		for i := range cols {
+			cols[i].Width = width
+		}
+	}
+
+	tbl.Columns = cols
 
 	tbl.prevMaxWidth = gtx.Constraints.Max.X
 	tbl.prevMetric = gtx.Metric
@@ -56,9 +70,10 @@ func (tbl *Table) Resize(win *Window, gtx layout.Context) {
 		available    = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width())
 	)
 
-	for i, width := range tbl.ColumnWidths {
-		r := float32(width) / float32(oldAvailable)
-		tbl.ColumnWidths[i] = r * float32(available)
+	for i := range tbl.Columns {
+		col := &tbl.Columns[i]
+		r := float32(col.Width) / float32(oldAvailable)
+		col.Width = r * float32(available)
 	}
 
 	tbl.prevMaxWidth = gtx.Constraints.Max.X
@@ -88,7 +103,7 @@ const DefaultDividerWidth unit.Dp = 1
 
 func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Window, gtx layout.Context, idx int) layout.Dimensions) layout.Dimensions {
 	var (
-		cols          = len(row.Table.ColumnNames)
+		cols          = len(row.Table.Columns)
 		dividers      = cols
 		tallestHeight = gtx.Constraints.Min.Y
 
@@ -112,6 +127,7 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 	// OPT(dh): we don't need to do this for each row, only once per table
 	for i := range row.Table.drags {
 		drag := &row.Table.drags[i]
+		col := &row.Table.Columns[i]
 		drag.hover.Update(gtx.Queue)
 		// OPT(dh): Events allocates
 		var delta float32
@@ -127,10 +143,10 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			}
 		}
 		if delta != 0 {
-			colWidth := &row.Table.ColumnWidths[i]
+			colWidth := &col.Width
 			*colWidth += delta
-			if drag.shrinkNeighbor && i != len(row.Table.ColumnNames)-1 {
-				nextColWidth := &row.Table.ColumnWidths[i+1]
+			if drag.shrinkNeighbor && i != len(row.Table.Columns)-1 {
+				nextColWidth := &row.Table.Columns[i+1].Width
 				*nextColWidth -= delta
 				if *colWidth < minWidth {
 					d := minWidth - *colWidth
@@ -149,12 +165,12 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			}
 
 			total := 0
-			for _, w := range row.Table.ColumnWidths {
-				total += int(w)
+			for _, col := range row.Table.Columns {
+				total += int(col.Width)
 			}
-			total += len(row.Table.ColumnWidths) * gtx.Dp(DefaultDividerWidth)
+			total += len(row.Table.Columns) * gtx.Dp(DefaultDividerWidth)
 			if total < gtx.Constraints.Min.X {
-				row.Table.ColumnWidths[len(row.Table.ColumnWidths)-1] += float32(gtx.Constraints.Min.X - total)
+				row.Table.Columns[len(row.Table.Columns)-1].Width += float32(gtx.Constraints.Min.X - total)
 			}
 		}
 	}
@@ -166,8 +182,8 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			origTallestHeight = tallestHeight
 		)
 		r := op.Record(gtx.Ops)
-		for i := range row.Table.ColumnWidths {
-			colWidth := int((row.Table.ColumnWidths[i]))
+		for i := range row.Table.Columns {
+			colWidth := int((row.Table.Columns[i].Width))
 			gtx := gtx
 			gtx.Constraints.Min.X = colWidth
 			gtx.Constraints.Max.X = colWidth
@@ -202,7 +218,7 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 		for i := range row.Table.drags {
 			var (
 				drag     = &row.Table.drags[i]
-				colWidth = int((row.Table.ColumnWidths[i]))
+				colWidth = int((row.Table.Columns[i].Width))
 			)
 			dividerStart += colWidth
 
@@ -262,7 +278,7 @@ func FauxTableRow(tbl *Table, bg color.NRGBA) FauxTableRowStyle {
 
 func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Window, gtx layout.Context) layout.Dimensions) layout.Dimensions {
 	var (
-		cols     = len(row.Table.ColumnNames)
+		cols     = len(row.Table.Columns)
 		dividers = cols
 
 		dividerWidth = gtx.Dp(DefaultDividerWidth)
@@ -276,10 +292,10 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win 
 	}
 
 	var totalWidth int
-	for _, colWidth := range row.Table.ColumnWidths {
-		totalWidth += int((colWidth))
+	for _, col := range row.Table.Columns {
+		totalWidth += int((col.Width))
 	}
-	totalWidth += len(row.Table.ColumnWidths) * dividerWidth
+	totalWidth += len(row.Table.Columns) * dividerWidth
 
 	r := Record(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		ngtx := gtx
@@ -294,7 +310,7 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win 
 	// Then draw the drag handlers. The handlers overdraw the columns when hovered.
 	dividerStart := 0
 	for i := range row.Table.drags {
-		dividerStart += int((row.Table.ColumnWidths[i]))
+		dividerStart += int((row.Table.Columns[i].Width))
 
 		// We add the drag handler slightly outside the drawn divider, to make it easier to press.
 		//
@@ -395,11 +411,7 @@ func TableHeaderRow(tbl *Table) TableHeaderRowStyle {
 	return TableHeaderRowStyle{Table: tbl}
 }
 
-// XXX having columns and rightAlign is awkward. have a Column abstraction
-func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context, columns []string, rightAlign []bool) layout.Dimensions {
-	if len(columns) != len(row.Table.ColumnNames) {
-		panic("wrong number of columns")
-	}
+func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	return TableRow(row.Table, true).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
 		var (
 			f          = font.Font{Weight: font.ExtraBold}
@@ -414,10 +426,8 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context, columns [
 
 		layout.Inset{Top: paddingDp, Bottom: paddingDp + borderDp, Left: paddingDp, Right: paddingDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			l := widget.Label{MaxLines: 1, Alignment: text.Start}
-			if rightAlign[col] {
-				l.Alignment = text.End
-			}
-			return l.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, columns[col], fg)
+			l.Alignment = row.Table.Columns[col].Alignment
+			return l.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, row.Table.Columns[col].Name, fg)
 		})
 
 		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.Divider, clip.Rect{Min: image.Pt(0, height-gtx.Dp(borderDp)), Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())

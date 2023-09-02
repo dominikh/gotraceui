@@ -1013,7 +1013,12 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 
 	if gs.table == nil {
 		gs.table = &theme.Table{}
-		gs.table.SetColumns(win, gtx, "Goroutine", "Start time", "Duration")
+		cols := []theme.Column{
+			{Name: "Goroutine", Alignment: text.End},
+			{Name: "Start time", Alignment: text.End},
+			{Name: "Duration", Alignment: text.End},
+		}
+		gs.table.SetColumns(win, gtx, cols)
 
 		// Find space needed for largest goroutine ID
 		n := len(goroutines)
@@ -1044,9 +1049,9 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		}
 
 		w += gtx.Dp(5) * 2
-		d := float32(w) - gs.table.ColumnWidths[0]
-		gs.table.ColumnWidths[0] = float32(w)
-		gs.table.ColumnWidths[1] = max(0, gs.table.ColumnWidths[1]-float32(d))
+		d := float32(w) - gs.table.Columns[0].Width
+		gs.table.Columns[0].Width = float32(w)
+		gs.table.Columns[1].Width = max(0, gs.table.Columns[1].Width-float32(d))
 	}
 
 	gs.table.Resize(win, gtx)
@@ -1096,7 +1101,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 	return theme.YScrollableList(&gs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
 		return layout.Rigids(gtx, layout.Vertical,
 			func(gtx layout.Context) layout.Dimensions {
-				return theme.TableHeaderRow(gs.table).Layout(win, gtx, gs.table.ColumnNames, []bool{true, true, true})
+				return theme.TableHeaderRow(gs.table).Layout(win, gtx)
 			},
 
 			func(gtx layout.Context) layout.Dimensions {
