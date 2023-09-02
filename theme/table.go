@@ -170,6 +170,7 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			start             = 0
 			origTallestHeight = tallestHeight
 		)
+		r := op.Record(gtx.Ops)
 		for i := range row.Table.ColumnWidths {
 			colWidth := int((row.Table.ColumnWidths[i]))
 			gtx := gtx
@@ -186,10 +187,13 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			start += colWidth + dividerWidth
 			stack.Pop()
 		}
+		call := r.Stop()
 
 		if tallestHeight > origTallestHeight {
 			continue
 		}
+
+		call.Add(gtx.Ops)
 
 		// Then draw the drag handlers. The handlers overdraw the columns when hovered.
 		dividerStart := 0
