@@ -253,14 +253,14 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 	// add padding
 	widestCheckbox.Dimensions.Size.X += gtx.Dp(10)
 
-	ret := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	ret := layout.Rigids(gtx, layout.Vertical,
+		func(gtx layout.Context) layout.Dimensions {
 			return outlay.FlowWrap{}.Layout(gtx, len(checkboxes), func(gtx layout.Context, i int) layout.Dimensions {
 				checkboxes[i].Layout(win, gtx)
 				return widestCheckbox.Dimensions
 			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		},
+		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = gtx.Constraints.Max
 
 			tbl := theme.TableListStyle{
@@ -270,7 +270,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 			}
 
 			return tbl.Layout(win, gtx, evs.filteredEvents.Len(), cellFn)
-		}),
+		},
 	)
 
 	evs.texts.Truncate(txtCnt)

@@ -165,8 +165,8 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 	defer rtrace.StartRegion(context.Background(), "theme.CheckBoxStyle.Layout").End()
 
 	return c.Checkbox.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Horizontal,
+			func(gtx layout.Context) layout.Dimensions {
 				sizeDp := gtx.Metric.SpToDp(c.TextSize)
 				sizePx := gtx.Dp(sizeDp)
 
@@ -191,13 +191,13 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 
 					return layout.Dimensions{Size: gtx.Constraints.Min}
 				})
-			}),
+			},
 
-			layout.Rigid(layout.Spacer{Width: 3}.Layout),
+			layout.Spacer{Width: 3}.Layout,
 
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			func(gtx layout.Context) layout.Dimensions {
 				return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, c.TextSize, c.Label, widget.ColorTextMaterial(gtx, c.TextColor))
-			}),
+			},
 		)
 	})
 }
@@ -261,11 +261,11 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 	sizeDp := gtx.Metric.SpToDp(chkgrp.TextSize)
 	sizePx := gtx.Dp(sizeDp)
 
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	dims := layout.Rigids(gtx, layout.Vertical,
+		func(gtx layout.Context) layout.Dimensions {
 			return chkgrp.Clickable.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Rigids(gtx, layout.Horizontal,
+					func(gtx layout.Context) layout.Dimensions {
 						ngtx := gtx
 						ngtx.Constraints = layout.Exact(image.Pt(sizePx, sizePx))
 						return widget.Border{
@@ -301,32 +301,32 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 
 							return layout.Dimensions{Size: gtx.Constraints.Min}
 						})
-					}),
+					},
 
-					layout.Rigid(layout.Spacer{Width: 3}.Layout),
+					layout.Spacer{Width: 3}.Layout,
 
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					func(gtx layout.Context) layout.Dimensions {
 						return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, chkgrp.TextSize, chkgrp.Label, widget.ColorTextMaterial(gtx, chkgrp.TextColor))
-					}),
+					},
 				)
 			})
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			var children []layout.FlexChild
+		func(gtx layout.Context) layout.Dimensions {
+			var children []layout.Widget
 			if len(checkboxes) <= 16 {
 				// Specifying a constant capacity allows the slice to be stack-allocated.
-				children = make([]layout.FlexChild, len(checkboxes), 16)
+				children = make([]layout.Widget, len(checkboxes), 16)
 			} else {
-				children = make([]layout.FlexChild, len(checkboxes))
+				children = make([]layout.Widget, len(checkboxes))
 			}
 			for i := range checkboxes {
-				children[i] = layout.Rigid(Dumb(win, checkboxes[i].Layout))
+				children[i] = Dumb(win, checkboxes[i].Layout)
 			}
 			return layout.Inset{Left: sizeDp + 3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+				return layout.Rigids(gtx, layout.Vertical, children...)
 			})
-		}),
+		},
 	)
 
 	for {

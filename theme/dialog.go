@@ -76,24 +76,24 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 
 	return widget.Border{Width: ds.BorderWidth, Color: ds.BorderColor}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.UniformInset(ds.BorderWidth).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Rigids(gtx, layout.Vertical,
+				func(gtx layout.Context) layout.Dimensions {
 					defer clip.Rect{Max: image.Pt(wDims.Size.X+gtx.Dp(ds.Padding)*2, labelDims.Size.Y+gtx.Dp(ds.TitlePadding)*2)}.Push(gtx.Ops).Pop()
 					paint.Fill(gtx.Ops, ds.TitleBackground)
 					return layout.UniformInset(ds.TitlePadding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						labelCall.Add(gtx.Ops)
 						return labelDims
 					})
-				}),
+				},
 
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				func(gtx layout.Context) layout.Dimensions {
 					defer clip.Rect{Max: image.Pt(wDims.Size.X+gtx.Dp(ds.Padding)*2, wDims.Size.Y+gtx.Dp(ds.Padding)*2)}.Push(gtx.Ops).Pop()
 					paint.Fill(gtx.Ops, ds.Background)
 					return layout.UniformInset(ds.Padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						wCall.Add(gtx.Ops)
 						return wDims
 					})
-				}),
+				},
 			)
 		})
 	})

@@ -186,26 +186,26 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, s, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 	}
 
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	dims := layout.Rigids(gtx, layout.Vertical,
+		func(gtx layout.Context) layout.Dimensions {
 			return settingLabel("Number of bins")
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			tb := theme.TextBox(win.Theme, &hs.State.numBinsEditor, "Number of bins")
 			tb.Validate = validateNumBins
 			return tb.Layout(gtx)
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Spacer{Height: 5}.Layout(gtx)
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return settingLabel("Filter outliers")
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			ngtx := gtx
 			ngtx.Constraints.Min = image.Point{}
 			dims := theme.Switch(&hs.State.filterOutliers, "No", "Yes").Layout(win, ngtx)
@@ -213,13 +213,13 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 				Size:     gtx.Constraints.Constrain(dims.Size),
 				Baseline: dims.Baseline,
 			}
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Spacer{Height: 10}.Layout(gtx)
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					btn := theme.Button(win.Theme, &hs.State.save.Clickable, "Save settings")
@@ -239,7 +239,7 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 					return theme.Button(win.Theme, &hs.State.cancel.Clickable, "Cancel").Layout(win, gtx)
 				}),
 			)
-		}),
+		},
 	)
 
 	for hs.State.save.Clicked() {

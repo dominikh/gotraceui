@@ -4,10 +4,10 @@ import (
 	"context"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
-	"gioui.org/layout"
 )
 
 type TableListColumn struct {
@@ -43,12 +43,12 @@ func (tbl *TableListStyle) Layout(
 	}
 
 	return st.Layout(gtx, numItems+1, func(gtx layout.Context, index int) layout.Dimensions {
-		rigids := make([]layout.FlexChild, len(tbl.Columns))
+		rigids := make([]layout.Widget, len(tbl.Columns))
 
 		for i, col := range tbl.Columns {
 			i := i
 			col := col
-			rigids[i] = layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			rigids[i] = func(gtx layout.Context) layout.Dimensions {
 				if col.MinWidth != 0 {
 					gtx.Constraints.Min.X = col.MinWidth
 				}
@@ -59,9 +59,9 @@ func (tbl *TableListStyle) Layout(
 				dims := ourCellFn(gtx, index, i)
 				dims.Size.X += tbl.ColumnPadding
 				return dims
-			})
+			}
 		}
 
-		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, rigids...)
+		return layout.Rigids(gtx, layout.Horizontal, rigids...)
 	})
 }

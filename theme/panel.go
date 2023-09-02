@@ -102,14 +102,14 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 	}
 
 	var cmds CommandSlice
-	children := make([]layout.FlexChild, 0, 3)
+	children := make([]layout.Widget, 0, 3)
 	for _, btn := range buttons {
 		btn := btn
 		children = append(children,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			func(gtx layout.Context) layout.Dimensions {
 				return Button(win.Theme, &btn.w.Clickable, btn.label).Layout(win, gtx)
-			}),
-			layout.Rigid(layout.Spacer{Width: 5}.Layout),
+			},
+			layout.Spacer{Width: 5}.Layout,
 		)
 
 		cmd := btn.cmd
@@ -124,7 +124,7 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 	}
 
 	win.AddCommandProvider(CommandSlice(cmds))
-	return layout.Flex{}.Layout(gtx, children...)
+	return layout.Rigids(gtx, layout.Horizontal, children...)
 }
 
 // WidgetPanel turns any widget into a Panel. You are responsible for handling panel button events.
@@ -136,5 +136,5 @@ type WidgetPanel struct {
 func (wp *WidgetPanel) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.WidgetPanel.Layout").End()
 
-	return layout.Flex{}.Layout(gtx, layout.Rigid(Dumb(win, wp.PanelButtons.Layout)), layout.Rigid(Dumb(win, wp.w)))
+	return layout.Rigids(gtx, layout.Horizontal, Dumb(win, wp.PanelButtons.Layout), Dumb(win, wp.w))
 }

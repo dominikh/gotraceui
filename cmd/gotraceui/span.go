@@ -358,8 +358,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			si.initialized = true
 		}
 
-		dims = layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		dims = layout.Rigids(gtx, layout.Vertical,
+			func(gtx layout.Context) layout.Dimensions {
 				type button struct {
 					w     *widget.Clickable
 					label string
@@ -430,10 +430,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				// panel contents, nor the infinite width of a possible surrounding list.
 				gtx.Constraints.Max.X = gtx.Constraints.Min.X
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
-			}),
+			},
 
-			layout.Rigid(layout.Spacer{Height: 10}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			layout.Spacer{Height: 10}.Layout,
+			func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
 				si.descriptionText.Reset(win.Theme)
 				desc, cp := si.descriptionBuilder(win, gtx)
@@ -441,17 +441,17 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					win.AddCommandProvider(cp)
 				}
 				return desc.Layout(win, gtx, &si.descriptionText)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			},
+			func(gtx layout.Context) layout.Dimensions {
 				if spans.Len() == 1 && spans.At(0).State == ptrace.StateUserRegion {
 					gtx.Constraints.Min = image.Point{}
 					return theme.Button(win.Theme, &si.buttons.selectUserRegion.Clickable, "Select user region").Layout(win, gtx)
 				}
 				return layout.Dimensions{}
-			}),
+			},
 
-			layout.Rigid(layout.Spacer{Height: 10}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			layout.Spacer{Height: 10}.Layout,
+			func(gtx layout.Context) layout.Dimensions {
 				tabs := []string{"Statistics", "Spans"}
 				if si.eventsList.Events.Len() != 0 {
 					tabs = append(tabs, "Events")
@@ -477,8 +477,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						})
 
 					case "Statistics":
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Rigids(gtx, layout.Vertical,
+							func(gtx layout.Context) layout.Dimensions {
 								return theme.List(win.Theme, &si.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 									if index != 0 {
 										panic("impossible")
@@ -489,14 +489,14 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 										return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 									}
 								})
-							}),
+							},
 
-							layout.Rigid(layout.Spacer{Height: 1}.Layout),
+							layout.Spacer{Height: 1}.Layout,
 
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = 0
 								return theme.Button(win.Theme, &si.buttons.copyAsCSV.Clickable, "Copy as CSV").Layout(win, gtx)
-							}),
+							},
 						)
 
 					case "Spans":
@@ -512,11 +512,11 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						panic("impossible")
 					}
 				})
-			}),
+			},
 		)
 	} else {
-		dims = layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		dims = layout.Rigids(gtx, layout.Vertical,
+			func(gtx layout.Context) layout.Dimensions {
 				children := []layout.FlexChild{
 					layout.Flexed(1, nothing),
 					layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)),
@@ -526,14 +526,14 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				// panel contents, nor the infinite width of a possible surrounding list.
 				gtx.Constraints.Max.X = gtx.Constraints.Min.X
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
-			}),
+			},
 
-			layout.Rigid(layout.Spacer{Height: 10}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			layout.Spacer{Height: 10}.Layout,
+			func(gtx layout.Context) layout.Dimensions {
 				l := "Collecting spans" + textSpinner(gtx.Now)
 				op.InvalidateOp{}.Add(gtx.Ops)
 				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
-			}),
+			},
 		)
 	}
 

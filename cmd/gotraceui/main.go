@@ -556,14 +556,14 @@ func (mwin *MainWindow) renderStartScene(win *theme.Window, gtx layout.Context) 
 	}
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Vertical,
+			func(gtx layout.Context) layout.Dimensions {
 				return layout.Center.Layout(gtx, widget.Image{Src: assets.Image(gtx, "logo", 128), Scale: 1.0 / gtx.Metric.PxPerDp}.Layout)
-			}),
+			},
 
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			func(gtx layout.Context) layout.Dimensions {
 				return layout.Center.Layout(gtx, theme.Dumb(win, theme.Button(win.Theme, &mwin.openTraceButton.Clickable, "Open trace").Layout))
-			}),
+			},
 		)
 	})
 }

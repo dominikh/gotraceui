@@ -265,8 +265,8 @@ func (hd *HighlightDialogStyle) Layout(win *theme.Window, gtx layout.Context) la
 
 	return theme.List(win.Theme, &hd.list).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 		return theme.Foldable(win.Theme, &hd.foldables.states, "States").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Rigids(gtx, layout.Vertical,
+				func(gtx layout.Context) layout.Dimensions {
 					return theme.CheckBoxGroup(win.Theme, &hd.stateClickables[0], "General").Layout(win, gtx,
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateInactive], stateNamesCapitalized[ptrace.StateInactive]),
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateActive], stateNamesCapitalized[ptrace.StateActive]),
@@ -275,8 +275,8 @@ func (hd *HighlightDialogStyle) Layout(win *theme.Window, gtx layout.Context) la
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateCreated], stateNamesCapitalized[ptrace.StateCreated]),
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateDone], stateNamesCapitalized[ptrace.StateDone]),
 					)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				},
+				func(gtx layout.Context) layout.Dimensions {
 					return theme.CheckBoxGroup(win.Theme, &hd.stateClickables[1], "GC").Layout(win, gtx,
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCIdle], stateNamesCapitalized[ptrace.StateGCIdle]),
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateGCDedicated], stateNamesCapitalized[ptrace.StateGCDedicated]),
@@ -286,8 +286,8 @@ func (hd *HighlightDialogStyle) Layout(win *theme.Window, gtx layout.Context) la
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyncTriggeringGC], stateNamesCapitalized[ptrace.StateBlockedSyncTriggeringGC]),
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedGC], stateNamesCapitalized[ptrace.StateBlockedGC]),
 					)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				},
+				func(gtx layout.Context) layout.Dimensions {
 					return theme.CheckBoxGroup(win.Theme, &hd.stateClickables[2], "Blocked").Layout(win, gtx,
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlocked], stateNamesCapitalized[ptrace.StateBlocked]),
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSend], stateNamesCapitalized[ptrace.StateBlockedSend]),
@@ -299,7 +299,7 @@ func (hd *HighlightDialogStyle) Layout(win *theme.Window, gtx layout.Context) la
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedNet], stateNamesCapitalized[ptrace.StateBlockedNet]),
 						theme.CheckBox(win.Theme, &hd.bits[ptrace.StateBlockedSyscall], stateNamesCapitalized[ptrace.StateBlockedSyscall]),
 					)
-				}),
+				},
 			)
 		})
 	})

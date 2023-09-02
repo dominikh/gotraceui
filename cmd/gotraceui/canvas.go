@@ -885,9 +885,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 
 		// Draw axis, memory graph, timelines, and scrollbar
-		layout.Flex{Axis: layout.Vertical, WeightSum: 1}.Layout(gtx,
+		layout.Rigids(gtx, layout.Vertical,
 			// Axis
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			func(gtx layout.Context) layout.Dimensions {
 				// Note that even though the axis is wider than the timelines (because timelines have a scrollbar), the
 				// mapping of timestamp to pixel position is still correct, because it gets computed earlier, by using
 				// Canvas.VisibleWidth.
@@ -920,9 +920,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				dims := cv.axis.Layout(win, gtx)
 
 				return dims
-			}),
+			},
 
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			func(gtx layout.Context) layout.Dimensions {
 				return theme.Resize(win.Theme, &cv.resizeMemoryTimelines).Layout(win, gtx,
 					// Memory graph
 					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -967,7 +967,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 						)
 					},
 				)
-			}),
+			},
 		)
 
 		// Draw zoom selection

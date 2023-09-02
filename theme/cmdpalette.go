@@ -185,18 +185,18 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 	return widget.Background{
 		Color: bg.NRGBA(),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Horizontal,
+			func(gtx layout.Context) layout.Dimensions {
 				if !current {
 					return layout.Dimensions{}
 				}
 
 				paint.FillShape(gtx.Ops, rgba(0x000000FF), clip.Rect{Max: image.Pt(gtx.Dp(indicatorWidth), right.Dimensions.Size.Y)}.Op())
 				return layout.Dimensions{Size: image.Pt(gtx.Dp(indicatorWidth), right.Dimensions.Size.Y)}
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			},
+			func(gtx layout.Context) layout.Dimensions {
 				return right.Layout(win, gtx)
-			}),
+			},
 		)
 	})
 }
@@ -269,8 +269,8 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 			gtx.Constraints.Min.Y = 0
 			gtx.Constraints.Max.Y = maxHeight
 
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Rigids(gtx, layout.Vertical,
+				func(gtx layout.Context) layout.Dimensions {
 					return layout.UniformInset(outerPadding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return widget.Background{
 							Color: rgba(0xFFFFFFFF),
@@ -286,16 +286,16 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 							return layout.UniformInset(outerPadding).Layout(ngtx, editor.Layout)
 						})
 					})
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				},
+				func(gtx layout.Context) layout.Dimensions {
 					size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(separatorHeight))
 					defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 					paint.Fill(gtx.Ops, rgba(borderColor))
 					return layout.Dimensions{
 						Size: size,
 					}
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				},
+				func(gtx layout.Context) layout.Dimensions {
 					cnt := 0
 					return List(win.Theme, &pl.list).Layout(gtx, len(pl.filtered), func(gtx layout.Context, index int) layout.Dimensions {
 						if len(pl.tags) <= cnt {
@@ -341,7 +341,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 							}),
 						)
 					})
-				}),
+				},
 			)
 		})
 	})
