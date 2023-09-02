@@ -203,3 +203,13 @@ func RightAligned(gtx Context, w Widget) layout.Dimensions {
 		Size: gtx.Constraints.Min,
 	}
 }
+
+func Overlay(gtx Context, w1 Widget, w2 Widget) layout.Dimensions {
+	dims := w1(gtx)
+
+	gtx.Constraints.Min = dims.Size
+	gtx.Constraints.Max = dims.Size
+	w2(gtx)
+
+	return dims
+}
