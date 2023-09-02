@@ -148,35 +148,35 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 
 	tabs := []string{"Goroutines", "Histogram"}
 
-	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	dims := layout.Rigids(gtx, layout.Vertical,
+		func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 				layout.Flexed(1, nothing),
 				layout.Rigid(theme.Dumb(win, fi.PanelButtons.Layout)),
 			)
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) }),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) },
+		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
 			fi.descriptionText.Reset(win.Theme)
 			return fi.buildDescription(win, gtx).Layout(win, gtx, &fi.descriptionText)
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) }),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) },
+		func(gtx layout.Context) layout.Dimensions {
 			return theme.Tabbed(&fi.tabbedState, tabs).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = gtx.Constraints.Max
 				switch tabs[fi.tabbedState.Current] {
 				case "Goroutines":
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Rigids(gtx, layout.Vertical,
+						func(gtx layout.Context) layout.Dimensions {
 							return theme.CheckBox(win.Theme, &fi.filterGoroutines, "Filter list to range of durations selected in histogram").Layout(win, gtx)
-						}),
+						},
 
-						layout.Rigid(layout.Spacer{Height: 5}.Layout),
+						layout.Spacer{Height: 5}.Layout,
 
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						func(gtx layout.Context) layout.Dimensions {
 							var gs []*ptrace.Goroutine
 							if fi.filterGoroutines.Value {
 								gs = fi.histGoroutines
@@ -184,7 +184,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 								gs = fi.fn.Goroutines
 							}
 							return fi.goroutineList.Layout(win, gtx, gs)
-						}),
+						},
 					)
 				case "Histogram":
 					return fi.hist.Layout(win, gtx)
@@ -192,7 +192,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 					panic("unreachable")
 				}
 			})
-		}),
+		},
 	)
 
 	for _, ev := range fi.goroutineList.Clicked() {
