@@ -470,11 +470,11 @@ func (row TableSimpleRowStyle) Layout(win *Window, gtx layout.Context, rowIdx in
 
 	return layout.Overlay(gtx,
 		func(gtx layout.Context) layout.Dimensions {
-			return TableRow(row.Table, false).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
-				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+			return widget.Background{Color: c}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return TableRow(row.Table, false).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
+					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-				const padding = 3
-				return widget.Background{Color: c}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					const padding = 3
 					dims := layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.Y = 0
 						return cellFn(win, gtx, rowIdx, col)
