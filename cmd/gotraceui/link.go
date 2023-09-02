@@ -539,12 +539,12 @@ func (l *ZoomToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.At(0).Start, LastSpan(l.Spans).End, mwin.canvas.animateTo.targetY)
 }
 
-func handleLinkClick(win *theme.Window, ev TextEvent) {
-	if ev.Event.Type == gesture.TypeClick && ev.Event.Button == pointer.ButtonPrimary {
-		link := ev.Span.ObjectLink.Action(ev.Event.Modifiers)
+func handleLinkClick(win *theme.Window, ev gesture.ClickEvent, link ObjectLink) {
+	if ev.Type == gesture.TypeClick && ev.Button == pointer.ButtonPrimary {
+		link := link.Action(ev.Modifiers)
 		win.EmitAction(link)
-	} else if ev.Event.Type == gesture.TypePress && ev.Event.Button == pointer.ButtonSecondary {
-		menu := ev.Span.ObjectLink.ContextMenu()
+	} else if ev.Type == gesture.TypePress && ev.Button == pointer.ButtonSecondary {
+		menu := link.ContextMenu()
 		if len(menu) != 0 {
 			win.SetContextMenu(menu)
 		}

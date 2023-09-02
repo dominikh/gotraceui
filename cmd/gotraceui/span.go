@@ -544,13 +544,13 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 
 	for _, ev := range si.descriptionText.Events() {
-		handleLinkClick(win, ev)
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
 	for _, ev := range si.eventsList.Clicked() {
-		handleLinkClick(win, ev)
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
 	for _, ev := range si.spansList.Clicked() {
-		handleLinkClick(win, ev)
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
 	si.hoveredLink = firstNonNil(
 		si.descriptionText.Hovered(),
@@ -677,6 +677,7 @@ type SpanList struct {
 	Spans Items[ptrace.Span]
 	list  widget.List
 
+	// FIXME(dh): OPT we're not actually using timestampObjects. And our use of defaultObjectLink allocates.
 	timestampObjects mem.BucketSlice[trace.Timestamp]
 	texts            mem.BucketSlice[Text]
 }
