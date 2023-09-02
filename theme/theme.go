@@ -59,11 +59,12 @@ type Palette struct {
 	}
 
 	Table struct {
-		EvenRowBackground color.NRGBA
-		OddRowBackground  color.NRGBA
-		HeaderBackground  color.NRGBA
-		Divider           color.NRGBA
-		DragHandle        color.NRGBA
+		EvenRowBackground    color.NRGBA
+		OddRowBackground     color.NRGBA
+		HoveredRowBackground color.NRGBA
+		HeaderBackground     color.NRGBA
+		Divider              color.NRGBA
+		DragHandle           color.NRGBA
 	}
 }
 
@@ -100,17 +101,19 @@ var DefaultPalette = Palette{
 	},
 
 	Table: struct {
-		EvenRowBackground color.NRGBA
-		OddRowBackground  color.NRGBA
-		HeaderBackground  color.NRGBA
-		Divider           color.NRGBA
-		DragHandle        color.NRGBA
+		EvenRowBackground    color.NRGBA
+		OddRowBackground     color.NRGBA
+		HoveredRowBackground color.NRGBA
+		HeaderBackground     color.NRGBA
+		Divider              color.NRGBA
+		DragHandle           color.NRGBA
 	}{
-		EvenRowBackground: rgba(0xFFFFEAFF),
-		OddRowBackground:  rgba(0xFFFFEAFF),
-		HeaderBackground:  rgba(0xF5F5E1FF),
-		Divider:           rgba(0xBEBEBEFF),
-		DragHandle:        rgba(0x000000FF),
+		EvenRowBackground:    rgba(0xFFFFEAFF),
+		OddRowBackground:     rgba(0xFFFFEAFF),
+		HoveredRowBackground: rgba(0xF2F2E0FF),
+		HeaderBackground:     rgba(0xF5F5E1FF),
+		Divider:              rgba(0xBEBEBEFF),
+		DragHandle:           rgba(0x000000FF),
 	},
 }
 

@@ -1054,7 +1054,6 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		gs.table.Columns[1].Width = max(0, gs.table.Columns[1].Width-float32(d))
 	}
 
-	gs.table.Resize(win, gtx)
 	gs.timestampObjects.Reset()
 
 	var txtCnt int
@@ -1098,21 +1097,22 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		return dims
 	}
 
-	return theme.YScrollableList(&gs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
-		return layout.Rigids(gtx, layout.Vertical,
-			func(gtx layout.Context) layout.Dimensions {
-				return theme.TableHeaderRow(gs.table).Layout(win, gtx)
-			},
+	return gs.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		return theme.YScrollableList(&gs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
+			return layout.Rigids(gtx, layout.Vertical,
+				func(gtx layout.Context) layout.Dimensions {
+					return theme.TableHeaderRow(gs.table).Layout(win, gtx)
+				},
 
-			func(gtx layout.Context) layout.Dimensions {
-				return list.Layout(gtx, len(goroutines), func(gtx layout.Context, index int) layout.Dimensions {
-					return theme.TableSimpleRow(gs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
-						// g := goroutines[row]
-						return cellFn(gtx, row, col)
+				func(gtx layout.Context) layout.Dimensions {
+					return list.Layout(gtx, len(goroutines), func(gtx layout.Context, index int) layout.Dimensions {
+						return theme.TableSimpleRow(gs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+							return cellFn(gtx, row, col)
+						})
 					})
-				})
-			},
-		)
+				},
+			)
+		})
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
@@ -26,6 +27,7 @@ type Table struct {
 	prevMetric   unit.Metric
 	prevMaxWidth int
 	drags        []tableDrag
+	rowHovers    mem.BucketSlice[gesture.Hover]
 }
 
 type Column struct {
@@ -60,7 +62,13 @@ func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 	tbl.prevMetric = gtx.Metric
 }
 
-func (tbl *Table) Resize(win *Window, gtx layout.Context) {
+func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	tbl.resize(win, gtx)
+	tbl.rowHovers.Reset()
+	return w(win, gtx)
+}
+
+func (tbl *Table) resize(win *Window, gtx layout.Context) {
 	if gtx.Constraints.Max.X == tbl.prevMaxWidth {
 		return
 	}
@@ -451,21 +459,41 @@ func (row TableSimpleRowStyle) Layout(win *Window, gtx layout.Context, rowIdx in
 		c = win.Theme.Palette.Table.OddRowBackground
 	}
 
-	return TableRow(row.Table, false).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
-		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	if rowIdx >= row.Table.rowHovers.Len() {
+		row.Table.rowHovers.GrowN(rowIdx - row.Table.rowHovers.Len() + 1)
+	}
+	hover := row.Table.rowHovers.Ptr(rowIdx)
+	hover.Update(gtx.Queue)
+	if hover.Hovered() {
+		c = win.Theme.Palette.Table.HoveredRowBackground
+	}
 
-		const padding = 3
-		return widget.Background{Color: c}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			dims := layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.Y = 0
-				return cellFn(win, gtx, rowIdx, col)
+	return layout.Overlay(gtx,
+		func(gtx layout.Context) layout.Dimensions {
+			return TableRow(row.Table, false).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+
+				const padding = 3
+				return widget.Background{Color: c}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					dims := layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min.Y = 0
+						return cellFn(win, gtx, rowIdx, col)
+					})
+
+					return layout.Dimensions{
+						Size: gtx.Constraints.Constrain(dims.Size),
+					}
+				})
 			})
-
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+			hover.Add(gtx.Ops)
 			return layout.Dimensions{
-				Size: gtx.Constraints.Constrain(dims.Size),
+				Size: gtx.Constraints.Min,
 			}
-		})
-	})
+		},
+	)
 }
 
 func TableExpandedRow(tbl *Table) TableExpandedRowStyle {

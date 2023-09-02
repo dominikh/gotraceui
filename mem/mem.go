@@ -29,6 +29,13 @@ func (l *BucketSlice[T]) Grow() *T {
 	return ptr
 }
 
+// GrowN grows the slice by n elements.
+func (l *BucketSlice[T]) GrowN(n int) {
+	for i := 0; i < n; i++ {
+		l.Grow()
+	}
+}
+
 // Append appends v to the slice and returns a pointer to the new element.
 func (l *BucketSlice[T]) Append(v T) *T {
 	ptr := l.Grow()
