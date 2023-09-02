@@ -187,3 +187,19 @@ func WithCursor(gtx Context, p pointer.Cursor, w Widget) layout.Dimensions {
 	m.Add(gtx.Ops)
 	return dims
 }
+
+func RightAligned(gtx Context, w Widget) layout.Dimensions {
+	ngtx := gtx
+	r := op.Record(gtx.Ops)
+	ngtx.Constraints.Min.X = 0
+	dims := w(ngtx)
+	m := r.Stop()
+
+	if dims.Size.X < gtx.Constraints.Min.X {
+		defer op.Offset(image.Pt(gtx.Constraints.Min.X-dims.Size.X, 0)).Push(gtx.Ops).Pop()
+	}
+	m.Add(gtx.Ops)
+	return layout.Dimensions{
+		Size: gtx.Constraints.Min,
+	}
+}
