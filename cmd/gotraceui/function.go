@@ -174,7 +174,9 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 							return theme.CheckBox(win.Theme, &fi.filterGoroutines, "Filter list to range of durations selected in histogram").Layout(win, gtx)
 						}),
 
-						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						layout.Rigid(layout.Spacer{Height: 5}.Layout),
+
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							var gs []*ptrace.Goroutine
 							if fi.filterGoroutines.Value {
 								gs = fi.histGoroutines
@@ -233,7 +235,8 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.Histogra
 }
 
 type GoroutineList struct {
-	list widget.List
+	table       *theme.Table
+	scrollState theme.YScrollableListState
 
 	timestampObjects mem.BucketSlice[trace.Timestamp]
 	texts            mem.BucketSlice[Text]
@@ -253,7 +256,45 @@ func (evs *GoroutineList) Hovered() *TextSpan {
 func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutines []*ptrace.Goroutine) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineList.Layout").End()
 
-	gs.list.Axis = layout.Vertical
+	if gs.table == nil {
+		gs.table = &theme.Table{}
+		gs.table.SetColumns(win, gtx, "Goroutine", "Start time", "Duration")
+
+		// Find space needed for largest goroutine ID
+		n := len(goroutines)
+		s := n - 32
+		if s < 0 {
+			s = 0
+		}
+		var maxID uint64
+		// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
+		for _, g := range goroutines[s:n] {
+			if g.ID > maxID {
+				maxID = g.ID
+			}
+		}
+		r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			gtx.Constraints.Max = image.Pt(99999, 99999)
+			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, "Goroutine", widget.ColorTextMaterial(gtx, color.NRGBA{}))
+		})
+		r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Point{}
+			gtx.Constraints.Max = image.Pt(99999, 99999)
+			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
+		})
+		w := r0.Dimensions.Size.X
+		if x := r1.Dimensions.Size.X; x > w {
+			w = x
+		}
+
+		w += gtx.Dp(5) * 2
+		d := float32(w) - gs.table.ColumnWidths[0]
+		gs.table.ColumnWidths[0] = float32(w)
+		gs.table.ColumnWidths[1] = max(0, gs.table.ColumnWidths[1]-float32(d))
+	}
+
+	gs.table.Resize(win, gtx)
 	gs.timestampObjects.Reset()
 
 	var txtCnt int
@@ -297,67 +338,22 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		return dims
 	}
 
-	var goroutineListColumns = []theme.TableListColumn{
-		{
-			Name: "Goroutine",
-			// XXX the width depends on the font and scaling
-			MinWidth: 120,
-			MaxWidth: 120,
-		},
+	return theme.YScrollableList(&gs.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Vertical,
+			func(gtx layout.Context) layout.Dimensions {
+				return theme.TableHeaderRow(gs.table).Layout(win, gtx, gs.table.ColumnNames, []bool{true, true, true})
+			},
 
-		{
-			Name: "Start time",
-			// XXX the width depends on the font and scaling
-			MinWidth: 200,
-			MaxWidth: 200,
-		},
-
-		{
-			Name: "Duration",
-			// XXX the width depends on the font and scaling
-			MinWidth: 200,
-			MaxWidth: 200,
-		},
-	}
-
-	// Find space needed for largest goroutine ID
-	n := len(goroutines)
-	s := n - 32
-	if s < 0 {
-		s = 0
-	}
-	var maxID uint64
-	// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
-	for _, g := range goroutines[s:n] {
-		if g.ID > maxID {
-			maxID = g.ID
-		}
-	}
-	r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min = image.Point{}
-		gtx.Constraints.Max = image.Pt(99999, 99999)
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, goroutineListColumns[0].Name, widget.ColorTextMaterial(gtx, color.NRGBA{}))
+			func(gtx layout.Context) layout.Dimensions {
+				return list.Layout(gtx, len(goroutines), func(gtx layout.Context, index int) layout.Dimensions {
+					return theme.TableSimpleRow(gs.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+						// g := goroutines[row]
+						return cellFn(gtx, row, col)
+					})
+				})
+			},
+		)
 	})
-	r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min = image.Point{}
-		gtx.Constraints.Max = image.Pt(99999, 99999)
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
-	})
-	w := r0.Dimensions.Size.X
-	if x := r1.Dimensions.Size.X; x > w {
-		w = x
-	}
-	goroutineListColumns[0].MinWidth = w + 20
-	goroutineListColumns[0].MaxWidth = goroutineListColumns[0].MinWidth
-
-	tbl := theme.TableListStyle{
-		Columns:       goroutineListColumns,
-		List:          &gs.list,
-		ColumnPadding: gtx.Dp(10),
-	}
-
-	gtx.Constraints.Min = gtx.Constraints.Max
-	return tbl.Layout(win, gtx, len(goroutines), cellFn)
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.
