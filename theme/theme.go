@@ -903,47 +903,49 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	const lineThickness = 1
 	const activeLineThickness = 3
 
-	dims := layout.Rigids(gtx, layout.Vertical,
-		// Tabs
-		func(gtx layout.Context) layout.Dimensions {
-			return ts.State.list.Layout(gtx, len(ts.Tabs), func(gtx layout.Context, i int) layout.Dimensions {
-				return ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
+	dims := widget.Background{Color: win.Theme.Palette.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Vertical,
+			// Tabs
+			func(gtx layout.Context) layout.Dimensions {
+				return ts.State.list.Layout(gtx, len(ts.Tabs), func(gtx layout.Context, i int) layout.Dimensions {
+					return ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
 
-					dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, ts.Tabs[i], widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
-					stack.Pop()
+						dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, ts.Tabs[i], widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+						stack.Pop()
 
-					dims.Size.X += 2 * gtx.Dp(padding)
-					dims.Size.Y += gtx.Dp(padding)
+						dims.Size.X += 2 * gtx.Dp(padding)
+						dims.Size.Y += gtx.Dp(padding)
 
-					if i == ts.State.Current {
-						x0 := 0
-						x1 := dims.Size.X
-						y0 := dims.Size.Y - gtx.Dp(activeLineThickness)
-						y1 := y0 + gtx.Dp(activeLineThickness)
-						paint.FillShape(gtx.Ops, rgba(0x9696FFFF), clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
-					}
+						if i == ts.State.Current {
+							x0 := 0
+							x1 := dims.Size.X
+							y0 := dims.Size.Y - gtx.Dp(activeLineThickness)
+							y1 := y0 + gtx.Dp(activeLineThickness)
+							paint.FillShape(gtx.Ops, rgba(0x9696FFFF), clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
+						}
 
-					return dims
+						return dims
+					})
 				})
-			})
-		},
+			},
 
-		// Line
-		func(gtx layout.Context) layout.Dimensions {
-			r := clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, gtx.Dp(lineThickness))}
-			paint.FillShape(gtx.Ops, rgba(0x000000FF), r.Op())
-			return layout.Dimensions{Size: r.Max}
-		},
+			// Line
+			func(gtx layout.Context) layout.Dimensions {
+				r := clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, gtx.Dp(lineThickness))}
+				paint.FillShape(gtx.Ops, rgba(0x000000FF), r.Op())
+				return layout.Dimensions{Size: r.Max}
+			},
 
-		// Padding
-		func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: padding}.Layout(gtx) },
+			// Padding
+			func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: padding}.Layout(gtx) },
 
-		// Content
-		func(gtx layout.Context) layout.Dimensions {
-			return w(win, gtx)
-		},
-	)
+			// Content
+			func(gtx layout.Context) layout.Dimensions {
+				return w(win, gtx)
+			},
+		)
+	})
 
 	for i := range ts.State.clickables {
 		for {
