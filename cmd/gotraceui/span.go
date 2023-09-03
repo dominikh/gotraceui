@@ -689,11 +689,11 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		span := spans.Spans.At(row)
 		switch col {
 		case 0:
-			tb.Link("<Span>", span, &SpansObjectLink{
+			tb.Link("<Span>", &SpansObjectLink{
 				Spans: spans.Spans.Slice(row, row+1),
 			})
 		case 1: // Time
-			tb.Link(formatTimestamp(nil, span.Start), span, defaultObjectLink(span.Start, ""))
+			tb.Link(formatTimestamp(nil, span.Start), defaultObjectLink(span.Start, ""))
 			txt.Alignment = text.End
 		case 2: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())

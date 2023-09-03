@@ -45,7 +45,6 @@ type TextEvent struct {
 
 type TextSpan struct {
 	styledtext.SpanStyle
-	Object     any
 	ObjectLink ObjectLink
 
 	Click *gesture.Click
@@ -82,12 +81,11 @@ func (txt *TextBuilder) Bold(label string) *TextSpan {
 }
 
 func (txt *TextBuilder) DefaultLink(label, provenance string, obj any) *TextSpan {
-	return txt.Link(label, obj, defaultObjectLink(obj, provenance))
+	return txt.Link(label, defaultObjectLink(obj, provenance))
 }
 
-func (txt *TextBuilder) Link(label string, obj any, link ObjectLink) *TextSpan {
+func (txt *TextBuilder) Link(label string, link ObjectLink) *TextSpan {
 	s := txt.Span(label)
-	s.Object = obj
 	s.ObjectLink = link
 	a := link.Action(0)
 	switch a.(type) {
@@ -122,7 +120,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan)
 	var clickableIdx int
 	for i := range spans {
 		s := &spans[i]
-		if s.Object != nil {
+		if s.ObjectLink != nil {
 			var clk *gesture.Click
 			if clickableIdx < len(txt.clickables) {
 				clk = txt.clickables[clickableIdx]
@@ -162,7 +160,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan)
 	return ptxt.Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
 		defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
 		s := &spans[i]
-		if s.Object != nil {
+		if s.ObjectLink != nil {
 			s.Click.Add(gtx.Ops)
 			pointer.CursorPointer.Add(gtx.Ops)
 		}
