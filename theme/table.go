@@ -65,7 +65,9 @@ func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	tbl.resize(win, gtx)
 	tbl.rowHovers.Reset()
-	return w(win, gtx)
+	dims := w(win, gtx)
+	dims.Size = gtx.Constraints.Constrain(dims.Size)
+	return dims
 }
 
 func (tbl *Table) resize(win *Window, gtx layout.Context) {
@@ -376,39 +378,58 @@ func (rlist *RememberingList) Layout(gtx layout.Context, len int, w layout.ListE
 
 func (tbl YScrollableListStyle) Layout(win *Window, gtx layout.Context, body func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions) layout.Dimensions {
 	scrollbarWidth := Scrollbar(win.Theme, nil).Width()
-	dims := layout.Inset{Bottom: scrollbarWidth}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		// Body
-		origGtx := gtx
-		tbl.state.horizList.Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-			gtx.Constraints.Min.X = max(0, origGtx.Constraints.Min.X-gtx.Dp(Scrollbar(win.Theme, nil).Width()))
-			return layout.Inset{Right: scrollbarWidth}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				tbl.state.rememberingList.list = &tbl.state.vertList
-				return body(win, gtx, &tbl.state.rememberingList)
-			})
-		})
 
-		// Vertical scrollbar
-		defer op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(scrollbarWidth), 0)).Push(gtx.Ops).Pop()
-		l, h := FromListPosition(tbl.state.vertList.Position, tbl.state.rememberingList.len, tbl.state.rememberingList.dims.Size.Y)
-		Scrollbar(win.Theme, &tbl.state.vertScroll).Layout(gtx, layout.Vertical, l, h)
-		if delta := tbl.state.vertScroll.ScrollDistance(); delta != 0 {
-			tbl.state.vertList.ScrollBy(delta * float32(tbl.state.rememberingList.len))
-		}
+	var bodyDims layout.Dimensions
+	return layout.Rigids(gtx, layout.Vertical,
+		func(gtx layout.Context) layout.Dimensions {
+			// Reduce vertical space available to body to provide space for the horizontal scrollbar.
+			gtx.Constraints.Min.Y -= gtx.Dp(scrollbarWidth)
+			gtx.Constraints.Max.Y -= gtx.Dp(scrollbarWidth)
+			gtx.Constraints = layout.Normalize(gtx.Constraints)
+			{
+				// Body
+				gtx := gtx
+				// Reduce horizontal space available to body to provide space for vertical scrollbar
+				gtx.Constraints.Min.X -= gtx.Dp(scrollbarWidth)
+				gtx.Constraints.Max.X -= gtx.Dp(scrollbarWidth)
+				gtx.Constraints = layout.Normalize(gtx.Constraints)
+				min := gtx.Constraints.Min
+				bodyDims = tbl.state.horizList.Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+					gtx.Constraints.Min = min
+					tbl.state.rememberingList.list = &tbl.state.vertList
+					return body(win, gtx, &tbl.state.rememberingList)
+				})
+			}
 
-		return layout.Dimensions{Size: gtx.Constraints.Max}
-	})
+			{
+				// Draw vertical scrollbar at the right edge.
+				defer op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(scrollbarWidth), 0)).Push(gtx.Ops).Pop()
+				l, h := FromListPosition(tbl.state.vertList.Position, tbl.state.rememberingList.len, tbl.state.rememberingList.dims.Size.Y)
+				Scrollbar(win.Theme, &tbl.state.vertScroll).Layout(gtx, layout.Vertical, l, h)
+				if delta := tbl.state.vertScroll.ScrollDistance(); delta != 0 {
+					tbl.state.vertList.ScrollBy(delta * float32(tbl.state.rememberingList.len))
+				}
+			}
 
-	// Horizontal scrollbar
-	layout.PixelInset{Top: dims.Size.Y - gtx.Dp(scrollbarWidth), Right: gtx.Dp(scrollbarWidth)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		l, h := FromListPosition(tbl.state.horizList.Position, 1, dims.Size.X)
-		dims := Scrollbar(win.Theme, &tbl.state.horizScroll).Layout(gtx, layout.Horizontal, l, h)
-		if delta := tbl.state.horizScroll.ScrollDistance(); delta != 0 {
-			tbl.state.horizList.ScrollBy(delta)
-		}
-		return dims
-	})
+			return layout.Dimensions{
+				Size: image.Pt(gtx.Constraints.Max.X, bodyDims.Size.Y),
+			}
+		},
 
-	return layout.Dimensions{Size: gtx.Constraints.Max}
+		func(gtx layout.Context) layout.Dimensions {
+			// Horizontal scrollbar
+			// Horizontal scrollbar should end before the start of the vertical scrollbar.
+			gtx.Constraints.Min.X -= gtx.Dp(scrollbarWidth)
+			gtx.Constraints.Max.X -= gtx.Dp(scrollbarWidth)
+			gtx.Constraints = layout.Normalize(gtx.Constraints)
+			l, h := FromListPosition(tbl.state.horizList.Position, 1, bodyDims.Size.X)
+			dims := Scrollbar(win.Theme, &tbl.state.horizScroll).Layout(gtx, layout.Horizontal, l, h)
+			if delta := tbl.state.horizScroll.ScrollDistance(); delta != 0 {
+				tbl.state.horizList.ScrollBy(delta)
+			}
+			return dims
+		},
+	)
 }
 
 type TableHeaderRowStyle struct {
@@ -509,30 +530,30 @@ type TableExpandedRowStyle struct {
 func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	// XXX palette colors instead of rgba()
 
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(1))
+	return layout.Rigids(gtx, layout.Vertical,
+		func(gtx layout.Context) layout.Dimensions {
+			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))
 			paint.FillShape(gtx.Ops, rgba(0xBEBEBEFF), clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
 			}
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		func(gtx layout.Context) layout.Dimensions {
 			return FauxTableRow(ex.Table, win.Theme.Palette.Background).Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
-				return widget.Background{Color: rgba(0xF5F5E1FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return widget.Background{Color: rgba(0xF5CCE1FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return w(win, gtx)
 				})
 			})
-		}),
+		},
 
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(1))
+		func(gtx layout.Context) layout.Dimensions {
+			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))
 			paint.FillShape(gtx.Ops, rgba(0xBEBEBEFF), clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
 			}
-		}),
+		},
 	)
 }
 
