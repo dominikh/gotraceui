@@ -746,10 +746,14 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 			if mwin.tabbedState.Current == 1 {
 				if tc == nil {
 					tc = &TasksComponent{
-						Trace:              mwin.trace,
-						Tasks:              mwin.trace.Tasks,
-						mwin:               mwin.twin,
-						tabbedStates:       map[int]*theme.TabbedState{},
+						Trace: mwin.trace,
+						Tasks: mwin.trace.Tasks,
+						mwin:  mwin.twin,
+						tabbedStates: map[int]*struct {
+							state     *theme.TabbedState
+							minHeight int
+						}{},
+						goroutineLists:     map[int]*GoroutineList{},
 						expandedAnimations: map[int]time.Time{},
 
 						nfTs:     NewNumberFormatter[trace.Timestamp](local),

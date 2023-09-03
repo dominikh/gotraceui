@@ -41,13 +41,17 @@ type TasksComponent struct {
 	Trace *Trace
 	Tasks []Task
 
-	mwin               *theme.Window
-	openTasks          big.Int
-	table              theme.Table
-	idClicks           mem.BucketSlice[ClickWithData[int]]
-	tsClicks           mem.BucketSlice[ClickWithData[trace.Timestamp]]
-	scrollState        theme.YScrollableListState
-	tabbedStates       map[int]*theme.TabbedState
+	mwin         *theme.Window
+	openTasks    big.Int
+	table        theme.Table
+	idClicks     mem.BucketSlice[ClickWithData[int]]
+	tsClicks     mem.BucketSlice[ClickWithData[trace.Timestamp]]
+	scrollState  theme.YScrollableListState
+	tabbedStates map[int]*struct {
+		state     *theme.TabbedState
+		minHeight int
+	}
+	goroutineLists     map[int]*GoroutineList
 	expandedAnimations map[int]time.Time
 
 	nfTs     *NumberFormatter[trace.Timestamp]
@@ -143,12 +147,13 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 					objectLinkFg := widget.ColorTextMaterial(gtx, win.Theme.Palette.NavigationLink)
 					return list.Layout(gtx, len(cp.Tasks), func(gtx layout.Context, index int) layout.Dimensions {
 						var (
-							task  = &cp.Tasks[index]
-							ptask = cp.Trace.Trace.Tasks[task.ID]
+							task    = &cp.Tasks[index]
+							ptask   = cp.Trace.Trace.Tasks[task.ID]
+							rowDims layout.Dimensions
 						)
 						return layout.Rigids(gtx, layout.Vertical,
 							func(gtx layout.Context) layout.Dimensions {
-								return theme.TableSimpleRow(&cp.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+								rowDims = theme.TableSimpleRow(&cp.table).Layout(win, gtx, index, func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 									var (
 										left  = widget.Label{MaxLines: 1, Alignment: text.Start}
 										right = widget.Label{MaxLines: 1, Alignment: text.End}
@@ -160,8 +165,6 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 										// ogtx := gtx
 										return layout.Overlay(gtx,
 											func(gtx layout.Context) layout.Dimensions {
-												// // Restore the constraints that layout.Stacked inconveniently dropped.
-												// gtx = ogtx
 												// We intentionally right-align the ID using the widget.Label alignment, because we
 												// want the entire cell to be clickable.
 												return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfUint64.Format("%d", ptask.ID), linkFg)
@@ -224,6 +227,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 										panic(col)
 									}
 								})
+								return rowDims
 							},
 
 							func(gtx layout.Context) layout.Dimensions {
@@ -252,20 +256,52 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 										op.InvalidateOp{}.Add(gtx.Ops)
 									}
 								}
+								gtx.Constraints.Max.X = rowDims.Size.X
 								return theme.TableExpandedRow(&cp.table).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 									r := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-										return layout.PixelInset{Top: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											state, ok := cp.tabbedStates[task.ID]
+										return layout.PixelInset{Top: 10, Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+											tabbedState, ok := cp.tabbedStates[task.ID]
 											if !ok {
-												state = &theme.TabbedState{}
-												cp.tabbedStates[task.ID] = state
-											}
-											return theme.Tabbed(state, []string{"Goroutines", "Regions", "Logs"}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-												gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(0, 400))
-
-												return layout.Dimensions{
-													Size: gtx.Constraints.Min,
+												tabbedState = &struct {
+													state     *theme.TabbedState
+													minHeight int
+												}{
+													state: &theme.TabbedState{},
 												}
+												cp.tabbedStates[task.ID] = tabbedState
+											}
+											glist, ok := cp.goroutineLists[task.ID]
+											if !ok {
+												glist = &GoroutineList{}
+												cp.goroutineLists[task.ID] = glist
+											}
+											return widget.Bordered{Color: win.Theme.Palette.Border, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+												return theme.Tabbed(tabbedState.state, []string{"Goroutines", "Regions", "Logs"}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+													gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(gtx.Constraints.Max.X, tabbedState.minHeight))
+													gtx.Constraints.Max = gtx.Constraints.Constrain(image.Pt(gtx.Constraints.Max.X, 400))
+
+													var dims layout.Dimensions
+													switch tabbedState.state.Current {
+													case 0:
+														if glist.Goroutines.Items == nil {
+															gs := make([]*ptrace.Goroutine, len(task.Goroutines))
+															for i, gseq := range task.Goroutines {
+																gs[i] = cp.Trace.Goroutines[gseq]
+															}
+															glist.SetGoroutines(win, gtx, gs)
+														}
+														dims = glist.Layout(win, gtx)
+													case 1:
+													case 2:
+													}
+
+													// Ensure that the tabbed doesn't shrink in height when switching between tabs.
+													if dims.Size.Y > tabbedState.minHeight {
+														tabbedState.minHeight = dims.Size.Y
+													}
+													dims.Size = gtx.Constraints.Constrain(dims.Size)
+													return dims
+												})
 											})
 										})
 									})
