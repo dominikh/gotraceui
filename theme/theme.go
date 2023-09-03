@@ -909,13 +909,13 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 			func(gtx layout.Context) layout.Dimensions {
 				return ts.State.list.Layout(gtx, len(ts.Tabs), func(gtx layout.Context, i int) layout.Dimensions {
 					return ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						stack := op.Offset(image.Pt(gtx.Dp(padding), 0)).Push(gtx.Ops)
+						stack := op.Offset(image.Pt(gtx.Dp(padding), gtx.Dp(padding))).Push(gtx.Ops)
 
 						dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, ts.Tabs[i], widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
 						stack.Pop()
 
 						dims.Size.X += 2 * gtx.Dp(padding)
-						dims.Size.Y += gtx.Dp(padding)
+						dims.Size.Y += 2 * gtx.Dp(padding)
 
 						if i == ts.State.Current {
 							x0 := 0
