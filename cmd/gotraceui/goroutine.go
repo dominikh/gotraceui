@@ -990,6 +990,14 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 }
 
 type GoroutineList struct {
+	HiddenColumns struct {
+		ID        bool
+		Function  bool
+		StartTime bool
+		EndTime   bool
+		Duration  bool
+	}
+
 	table       *theme.Table
 	scrollState theme.YScrollableListState
 
@@ -1013,10 +1021,21 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 
 	if gs.table == nil {
 		gs.table = &theme.Table{}
-		cols := []theme.Column{
-			{Name: "Goroutine", Alignment: text.End},
-			{Name: "Start time", Alignment: text.End},
-			{Name: "Duration", Alignment: text.End},
+		cols := []theme.Column{}
+		if !gs.HiddenColumns.ID {
+			cols = append(cols, theme.Column{Name: "Goroutine", Alignment: text.End})
+		}
+		if !gs.HiddenColumns.Function {
+			cols = append(cols, theme.Column{Name: "Function", Alignment: text.Start})
+		}
+		if !gs.HiddenColumns.StartTime {
+			cols = append(cols, theme.Column{Name: "Start time", Alignment: text.End})
+		}
+		if !gs.HiddenColumns.EndTime {
+			cols = append(cols, theme.Column{Name: "End time", Alignment: text.End})
+		}
+		if !gs.HiddenColumns.Duration {
+			cols = append(cols, theme.Column{Name: "Duration", Alignment: text.End})
 		}
 		gs.table.SetColumns(win, gtx, cols)
 
@@ -1072,15 +1091,24 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		txt.Reset(win.Theme)
 
 		g := goroutines[row]
-		switch col {
-		case 0: // ID
+		switch gs.table.Columns[col].Name {
+		case "Goroutine": // ID
 			tb.DefaultLink(local.Sprintf("%d", g.ID), "", g)
 			txt.Alignment = text.End
-		case 1: // Time
+		case "Function": // Function
+			if g.Function == nil {
+			} else {
+				tb.DefaultLink(g.Function.Fn, "", g.Function)
+			}
+		case "Start time": // Start time
 			start := g.Spans[0].Start
 			tb.DefaultLink(formatTimestamp(nil, start), "", gs.timestampObjects.Append(start))
 			txt.Alignment = text.End
-		case 2: // Duration
+		case "End time": // End time
+			end := g.Spans[len(g.Spans)-1].End
+			tb.DefaultLink(formatTimestamp(nil, end), "", gs.timestampObjects.Append(end))
+			txt.Alignment = text.End
+		case "Duration": // Duration
 			start := g.Spans[0].Start
 			end := g.Spans[len(g.Spans)-1].End
 			d := time.Duration(end - start)

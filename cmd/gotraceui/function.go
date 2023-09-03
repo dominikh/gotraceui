@@ -115,6 +115,7 @@ func (fi *FunctionInfo) init(win *theme.Window) {
 	// Build histogram
 	cfg := &widget.HistogramConfig{RejectOutliers: true, Bins: widget.DefaultHistogramBins}
 	fi.computeHistogram(win, cfg)
+	fi.goroutineList.HiddenColumns.Function = true
 }
 
 func (fi *FunctionInfo) Title() string {
