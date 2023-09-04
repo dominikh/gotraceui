@@ -1854,7 +1854,7 @@ func (s SortedIndices[E, S]) Ptr(idx int) *E {
 }
 
 func (s SortedIndices[E, S]) Len() int {
-	return len(s.Items)
+	return len(s.Order)
 }
 
 func (s SortedIndices[E, S]) Sort(cmp func(a, b E) int) {
@@ -1863,6 +1863,10 @@ func (s SortedIndices[E, S]) Sort(cmp func(a, b E) int) {
 		eb := s.Items[b]
 		return cmp(ea, eb)
 	})
+}
+
+func (s SortedIndices[E, S]) SortIndex(cmp func(a, b int) int) {
+	slices.SortFunc(s.Order, cmp)
 }
 
 func cmp[T constraints.Ordered](a, b T, negate bool) int {

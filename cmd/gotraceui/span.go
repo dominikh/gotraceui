@@ -540,7 +540,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 	for si.buttons.copyAsCSV.Clicked() {
 		if stats, ok := si.statistics.Result(); ok {
-			win.AppWindow.WriteClipboard(statisticsToCSV(&stats.stats))
+			win.AppWindow.WriteClipboard(statisticsToCSV(stats.stats.Items))
 		}
 	}
 

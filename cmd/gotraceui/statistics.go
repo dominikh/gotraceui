@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/color"
 	rtrace "runtime/trace"
-	"sort"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -23,8 +22,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/text"
 	"gioui.org/x/styledtext"
-	"golang.org/x/exp/constraints"
-	"golang.org/x/exp/slices"
 )
 
 const numStatLabels = 7
@@ -53,9 +50,7 @@ var statLabels = [...][numStatLabels * 3]string{
 }
 
 type SpansStats struct {
-	stats ptrace.Statistics
-	// mapping maps from indices of displayed statistics to indices in the stats field
-	mapping []int
+	stats SortedIndices[ptrace.Statistic, []ptrace.Statistic]
 
 	sortCol        int
 	sortDescending bool
@@ -65,7 +60,7 @@ type SpansStats struct {
 	columnClicks [7]widget.PrimaryClickable
 }
 
-func statisticsToCSV(stats *ptrace.Statistics) string {
+func statisticsToCSV(stats []ptrace.Statistic) string {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
@@ -97,18 +92,21 @@ func statisticsToCSV(stats *ptrace.Statistics) string {
 }
 
 func NewStats(stats ptrace.Statistics) *SpansStats {
-	gst := &SpansStats{stats: stats}
+	gst := &SpansStats{
+		stats: SortedIndices[ptrace.Statistic, []ptrace.Statistic]{
+			Items: stats[:],
+			Order: make([]int, 0, len(stats)),
+		},
+	}
 
-	gst.mapping = make([]int, 0, len(gst.stats))
-
-	for i := range gst.stats {
-		s := &gst.stats[i]
+	for i := range gst.stats.Items {
+		s := &gst.stats.Items[i]
 
 		if s.Count == 0 {
 			continue
 		}
 
-		gst.mapping = append(gst.mapping, i)
+		gst.stats.Order = append(gst.stats.Order, i)
 	}
 
 	gst.sort()
@@ -166,7 +164,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 	// the same width, so we only need to shape the largest number.
 	size = shape(statLabels[gs.numberFormat][1+numStatLabels], fLabel)
 	max := 0
-	for _, stat := range gs.stats {
+	for _, stat := range gs.stats.Items {
 		if stat.Count > max {
 			max = stat.Count
 		}
@@ -201,7 +199,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 
 		for i := 2; i < numStatLabels; i++ {
 			size = shape(statLabels[gs.numberFormat][i+numStatLabels], fLabel)
-			for _, stat := range gs.stats {
+			for _, stat := range gs.stats.Items {
 				var v time.Duration
 				switch i {
 				case 2:
@@ -232,49 +230,36 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 	return columnSizes
 }
 
-func sortStats[T constraints.Ordered](stats *ptrace.Statistics, mapping []int, descending bool, get func(*ptrace.Statistic) T) {
-	if descending {
-		slices.SortFunc(mapping, func(i, j int) bool {
-			return get(&stats[i]) >= get(&stats[j])
-		})
-	} else {
-		slices.SortFunc(mapping, func(i, j int) bool {
-			return get(&stats[i]) < get(&stats[j])
-		})
-	}
-}
-
 func (gs *SpansStats) sort() {
 	switch gs.sortCol {
-	case 0:
-		// OPT(dh): don't use sort.Slice, it allocates
-		if gs.sortDescending {
-			sort.Slice(gs.mapping, func(i, j int) bool {
-				return stateNamesCapitalized[gs.mapping[i]] >= stateNamesCapitalized[gs.mapping[j]]
-			})
-		} else {
-			sort.Slice(gs.mapping, func(i, j int) bool {
-				return stateNamesCapitalized[gs.mapping[i]] < stateNamesCapitalized[gs.mapping[j]]
-			})
-		}
-	case 1:
-		// Count
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) int { return gs.Count })
-	case 2:
-		// Total
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Total })
-	case 3:
-		// Min
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Min })
-	case 4:
-		// Max
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) time.Duration { return gs.Max })
-	case 5:
-		// Avg
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Average })
-	case 6:
-		// p50
-		sortStats(&gs.stats, gs.mapping, gs.sortDescending, func(gs *ptrace.Statistic) float64 { return gs.Median })
+	case 0: // Name
+		gs.stats.SortIndex(func(a, b int) int {
+			return cmp(stateNamesCapitalized[a], stateNamesCapitalized[b], gs.sortDescending)
+		})
+	case 1: // Count
+		gs.stats.Sort(func(a, b ptrace.Statistic) int {
+			return cmp(a.Count, b.Count, gs.sortDescending)
+		})
+	case 2: // Total
+		gs.stats.Sort(func(a, b ptrace.Statistic) int {
+			return cmp(a.Total, b.Total, gs.sortDescending)
+		})
+	case 3: // Min
+		gs.stats.Sort(func(a, b ptrace.Statistic) int {
+			return cmp(a.Min, b.Min, gs.sortDescending)
+		})
+	case 4: // Max
+		gs.stats.Sort(func(a, b ptrace.Statistic) int {
+			return cmp(a.Max, b.Max, gs.sortDescending)
+		})
+	case 5: // Avg
+		gs.stats.Sort(func(a, b ptrace.Statistic) int {
+			return cmp(a.Average, b.Average, gs.sortDescending)
+		})
+	case 6: // p50
+		gs.stats.Sort(func(a, b ptrace.Statistic) int {
+			return cmp(a.Median, b.Median, gs.sortDescending)
+		})
 	default:
 		panic("unreachable")
 	}
@@ -346,33 +331,30 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 			})
 		} else {
 			row--
-			n := gs.mapping[row]
 
 			var value, unit string
 			switch col {
 			case 0:
 				// type
+				n := gs.stats.Order[row]
 				value = stateNamesCapitalized[n]
 			case 1:
-				value = local.Sprintf("%d", gs.stats[n].Count)
-				if gs.stats[n].Count == 0 {
-					panic(row)
-				}
+				value = local.Sprintf("%d", gs.stats.At(row).Count)
 			case 2:
 				// total
-				value, unit = gs.numberFormat.format(gs.stats[n].Total)
+				value, unit = gs.numberFormat.format(gs.stats.At(row).Total)
 			case 3:
 				// min
-				value, unit = gs.numberFormat.format(gs.stats[n].Min)
+				value, unit = gs.numberFormat.format(gs.stats.At(row).Min)
 			case 4:
 				// max
-				value, unit = gs.numberFormat.format(gs.stats[n].Max)
+				value, unit = gs.numberFormat.format(gs.stats.At(row).Max)
 			case 5:
 				// avg
-				value, unit = gs.numberFormat.format(time.Duration(gs.stats[n].Average))
+				value, unit = gs.numberFormat.format(time.Duration(gs.stats.At(row).Average))
 			case 6:
 				// p50
-				value, unit = gs.numberFormat.format(time.Duration(gs.stats[n].Median))
+				value, unit = gs.numberFormat.format(time.Duration(gs.stats.At(row).Median))
 			default:
 				panic("unreachable")
 			}
@@ -402,5 +384,5 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		}
 	}
 
-	return grid.Layout(gtx, len(gs.mapping)+1, 7, sizer, cellFn)
+	return grid.Layout(gtx, gs.stats.Len()+1, 7, sizer, cellFn)
 }
