@@ -22,18 +22,15 @@ import (
 )
 
 type Task struct {
-	// The sequential ID of the ptrace.Task
-	ID int
-	// The sequential IDs of goroutines that have at least one user region or log message that is part of this
-	// task
-	Goroutines []int
+	// OPT(dh): avoid the pointer by using the task's SeqID instead
+	*ptrace.Task
+	// Goroutines that have at least one user region or log message that is part of this task
+	//
+	// OPT(dh): avoid the pointer by using the goroutine's SeqID instead
+	Goroutines []*ptrace.Goroutine
 	NumRegions int
 	// The event IDs of user log messages associated with this task
 	Logs []ptrace.EventID
-}
-
-func (t *Task) PTask(tr *ptrace.Trace) *ptrace.Task {
-	return tr.Tasks[t.ID]
 }
 
 // TODO(dh): separate tasks table from TasksComponent
@@ -41,7 +38,8 @@ type TasksComponent struct {
 	Trace *Trace
 	Tasks []Task
 
-	mwin      *theme.Window
+	mwin *theme.Window
+	// Tasks that have extended information shown, indexed by the task's sequential ID.
 	openTasks big.Int
 	table     theme.Table
 	clicks    mem.BucketSlice[ClickWithData]
@@ -117,11 +115,11 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 			case *TaskObjectLink:
 				if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
 					var bit uint
-					if cp.openTasks.Bit(d.Task.ID) == 0 {
+					if cp.openTasks.Bit(d.Task.SeqID) == 0 {
 						bit = 1
 					}
-					cp.openTasks.SetBit(&cp.openTasks, d.Task.ID, bit)
-					cp.expandedAnimations[d.Task.ID] = gtx.Now
+					cp.openTasks.SetBit(&cp.openTasks, d.Task.SeqID, bit)
+					cp.expandedAnimations[d.Task.SeqID] = gtx.Now
 				}
 			default:
 				handleLinkClick(win, ev, d)
@@ -151,7 +149,6 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 					return list.Layout(gtx, len(cp.Tasks), func(gtx layout.Context, index int) layout.Dimensions {
 						var (
 							task    = &cp.Tasks[index]
-							ptask   = cp.Trace.Trace.Tasks[task.ID]
 							rowDims layout.Dimensions
 						)
 						return layout.Rigids(gtx, layout.Vertical,
@@ -170,7 +167,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											func(gtx layout.Context) layout.Dimensions {
 												// We intentionally right-align the ID using the widget.Label alignment, because we
 												// want the entire cell to be clickable.
-												return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfUint64.Format("%d", ptask.ID), linkFg)
+												return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfUint64.Format("%d", task.ID), linkFg)
 											},
 
 											func(gtx layout.Context) layout.Dimensions {
@@ -181,17 +178,17 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											},
 										)
 									case cName:
-										if ptask.Stub() {
+										if task.Stub() {
 											return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
 										} else {
-											name := ptask.Name(cp.Trace.Trace)
+											name := task.Name(cp.Trace.Trace)
 											return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, name, fg)
 										}
 									case cStart:
-										if ptask.StartEvent == 0 {
+										if task.StartEvent == 0 {
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
 										} else {
-											ts := cp.Trace.Event(ptask.StartEvent).Ts
+											ts := cp.Trace.Event(task.StartEvent).Ts
 											link := cp.clicks.Grow()
 											link.Link = &TimestampObjectLink{Timestamp: ts}
 											return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -201,10 +198,10 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											})
 										}
 									case cEnd:
-										if ptask.EndEvent == 0 {
+										if task.EndEvent == 0 {
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
 										} else {
-											ts := cp.Trace.Event(ptask.EndEvent).Ts
+											ts := cp.Trace.Event(task.EndEvent).Ts
 											link := cp.clicks.Grow()
 											link.Link = &TimestampObjectLink{Timestamp: ts}
 											return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -214,10 +211,10 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											})
 										}
 									case cDuration:
-										if ptask.StartEvent == 0 || ptask.EndEvent == 0 {
+										if task.StartEvent == 0 || task.EndEvent == 0 {
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
 										} else {
-											d := roundDuration(time.Duration(cp.Trace.Event(ptask.EndEvent).Ts - cp.Trace.Event(ptask.StartEvent).Ts))
+											d := roundDuration(time.Duration(cp.Trace.Event(task.EndEvent).Ts - cp.Trace.Event(task.StartEvent).Ts))
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, d.String(), fg)
 										}
 									case cNumG:
@@ -234,14 +231,14 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 							},
 
 							func(gtx layout.Context) layout.Dimensions {
-								taskOpen := cp.openTasks.Bit(task.ID) != 0
-								anim, ok := cp.expandedAnimations[task.ID]
+								taskOpen := cp.openTasks.Bit(task.SeqID) != 0
+								anim, ok := cp.expandedAnimations[task.SeqID]
 
 								if !taskOpen {
 									if !ok {
 										return layout.Dimensions{}
 									} else if gtx.Now.Sub(anim) >= 500*time.Millisecond {
-										delete(cp.expandedAnimations, task.ID)
+										delete(cp.expandedAnimations, task.SeqID)
 										return layout.Dimensions{}
 									}
 								}
@@ -249,7 +246,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 								ratio := float64(1)
 								if ok {
 									if gtx.Now.Sub(anim) >= 500*time.Millisecond {
-										delete(cp.expandedAnimations, task.ID)
+										delete(cp.expandedAnimations, task.SeqID)
 									} else {
 										if taskOpen {
 											ratio = easeOutQuart(float64(gtx.Now.Sub(anim)) / float64(500*time.Millisecond))
@@ -263,7 +260,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 								return theme.TableExpandedRow(&cp.table).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 									r := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 										return layout.PixelInset{Top: 10, Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											tabbedState, ok := cp.tabbedStates[task.ID]
+											tabbedState, ok := cp.tabbedStates[task.SeqID]
 											if !ok {
 												tabbedState = &struct {
 													state     *theme.TabbedState
@@ -271,12 +268,12 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 												}{
 													state: &theme.TabbedState{},
 												}
-												cp.tabbedStates[task.ID] = tabbedState
+												cp.tabbedStates[task.SeqID] = tabbedState
 											}
-											glist, ok := cp.goroutineLists[task.ID]
+											glist, ok := cp.goroutineLists[task.SeqID]
 											if !ok {
 												glist = &GoroutineList{}
-												cp.goroutineLists[task.ID] = glist
+												cp.goroutineLists[task.SeqID] = glist
 											}
 											return widget.Bordered{Color: win.Theme.Palette.Border, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 												return theme.Tabbed(tabbedState.state, []string{"Goroutines", "Regions", "Logs"}).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -287,11 +284,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 													switch tabbedState.state.Current {
 													case 0:
 														if glist.Goroutines.Items == nil {
-															gs := make([]*ptrace.Goroutine, len(task.Goroutines))
-															for i, gseq := range task.Goroutines {
-																gs[i] = cp.Trace.Goroutines[gseq]
-															}
-															glist.SetGoroutines(win, gtx, gs)
+															glist.SetGoroutines(win, gtx, task.Goroutines)
 														}
 														dims = glist.Layout(win, gtx)
 													case 1:
@@ -324,21 +317,20 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 }
 
 // printTask is a debug helper that prints a textual representation of a task to stdout.
-func printTask(tr *Trace, t *Task) {
-	ptask := tr.Trace.Tasks[t.ID]
-	name := ptask.Name(tr.Trace)
+func printTask(tr *Trace, task *Task) {
+	name := task.Name(tr.Trace)
 
 	var (
 		start = "unknown"
 		end   = "unknown"
 	)
-	if ptask.StartEvent != 0 {
-		start = formatTimestamp(nil, tr.Event(ptask.StartEvent).Ts)
+	if task.StartEvent != 0 {
+		start = formatTimestamp(nil, tr.Event(task.StartEvent).Ts)
 	}
-	if ptask.EndEvent != 0 {
-		end = formatTimestamp(nil, tr.Event(ptask.EndEvent).Ts)
+	if task.EndEvent != 0 {
+		end = formatTimestamp(nil, tr.Event(task.EndEvent).Ts)
 	}
 
 	fmt.Printf("{ID = %d, Name = %q, Goroutines: %v, Logs: %v, NumRegions: %d, Start: %s, End: %s}\n",
-		ptask.ID, name, t.Goroutines, t.Logs, t.NumRegions, start, end)
+		task.ID, name, task.Goroutines, task.Logs, task.NumRegions, start, end)
 }

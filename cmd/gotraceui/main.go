@@ -1678,11 +1678,11 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 
 	tasks := make([]Task, len(tr.Trace.Tasks))
 	for i := range tasks {
-		tasks[i].ID = i
+		tasks[i].Task = tr.Trace.Tasks[i]
 	}
 	taskGs := map[struct {
 		task int
-		g    int
+		g    *ptrace.Goroutine
 	}]struct{}{}
 
 	for evID, ev := range tr.Events {
@@ -1693,11 +1693,11 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 				continue
 			}
 			taskSeqID := tr.Task(taskID).SeqID
-			gSeqID := tr.G(ev.G).SeqID
+			g := tr.G(ev.G)
 			taskGs[struct {
 				task int
-				g    int
-			}{taskSeqID, gSeqID}] = struct{}{}
+				g    *ptrace.Goroutine
+			}{taskSeqID, g}] = struct{}{}
 			task := &tasks[tr.Task(taskID).SeqID]
 			task.NumRegions++
 
@@ -1716,7 +1716,9 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		t.Goroutines = append(t.Goroutines, tg.g)
 	}
 	for _, t := range tasks {
-		sort.Ints(t.Goroutines)
+		sort.Slice(t.Goroutines, func(i, j int) bool {
+			return t.Goroutines[i].ID < t.Goroutines[j].ID
+		})
 		sort.Slice(t.Logs, func(i, j int) bool {
 			return t.Logs[i] < t.Logs[j]
 		})
