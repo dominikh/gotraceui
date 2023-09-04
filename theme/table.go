@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -20,20 +21,33 @@ import (
 	"gioui.org/unit"
 )
 
+type SortOrder uint8
+
+const (
+	SortNone SortOrder = iota
+	SortAscending
+	SortDescending
+)
+
 // TODO(dh): this should be in package widget
 type Table struct {
-	Columns []Column
+	Columns   []Column
+	SortOrder SortOrder
+	SortedBy  int
 
-	prevMetric   unit.Metric
-	prevMaxWidth int
-	drags        []tableDrag
-	rowHovers    mem.BucketSlice[gesture.Hover]
+	prevMetric    unit.Metric
+	prevMaxWidth  int
+	drags         []tableDrag
+	rowHovers     mem.BucketSlice[gesture.Hover]
+	headerClicks  []gesture.Click
+	clickedColumn int
 }
 
 type Column struct {
 	Name      string
 	Width     float32
 	Alignment text.Alignment
+	Clickable bool
 }
 
 func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
@@ -57,6 +71,7 @@ func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 	}
 
 	tbl.Columns = cols
+	tbl.headerClicks = make([]gesture.Click, len(cols))
 
 	tbl.prevMaxWidth = gtx.Constraints.Max.X
 	tbl.prevMetric = gtx.Metric
@@ -67,7 +82,25 @@ func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimen
 	tbl.rowHovers.Reset()
 	dims := w(win, gtx)
 	dims.Size = gtx.Constraints.Constrain(dims.Size)
+
+	tbl.clickedColumn = -1
+	for i := range tbl.headerClicks {
+		click := &tbl.headerClicks[i]
+		for _, ev := range click.Events(gtx.Queue) {
+			if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
+				tbl.clickedColumn = i
+			}
+		}
+	}
+
 	return dims
+}
+
+func (tbl *Table) ClickedColumn() (int, bool) {
+	if tbl.clickedColumn == -1 {
+		return 0, false
+	}
+	return tbl.clickedColumn, true
 }
 
 func (tbl *Table) resize(win *Window, gtx layout.Context) {
@@ -441,7 +474,7 @@ func TableHeaderRow(tbl *Table) TableHeaderRowStyle {
 }
 
 func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	return TableRow(row.Table, true).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
+	return TableRow(row.Table, true).Layout(win, gtx, func(win *Window, gtx layout.Context, colIdx int) layout.Dimensions {
 		var (
 			f          = font.Font{Weight: font.ExtraBold}
 			fg         = widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
@@ -449,15 +482,48 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 			paddingDp  = unit.Dp(5)
 			borderDp   = unit.Dp(1)
 			height     = max(gtx.Constraints.Min.Y, lineHeight+gtx.Dp(paddingDp)*2+gtx.Dp(borderDp))
+			col        = &row.Table.Columns[colIdx]
 		)
 
 		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.HeaderBackground, clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
 
-		layout.Inset{Top: paddingDp, Bottom: paddingDp + borderDp, Left: paddingDp, Right: paddingDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			l := widget.Label{MaxLines: 1, Alignment: text.Start}
-			l.Alignment = row.Table.Columns[col].Alignment
-			return l.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, row.Table.Columns[col].Name, fg)
-		})
+		layout.Overlay(gtx,
+			func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: paddingDp, Bottom: paddingDp + borderDp, Left: paddingDp, Right: paddingDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					l := widget.Label{MaxLines: 1, Alignment: text.Start}
+					l.Alignment = col.Alignment
+					var s string
+					// OPT(dh): avoid allocations for string building by precomputing and storing the column headers.
+					if row.Table.SortedBy == colIdx {
+						switch row.Table.SortOrder {
+						case SortNone:
+							s = col.Name
+						case SortAscending:
+							s = "▲" + col.Name
+						case SortDescending:
+							s = "▼" + col.Name
+						default:
+							panic(fmt.Sprintf("unhandled case %v", row.Table.SortOrder))
+						}
+					} else {
+						s = col.Name
+					}
+
+					return l.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, s, fg)
+				})
+			},
+
+			func(gtx layout.Context) layout.Dimensions {
+				if col.Clickable {
+					defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+					row.Table.headerClicks[colIdx].Add(gtx.Ops)
+					pointer.CursorPointer.Add(gtx.Ops)
+				}
+				return layout.Dimensions{
+					Size: gtx.Constraints.Min,
+				}
+			},
+		)
 
 		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.Divider, clip.Rect{Min: image.Pt(0, height-gtx.Dp(borderDp)), Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
 		return layout.Dimensions{

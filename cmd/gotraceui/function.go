@@ -26,8 +26,9 @@ type FunctionInfo struct {
 	goroutineList GoroutineList
 
 	filterGoroutines widget.Bool
-	histGoroutines   []*ptrace.Goroutine
-	hist             InteractiveHistogram
+	// OPT(dh): avoid the pointer by using the goroutine's SeqID instead
+	histGoroutines []*ptrace.Goroutine
+	hist           InteractiveHistogram
 
 	descriptionText Text
 	hoveredLink     ObjectLink
@@ -178,7 +179,10 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 							} else {
 								gs = fi.fn.Goroutines
 							}
-							return fi.goroutineList.Layout(win, gtx, gs)
+							if len(fi.goroutineList.Goroutines) == 0 || len(gs) == 0 || &gs[0] != &fi.goroutineList.Goroutines[0] {
+								fi.goroutineList.SetGoroutines(win, gtx, gs)
+							}
+							return fi.goroutineList.Layout(win, gtx)
 						},
 					)
 				case "Histogram":

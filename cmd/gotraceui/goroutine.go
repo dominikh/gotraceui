@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	rtrace "runtime/trace"
+	"sort"
 	"strings"
 	"time"
 	"unsafe"
@@ -990,6 +991,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 }
 
 type GoroutineList struct {
+	Goroutines    []*ptrace.Goroutine
 	HiddenColumns struct {
 		ID        bool
 		Function  bool
@@ -997,6 +999,8 @@ type GoroutineList struct {
 		EndTime   bool
 		Duration  bool
 	}
+
+	sortedGoroutines []int
 
 	table       *theme.Table
 	scrollState theme.YScrollableListState
@@ -1016,62 +1020,174 @@ func (evs *GoroutineList) HoveredLink() ObjectLink {
 	return nil
 }
 
-func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutines []*ptrace.Goroutine) layout.Dimensions {
+func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs []*ptrace.Goroutine) {
+	gl.initTable(win, gtx)
+	gl.Goroutines = gs
+	if cap(gl.sortedGoroutines) >= len(gs) {
+		gl.sortedGoroutines = gl.sortedGoroutines[:len(gs)]
+	} else {
+		gl.sortedGoroutines = make([]int, len(gs))
+	}
+	for i := range gl.sortedGoroutines {
+		gl.sortedGoroutines[i] = i
+	}
+	switch gl.table.Columns[gl.table.SortedBy].Name {
+	case "Goroutine":
+		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
+			gi := gl.Goroutines[gl.sortedGoroutines[i]]
+			gj := gl.Goroutines[gl.sortedGoroutines[j]]
+
+			b := gi.ID < gj.ID
+			if gl.table.SortOrder == theme.SortDescending {
+				b = !b
+			}
+			return b
+		})
+	case "Function":
+		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
+			gi := gl.Goroutines[gl.sortedGoroutines[i]]
+			gj := gl.Goroutines[gl.sortedGoroutines[j]]
+
+			var fn1, fn2 string
+			if gi.Function != nil {
+				fn1 = gi.Function.Fn
+			}
+			if gj.Function != nil {
+				fn2 = gj.Function.Fn
+			}
+			b := fn1 < fn2
+			if gl.table.SortOrder == theme.SortDescending {
+				b = !b
+			}
+			return b
+		})
+	case "Start time":
+		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
+			gi := gl.Goroutines[gl.sortedGoroutines[i]]
+			gj := gl.Goroutines[gl.sortedGoroutines[j]]
+
+			b := gi.Spans[0].Start < gj.Spans[0].Start
+			if gl.table.SortOrder == theme.SortDescending {
+				b = !b
+			}
+			return b
+		})
+	case "End time":
+		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
+			gi := gl.Goroutines[gl.sortedGoroutines[i]]
+			gj := gl.Goroutines[gl.sortedGoroutines[j]]
+
+			b := gi.Spans[len(gi.Spans)-1].End < gj.Spans[len(gj.Spans)-1].End
+			if gl.table.SortOrder == theme.SortDescending {
+				b = !b
+			}
+			return b
+		})
+	case "Duration":
+		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
+			gi := gl.Goroutines[gl.sortedGoroutines[i]]
+			gj := gl.Goroutines[gl.sortedGoroutines[j]]
+
+			starti := gi.Spans[0].Start
+			startj := gj.Spans[0].Start
+			endi := gi.Spans[len(gi.Spans)-1].End
+			endj := gj.Spans[len(gj.Spans)-1].End
+
+			di := endi - starti
+			dj := endj - startj
+
+			b := di < dj
+			if gl.table.SortOrder == theme.SortDescending {
+				b = !b
+			}
+			return b
+		})
+	}
+}
+
+func (gs *GoroutineList) initTable(win *theme.Window, gtx layout.Context) {
+	if gs.table != nil {
+		return
+	}
+	gs.table = &theme.Table{}
+	cols := []theme.Column{}
+	if !gs.HiddenColumns.ID {
+		cols = append(cols, theme.Column{
+			Name:      "Goroutine",
+			Alignment: text.End,
+			Clickable: true,
+		})
+	}
+	if !gs.HiddenColumns.Function {
+		cols = append(cols, theme.Column{
+			Name:      "Function",
+			Alignment: text.Start,
+			Clickable: true,
+		})
+	}
+	if !gs.HiddenColumns.StartTime {
+		cols = append(cols, theme.Column{
+			Name:      "Start time",
+			Alignment: text.End,
+			Clickable: true,
+		})
+	}
+	if !gs.HiddenColumns.EndTime {
+		cols = append(cols, theme.Column{
+			Name:      "End time",
+			Alignment: text.End,
+			Clickable: true,
+		})
+	}
+	if !gs.HiddenColumns.Duration {
+		cols = append(cols, theme.Column{
+			Name:      "Duration",
+			Alignment: text.End,
+			Clickable: true,
+		})
+	}
+	gs.table.SetColumns(win, gtx, cols)
+	gs.table.SortedBy = 0
+	gs.table.SortOrder = theme.SortAscending
+
+	// Find space needed for largest goroutine ID
+	n := len(gs.Goroutines)
+	s := n - 32
+	if s < 0 {
+		s = 0
+	}
+	var maxID uint64
+	// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
+	for _, g := range gs.Goroutines[s:n] {
+		if g.ID > maxID {
+			maxID = g.ID
+		}
+	}
+	r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min = image.Point{}
+		gtx.Constraints.Max = image.Pt(99999, 99999)
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, "Goroutine", widget.ColorTextMaterial(gtx, color.NRGBA{}))
+	})
+	r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min = image.Point{}
+		gtx.Constraints.Max = image.Pt(99999, 99999)
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
+	})
+	w := r0.Dimensions.Size.X
+	if x := r1.Dimensions.Size.X; x > w {
+		w = x
+	}
+
+	w += gtx.Dp(5) * 2
+	d := float32(w) - gs.table.Columns[0].Width
+	gs.table.Columns[0].Width = float32(w)
+	gs.table.Columns[1].Width = max(0, gs.table.Columns[1].Width-float32(d))
+}
+
+func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineList.Layout").End()
 
-	if gs.table == nil {
-		gs.table = &theme.Table{}
-		cols := []theme.Column{}
-		if !gs.HiddenColumns.ID {
-			cols = append(cols, theme.Column{Name: "Goroutine", Alignment: text.End})
-		}
-		if !gs.HiddenColumns.Function {
-			cols = append(cols, theme.Column{Name: "Function", Alignment: text.Start})
-		}
-		if !gs.HiddenColumns.StartTime {
-			cols = append(cols, theme.Column{Name: "Start time", Alignment: text.End})
-		}
-		if !gs.HiddenColumns.EndTime {
-			cols = append(cols, theme.Column{Name: "End time", Alignment: text.End})
-		}
-		if !gs.HiddenColumns.Duration {
-			cols = append(cols, theme.Column{Name: "Duration", Alignment: text.End})
-		}
-		gs.table.SetColumns(win, gtx, cols)
-
-		// Find space needed for largest goroutine ID
-		n := len(goroutines)
-		s := n - 32
-		if s < 0 {
-			s = 0
-		}
-		var maxID uint64
-		// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
-		for _, g := range goroutines[s:n] {
-			if g.ID > maxID {
-				maxID = g.ID
-			}
-		}
-		r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			gtx.Constraints.Max = image.Pt(99999, 99999)
-			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, "Goroutine", widget.ColorTextMaterial(gtx, color.NRGBA{}))
-		})
-		r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min = image.Point{}
-			gtx.Constraints.Max = image.Pt(99999, 99999)
-			return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), widget.ColorTextMaterial(gtx, color.NRGBA{}))
-		})
-		w := r0.Dimensions.Size.X
-		if x := r1.Dimensions.Size.X; x > w {
-			w = x
-		}
-
-		w += gtx.Dp(5) * 2
-		d := float32(w) - gs.table.Columns[0].Width
-		gs.table.Columns[0].Width = float32(w)
-		gs.table.Columns[1].Width = max(0, gs.table.Columns[1].Width-float32(d))
-	}
+	gs.initTable(win, gtx)
 
 	gs.timestampObjects.Reset()
 
@@ -1090,7 +1206,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		txtCnt++
 		txt.Reset(win.Theme)
 
-		g := goroutines[row]
+		g := gs.Goroutines[gs.sortedGoroutines[row]]
 		switch gs.table.Columns[col].Name {
 		case "Goroutine": // ID
 			tb.DefaultLink(local.Sprintf("%d", g.ID), "", g)
@@ -1125,13 +1241,36 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context, goroutine
 		return dims
 	}
 
-	return theme.SimpleTable(win,
+	dims := theme.SimpleTable(win,
 		gtx,
 		gs.table,
 		&gs.scrollState,
-		len(goroutines),
+		len(gs.Goroutines),
 		cellFn,
 	)
+
+	if col, ok := gs.table.ClickedColumn(); ok {
+		if col == gs.table.SortedBy {
+			switch gs.table.SortOrder {
+			case theme.SortNone:
+				gs.table.SortOrder = theme.SortAscending
+			case theme.SortAscending:
+				gs.table.SortOrder = theme.SortDescending
+			case theme.SortDescending:
+				gs.table.SortOrder = theme.SortAscending
+			default:
+				panic(fmt.Sprintf("unhandled case %v", gs.table.SortOrder))
+			}
+		} else {
+			gs.table.SortedBy = col
+			gs.table.SortOrder = theme.SortAscending
+		}
+
+		// Trigger resorting.
+		gs.SetGoroutines(win, gtx, gs.Goroutines)
+	}
+
+	return dims
 }
 
 // Clicked returns all objects of text spans that have been clicked since the last call to Layout.
