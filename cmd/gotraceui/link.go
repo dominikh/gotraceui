@@ -192,6 +192,10 @@ type STWObjectLink struct {
 type SpansObjectLink struct {
 	Spans Items[ptrace.Span]
 }
+type TaskObjectLink struct {
+	Task       *Task
+	Provenance string
+}
 
 func (*OpenGoroutineAction) IsAction()              {}
 func (*OpenGoroutineFlameGraphAction) IsAction()    {}
@@ -242,6 +246,8 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 		return &GCObjectLink{obj, provenance}
 	case *STW:
 		return &STWObjectLink{obj, provenance}
+	case *Task:
+		return &TaskObjectLink{obj, provenance}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}
@@ -522,6 +528,10 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 		}
 	}
 }
+
+func (*TaskObjectLink) Action(key.Modifiers) theme.Action { return nil }
+func (*TaskObjectLink) ContextMenu() []*theme.MenuItem    { return nil }
+func (*TaskObjectLink) Commands() []theme.Command         { return nil }
 
 func (l *ScrollToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.scrollToTimeline(gtx, l.Timeline)

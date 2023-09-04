@@ -41,11 +41,11 @@ type TasksComponent struct {
 	Trace *Trace
 	Tasks []Task
 
-	mwin         *theme.Window
-	openTasks    big.Int
-	table        theme.Table
-	idClicks     mem.BucketSlice[ClickWithData[int]]
-	tsClicks     mem.BucketSlice[ClickWithData[trace.Timestamp]]
+	mwin      *theme.Window
+	openTasks big.Int
+	table     theme.Table
+	clicks    mem.BucketSlice[ClickWithData]
+
 	scrollState  theme.YScrollableListState
 	tabbedStates map[int]*struct {
 		state     *theme.TabbedState
@@ -59,9 +59,9 @@ type TasksComponent struct {
 	nfUint64 *NumberFormatter[uint64]
 }
 
-type ClickWithData[T any] struct {
+type ClickWithData struct {
 	gesture.Click
-	Data T
+	Link ObjectLink
 }
 
 // Title implements theme.Component.
@@ -75,7 +75,7 @@ func (*TasksComponent) Transition(state theme.ComponentState) {}
 // WantsTransition implements theme.Component.
 func (*TasksComponent) WantsTransition() theme.ComponentState { return theme.ComponentStateNone }
 
-func (l *ClickWithData[T]) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+func (l *ClickWithData) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	return layout.Overlay(gtx, w, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 		pointer.CursorPointer.Add(gtx.Ops)
@@ -110,29 +110,32 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 		})
 	}
 
-	for i, n := 0, cp.tsClicks.Len(); i < n; i++ {
-		click := cp.tsClicks.Ptr(i)
-		for _, ev := range click.Events(gtx.Queue) {
-			handleLinkClick(win, ev, &TimestampObjectLink{Timestamp: click.Data})
-		}
-	}
-
-	for i, n := 0, cp.idClicks.Len(); i < n; i++ {
-		click := cp.idClicks.Ptr(i)
-		for _, ev := range click.Events(gtx.Queue) {
-			if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
-				var bit uint
-				if cp.openTasks.Bit(click.Data) == 0 {
-					bit = 1
+	for i, n := 0, cp.clicks.Len(); i < n; i++ {
+		link := cp.clicks.Ptr(i)
+		for _, ev := range link.Events(gtx.Queue) {
+			switch d := link.Link.(type) {
+			case *TaskObjectLink:
+				if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
+					var bit uint
+					if cp.openTasks.Bit(d.Task.ID) == 0 {
+						bit = 1
+					}
+					cp.openTasks.SetBit(&cp.openTasks, d.Task.ID, bit)
+					cp.expandedAnimations[d.Task.ID] = gtx.Now
 				}
-				cp.openTasks.SetBit(&cp.openTasks, click.Data, bit)
-				cp.expandedAnimations[click.Data] = gtx.Now
+			default:
+				handleLinkClick(win, ev, d)
 			}
 		}
 	}
 
-	cp.idClicks.Reset()
-	cp.tsClicks.Reset()
+	for _, glist := range cp.goroutineLists {
+		for _, ev := range glist.Clicked() {
+			handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
+		}
+	}
+
+	cp.clicks.Reset()
 
 	return cp.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		return theme.YScrollableList(&cp.scrollState).Layout(win, gtx, func(win *theme.Window, gtx layout.Context, list *theme.RememberingList) layout.Dimensions {
@@ -160,8 +163,8 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 									)
 									switch col {
 									case cID:
-										click := cp.idClicks.Grow()
-										click.Data = task.ID
+										link := cp.clicks.Grow()
+										link.Link = &TaskObjectLink{Task: task}
 										// ogtx := gtx
 										return layout.Overlay(gtx,
 											func(gtx layout.Context) layout.Dimensions {
@@ -173,7 +176,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											func(gtx layout.Context) layout.Dimensions {
 												defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 												pointer.CursorPointer.Add(gtx.Ops)
-												click.Add(gtx.Ops)
+												link.Add(gtx.Ops)
 												return layout.Dimensions{Size: gtx.Constraints.Min}
 											},
 										)
@@ -189,8 +192,8 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
 										} else {
 											ts := cp.Trace.Event(ptask.StartEvent).Ts
-											link := cp.tsClicks.Grow()
-											link.Data = ts
+											link := cp.clicks.Grow()
+											link.Link = &TimestampObjectLink{Timestamp: ts}
 											return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
 												return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 													return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, formatTimestamp(cp.nfTs, ts), objectLinkFg)
@@ -202,8 +205,8 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
 										} else {
 											ts := cp.Trace.Event(ptask.EndEvent).Ts
-											link := cp.tsClicks.Grow()
-											link.Data = ts
+											link := cp.clicks.Grow()
+											link.Link = &TimestampObjectLink{Timestamp: ts}
 											return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
 												return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 													return left.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, formatTimestamp(cp.nfTs, ts), objectLinkFg)
