@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	rtrace "runtime/trace"
-	"sort"
 	"strings"
 	"time"
 	"unsafe"
@@ -991,7 +990,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 }
 
 type GoroutineList struct {
-	Goroutines    []*ptrace.Goroutine
+	Goroutines    SortedIndices[*ptrace.Goroutine, []*ptrace.Goroutine]
 	HiddenColumns struct {
 		ID        bool
 		Function  bool
@@ -999,8 +998,6 @@ type GoroutineList struct {
 		EndTime   bool
 		Duration  bool
 	}
-
-	sortedGoroutines []int
 
 	table       *theme.Table
 	scrollState theme.YScrollableListState
@@ -1022,32 +1019,15 @@ func (evs *GoroutineList) HoveredLink() ObjectLink {
 
 func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs []*ptrace.Goroutine) {
 	gl.initTable(win, gtx)
-	gl.Goroutines = gs
-	if cap(gl.sortedGoroutines) >= len(gs) {
-		gl.sortedGoroutines = gl.sortedGoroutines[:len(gs)]
-	} else {
-		gl.sortedGoroutines = make([]int, len(gs))
-	}
-	for i := range gl.sortedGoroutines {
-		gl.sortedGoroutines[i] = i
-	}
+	gl.Goroutines.Reset(gs)
+
 	switch gl.table.Columns[gl.table.SortedBy].Name {
 	case "Goroutine":
-		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
-			gi := gl.Goroutines[gl.sortedGoroutines[i]]
-			gj := gl.Goroutines[gl.sortedGoroutines[j]]
-
-			b := gi.ID < gj.ID
-			if gl.table.SortOrder == theme.SortDescending {
-				b = !b
-			}
-			return b
+		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
+			return cmp(gi.ID, gj.ID, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "Function":
-		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
-			gi := gl.Goroutines[gl.sortedGoroutines[i]]
-			gj := gl.Goroutines[gl.sortedGoroutines[j]]
-
+		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
 			var fn1, fn2 string
 			if gi.Function != nil {
 				fn1 = gi.Function.Fn
@@ -1055,39 +1035,19 @@ func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs
 			if gj.Function != nil {
 				fn2 = gj.Function.Fn
 			}
-			b := fn1 < fn2
-			if gl.table.SortOrder == theme.SortDescending {
-				b = !b
-			}
-			return b
+
+			return cmp(fn1, fn2, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "Start time":
-		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
-			gi := gl.Goroutines[gl.sortedGoroutines[i]]
-			gj := gl.Goroutines[gl.sortedGoroutines[j]]
-
-			b := gi.Spans[0].Start < gj.Spans[0].Start
-			if gl.table.SortOrder == theme.SortDescending {
-				b = !b
-			}
-			return b
+		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
+			return cmp(gi.Spans[0].Start, gj.Spans[0].Start, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "End time":
-		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
-			gi := gl.Goroutines[gl.sortedGoroutines[i]]
-			gj := gl.Goroutines[gl.sortedGoroutines[j]]
-
-			b := gi.Spans[len(gi.Spans)-1].End < gj.Spans[len(gj.Spans)-1].End
-			if gl.table.SortOrder == theme.SortDescending {
-				b = !b
-			}
-			return b
+		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
+			return cmp(gi.Spans[len(gi.Spans)-1].End, gj.Spans[len(gj.Spans)-1].End, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "Duration":
-		sort.Slice(gl.sortedGoroutines, func(i, j int) bool {
-			gi := gl.Goroutines[gl.sortedGoroutines[i]]
-			gj := gl.Goroutines[gl.sortedGoroutines[j]]
-
+		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
 			starti := gi.Spans[0].Start
 			startj := gj.Spans[0].Start
 			endi := gi.Spans[len(gi.Spans)-1].End
@@ -1096,11 +1056,7 @@ func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs
 			di := endi - starti
 			dj := endj - startj
 
-			b := di < dj
-			if gl.table.SortOrder == theme.SortDescending {
-				b = !b
-			}
-			return b
+			return cmp(di, dj, gl.table.SortOrder == theme.SortDescending)
 		})
 	}
 }
@@ -1151,14 +1107,14 @@ func (gs *GoroutineList) initTable(win *theme.Window, gtx layout.Context) {
 	gs.table.SortOrder = theme.SortAscending
 
 	// Find space needed for largest goroutine ID
-	n := len(gs.Goroutines)
+	n := gs.Goroutines.Len()
 	s := n - 32
 	if s < 0 {
 		s = 0
 	}
 	var maxID uint64
 	// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
-	for _, g := range gs.Goroutines[s:n] {
+	for _, g := range gs.Goroutines.Items[s:n] {
 		if g.ID > maxID {
 			maxID = g.ID
 		}
@@ -1206,7 +1162,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		txtCnt++
 		txt.Reset(win.Theme)
 
-		g := gs.Goroutines[gs.sortedGoroutines[row]]
+		g := gs.Goroutines.At(row)
 		switch gs.table.Columns[col].Name {
 		case "Goroutine": // ID
 			tb.DefaultLink(local.Sprintf("%d", g.ID), "", g)
@@ -1245,7 +1201,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		gtx,
 		gs.table,
 		&gs.scrollState,
-		len(gs.Goroutines),
+		gs.Goroutines.Len(),
 		cellFn,
 	)
 
@@ -1267,7 +1223,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		}
 
 		// Trigger resorting.
-		gs.SetGoroutines(win, gtx, gs.Goroutines)
+		gs.SetGoroutines(win, gtx, gs.Goroutines.Items)
 	}
 
 	return dims

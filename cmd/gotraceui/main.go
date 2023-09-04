@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	rtrace "runtime/trace"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,7 +48,6 @@ import (
 	"gioui.org/x/explorer"
 	"gioui.org/x/styledtext"
 	"golang.org/x/exp/constraints"
-	"golang.org/x/exp/slices"
 	"golang.org/x/text/message"
 )
 
@@ -1058,16 +1058,14 @@ func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 		}
 	}
 
-	slices.SortFunc(cmds, func(a, b theme.Command) bool {
+	slices.SortFunc(cmds, func(a, b theme.Command) int {
 		an := a.(theme.NormalCommand)
 		bn := b.(theme.NormalCommand)
 
-		if an.Category < bn.Category {
-			return true
-		} else if an.Category > bn.Category {
-			return false
+		if n := cmp(an.Category, bn.Category, false); n != 0 {
+			return n
 		} else {
-			return an.PrimaryLabel < bn.PrimaryLabel
+			return cmp(an.PrimaryLabel, bn.PrimaryLabel, false)
 		}
 	})
 
@@ -1817,4 +1815,65 @@ func (nf *NumberFormatter[T]) Format(f string, n T) string {
 	s := nf.Printer.Sprintf(f, n)
 	nf.cache.Add(key, s)
 	return s
+}
+
+type SortedIndices[E any, S ~[]E] struct {
+	Items S
+	Order []int
+}
+
+func NewSortedIndices[E any, S ~[]E](items S) SortedIndices[E, S] {
+	order := make([]int, len(items))
+	for i := range order {
+		order[i] = i
+	}
+	return SortedIndices[E, S]{
+		Items: items,
+		Order: order,
+	}
+}
+
+func (s *SortedIndices[E, S]) Reset(items S) {
+	s.Items = items
+	if cap(s.Order) >= len(items) {
+		s.Order = s.Order[:len(items)]
+	} else {
+		s.Order = make([]int, len(items))
+	}
+	for i := range s.Order {
+		s.Order[i] = i
+	}
+}
+
+func (s SortedIndices[E, S]) At(idx int) E {
+	return s.Items[s.Order[idx]]
+}
+
+func (s SortedIndices[E, S]) Ptr(idx int) *E {
+	return &s.Items[s.Order[idx]]
+}
+
+func (s SortedIndices[E, S]) Len() int {
+	return len(s.Items)
+}
+
+func (s SortedIndices[E, S]) Sort(cmp func(a, b E) int) {
+	slices.SortFunc(s.Order, func(a, b int) int {
+		ea := s.Items[a]
+		eb := s.Items[b]
+		return cmp(ea, eb)
+	})
+}
+
+func cmp[T constraints.Ordered](a, b T, negate bool) int {
+	var ret int
+	if a < b {
+		ret = -1
+	} else if a > b {
+		ret = 1
+	}
+	if negate {
+		ret = -ret
+	}
+	return ret
 }

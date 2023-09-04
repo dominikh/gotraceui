@@ -179,7 +179,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 							} else {
 								gs = fi.fn.Goroutines
 							}
-							if len(fi.goroutineList.Goroutines) == 0 || len(gs) == 0 || &gs[0] != &fi.goroutineList.Goroutines[0] {
+							if fi.goroutineList.Goroutines.Len() == 0 || len(gs) == 0 || &gs[0] != &fi.goroutineList.Goroutines.Items[0] {
 								fi.goroutineList.SetGoroutines(win, gtx, gs)
 							}
 							return fi.goroutineList.Layout(win, gtx)
