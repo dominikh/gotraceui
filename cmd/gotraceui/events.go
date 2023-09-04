@@ -95,11 +95,11 @@ func (evs *EventList) Clicked() []TextEvent {
 	return out
 }
 
-// Hovered returns the text span that has been hovered during the last call to Layout.
-func (evs *EventList) Hovered() *TextSpan {
+// HoveredLink returns the link that has been hovered during the last call to Layout.
+func (evs *EventList) HoveredLink() ObjectLink {
 	for i := 0; i < evs.texts.Len(); i++ {
 		txt := evs.texts.Ptr(i)
-		if h := txt.Hovered(); h != nil {
+		if h := txt.HoveredLink(); h != nil {
 			return h
 		}
 	}

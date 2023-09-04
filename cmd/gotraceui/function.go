@@ -30,7 +30,7 @@ type FunctionInfo struct {
 	hist             InteractiveHistogram
 
 	descriptionText Text
-	hoveredLink     *TextSpan
+	hoveredLink     ObjectLink
 
 	initialized bool
 
@@ -48,7 +48,7 @@ func NewFunctionInfo(tr *Trace, mwin *theme.Window, fn *ptrace.Function) *Functi
 	return fi
 }
 
-func (fi *FunctionInfo) HoveredLink() *TextSpan {
+func (fi *FunctionInfo) HoveredLink() ObjectLink {
 	return fi.hoveredLink
 }
 
@@ -196,9 +196,17 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 	for _, ev := range fi.descriptionText.Events() {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
+	firstNonNil := func(els ...ObjectLink) ObjectLink {
+		for _, el := range els {
+			if el != nil {
+				return el
+			}
+		}
+		return nil
+	}
 	fi.hoveredLink = firstNonNil(
-		fi.goroutineList.Hovered(),
-		fi.descriptionText.Hovered(),
+		fi.goroutineList.HoveredLink(),
+		fi.descriptionText.HoveredLink(),
 	)
 
 	for fi.PanelButtons.Backed() {

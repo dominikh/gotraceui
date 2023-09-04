@@ -109,9 +109,13 @@ func (txt *Text) Events() []TextEvent {
 	return txt.events
 }
 
-// Hovered returns the interactive span that was hovered in the last call to Layout.
-func (txt *Text) Hovered() *TextSpan {
-	return txt.hovered
+// HoveredLink returns the link that was hovered in the last call to Layout.
+func (txt *Text) HoveredLink() ObjectLink {
+	if txt.hovered == nil {
+		return nil
+	} else {
+		return txt.hovered.ObjectLink
+	}
 }
 
 func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan) layout.Dimensions {

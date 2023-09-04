@@ -69,7 +69,7 @@ type SpansInfo struct {
 
 	descriptionBuilder func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider)
 	descriptionText    Text
-	hoveredLink        *TextSpan
+	hoveredLink        ObjectLink
 
 	stacktraceList widget.List
 	statsList      widget.List
@@ -326,7 +326,7 @@ func (si *SpansInfo) zoomToSpans(win *theme.Window) {
 	}
 }
 
-func (si *SpansInfo) HoveredLink() *TextSpan {
+func (si *SpansInfo) HoveredLink() ObjectLink {
 	return si.hoveredLink
 }
 
@@ -553,10 +553,20 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	for _, ev := range si.spansList.Clicked() {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
+
+	firstNonNil := func(els ...ObjectLink) ObjectLink {
+		for _, el := range els {
+			if el != nil {
+				return el
+			}
+		}
+		return nil
+	}
 	si.hoveredLink = firstNonNil(
-		si.descriptionText.Hovered(),
-		si.eventsList.Hovered(),
-		si.spansList.Hovered())
+		si.descriptionText.HoveredLink(),
+		si.eventsList.HoveredLink(),
+		si.spansList.HoveredLink(),
+	)
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {
 		si.scrollAndPanToSpans(win)
@@ -727,11 +737,11 @@ func (spans *SpanList) Clicked() []TextEvent {
 	return out
 }
 
-// Hovered returns the interactive text span that has been hovered during the last call to Layout.
-func (spans *SpanList) Hovered() *TextSpan {
+// HoveredLink returns the link that has been hovered during the last call to Layout.
+func (spans *SpanList) HoveredLink() ObjectLink {
 	for i := 0; i < spans.texts.Len(); i++ {
 		txt := spans.texts.Ptr(i)
-		if h := txt.Hovered(); h != nil {
+		if h := txt.HoveredLink(); h != nil {
 			return h
 		}
 	}

@@ -22,15 +22,6 @@ func ifelse[T any](b bool, x, y T) T {
 	}
 }
 
-func firstNonNil[E any, T ~*E](els ...T) T {
-	for _, el := range els {
-		if el != nil {
-			return el
-		}
-	}
-	return nil
-}
-
 type Option[T any] struct {
 	v   T
 	set bool

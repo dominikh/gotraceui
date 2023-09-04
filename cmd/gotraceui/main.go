@@ -176,12 +176,16 @@ type PanelWindow struct {
 	MainWindow *theme.Window
 	Panel      Panel
 
-	hoveredLink     atomic.Pointer[TextSpan]
-	prevHoveredLink *TextSpan
+	mu          sync.RWMutex
+	hoveredLink ObjectLink
+
+	prevHoveredLink ObjectLink
 }
 
-func (pwin *PanelWindow) HoveredLink() *TextSpan {
-	return pwin.hoveredLink.Load()
+func (pwin *PanelWindow) HoveredLink() ObjectLink {
+	pwin.mu.RLock()
+	defer pwin.mu.RUnlock()
+	return pwin.hoveredLink
 }
 
 func (pwin *PanelWindow) Run(win *app.Window) error {
@@ -199,7 +203,9 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 				continue
 			}
 
-			pwin.prevHoveredLink = pwin.hoveredLink.Load()
+			pwin.mu.RLock()
+			pwin.prevHoveredLink = pwin.hoveredLink
+			pwin.mu.RUnlock()
 			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				for _, l := range win.Actions() {
 					switch l := l.(type) {
@@ -217,7 +223,9 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			})
 
 			l := pwin.Panel.HoveredLink()
-			pwin.hoveredLink.Store(l)
+			pwin.mu.Lock()
+			pwin.hoveredLink = l
+			pwin.mu.Unlock()
 			if l != pwin.prevHoveredLink {
 				pwin.MainWindow.AppWindow.Invalidate()
 			}
@@ -649,7 +657,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	mwin.canvas.indicateTimestamp = None[trace.Timestamp]()
 	if mwin.panel != nil {
 		if l := mwin.panel.HoveredLink(); l != nil {
-			switch a := l.ObjectLink.Action(0).(type) {
+			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
 				mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
 			}
@@ -672,7 +680,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	for w := range mwin.subwindows {
 		if l := w.HoveredLink(); l != nil {
 			// TODO(dh): factor out into own function, remove duplication from here and earlier
-			switch a := l.ObjectLink.Action(0).(type) {
+			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
 				mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
 			}

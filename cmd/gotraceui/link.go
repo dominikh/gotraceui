@@ -22,7 +22,7 @@ import (
 var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
 
 type HoveredLinker interface {
-	HoveredLink() *TextSpan
+	HoveredLink() ObjectLink
 }
 
 type NavigationAction interface {
@@ -99,6 +99,7 @@ type OpenPanelAction struct {
 	Panel Panel
 }
 type PrevPanelAction struct{}
+
 type GoroutineObjectLink struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
