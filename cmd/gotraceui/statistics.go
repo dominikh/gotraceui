@@ -273,34 +273,6 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		ColumnPadding: gtx.Dp(10),
 	}
 
-	// Compute the widest column label so that all columns have the same size (unless they need to be wider due to their
-	// contents.)
-	var labelSizes [3]image.Point
-	for i := numStatLabels; i < 2*numStatLabels; i++ {
-		f := ourfont.Collection()[0].Font
-		f.Weight = font.Bold
-
-		l := statLabels[gs.numberFormat][i]
-		m := op.Record(gtx.Ops)
-		gtx := gtx
-		gtx.Constraints.Min.X = 0
-		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
-		m.Stop()
-		spanWidth := dims.Size.X
-		spanHeight := dims.Size.Y
-
-		j := i - numStatLabels
-		if j > 2 {
-			j = 2
-		}
-		if spanWidth > labelSizes[j].X {
-			labelSizes[j].X = spanWidth
-		}
-		if spanHeight > labelSizes[j].Y {
-			labelSizes[j].Y = spanHeight
-		}
-	}
-
 	sizes := gs.computeSizes(gtx, win.Theme)
 	sizer := func(gtx layout.Context, row, col int) layout.Dimensions {
 		return layout.Dimensions{Size: sizes[col]}
