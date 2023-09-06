@@ -1246,6 +1246,7 @@ func spanWith(th *theme.Theme, text string, fn func(styledtext.SpanStyle) styled
 
 var local = message.NewPrinter(message.MatchLanguage("en"))
 
+// OPT(dh): find all calls of this function with a nil NumberFormatter and fix them
 func formatTimestamp(nf *NumberFormatter[trace.Timestamp], ts trace.Timestamp) string {
 	if nf != nil {
 		return nf.Format("%d ns", ts)

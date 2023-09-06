@@ -12,7 +12,6 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
@@ -550,9 +549,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	for _, ev := range si.eventsList.Clicked() {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
-	for _, ev := range si.spansList.Clicked() {
-		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
-	}
 
 	firstNonNil := func(els ...ObjectLink) ObjectLink {
 		for _, el := range els {
@@ -662,9 +658,7 @@ type SpanList struct {
 	table       theme.Table
 	scrollState theme.YScrollableListState
 
-	// FIXME(dh): OPT we're not actually using timestampObjects. And our use of defaultObjectLink allocates.
-	timestampObjects mem.BucketSlice[trace.Timestamp]
-	texts            mem.BucketSlice[Text]
+	clicks mem.BucketSlice[Link]
 }
 
 func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -679,70 +673,54 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		}
 		spans.table.SetColumns(win, gtx, cols)
 	}
-	spans.timestampObjects.Reset()
 
-	var txtCnt int
-	// OPT(dh): reuse memory
+	handleLinkClicks(win, gtx, &spans.clicks)
+	spans.clicks.Reset()
+
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-
-		tb := TextBuilder{Theme: win.Theme}
-		var txt *Text
-		if txtCnt < spans.texts.Len() {
-			txt = spans.texts.Ptr(txtCnt)
-		} else {
-			txt = spans.texts.Append(Text{})
-		}
-		txtCnt++
-		txt.Reset(win.Theme)
 
 		span := spans.Spans.At(row)
 		switch col {
 		case 0:
-			tb.Link("<Span>", &SpansObjectLink{
+			link := spans.clicks.Grow()
+			link.Link = &SpansObjectLink{
 				Spans: spans.Spans.Slice(row, row+1),
-			})
+			}
+
+			return (*TextLink)(link).Layout(win, gtx, font.Font{}, text.Start, "<Span>")
 		case 1: // Time
-			tb.Link(formatTimestamp(nil, span.Start), defaultObjectLink(span.Start, ""))
-			txt.Alignment = text.End
+			link := spans.clicks.Grow()
+			link.Link = &TimestampObjectLink{
+				Timestamp: span.Start,
+			}
+			return (*TextLink)(link).Layout(win, gtx, font.Font{}, text.End, formatTimestamp(nil, span.Start))
 		case 2: // Duration
 			value, unit := durationNumberFormatSITable.format(span.Duration())
-			tb.Span(value)
-			tb.Span(" ")
-			s := tb.Span(unit)
-			s.Font.Typeface = "Go Mono"
-			txt.Alignment = text.End
+			// OPT(dh): avoid allocation
+			l := fmt.Sprintf("%s %s", value, unit)
+			f := font.Font{
+				Typeface: "Go Mono",
+			}
+			return widget.Label{MaxLines: 1, Alignment: text.End}.Layout(gtx, win.Theme.Shaper, f, 12, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
 		case 3: // State
-			label := stateNamesCapitalized[span.State]
-			tb.Span(label)
+			l := stateNamesCapitalized[span.State]
+			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+		default:
+			panic(fmt.Sprintf("unreachable: %d", col))
 		}
-
-		dims := txt.Layout(win, gtx, tb.Spans)
-		dims.Size = gtx.Constraints.Constrain(dims.Size)
-		return dims
 	}
 
 	gtx.Constraints.Min = gtx.Constraints.Max
 	return theme.SimpleTable(win, gtx, &spans.table, &spans.scrollState, spans.Spans.Len(), cellFn)
 }
 
-// Clicked returns all objects of text spans that have been clicked hovered the last call to Layout.
-func (spans *SpanList) Clicked() []TextEvent {
-	// This only allocates when links have been clicked, which is a very low frequency event.
-	var out []TextEvent
-	for i := 0; i < spans.texts.Len(); i++ {
-		txt := spans.texts.Ptr(i)
-		out = append(out, txt.Events()...)
-	}
-	return out
-}
-
 // HoveredLink returns the link that has been hovered during the last call to Layout.
 func (spans *SpanList) HoveredLink() ObjectLink {
-	for i := 0; i < spans.texts.Len(); i++ {
-		txt := spans.texts.Ptr(i)
-		if h := txt.HoveredLink(); h != nil {
-			return h
+	for i := 0; i < spans.clicks.Len(); i++ {
+		link := spans.clicks.Ptr(i)
+		if link.Hovered() {
+			return link.Link
 		}
 	}
 	return nil

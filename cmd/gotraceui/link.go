@@ -13,6 +13,7 @@ import (
 	mycolor "honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -43,8 +44,8 @@ func (l *Link) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 type TextLink Link
 
 func (l *TextLink) Layout(
-	gtx layout.Context,
 	win *theme.Window,
+	gtx layout.Context,
 	f font.Font,
 	align text.Alignment,
 	s string,
@@ -606,6 +607,15 @@ func handleLinkClick(win *theme.Window, ev gesture.ClickEvent, link ObjectLink) 
 		menu := link.ContextMenu()
 		if len(menu) != 0 {
 			win.SetContextMenu(menu)
+		}
+	}
+}
+
+func handleLinkClicks(win *theme.Window, gtx layout.Context, clicks *mem.BucketSlice[Link]) {
+	for i := 0; i < clicks.Len(); i++ {
+		link := clicks.Ptr(i)
+		for _, ev := range link.Events(gtx.Queue) {
+			handleLinkClick(win, ev, link.Link)
 		}
 	}
 }
