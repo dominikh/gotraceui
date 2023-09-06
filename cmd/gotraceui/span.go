@@ -53,8 +53,8 @@ type SpansInfo struct {
 
 	cfg SpansInfoConfig
 
-	eventsList EventList
-	spansList  SpanList
+	eventList EventList
+	spanList  SpanList
 
 	buttons struct {
 		scrollAndPanToSpans widget.PrimaryClickable
@@ -158,17 +158,17 @@ func (si *SpansInfo) init(win *theme.Window) {
 		}
 	}
 
-	si.spansList = SpanList{
+	si.spanList = SpanList{
 		Spans: spans,
 	}
 
-	si.eventsList = EventList{Trace: si.trace}
-	si.eventsList.Filter.ShowGoCreate.Value = true
-	si.eventsList.Filter.ShowGoUnblock.Value = true
-	si.eventsList.Filter.ShowGoSysCall.Value = true
-	si.eventsList.Filter.ShowUserLog.Value = true
-	si.eventsList.Events = Events(spans, si.trace)
-	si.eventsList.UpdateFilter()
+	si.eventList = EventList{Trace: si.trace}
+	si.eventList.Filter.ShowGoCreate.Value = true
+	si.eventList.Filter.ShowGoUnblock.Value = true
+	si.eventList.Filter.ShowGoSysCall.Value = true
+	si.eventList.Filter.ShowUserLog.Value = true
+	si.eventList.Events = Events(spans, si.trace)
+	si.eventList.UpdateFilter()
 
 	if si.cfg.DescriptionBuilder != nil {
 		si.descriptionBuilder = si.cfg.DescriptionBuilder
@@ -452,7 +452,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			layout.Spacer{Height: 10}.Layout,
 			func(gtx layout.Context) layout.Dimensions {
 				tabs := []string{"Statistics", "Spans"}
-				if si.eventsList.Events.Len() != 0 {
+				if si.eventList.Events.Len() != 0 {
 					tabs = append(tabs, "Events")
 				}
 				if si.cfg.Stacktrace != "" {
@@ -500,10 +500,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						)
 
 					case "Spans":
-						return si.spansList.Layout(win, gtx)
+						return si.spanList.Layout(win, gtx)
 
 					case "Events":
-						return si.eventsList.Layout(win, gtx)
+						return si.eventList.Layout(win, gtx)
 
 					case "Histogram":
 						return si.hist.Layout(win, gtx)
@@ -546,7 +546,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	for _, ev := range si.descriptionText.Events() {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
-	for _, ev := range si.eventsList.Clicked() {
+	for _, ev := range si.eventList.Clicked() {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
 
@@ -560,8 +560,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 	si.hoveredLink = firstNonNil(
 		si.descriptionText.HoveredLink(),
-		si.eventsList.HoveredLink(),
-		si.spansList.HoveredLink(),
+		si.eventList.HoveredLink(),
+		si.spanList.HoveredLink(),
 	)
 
 	for si.buttons.scrollAndPanToSpans.Clicked() {
