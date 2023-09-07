@@ -10,15 +10,12 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
-	"honnef.co/go/gotraceui/clip"
-	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
-	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/text"
 	"gioui.org/x/styledtext"
@@ -26,38 +23,26 @@ import (
 
 const numStatLabels = 7
 
-var statLabels = [...][numStatLabels * 3]string{
+var statLabels = [...][numStatLabels]string{
 	durationNumberFormatScientific: [...]string{
 		"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
-		"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
-		"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
 	},
 	durationNumberFormatExact: [...]string{
 		"State", "Count", "Total (s)", "Min (s)", "Max (s)", "Avg (s)", "p50 (s)",
-		"State▼", "Count▼", "Total (s)▼", "Min (s)▼", "Max (s)▼", "Avg (s)▼", "p50 (s)▼",
-		"State▲", "Count▲", "Total (s)▲", "Min (s)▲", "Max (s)▲", "Avg (s)▲", "p50 (s)▲",
 	},
 	durationNumberFormatSI: [...]string{
 		"State", "Count", "Total", "Min", "Max", "Avg", "p50",
-		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
-		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
 	},
 	durationNumberFormatSITable: [...]string{
 		"State", "Count", "Total", "Min", "Max", "Avg", "p50",
-		"State▼", "Count▼", "Total▼", "Min▼", "Max▼", "Avg▼", "p50▼",
-		"State▲", "Count▲", "Total▲", "Min▲", "Max▲", "Avg▲", "p50▲",
 	},
 }
 
 type SpansStats struct {
-	stats SortedIndices[ptrace.Statistic, []ptrace.Statistic]
-
-	sortCol        int
-	sortDescending bool
-
+	stats        SortedIndices[ptrace.Statistic, []ptrace.Statistic]
+	table        theme.Table
+	scrollState  theme.YScrollableListState
 	numberFormat durationNumberFormat
-
-	columnClicks [7]widget.PrimaryClickable
 }
 
 func statisticsToCSV(stats []ptrace.Statistic) string {
@@ -130,17 +115,20 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 	//
 	// We assume that all lines have the same height. This is an assumption shared by outlay.Grid.
 
-	fLabel := ourfont.Collection()[0].Font
-	fLabel.Weight = font.Bold
-	fContent := ourfont.Collection()[0].Font
-	fValue := ourfont.Collection()[0].Font
-	fUnit := ourfont.Collection()[0].Font
-	fUnit.Typeface = "Go Mono"
+	fLabel := font.Font{
+		Weight: font.Bold,
+	}
+	fContent := font.Font{}
+	fValue := font.Font{}
+	fUnit := font.Font{
+		Typeface: "Go Mono",
+	}
 
 	var columnSizes [numStatLabels]image.Point
 
 	shape := func(s string, f font.Font) image.Point {
 		m := op.Record(gtx.Ops)
+		gtx.Constraints.Min = image.Point{}
 		dims := widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, f, th.TextSize, s, widget.ColorTextMaterial(gtx, color.NRGBA{}))
 		m.Stop()
 
@@ -151,7 +139,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 	}
 
 	// Column 1 contains strings, so the width is that of the widest shaped string
-	size := shape(statLabels[gs.numberFormat][0+numStatLabels], fLabel)
+	size := shape(statLabels[gs.numberFormat][0], fLabel)
 	for _, name := range stateNamesCapitalized {
 		size2 := shape(name, fContent)
 		if size2.X > size.X {
@@ -162,7 +150,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 
 	// Column 2 contains numbers, so the width is either that of the column label or the widest number. Digits all have
 	// the same width, so we only need to shape the largest number.
-	size = shape(statLabels[gs.numberFormat][1+numStatLabels], fLabel)
+	size = shape(statLabels[gs.numberFormat][1], fLabel)
 	max := 0
 	for _, stat := range gs.stats.Items {
 		if stat.Count > max {
@@ -181,7 +169,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 		// the column label or that of "1.23E+99". We give all remaining columns the same size.
 		size = shape("1.23E+99", fContent)
 		for i := 2; i < numStatLabels; i++ {
-			size2 := shape(statLabels[gs.numberFormat][i+numStatLabels], fLabel)
+			size2 := shape(statLabels[gs.numberFormat][i], fLabel)
 			if size2.X > size.X {
 				size.X = size2.X
 			}
@@ -198,7 +186,7 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 		// probably doesn't matter.
 
 		for i := 2; i < numStatLabels; i++ {
-			size = shape(statLabels[gs.numberFormat][i+numStatLabels], fLabel)
+			size = shape(statLabels[gs.numberFormat][i], fLabel)
 			for _, stat := range gs.stats.Items {
 				var v time.Duration
 				switch i {
@@ -227,38 +215,44 @@ func (gs *SpansStats) computeSizes(gtx layout.Context, th *theme.Theme) [numStat
 		}
 	}
 
+	for i := range columnSizes {
+		// TODO(dh): this is way too dependent on the implementation of Table
+		// Allow for some padding, and the sort indicator
+		columnSizes[i].X += gtx.Dp(10) + shape("▲", fLabel).X
+	}
+
 	return columnSizes
 }
 
 func (gs *SpansStats) sort() {
-	switch gs.sortCol {
+	switch gs.table.SortedBy {
 	case 0: // Name
 		gs.stats.SortIndex(func(a, b int) int {
-			return cmp(stateNamesCapitalized[a], stateNamesCapitalized[b], gs.sortDescending)
+			return cmp(stateNamesCapitalized[a], stateNamesCapitalized[b], gs.table.SortOrder == theme.SortDescending)
 		})
 	case 1: // Count
 		gs.stats.Sort(func(a, b ptrace.Statistic) int {
-			return cmp(a.Count, b.Count, gs.sortDescending)
+			return cmp(a.Count, b.Count, gs.table.SortOrder == theme.SortDescending)
 		})
 	case 2: // Total
 		gs.stats.Sort(func(a, b ptrace.Statistic) int {
-			return cmp(a.Total, b.Total, gs.sortDescending)
+			return cmp(a.Total, b.Total, gs.table.SortOrder == theme.SortDescending)
 		})
 	case 3: // Min
 		gs.stats.Sort(func(a, b ptrace.Statistic) int {
-			return cmp(a.Min, b.Min, gs.sortDescending)
+			return cmp(a.Min, b.Min, gs.table.SortOrder == theme.SortDescending)
 		})
 	case 4: // Max
 		gs.stats.Sort(func(a, b ptrace.Statistic) int {
-			return cmp(a.Max, b.Max, gs.sortDescending)
+			return cmp(a.Max, b.Max, gs.table.SortOrder == theme.SortDescending)
 		})
 	case 5: // Avg
 		gs.stats.Sort(func(a, b ptrace.Statistic) int {
-			return cmp(a.Average, b.Average, gs.sortDescending)
+			return cmp(a.Average, b.Average, gs.table.SortOrder == theme.SortDescending)
 		})
 	case 6: // p50
 		gs.stats.Sort(func(a, b ptrace.Statistic) int {
-			return cmp(a.Median, b.Median, gs.sortDescending)
+			return cmp(a.Median, b.Median, gs.table.SortOrder == theme.SortDescending)
 		})
 	default:
 		panic("unreachable")
@@ -268,93 +262,84 @@ func (gs *SpansStats) sort() {
 func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineStats.Layout").End()
 
-	grid := layout.SmallGrid{
-		RowPadding:    0,
-		ColumnPadding: gtx.Dp(10),
+	if gs.table.Columns == nil {
+		sizes := gs.computeSizes(gtx, win.Theme)
+
+		cols := []theme.Column{
+			{Name: statLabels[gs.numberFormat][0], Width: float32(sizes[0].X), Clickable: true},
+			{Name: statLabels[gs.numberFormat][1], Width: float32(sizes[1].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][2], Width: float32(sizes[2].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][3], Width: float32(sizes[3].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][4], Width: float32(sizes[4].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][5], Width: float32(sizes[5].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][6], Width: float32(sizes[6].X), Clickable: true, Alignment: text.End},
+		}
+		gs.table.SetColumns(win, gtx, cols)
+		gs.table.SortOrder = theme.SortAscending
+		gs.table.SortedBy = 0
 	}
 
-	sizes := gs.computeSizes(gtx, win.Theme)
-	sizer := func(gtx layout.Context, row, col int) layout.Dimensions {
-		return layout.Dimensions{Size: sizes[col]}
+	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
+		var value, unit string
+		switch col {
+		case 0:
+			// type
+			n := gs.stats.Order[row]
+			value = stateNamesCapitalized[n]
+		case 1:
+			value = local.Sprintf("%d", gs.stats.At(row).Count)
+		case 2:
+			// total
+			value, unit = gs.numberFormat.format(gs.stats.At(row).Total)
+		case 3:
+			// min
+			value, unit = gs.numberFormat.format(gs.stats.At(row).Min)
+		case 4:
+			// max
+			value, unit = gs.numberFormat.format(gs.stats.At(row).Max)
+		case 5:
+			// avg
+			value, unit = gs.numberFormat.format(time.Duration(gs.stats.At(row).Average))
+		case 6:
+			// p50
+			value, unit = gs.numberFormat.format(time.Duration(gs.stats.At(row).Median))
+		default:
+			panic("unreachable")
+		}
+
+		// TODO(dh): explicitly select tabular figures from the font. It's not crucial because most fonts default to
+		// it, anyway.
+		txt := styledtext.Text(win.Theme.Shaper, span(win.Theme, value), span(win.Theme, " "), span(win.Theme, unit))
+		txt.Styles[2].Font.Typeface = "Go Mono"
+		if col != 0 {
+			txt.Alignment = text.End
+		}
+		return txt.Layout(gtx, nil)
 	}
 
-	cellFn := func(gtx layout.Context, row, col int) layout.Dimensions {
-		if row == 0 {
-			var l string
-			if col == gs.sortCol {
-				if gs.sortDescending {
-					l = statLabels[gs.numberFormat][col+numStatLabels]
-				} else {
-					l = statLabels[gs.numberFormat][col+numStatLabels*2]
-				}
-			} else {
-				l = statLabels[gs.numberFormat][col]
-			}
+	dims := theme.SimpleTable(win, gtx, &gs.table, &gs.scrollState, gs.stats.Len(), cellFn)
 
-			s := spanWith(win.Theme, l, func(ss styledtext.SpanStyle) styledtext.SpanStyle {
-				ss.Font.Weight = font.Bold
-				return ss
-			})
-			gs.columnClicks[col].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return styledtext.Text(win.Theme.Shaper, s).Layout(gtx, func(gtx layout.Context, i int, dims layout.Dimensions) {
-					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-					pointer.CursorPointer.Add(gtx.Ops)
-				})
-			})
-		} else {
-			row--
-
-			var value, unit string
-			switch col {
-			case 0:
-				// type
-				n := gs.stats.Order[row]
-				value = stateNamesCapitalized[n]
-			case 1:
-				value = local.Sprintf("%d", gs.stats.At(row).Count)
-			case 2:
-				// total
-				value, unit = gs.numberFormat.format(gs.stats.At(row).Total)
-			case 3:
-				// min
-				value, unit = gs.numberFormat.format(gs.stats.At(row).Min)
-			case 4:
-				// max
-				value, unit = gs.numberFormat.format(gs.stats.At(row).Max)
-			case 5:
-				// avg
-				value, unit = gs.numberFormat.format(time.Duration(gs.stats.At(row).Average))
-			case 6:
-				// p50
-				value, unit = gs.numberFormat.format(time.Duration(gs.stats.At(row).Median))
+	// TODO(dh): deduplicate this code, it's repeated in all places that use sortable tables.
+	if col, ok := gs.table.ClickedColumn(); ok {
+		if col == gs.table.SortedBy {
+			switch gs.table.SortOrder {
+			case theme.SortNone:
+				gs.table.SortOrder = theme.SortAscending
+			case theme.SortAscending:
+				gs.table.SortOrder = theme.SortDescending
+			case theme.SortDescending:
+				gs.table.SortOrder = theme.SortAscending
 			default:
-				panic("unreachable")
+				panic(fmt.Sprintf("unhandled case %v", gs.table.SortOrder))
 			}
-
-			// TODO(dh): explicitly select tabular figures from the font. It's not crucial because most fonts default to
-			// it, anyway.
-			txt := styledtext.Text(win.Theme.Shaper, span(win.Theme, value), span(win.Theme, " "), span(win.Theme, unit))
-			txt.Styles[2].Font.Typeface = "Go Mono"
-			if col != 0 {
-				txt.Alignment = text.End
-			}
-			txt.Layout(gtx, nil)
+		} else {
+			gs.table.SortedBy = col
+			gs.table.SortOrder = theme.SortAscending
 		}
 
-		return layout.Dimensions{Size: gtx.Constraints.Min}
+		// Trigger resorting.
+		gs.sort()
 	}
 
-	for col := range gs.columnClicks {
-		for gs.columnClicks[col].Clicked() {
-			if col == gs.sortCol {
-				gs.sortDescending = !gs.sortDescending
-			} else {
-				gs.sortCol = col
-				gs.sortDescending = false
-			}
-			gs.sort()
-		}
-	}
-
-	return grid.Layout(gtx, gs.stats.Len()+1, 7, sizer, cellFn)
+	return dims
 }

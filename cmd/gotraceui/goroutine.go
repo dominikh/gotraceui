@@ -1205,6 +1205,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		cellFn,
 	)
 
+	// TODO(dh): deduplicate this code, it's repeated in all places that use sortable tables.
 	if col, ok := gs.table.ClickedColumn(); ok {
 		if col == gs.table.SortedBy {
 			switch gs.table.SortOrder {

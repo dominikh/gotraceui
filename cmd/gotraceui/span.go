@@ -71,7 +71,6 @@ type SpansInfo struct {
 	hoveredLink        ObjectLink
 
 	stacktraceList widget.List
-	statsList      widget.List
 
 	statistics *theme.Future[*SpansStats]
 	hist       InteractiveHistogram
@@ -479,16 +478,11 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					case "Statistics":
 						return layout.Rigids(gtx, layout.Vertical,
 							func(gtx layout.Context) layout.Dimensions {
-								return theme.List(win.Theme, &si.statsList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-									if index != 0 {
-										panic("impossible")
-									}
-									if stats, ok := si.statistics.Result(); ok {
-										return stats.Layout(win, gtx)
-									} else {
-										return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
-									}
-								})
+								if stats, ok := si.statistics.Result(); ok {
+									return stats.Layout(win, gtx)
+								} else {
+									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+								}
 							},
 
 							layout.Spacer{Height: 1}.Layout,
