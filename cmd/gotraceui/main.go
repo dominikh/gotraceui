@@ -269,21 +269,21 @@ func (mwin *MainWindow) openPanelWindow(p Panel) {
 
 func (mwin *MainWindow) openHeatmap() {
 	c := NewHeatmapComponent(mwin.trace)
-	mwin.openTab(c)
+	mwin.openTab(Tab{Component: c})
 }
 
 func (mwin *MainWindow) openFlameGraph(g *ptrace.Goroutine) {
 	c := NewFlameGraphComponent(mwin.twin, mwin.trace.Trace, g)
-	mwin.openTab(c)
+	mwin.openTab(Tab{Component: c})
 }
 
-func (mwin *MainWindow) openTab(c theme.Component) {
-	mwin.tabs = append(mwin.tabs, c)
+func (mwin *MainWindow) openTab(tab Tab) {
+	mwin.tabs = append(mwin.tabs, tab)
 	mwin.tabbedState.Current = len(mwin.tabs) - 1
 }
 
-func (mwin *MainWindow) openTabBg(c theme.Component) {
-	mwin.tabs = append(mwin.tabs, c)
+func (mwin *MainWindow) openTabBg(tab Tab) {
+	mwin.tabs = append(mwin.tabs, tab)
 }
 
 func shortenFunctionName(s string) string {
@@ -302,6 +302,11 @@ type Panel interface {
 	HoveredLinker
 }
 
+type Tab struct {
+	theme.Component
+	Unclosable bool
+}
+
 type MainWindow struct {
 	canvas          Canvas
 	trace           *Trace
@@ -316,7 +321,7 @@ type MainWindow struct {
 	panel        Panel
 	panelHistory []Panel
 
-	tabs        []theme.Component
+	tabs        []Tab
 	tabbedState theme.TabbedState
 
 	openTraceButton widget.PrimaryClickable
@@ -349,8 +354,11 @@ func NewMainWindow() *MainWindow {
 			Axis:  layout.Horizontal,
 			Ratio: 0.70,
 		},
-		tabs: []theme.Component{
-			&TimelinesComponent{cv: &mwin.canvas},
+		tabs: []Tab{
+			{
+				Component:  &TimelinesComponent{cv: &mwin.canvas},
+				Unclosable: true,
+			},
 		},
 	}
 
@@ -749,19 +757,18 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	closedAny := false
 	for _, click := range mwin.tabbedState.Clicked() {
 		if click.Click.Button == pointer.ButtonTertiary {
-			if click.Index == 0 {
-				// Don't allow closing the timelines tab
+			tab := &mwin.tabs[click.Index]
+			if tab.Unclosable {
 				continue
 			}
-
-			mwin.tabs[click.Index] = nil
+			*tab = Tab{}
 			closedAny = true
 		}
 	}
 	if closedAny {
 		compacted := mwin.tabs[:0]
 		for _, tab := range mwin.tabs {
-			if tab != nil {
+			if tab != (Tab{}) {
 				compacted = append(compacted, tab)
 			}
 		}
