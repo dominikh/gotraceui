@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math"
 
+	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -40,7 +41,7 @@ type Table struct {
 	drags         []tableDrag
 	rowHovers     mem.BucketSlice[gesture.Hover]
 	headerClicks  []gesture.Click
-	clickedColumn int
+	clickedColumn container.Option[int]
 }
 
 type Column struct {
@@ -83,12 +84,12 @@ func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimen
 	dims := w(win, gtx)
 	dims.Size = gtx.Constraints.Constrain(dims.Size)
 
-	tbl.clickedColumn = -1
+	tbl.clickedColumn = container.None[int]()
 	for i := range tbl.headerClicks {
 		click := &tbl.headerClicks[i]
 		for _, ev := range click.Events(gtx.Queue) {
 			if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
-				tbl.clickedColumn = i
+				tbl.clickedColumn = container.Some(i)
 			}
 		}
 	}
@@ -97,10 +98,7 @@ func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimen
 }
 
 func (tbl *Table) ClickedColumn() (int, bool) {
-	if tbl.clickedColumn == -1 {
-		return 0, false
-	}
-	return tbl.clickedColumn, true
+	return tbl.clickedColumn.Get()
 }
 
 func (tbl *Table) SortByClickedColumn() (int, bool) {
