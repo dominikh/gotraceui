@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 )
 
 type Items[T any] interface {
@@ -334,4 +335,89 @@ func FilterItems[T any](items Items[T], fn func(item *T) bool) Items[T] {
 		Base:   items,
 		Subset: subset,
 	}
+}
+
+type SortedItems[T any] struct {
+	Base  Items[T]
+	Order []int
+}
+
+func NewSortedItems[T any](items Items[T]) Items[T] {
+	order := make([]int, items.Len())
+	for i := range order {
+		order[i] = i
+	}
+	return SortedItems[T]{
+		Base:  items,
+		Order: order,
+	}
+}
+
+func (s *SortedItems[T]) Reset(items Items[T]) {
+	s.Base = items
+	if cap(s.Order) >= items.Len() {
+		s.Order = s.Order[:items.Len()]
+	} else {
+		s.Order = make([]int, items.Len())
+	}
+	for i := range s.Order {
+		s.Order[i] = i
+	}
+}
+
+func (s SortedItems[T]) At(idx int) T {
+	return s.Base.At(s.Order[idx])
+}
+
+func (s SortedItems[T]) AtPtr(idx int) *T {
+	return s.Base.AtPtr(s.Order[idx])
+}
+
+func (s SortedItems[T]) Len() int {
+	return len(s.Order)
+}
+
+func (s SortedItems[T]) Map(idx int) int {
+	return s.Order[idx]
+}
+
+func (s SortedItems[T]) Sort(cmp func(a, b T) int) {
+	slices.SortFunc(s.Order, func(a, b int) int {
+		ea := s.Base.At(a)
+		eb := s.Base.At(b)
+		return cmp(ea, eb)
+	})
+}
+
+func (s SortedItems[T]) SortIndex(cmp func(a, b int) int) {
+	slices.SortFunc(s.Order, cmp)
+}
+
+func (items SortedItems[T]) Container() (ItemContainer, bool) {
+	if items.Len() == 1 {
+		return items.ContainerAt(0), true
+	} else {
+		return items.Base.Container()
+	}
+}
+
+func (items SortedItems[T]) ContainerAt(idx int) ItemContainer {
+	return items.Base.ContainerAt(items.Map(idx))
+}
+
+func (items SortedItems[T]) Contiguous() bool {
+	// Generally not contiguous because the items might be sorted.
+	return false
+}
+
+func (items SortedItems[T]) Slice(start, end int) Items[T] {
+	return SortedItems[T]{
+		Base:  items.Base,
+		Order: items.Order[start:end],
+	}
+}
+
+func (items SortedItems[T]) Subslice() bool {
+	// Generally not a subslice because the items might be sorted.
+	return false
 }

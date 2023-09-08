@@ -158,7 +158,7 @@ func (si *SpansInfo) init(win *theme.Window) {
 	}
 
 	si.spanList = SpanList{
-		Spans: NewSortedItemsIndices(spans),
+		Spans: NewSortedItems(spans).(SortedItems[ptrace.Span]),
 	}
 
 	si.eventList = EventList{Trace: si.trace}
@@ -648,7 +648,7 @@ func spanTagStrings(tags ptrace.SpanTags) []string {
 }
 
 type SpanList struct {
-	Spans       SortedItemsIndices[ptrace.Span]
+	Spans       SortedItems[ptrace.Span]
 	table       theme.Table
 	scrollState theme.YScrollableListState
 
@@ -705,9 +705,8 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		switch col {
 		case 0:
 			link := spans.clicks.Grow()
-			mapped := spans.Spans.Map(row)
 			link.Link = &SpansObjectLink{
-				Spans: spans.Spans.Items.Slice(mapped, mapped+1),
+				Spans: spans.Spans.Slice(row, row+1),
 			}
 
 			return (*TextLink)(link).Layout(win, gtx, font.Font{}, text.Start, "<Span>")

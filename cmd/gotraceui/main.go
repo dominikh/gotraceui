@@ -1871,62 +1871,6 @@ func (s SortedIndices[E, S]) SortIndex(cmp func(a, b int) int) {
 	slices.SortFunc(s.Order, cmp)
 }
 
-type SortedItemsIndices[E any] struct {
-	Items Items[E]
-	Order []int
-}
-
-func NewSortedItemsIndices[E any](items Items[E]) SortedItemsIndices[E] {
-	order := make([]int, items.Len())
-	for i := range order {
-		order[i] = i
-	}
-	return SortedItemsIndices[E]{
-		Items: items,
-		Order: order,
-	}
-}
-
-func (s *SortedItemsIndices[E]) Reset(items Items[E]) {
-	s.Items = items
-	if cap(s.Order) >= items.Len() {
-		s.Order = s.Order[:items.Len()]
-	} else {
-		s.Order = make([]int, items.Len())
-	}
-	for i := range s.Order {
-		s.Order[i] = i
-	}
-}
-
-func (s SortedItemsIndices[E]) At(idx int) E {
-	return s.Items.At(s.Order[idx])
-}
-
-func (s SortedItemsIndices[E]) Ptr(idx int) *E {
-	return s.Items.AtPtr(s.Order[idx])
-}
-
-func (s SortedItemsIndices[E]) Len() int {
-	return len(s.Order)
-}
-
-func (s SortedItemsIndices[E]) Map(idx int) int {
-	return s.Order[idx]
-}
-
-func (s SortedItemsIndices[E]) Sort(cmp func(a, b E) int) {
-	slices.SortFunc(s.Order, func(a, b int) int {
-		ea := s.Items.At(a)
-		eb := s.Items.At(b)
-		return cmp(ea, eb)
-	})
-}
-
-func (s SortedItemsIndices[E]) SortIndex(cmp func(a, b int) int) {
-	slices.SortFunc(s.Order, cmp)
-}
-
 func cmp[T constraints.Ordered](a, b T, negate bool) int {
 	var ret int
 	if a < b {
