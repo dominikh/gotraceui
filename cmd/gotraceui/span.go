@@ -158,7 +158,7 @@ func (si *SpansInfo) init(win *theme.Window) {
 	}
 
 	si.spanList = SpanList{
-		Spans: spans,
+		Spans: NewSortedItemsIndices(spans),
 	}
 
 	si.eventList = EventList{Trace: si.trace}
@@ -648,11 +648,33 @@ func spanTagStrings(tags ptrace.SpanTags) []string {
 }
 
 type SpanList struct {
-	Spans       Items[ptrace.Span]
+	Spans       SortedItemsIndices[ptrace.Span]
 	table       theme.Table
 	scrollState theme.YScrollableListState
 
 	clicks mem.BucketSlice[Link]
+}
+
+func (spans *SpanList) sort() {
+	switch spans.table.SortedBy {
+	case 0: // Span, impossible
+	case 1: // Start time
+		spans.Spans.Sort(func(a, b ptrace.Span) int {
+			return cmp(a.Start, b.Start, spans.table.SortOrder == theme.SortDescending)
+		})
+	case 2: // Duration
+		spans.Spans.Sort(func(a, b ptrace.Span) int {
+			return cmp(a.Duration(), b.Duration(), spans.table.SortOrder == theme.SortDescending)
+		})
+	case 3: // State
+		spans.Spans.Sort(func(a, b ptrace.Span) int {
+			sa := stateNames[a.State]
+			sb := stateNames[b.State]
+			return cmp(sa, sb, spans.table.SortOrder == theme.SortDescending)
+		})
+	default:
+		panic(fmt.Sprintf("unreachable: %d", spans.table.SortedBy))
+	}
 }
 
 func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -660,14 +682,19 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 
 	if spans.table.Columns == nil {
 		cols := []theme.Column{
-			{Name: "Span", Alignment: text.Start},
-			{Name: "Start time", Alignment: text.End},
-			{Name: "Duration", Alignment: text.End},
-			{Name: "State", Alignment: text.Start},
+			{Name: "Span", Clickable: false, Alignment: text.Start},
+			{Name: "Start time", Clickable: true, Alignment: text.End},
+			{Name: "Duration", Clickable: true, Alignment: text.End},
+			{Name: "State", Clickable: true, Alignment: text.Start},
 		}
 		spans.table.SetColumns(win, gtx, cols)
+		spans.table.SortedBy = 1
+		spans.table.SortOrder = theme.SortAscending
 	}
 
+	if _, ok := spans.table.SortByClickedColumn(); ok {
+		spans.sort()
+	}
 	handleLinkClicks(win, gtx, &spans.clicks)
 	spans.clicks.Reset()
 
@@ -678,8 +705,9 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		switch col {
 		case 0:
 			link := spans.clicks.Grow()
+			mapped := spans.Spans.Map(row)
 			link.Link = &SpansObjectLink{
-				Spans: spans.Spans.Slice(row, row+1),
+				Spans: spans.Spans.Items.Slice(mapped, mapped+1),
 			}
 
 			return (*TextLink)(link).Layout(win, gtx, font.Font{}, text.Start, "<Span>")
