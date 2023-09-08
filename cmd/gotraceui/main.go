@@ -591,6 +591,9 @@ func (mwin *MainWindow) renderErrorScene(win *theme.Window, gtx layout.Context) 
 func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
 
+	// Redraw continuously to show progress updates
+	op.InvalidateOp{}.Add(gtx.Ops)
+
 	// OPT(dh): only compute this once
 	var maxNameWidth int
 	for _, name := range mwin.progressStages {
