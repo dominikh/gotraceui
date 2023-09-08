@@ -158,7 +158,7 @@ func (si *SpansInfo) init(win *theme.Window) {
 	}
 
 	si.spanList = SpanList{
-		Spans: NewSortedItems(spans).(SortedItems[ptrace.Span]),
+		Spans: NewSortedItems(spans),
 	}
 
 	si.eventList = EventList{Trace: si.trace}

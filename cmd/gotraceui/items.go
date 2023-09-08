@@ -342,7 +342,7 @@ type SortedItems[T any] struct {
 	Order []int
 }
 
-func NewSortedItems[T any](items Items[T]) Items[T] {
+func NewSortedItems[T any](items Items[T]) SortedItems[T] {
 	order := make([]int, items.Len())
 	for i := range order {
 		order[i] = i

@@ -28,7 +28,7 @@ type EventList struct {
 		ShowGoSysCall widget.Bool
 		ShowUserLog   widget.Bool
 	}
-	filteredEvents Items[ptrace.EventID]
+	filteredEvents SortedItems[ptrace.EventID]
 
 	table       theme.Table
 	scrollState theme.YScrollableListState
@@ -44,17 +44,17 @@ func (evs *EventList) UpdateFilter() {
 		evs.Filter.ShowUserLog.Value {
 
 		// Everything is shown
-		evs.filteredEvents = evs.Events
+		evs.filteredEvents = NewSortedItems(evs.Events)
 	} else if !evs.Filter.ShowGoCreate.Value &&
 		!evs.Filter.ShowGoUnblock.Value &&
 		!evs.Filter.ShowGoSysCall.Value &&
 		!evs.Filter.ShowUserLog.Value {
 
 		// Nothing is shown
-		evs.filteredEvents = NoItems[ptrace.EventID]{}
+		evs.filteredEvents = NewSortedItems(NoItems[ptrace.EventID]{})
 	} else {
 		// OPT(dh): multiple calls to FilterItems should be able to reuse memory
-		evs.filteredEvents = FilterItems[ptrace.EventID](evs.Events, func(ev *ptrace.EventID) bool {
+		evs.filteredEvents = NewSortedItems(FilterItems[ptrace.EventID](evs.Events, func(ev *ptrace.EventID) bool {
 			switch evs.Trace.Event(*ev).Type {
 			case trace.EvGoCreate:
 				return evs.Filter.ShowGoCreate.Value
@@ -67,7 +67,7 @@ func (evs *EventList) UpdateFilter() {
 			default:
 				panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(*ev).Type))
 			}
-		})
+		}))
 	}
 
 	var max int
@@ -133,15 +133,66 @@ func (evs *EventList) eventMessage(ev *trace.Event) []string {
 	}
 }
 
+func (evs *EventList) sort() {
+	evs.filteredEvents.Sort(func(a, b ptrace.EventID) int {
+		// This function has to stay in sync with the cell function in Layout
+		switch evs.table.SortedBy {
+		case 0: // Time
+			ea := evs.Trace.Event(a)
+			eb := evs.Trace.Event(b)
+			return cmp(ea.Ts, eb.Ts, evs.table.SortOrder == theme.SortDescending)
+		case 1: // Message
+			cellFn := func(evID ptrace.EventID) string {
+				ev := evs.Trace.Event(evID)
+
+				switch ev.Type {
+				case trace.EvGoCreate:
+					gid := ev.Args[trace.ArgGoCreateG]
+					return local.Sprintf("Created goroutine %d", gid)
+				case trace.EvGoUnblock:
+					gid := ev.Args[trace.ArgGoUnblockG]
+					return local.Sprintf("Unblocked goroutine %d", gid)
+				case trace.EvGoSysCall:
+					if ev.StkID != 0 {
+						frames := evs.Trace.Stacks[ev.StkID]
+						fn := evs.Trace.PCs[frames[0]].Fn
+						return fmt.Sprintf("Syscall (%s)", fn)
+					} else {
+						return "Syscall"
+					}
+				case trace.EvUserLog:
+					cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
+					msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
+					if cat != "" {
+						return fmt.Sprintf("<%s> %s", cat, msg)
+					} else {
+						return msg
+					}
+				default:
+					panic(fmt.Sprintf("unhandled type %v", ev.Type))
+				}
+			}
+
+			return cmp(cellFn(a), cellFn(b), evs.table.SortOrder == theme.SortDescending)
+		default:
+			panic(fmt.Sprintf("unreachable: %d", evs.table.SortedBy))
+		}
+	})
+}
+
 func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.EventList.Layout").End()
 
 	if evs.table.Columns == nil {
 		cols := []theme.Column{
-			{Name: "Time", Alignment: text.End},
-			{Name: "Message", Alignment: text.Start},
+			{Name: "Time", Clickable: true, Alignment: text.End},
+			{Name: "Message", Clickable: true, Alignment: text.Start},
 		}
 		evs.table.SetColumns(win, gtx, cols)
+	}
+
+	if _, ok := evs.table.SortByClickedColumn(); ok {
+		evs.sort()
 	}
 
 	evs.timestampObjects.Reset()
