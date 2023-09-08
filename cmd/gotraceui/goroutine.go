@@ -1205,24 +1205,7 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		cellFn,
 	)
 
-	// TODO(dh): deduplicate this code, it's repeated in all places that use sortable tables.
-	if col, ok := gs.table.ClickedColumn(); ok {
-		if col == gs.table.SortedBy {
-			switch gs.table.SortOrder {
-			case theme.SortNone:
-				gs.table.SortOrder = theme.SortAscending
-			case theme.SortAscending:
-				gs.table.SortOrder = theme.SortDescending
-			case theme.SortDescending:
-				gs.table.SortOrder = theme.SortAscending
-			default:
-				panic(fmt.Sprintf("unhandled case %v", gs.table.SortOrder))
-			}
-		} else {
-			gs.table.SortedBy = col
-			gs.table.SortOrder = theme.SortAscending
-		}
-
+	if _, ok := gs.table.SortByClickedColumn(); ok {
 		// Trigger resorting.
 		gs.SetGoroutines(win, gtx, gs.Goroutines.Items)
 	}

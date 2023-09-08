@@ -103,6 +103,30 @@ func (tbl *Table) ClickedColumn() (int, bool) {
 	return tbl.clickedColumn, true
 }
 
+func (tbl *Table) SortByClickedColumn() (int, bool) {
+	if col, ok := tbl.ClickedColumn(); ok {
+		if col == tbl.SortedBy {
+			switch tbl.SortOrder {
+			case SortNone:
+				tbl.SortOrder = SortAscending
+			case SortAscending:
+				tbl.SortOrder = SortDescending
+			case SortDescending:
+				tbl.SortOrder = SortAscending
+			default:
+				panic(fmt.Sprintf("unhandled case %v", tbl.SortOrder))
+			}
+		} else {
+			tbl.SortedBy = col
+			tbl.SortOrder = SortAscending
+		}
+
+		return col, true
+	}
+
+	return 0, false
+}
+
 func (tbl *Table) resize(win *Window, gtx layout.Context) {
 	if gtx.Constraints.Max.X == tbl.prevMaxWidth {
 		return
