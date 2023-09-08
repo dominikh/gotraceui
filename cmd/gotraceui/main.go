@@ -1132,7 +1132,10 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 		Unclosable: true,
 	})
 	mwin.tasks = NewTasksComponent(mwin.twin, mwin.trace, mwin.trace.Tasks)
-	mwin.openTabBg(mwin.tasks)
+	mwin.openTabBg(Tab{
+		Component:  mwin.tasks,
+		Unclosable: true,
+	})
 }
 
 type durationNumberFormat uint8
