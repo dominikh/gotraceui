@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -104,7 +105,7 @@ type Canvas struct {
 	// Scratch space used by ActivityWidgetTrack.Layout
 	trackSpanLabels []string
 
-	indicateTimestamp Option[trace.Timestamp]
+	indicateTimestamp container.Option[trace.Timestamp]
 
 	animateTo struct {
 		animating bool

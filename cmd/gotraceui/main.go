@@ -24,6 +24,7 @@ import (
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
 	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/container"
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -654,12 +655,12 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 		}
 	}
 
-	mwin.canvas.indicateTimestamp = None[trace.Timestamp]()
+	mwin.canvas.indicateTimestamp = container.None[trace.Timestamp]()
 	if mwin.panel != nil {
 		if l := mwin.panel.HoveredLink(); l != nil {
 			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
-				mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
+				mwin.canvas.indicateTimestamp = container.Some(trace.Timestamp(a))
 			}
 		}
 
@@ -682,7 +683,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 			// TODO(dh): factor out into own function, remove duplication from here and earlier
 			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
-				mwin.canvas.indicateTimestamp = Some(trace.Timestamp(a))
+				mwin.canvas.indicateTimestamp = container.Some(trace.Timestamp(a))
 			}
 
 			// Only one link can be hovered at a time
