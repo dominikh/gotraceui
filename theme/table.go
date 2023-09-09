@@ -126,7 +126,7 @@ func (tbl *Table) SortByClickedColumn() (int, bool) {
 }
 
 func (tbl *Table) resize(win *Window, gtx layout.Context) {
-	if gtx.Constraints.Max.X == tbl.prevMaxWidth {
+	if gtx.Constraints.Max.X == tbl.prevMaxWidth && gtx.Metric == tbl.prevMetric {
 		return
 	}
 
