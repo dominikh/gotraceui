@@ -277,7 +277,7 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 								gtx.Constraints.Max.X = rowDims.Size.X
 								return theme.TableExpandedRow(&cp.table).Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 									r := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-										return layout.PixelInset{Top: 10, Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										return layout.PixelInset{Top: 15, Left: 15, Right: 15, Bottom: 15}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											tabbedState, ok := cp.tabbedStates[task.SeqID]
 											if !ok {
 												tabbedState = &struct {
