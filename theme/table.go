@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"math"
 
 	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
@@ -131,8 +130,8 @@ func (tbl *Table) resize(win *Window, gtx layout.Context) {
 	}
 
 	var (
-		oldAvailable = tbl.prevMaxWidth - tbl.prevMetric.Dp(Scrollbar(win.Theme, nil).Width())
-		available    = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width())
+		oldAvailable = tbl.prevMaxWidth - tbl.prevMetric.Dp(Scrollbar(win.Theme, nil).Width()) - len(tbl.Columns)*tbl.prevMetric.Dp(DefaultDividerWidth)
+		available    = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width()) - len(tbl.Columns)*gtx.Dp(DefaultDividerWidth)
 	)
 
 	for i := range tbl.Columns {
@@ -229,13 +228,13 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 				}
 			}
 
-			total := 0
+			var total float32
 			for _, col := range row.Table.Columns {
-				total += int(col.Width)
+				total += col.Width
 			}
-			total += len(row.Table.Columns) * gtx.Dp(DefaultDividerWidth)
-			if total < gtx.Constraints.Min.X {
-				row.Table.Columns[len(row.Table.Columns)-1].Width += float32(gtx.Constraints.Min.X - total)
+			total += float32(len(row.Table.Columns) * gtx.Dp(DefaultDividerWidth))
+			if total < float32(gtx.Constraints.Min.X) {
+				row.Table.Columns[len(row.Table.Columns)-1].Width += float32(gtx.Constraints.Min.X) - total
 			}
 		}
 	}
@@ -247,8 +246,21 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			origTallestHeight = tallestHeight
 		)
 		r := op.Record(gtx.Ops)
+		totalWidth := 0
 		for i := range row.Table.Columns {
 			colWidth := int((row.Table.Columns[i].Width))
+			totalWidth += colWidth
+		}
+		extra := gtx.Constraints.Min.X - len(row.Table.Columns)*gtx.Dp(DefaultDividerWidth) - totalWidth
+		colExtra := extra
+
+		for i := range row.Table.Columns {
+			colWidth := int((row.Table.Columns[i].Width))
+			if colExtra > 0 {
+				colWidth++
+				colExtra--
+			}
+
 			gtx := gtx
 			gtx.Constraints.Min.X = colWidth
 			gtx.Constraints.Max.X = colWidth
@@ -279,6 +291,7 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			dividerHandleHeight    = min(tallestHeight-2*dividerHandleMinVerticalMargin, dividerHandleMaxHeight)
 			dividerHandleTopMargin = (tallestHeight - dividerHandleHeight) / 2
 			dividerStart           = 0
+			dividerExtra           = extra
 		)
 		for i := range row.Table.drags {
 			var (
@@ -286,6 +299,10 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 				colWidth = int((row.Table.Columns[i].Width))
 			)
 			dividerStart += colWidth
+			if dividerExtra > 0 {
+				dividerStart++
+				dividerExtra--
+			}
 
 			// We add the drag handler slightly outside the drawn divider, to make it easier to press.
 			//
@@ -357,10 +374,13 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win 
 	}
 
 	var totalWidth int
-	for _, col := range row.Table.Columns {
-		totalWidth += int((col.Width))
+	for i := range row.Table.Columns {
+		colWidth := int((row.Table.Columns[i].Width))
+		totalWidth += colWidth
 	}
+	extra := gtx.Constraints.Min.X - len(row.Table.Columns)*gtx.Dp(DefaultDividerWidth) - totalWidth
 	totalWidth += len(row.Table.Columns) * dividerWidth
+	totalWidth += extra
 
 	r := Record(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		ngtx := gtx
@@ -372,15 +392,14 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win 
 
 	paint.FillShape(gtx.Ops, row.Background, clip.Rect{Max: image.Pt(totalWidth, tallestHeight)}.Op())
 
-	// Then draw the drag handlers. The handlers overdraw the columns when hovered.
 	dividerStart := 0
 	for i := range row.Table.drags {
 		dividerStart += int((row.Table.Columns[i].Width))
+		if extra > 0 {
+			dividerStart++
+			extra--
+		}
 
-		// We add the drag handler slightly outside the drawn divider, to make it easier to press.
-		//
-		// We use op.Offset instead of folding dividerStart into the clip.Rect because we want to set the origin of the
-		// drag coordinates.
 		stack := op.Offset(image.Pt(dividerStart, 0)).Push(gtx.Ops)
 		// Draw the vertical bar
 		stack3 := clip.Rect{Max: image.Pt(dividerWidth, tallestHeight)}.Push(gtx.Ops)
@@ -395,10 +414,6 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win 
 	return layout.Dimensions{
 		Size: image.Pt(totalWidth, tallestHeight),
 	}
-}
-
-func round32(f float32) float32 {
-	return float32(math.Round(float64(f)))
 }
 
 type YScrollableListState struct {
