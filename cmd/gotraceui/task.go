@@ -180,7 +180,6 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 									case cID:
 										link := cp.clicks.Grow()
 										link.Link = &TaskObjectLink{Task: task}
-										// ogtx := gtx
 										return layout.Overlay(gtx,
 											func(gtx layout.Context) layout.Dimensions {
 												// We intentionally right-align the ID using the widget.Label alignment, because we
@@ -251,11 +250,12 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 							func(gtx layout.Context) layout.Dimensions {
 								taskOpen := cp.openTasks.Bit(task.SeqID) != 0
 								anim, ok := cp.expandedAnimations[task.SeqID]
+								const animateDuration = 500 * time.Millisecond
 
 								if !taskOpen {
 									if !ok {
 										return layout.Dimensions{}
-									} else if gtx.Now.Sub(anim) >= 500*time.Millisecond {
+									} else if gtx.Now.Sub(anim) >= animateDuration {
 										delete(cp.expandedAnimations, task.SeqID)
 										return layout.Dimensions{}
 									}
@@ -263,13 +263,13 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 
 								ratio := float64(1)
 								if ok {
-									if gtx.Now.Sub(anim) >= 500*time.Millisecond {
+									if gtx.Now.Sub(anim) >= animateDuration {
 										delete(cp.expandedAnimations, task.SeqID)
 									} else {
 										if taskOpen {
-											ratio = easeOutQuart(float64(gtx.Now.Sub(anim)) / float64(500*time.Millisecond))
+											ratio = easeOutQuart(float64(gtx.Now.Sub(anim)) / float64(animateDuration))
 										} else {
-											ratio = easeInQuart(float64(500*time.Millisecond-gtx.Now.Sub(anim)) / float64(500*time.Millisecond))
+											ratio = easeInQuart(float64(animateDuration-gtx.Now.Sub(anim)) / float64(animateDuration))
 										}
 										op.InvalidateOp{}.Add(gtx.Ops)
 									}
