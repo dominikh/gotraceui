@@ -2,6 +2,7 @@
 /cmd/gotraceui/gotraceui.test
 /_traces
 /doc/manual/manual.pdf
+/doc/manual/gotraceui.pdf
 /doc/manual/*.log
 /doc/manual/*.tuc
 /doc/manual/*.toc
