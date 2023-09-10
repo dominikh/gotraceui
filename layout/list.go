@@ -5,8 +5,10 @@
 package layout
 
 import (
+	"context"
 	"image"
 	"math"
+	rtrace "runtime/trace"
 	_ "unsafe"
 
 	"gioui.org/gesture"
@@ -111,6 +113,8 @@ func (l *List) init(gtx Context, len int) {
 // by the callback w. Layout can handle very large lists because it only calls
 // w to fill its viewport and the distance scrolled, if any.
 func (l *List) Layout(gtx Context, len int, w ListElement) Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.List.Layout").End()
+
 	l.init(gtx, len)
 	crossMin, crossMax := axisCrossConstraint(l.Axis, gtx.Constraints)
 	gtx.Constraints = axisConstraints(l.Axis, 0, inf, crossMin, crossMax)

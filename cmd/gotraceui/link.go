@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"image/color"
 	"os"
 	"runtime"
 	rdebug "runtime/debug"
 	"runtime/pprof"
+	rtrace "runtime/trace"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
@@ -33,6 +35,8 @@ type Link struct {
 }
 
 func (l *Link) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.Link.Layout").End()
+
 	return layout.Overlay(gtx, w, func(gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 		pointer.CursorPointer.Add(gtx.Ops)
@@ -50,6 +54,8 @@ func (l *TextLink) Layout(
 	align text.Alignment,
 	s string,
 ) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "main.TextLink.Layout").End()
+
 	var c color.NRGBA
 	switch l.Link.Action(0).(type) {
 	case NavigationAction:

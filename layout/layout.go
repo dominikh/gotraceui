@@ -145,7 +145,10 @@ func Cross(a Axis, pt *image.Point) *int {
 	}
 	return &pt.X
 }
+
 func Rigids(gtx Context, axis layout.Axis, ws ...Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.Rigids").End()
+
 	cs := gtx.Constraints
 	_, mainMax := axisMainConstraint(axis, cs)
 	crossMin, crossMax := axisCrossConstraint(axis, cs)
@@ -178,6 +181,8 @@ func Rigids(gtx Context, axis layout.Axis, ws ...Widget) layout.Dimensions {
 }
 
 func WithCursor(gtx Context, p pointer.Cursor, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.WithCursor").End()
+
 	r := op.Record(gtx.Ops)
 	dims := w(gtx)
 	m := r.Stop()
@@ -189,6 +194,8 @@ func WithCursor(gtx Context, p pointer.Cursor, w Widget) layout.Dimensions {
 }
 
 func RightAligned(gtx Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.RightAligned").End()
+
 	ngtx := gtx
 	r := op.Record(gtx.Ops)
 	ngtx.Constraints.Min.X = 0
@@ -206,6 +213,8 @@ func RightAligned(gtx Context, w Widget) layout.Dimensions {
 }
 
 func MiddleAligned(gtx Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.MiddleAligned").End()
+
 	ngtx := gtx
 	r := op.Record(gtx.Ops)
 	ngtx.Constraints.Min.Y = 0
@@ -223,6 +232,8 @@ func MiddleAligned(gtx Context, w Widget) layout.Dimensions {
 }
 
 func Overlay(gtx Context, w1 Widget, w2 Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "layout.Overlay").End()
+
 	dims := w1(gtx)
 
 	gtx.Constraints.Min = dims.Size

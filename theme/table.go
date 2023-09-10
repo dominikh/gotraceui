@@ -1,9 +1,11 @@
 package theme
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
+	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
@@ -93,6 +95,8 @@ func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 }
 
 func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Table.Layout").End()
+
 	tbl.resize(win, gtx)
 	tbl.rowHovers.Reset()
 	dims := w(win, gtx)
@@ -213,6 +217,8 @@ func TableRow(tbl *Table, hdr bool) TableRowStyle {
 }
 
 func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TableRowStyle.Layout").End()
+
 	var (
 		cols          = len(row.Table.Columns)
 		dividers      = cols
@@ -419,6 +425,8 @@ func FauxTableRow(tbl *Table, bg color.NRGBA) FauxTableRowStyle {
 }
 
 func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.FauxTableRowStyle.Layout").End()
+
 	var (
 		cols     = len(row.Table.Columns)
 		dividers = cols
@@ -501,6 +509,8 @@ type RememberingList struct {
 }
 
 func (rlist *RememberingList) Layout(gtx layout.Context, len int, w layout.ListElement) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.RememberingList.Layout").End()
+
 	rlist.len = len
 	rlist.dims = rlist.list.Layout(gtx, len, w)
 	return rlist.dims
@@ -511,6 +521,8 @@ func (tbl YScrollableListStyle) Layout(
 	gtx layout.Context,
 	body func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions,
 ) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.YScrollableListStyle.Layout").End()
+
 	scrollbarWidth := Scrollbar(win.Theme, nil).Width()
 
 	var bodyDims layout.Dimensions
@@ -575,6 +587,8 @@ func TableHeaderRow(tbl *Table) TableHeaderRowStyle {
 }
 
 func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TableHeaderRowStyle.Layout").End()
+
 	return TableRow(row.Table, true).Layout(win, gtx, func(win *Window, gtx layout.Context, colIdx int) layout.Dimensions {
 		var (
 			f          = font.Font{Weight: font.ExtraBold}
@@ -656,6 +670,8 @@ func (row TableSimpleRowStyle) Layout(
 	rowIdx int,
 	cellFn CellFn,
 ) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TableSimpleRowStyle.Layout").End()
+
 	c := win.Theme.Palette.Table.EvenRowBackground
 	if rowIdx%2 == 1 {
 		c = win.Theme.Palette.Table.OddRowBackground
@@ -709,6 +725,8 @@ type TableExpandedRowStyle struct {
 }
 
 func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.TableExpandedRowStyle.Layout").End()
+
 	return layout.Rigids(gtx, layout.Vertical,
 		func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
@@ -746,6 +764,8 @@ func SimpleTable(
 	nrows int,
 	cellFn CellFn,
 ) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.SimpleTable").End()
+
 	return tbl.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return YScrollableList(scroll).Layout(win, gtx, func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions {
 			return layout.Rigids(gtx, layout.Vertical,

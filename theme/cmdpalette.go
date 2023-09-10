@@ -118,6 +118,8 @@ func (cmd NormalCommand) Filter(input string) bool {
 }
 
 func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.NormalCommand.Layout").End()
+
 	black := widget.ColorTextMaterial(gtx, rgba(0x000000FF))
 	activeColor := mycolor.Oklch{L: 0.9394, C: 0.22094984386637648, H: 119.08, Alpha: 1}
 
