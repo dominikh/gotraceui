@@ -282,6 +282,10 @@ func (mwin *MainWindow) openTab(c theme.Component) {
 	mwin.tabbedState.Current = len(mwin.tabs) - 1
 }
 
+func (mwin *MainWindow) openTabBg(c theme.Component) {
+	mwin.tabs = append(mwin.tabs, c)
+}
+
 func shortenFunctionName(s string) string {
 	idx := strings.LastIndex(s, ".")
 	if idx == -1 {
