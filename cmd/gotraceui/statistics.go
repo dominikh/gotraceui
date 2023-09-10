@@ -266,13 +266,13 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		sizes := gs.computeSizes(gtx, win.Theme)
 
 		cols := []theme.Column{
-			{Name: statLabels[gs.numberFormat][0], Width: float32(sizes[0].X), Clickable: true},
-			{Name: statLabels[gs.numberFormat][1], Width: float32(sizes[1].X), Clickable: true, Alignment: text.End},
-			{Name: statLabels[gs.numberFormat][2], Width: float32(sizes[2].X), Clickable: true, Alignment: text.End},
-			{Name: statLabels[gs.numberFormat][3], Width: float32(sizes[3].X), Clickable: true, Alignment: text.End},
-			{Name: statLabels[gs.numberFormat][4], Width: float32(sizes[4].X), Clickable: true, Alignment: text.End},
-			{Name: statLabels[gs.numberFormat][5], Width: float32(sizes[5].X), Clickable: true, Alignment: text.End},
-			{Name: statLabels[gs.numberFormat][6], Width: float32(sizes[6].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][0], Width: float32(sizes[0].X), MinWidth: float32(sizes[0].X), Clickable: true},
+			{Name: statLabels[gs.numberFormat][1], Width: float32(sizes[1].X), MinWidth: float32(sizes[1].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][2], Width: float32(sizes[2].X), MinWidth: float32(sizes[2].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][3], Width: float32(sizes[3].X), MinWidth: float32(sizes[3].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][4], Width: float32(sizes[4].X), MinWidth: float32(sizes[4].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][5], Width: float32(sizes[5].X), MinWidth: float32(sizes[5].X), Clickable: true, Alignment: text.End},
+			{Name: statLabels[gs.numberFormat][6], Width: float32(sizes[6].X), MinWidth: float32(sizes[6].X), Clickable: true, Alignment: text.End},
 		}
 		gs.table.SetColumns(win, gtx, cols)
 		gs.table.SortOrder = theme.SortAscending

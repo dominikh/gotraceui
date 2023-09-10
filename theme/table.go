@@ -46,6 +46,7 @@ type Table struct {
 type Column struct {
 	Name      string
 	Width     float32
+	MinWidth  float32
 	Alignment text.Alignment
 	Clickable bool
 }
@@ -134,14 +135,36 @@ func (tbl *Table) resize(win *Window, gtx layout.Context) {
 		available    = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width()) - len(tbl.Columns)*gtx.Dp(DefaultDividerWidth)
 	)
 
+	defer func() {
+		tbl.prevMaxWidth = gtx.Constraints.Max.X
+		tbl.prevMetric = gtx.Metric
+	}()
+
+	if available > oldAvailable {
+		var totalWidth float32
+		for i := range tbl.Columns {
+			totalWidth += tbl.Columns[i].Width
+		}
+		if totalWidth > float32(available) {
+			// Don't grow columns if the table is already wider than the available space. The user probably resized the
+			// container to see more of the table.
+			return
+		}
+	}
+
+	var (
+		dividerWidth       = gtx.Dp(DefaultDividerWidth)
+		dividerMargin      = gtx.Dp(1)
+		dividerHandleWidth = gtx.Dp(3)
+
+		globalMinWidth = float32(dividerWidth + dividerMargin + dividerHandleWidth)
+	)
+
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
 		r := float32(col.Width) / float32(oldAvailable)
-		col.Width = r * float32(available)
+		col.Width = max(max(col.MinWidth, globalMinWidth), r*float32(available))
 	}
-
-	tbl.prevMaxWidth = gtx.Constraints.Max.X
-	tbl.prevMetric = gtx.Metric
 }
 
 type tableDrag struct {
@@ -207,25 +230,28 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 			}
 		}
 		if delta != 0 {
-			colWidth := &col.Width
-			*colWidth += delta
+			col.Width += delta
 			if drag.shrinkNeighbor && i != len(row.Table.Columns)-1 {
-				nextColWidth := &row.Table.Columns[i+1].Width
-				*nextColWidth -= delta
-				if *colWidth < minWidth {
-					d := minWidth - *colWidth
-					*colWidth = minWidth
-					*nextColWidth -= d
+				nextCol := &row.Table.Columns[i+1]
+				nextCol.Width -= delta
+				if col.Width < minWidth {
+					d := minWidth - col.Width
+					col.Width = minWidth
+					nextCol.Width -= d
 				}
-				if *nextColWidth < minWidth {
-					d := minWidth - *nextColWidth
-					*nextColWidth = minWidth
-					*colWidth -= d
+				if nextCol.Width < minWidth {
+					d := minWidth - nextCol.Width
+					nextCol.Width = minWidth
+					col.Width -= d
 				}
 			} else {
-				if *colWidth < minWidth {
-					*colWidth = minWidth
+				if col.Width < minWidth {
+					col.Width = minWidth
 				}
+			}
+
+			if col.Width < col.MinWidth {
+				col.MinWidth = col.Width
 			}
 
 			var total float32
