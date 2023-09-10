@@ -22,6 +22,8 @@ import (
 )
 
 type SortOrder uint8
+type CellFn func(win *Window, gtx layout.Context, row, col int) layout.Dimensions
+type RowFn func(win *Window, gtx layout.Context, row int) layout.Dimensions
 
 const (
 	SortNone SortOrder = iota
@@ -143,8 +145,12 @@ func (tbl *Table) resize(win *Window, gtx layout.Context) {
 	}
 
 	var (
-		oldAvailable = tbl.prevMaxWidth - tbl.prevMetric.Dp(Scrollbar(win.Theme, nil).Width()) - len(tbl.Columns)*tbl.prevMetric.Dp(DefaultDividerWidth)
-		available    = gtx.Constraints.Max.X - gtx.Dp(Scrollbar(win.Theme, nil).Width()) - len(tbl.Columns)*gtx.Dp(DefaultDividerWidth)
+		oldAvailable = tbl.prevMaxWidth -
+			tbl.prevMetric.Dp(Scrollbar(win.Theme, nil).Width()) -
+			len(tbl.Columns)*tbl.prevMetric.Dp(DefaultDividerWidth)
+		available = gtx.Constraints.Max.X -
+			gtx.Dp(Scrollbar(win.Theme, nil).Width()) -
+			len(tbl.Columns)*gtx.Dp(DefaultDividerWidth)
 	)
 
 	defer func() {
@@ -198,7 +204,7 @@ func TableRow(tbl *Table, hdr bool) TableRowStyle {
 	}
 }
 
-func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Window, gtx layout.Context, idx int) layout.Dimensions) layout.Dimensions {
+func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout.Dimensions {
 	var (
 		cols          = len(row.Table.Columns)
 		dividers      = cols
@@ -234,8 +240,8 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 				drag.startPos = ev.Position.X
 				drag.shrinkNeighbor = !ev.Modifiers.Contain(key.ModShift)
 			case pointer.Drag:
-				// There may be multiple drag events in a single frame. We mustn't apply all of them or we'll drag too
-				// far. Only react to the final event.
+				// There may be multiple drag events in a single frame. We mustn't apply all of them or we'll
+				// drag too far. Only react to the final event.
 				delta = ev.Position.X - drag.startPos
 			}
 		}
@@ -342,10 +348,13 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 
 			// We add the drag handler slightly outside the drawn divider, to make it easier to press.
 			//
-			// We use op.Offset instead of folding dividerStart into the clip.Rect because we want to set the origin of the
-			// drag coordinates.
+			// We use op.Offset instead of folding dividerStart into the clip.Rect because we want to set the
+			// origin of the drag coordinates.
 			stack := op.Offset(image.Pt(dividerStart, 0)).Push(gtx.Ops)
-			stack2 := clip.Rect{Min: image.Pt(-dividerMargin-dividerHandleWidth, 0), Max: image.Pt(dividerWidth+dividerMargin+dividerHandleWidth, tallestHeight)}.Push(gtx.Ops)
+			stack2 := clip.Rect{
+				Min: image.Pt(-dividerMargin-dividerHandleWidth, 0),
+				Max: image.Pt(dividerWidth+dividerMargin+dividerHandleWidth, tallestHeight),
+			}.Push(gtx.Ops)
 
 			if row.Header {
 				drag.hover.Update(gtx.Queue)
@@ -355,7 +364,14 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 
 				// Draw the left and right extensions when hovered.
 				if drag.hover.Hovered() || drag.drag.Dragging() {
-					handleShape := clip.UniformRRect(image.Rect(0, dividerHandleTopMargin, dividerHandleWidth, dividerHandleTopMargin+dividerHandleHeight), dividerHandleRadius)
+					handleShape := clip.UniformRRect(
+						image.Rect(
+							0,
+							dividerHandleTopMargin,
+							dividerHandleWidth,
+							dividerHandleTopMargin+dividerHandleHeight),
+						dividerHandleRadius,
+					)
 					handleLeft := handleShape
 					handleLeft.Rect = handleShape.Rect.Add(image.Pt(-(dividerMargin + dividerHandleWidth), 0))
 					handleRight := handleShape
@@ -394,7 +410,7 @@ func FauxTableRow(tbl *Table, bg color.NRGBA) FauxTableRowStyle {
 	}
 }
 
-func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Window, gtx layout.Context) layout.Dimensions) layout.Dimensions {
+func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	var (
 		cols     = len(row.Table.Columns)
 		dividers = cols
@@ -482,7 +498,11 @@ func (rlist *RememberingList) Layout(gtx layout.Context, len int, w layout.ListE
 	return rlist.dims
 }
 
-func (tbl YScrollableListStyle) Layout(win *Window, gtx layout.Context, body func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions) layout.Dimensions {
+func (tbl YScrollableListStyle) Layout(
+	win *Window,
+	gtx layout.Context,
+	body func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions,
+) layout.Dimensions {
 	scrollbarWidth := Scrollbar(win.Theme, nil).Width()
 
 	var bodyDims layout.Dimensions
@@ -560,7 +580,12 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 
 		layout.Overlay(gtx,
 			func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: DefaultHeaderPadding, Bottom: DefaultHeaderPadding + DefaultHeaderBorder, Left: DefaultHeaderPadding, Right: DefaultHeaderPadding}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{
+					Top:    DefaultHeaderPadding,
+					Bottom: DefaultHeaderPadding + DefaultHeaderBorder,
+					Left:   DefaultHeaderPadding,
+					Right:  DefaultHeaderPadding,
+				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					l := widget.Label{MaxLines: 1, Alignment: text.Start}
 					l.Alignment = col.Alignment
 					var s string
@@ -596,7 +621,13 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 			},
 		)
 
-		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.Divider, clip.Rect{Min: image.Pt(0, height-gtx.Dp(DefaultHeaderBorder)), Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
+		paint.FillShape(
+			gtx.Ops,
+			win.Theme.Palette.Table.Divider,
+			clip.Rect{
+				Min: image.Pt(0, height-gtx.Dp(DefaultHeaderBorder)),
+				Max: image.Pt(gtx.Constraints.Min.X, height),
+			}.Op())
 		return layout.Dimensions{
 			Size: image.Pt(gtx.Constraints.Min.X, height),
 		}
@@ -611,7 +642,12 @@ func TableSimpleRow(tbl *Table) TableSimpleRowStyle {
 	return TableSimpleRowStyle{Table: tbl}
 }
 
-func (row TableSimpleRowStyle) Layout(win *Window, gtx layout.Context, rowIdx int, cellFn func(win *Window, gtx layout.Context, row, col int) layout.Dimensions) layout.Dimensions {
+func (row TableSimpleRowStyle) Layout(
+	win *Window,
+	gtx layout.Context,
+	rowIdx int,
+	cellFn CellFn,
+) layout.Dimensions {
 	c := win.Theme.Palette.Table.EvenRowBackground
 	if rowIdx%2 == 1 {
 		c = win.Theme.Palette.Table.OddRowBackground
@@ -694,7 +730,14 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 	)
 }
 
-func SimpleTable(win *Window, gtx layout.Context, tbl *Table, scroll *YScrollableListState, nrows int, cellFn func(win *Window, gtx layout.Context, row, col int) layout.Dimensions) layout.Dimensions {
+func SimpleTable(
+	win *Window,
+	gtx layout.Context,
+	tbl *Table,
+	scroll *YScrollableListState,
+	nrows int,
+	cellFn CellFn,
+) layout.Dimensions {
 	return tbl.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return YScrollableList(scroll).Layout(win, gtx, func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions {
 			return layout.Rigids(gtx, layout.Vertical,
