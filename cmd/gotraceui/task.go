@@ -308,8 +308,16 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											})
 										}
 									case cDuration:
-										if task.StartEvent == 0 || task.EndEvent == 0 {
-											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "<unknown>", fg)
+										traceEnd := cp.Trace.Events[len(cp.Trace.Events)-1].Ts
+										if task.StartEvent == 0 && task.EndEvent == 0 {
+											d := roundDuration(time.Duration(traceEnd))
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("≥ %s", d), fg)
+										} else if task.StartEvent == 0 {
+											d := roundDuration(time.Duration(cp.Trace.Event(task.EndEvent).Ts))
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("≥ %s", d), fg)
+										} else if task.EndEvent == 0 {
+											d := roundDuration(time.Duration(traceEnd - cp.Trace.Event(task.StartEvent).Ts))
+											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("≥ %s", d), fg)
 										} else {
 											d := roundDuration(time.Duration(cp.Trace.Event(task.EndEvent).Ts - cp.Trace.Event(task.StartEvent).Ts))
 											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, d.String(), fg)
