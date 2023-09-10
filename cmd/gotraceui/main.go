@@ -1116,6 +1116,8 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.trace = res.trace
 	mwin.panel = nil
 	mwin.panelHistory = nil
+	mwin.tabs = mwin.tabs[:1]
+	mwin.tabbedState.Current = 0
 }
 
 type durationNumberFormat uint8
