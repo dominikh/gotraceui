@@ -99,7 +99,7 @@ func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) 
 
 	var total time.Duration
 	for _, g := range fi.fn.Goroutines {
-		d := time.Duration(g.Spans[len(g.Spans)-1].End - g.Spans[0].Start)
+		d := time.Duration(g.EffectiveEnd() - g.EffectiveStart())
 		total += d
 	}
 
@@ -229,7 +229,7 @@ func (fi *FunctionInfo) computeHistogram(win *theme.Window, cfg *widget.Histogra
 
 	var gs []*ptrace.Goroutine
 	for _, g := range fi.fn.Goroutines {
-		d := time.Duration(g.Spans[len(g.Spans)-1].End - g.Spans[0].Start)
+		d := time.Duration(g.EffectiveEnd() - g.EffectiveStart())
 		if fd := widget.FloatDuration(d); fd >= cfg.Start && (cfg.End == 0 || fd <= cfg.End) {
 			goroutineDurations = append(goroutineDurations, d)
 			gs = append(gs, g)

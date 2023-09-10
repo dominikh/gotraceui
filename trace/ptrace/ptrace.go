@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/exp/slices"
+	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/trace"
 )
 
@@ -146,11 +147,39 @@ type Goroutine struct {
 	ID     uint64
 	Parent uint64
 	// Sequential ID of goroutine in the trace
-	SeqID       int
-	Function    *Function
-	Spans       []Span
+	SeqID    int
+	Function *Function
+	Spans    []Span
+	// The actual Start and end times of the goroutine. While spans are bounded to 0 and the end of the trace, the
+	// actual Start and end of the goroutine might be unknown.
+	Start       container.Option[trace.Timestamp]
+	End         container.Option[trace.Timestamp]
 	UserRegions [][]Span
 	Events      []EventID
+}
+
+func (g *Goroutine) EffectiveStart() trace.Timestamp {
+	if ts, ok := g.Start.Get(); ok {
+		return ts
+	} else {
+		if len(g.Spans) != 0 {
+			return g.Spans[0].Start
+		} else {
+			return 0
+		}
+	}
+}
+
+func (g *Goroutine) EffectiveEnd() trace.Timestamp {
+	if ts, ok := g.End.Get(); ok {
+		return ts
+	} else {
+		if len(g.Spans) != 0 {
+			return g.Spans[len(g.Spans)-1].End
+		} else {
+			return 0
+		}
+	}
 }
 
 type Machine struct {
@@ -387,6 +416,7 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 			}
 			gid = ev.Args[trace.ArgGoCreateG]
 			g := getG(gid)
+			g.Start = container.Some(ev.Ts)
 			g.Parent = ev.G
 			if stkID := ev.Args[trace.ArgGoCreateStack]; stkID != 0 {
 				stack := res.Stacks[uint32(stkID)]
@@ -758,7 +788,8 @@ func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
 
 		}
 
-		getG(gid).Spans = append(getG(gid).Spans, s)
+		g := getG(gid)
+		g.Spans = append(g.Spans, s)
 
 		switch pState {
 		case pRunG:
@@ -813,6 +844,7 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 				// The goroutine has ended. We encode this as a zero length span.
 				s := &g.Spans[len(g.Spans)-1]
 				s.End = s.Start
+				g.End = container.Some(s.End)
 			} else {
 				g.Spans[len(g.Spans)-1].End = tr.Events[len(tr.Events)-1].Ts
 			}
@@ -890,6 +922,7 @@ evLoop:
 				// the tracer can't emit the state for all existing goroutines at once.
 				g.Spans[1].Start = 0
 				g.Spans = g.Spans[1:len(g.Spans)]
+				g.Start = container.None[trace.Timestamp]()
 			}
 		case trace.EvProcStart, trace.EvHeapAlloc, trace.EvGomaxprocs:
 			// These are the events we know to occur at the end of the STW phase of starting a trace.

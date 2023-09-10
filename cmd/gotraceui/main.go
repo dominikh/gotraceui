@@ -1687,8 +1687,8 @@ func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context,
 		end = LastSpan(item.Spans).End
 	case *ptrace.Goroutine:
 		numSpans = len(item.Spans)
-		start = item.Spans[0].Start
-		end = item.Spans[len(item.Spans)-1].End
+		start = item.EffectiveStart()
+		end = item.EffectiveEnd()
 	case *ptrace.Processor:
 		numSpans = len(item.Spans)
 		start = item.Spans[0].Start

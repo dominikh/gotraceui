@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	rtrace "runtime/trace"
 	"strings"
 	"time"
 	"unsafe"
 
-	"gioui.org/font"
-	"gioui.org/text"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -20,6 +19,9 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 	myunsafe "honnef.co/go/gotraceui/unsafe"
 	"honnef.co/go/gotraceui/widget"
+
+	"gioui.org/font"
+	"gioui.org/text"
 )
 
 var stateNames = [ptrace.StateLast]string{
@@ -213,8 +215,8 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	}
 
 	track := NewTrack(tl, TrackKindUnspecified)
-	track.Start = g.Spans[0].Start
-	track.End = g.Spans[len(g.Spans)-1].End
+	track.Start = g.EffectiveStart()
+	track.End = g.EffectiveEnd()
 	track.Len = len(g.Spans)
 	track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
 		items: g.Spans,
@@ -265,8 +267,8 @@ type GoroutineTooltip struct {
 func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineTooltip.Layout").End()
 
-	start := tt.g.Spans[0].Start
-	end := tt.g.Spans[len(tt.g.Spans)-1].End
+	start := tt.g.EffectiveStart()
+	end := tt.g.EffectiveEnd()
 	d := time.Duration(end - start)
 
 	// XXX reintroduce caching of statistics
@@ -1040,18 +1042,25 @@ func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs
 		})
 	case "Start time":
 		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
-			return cmp(gi.Spans[0].Start, gj.Spans[0].Start, gl.table.SortOrder == theme.SortDescending)
+			starti := gi.Start.GetOr(-1)
+			startj := gj.Start.GetOr(-1)
+			return cmp(starti, startj, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "End time":
 		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
-			return cmp(gi.Spans[len(gi.Spans)-1].End, gj.Spans[len(gj.Spans)-1].End, gl.table.SortOrder == theme.SortDescending)
+			endi := gi.End.GetOr(math.MaxInt64)
+			endj := gj.End.GetOr(math.MaxInt64)
+			return cmp(endi, endj, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "Duration":
 		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
-			starti := gi.Spans[0].Start
-			startj := gj.Spans[0].Start
-			endi := gi.Spans[len(gi.Spans)-1].End
-			endj := gj.Spans[len(gj.Spans)-1].End
+			starti := gi.Start.GetOr(-1)
+			startj := gj.Start.GetOr(-1)
+			// We use traceEnd + 1 instead of MaxInt64 so that durations still sort usefully even if one of
+			// start or end is missing. For example, even if the end is unknown, one event happening before
+			// the other will have a longer duration.
+			endi := gi.End.GetOr(gi.EffectiveEnd() + 1)
+			endj := gj.End.GetOr(gj.EffectiveEnd() + 1)
 
 			di := endi - starti
 			dj := endj - startj
@@ -1173,18 +1182,44 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				tb.DefaultLink(g.Function.Fn, "", g.Function)
 			}
 		case "Start time": // Start time
-			start := g.Spans[0].Start
-			tb.DefaultLink(formatTimestamp(nil, start), "", gs.timestampObjects.Append(start))
+			if start, ok := g.Start.Get(); ok {
+				tb.DefaultLink(formatTimestamp(nil, start), "", gs.timestampObjects.Append(start))
+			} else {
+				tb.Span("<unknown>")
+			}
 			txt.Alignment = text.End
 		case "End time": // End time
-			end := g.Spans[len(g.Spans)-1].End
-			tb.DefaultLink(formatTimestamp(nil, end), "", gs.timestampObjects.Append(end))
+			if end, ok := g.End.Get(); ok {
+				tb.DefaultLink(formatTimestamp(nil, end), "", gs.timestampObjects.Append(end))
+			} else {
+				tb.Span("<unknown>")
+			}
 			txt.Alignment = text.End
 		case "Duration": // Duration
-			start := g.Spans[0].Start
-			end := g.Spans[len(g.Spans)-1].End
-			d := time.Duration(end - start)
-			value, unit := durationNumberFormatSITable.format(d)
+			// If the goroutine's end wasn't observed, then traceEnd is equal to the trace's end
+			traceEnd := g.EffectiveEnd()
+
+			start, sok := g.Start.Get()
+			end, eok := g.End.Get()
+
+			var value, unit string
+			if !sok && !eok {
+				d := time.Duration(traceEnd)
+				value, unit = durationNumberFormatSITable.format(d)
+				value = "≥ " + value
+			} else if !sok {
+				d := time.Duration(end)
+				value, unit = durationNumberFormatSITable.format(d)
+				value = "≥ " + value
+			} else if !eok {
+				d := time.Duration(traceEnd - start)
+				value, unit = durationNumberFormatSITable.format(d)
+				value = "≥ " + value
+			} else {
+				d := time.Duration(end - start)
+				value, unit = durationNumberFormatSITable.format(d)
+			}
+
 			tb.Span(value)
 			tb.Span(" ")
 			s := tb.Span(unit)
