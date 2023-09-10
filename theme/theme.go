@@ -65,6 +65,8 @@ type Palette struct {
 		HeaderBackground     color.NRGBA
 		Divider              color.NRGBA
 		DragHandle           color.NRGBA
+		ExpandedBorder       color.NRGBA
+		ExpandedBackground   color.NRGBA
 	}
 }
 
@@ -107,6 +109,8 @@ var DefaultPalette = Palette{
 		HeaderBackground     color.NRGBA
 		Divider              color.NRGBA
 		DragHandle           color.NRGBA
+		ExpandedBorder       color.NRGBA
+		ExpandedBackground   color.NRGBA
 	}{
 		EvenRowBackground:    rgba(0xFFFFEAFF),
 		OddRowBackground:     rgba(0xFFFFEAFF),
@@ -114,6 +118,8 @@ var DefaultPalette = Palette{
 		HeaderBackground:     rgba(0xF5F5E1FF),
 		Divider:              rgba(0xBEBEBEFF),
 		DragHandle:           rgba(0x000000FF),
+		ExpandedBorder:       rgba(0xBEBEBEFF),
+		ExpandedBackground:   rgba(0xF5CCE1FF),
 	},
 }
 

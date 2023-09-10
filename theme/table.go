@@ -701,12 +701,10 @@ type TableExpandedRowStyle struct {
 }
 
 func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
-	// XXX palette colors instead of rgba()
-
 	return layout.Rigids(gtx, layout.Vertical,
 		func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
-			paint.FillShape(gtx.Ops, rgba(0xBEBEBEFF), clip.Rect{Max: size}.Op())
+			paint.FillShape(gtx.Ops, win.Theme.Palette.Table.ExpandedBorder, clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
 			}
@@ -714,7 +712,9 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 
 		func(gtx layout.Context) layout.Dimensions {
 			return FauxTableRow(ex.Table, win.Theme.Palette.Background).Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
-				return widget.Background{Color: rgba(0xF5CCE1FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return widget.Background{
+					Color: win.Theme.Palette.Table.ExpandedBackground,
+				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return w(win, gtx)
 				})
 			})
@@ -722,7 +722,7 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 
 		func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
-			paint.FillShape(gtx.Ops, rgba(0xBEBEBEFF), clip.Rect{Max: size}.Op())
+			paint.FillShape(gtx.Ops, win.Theme.Palette.Table.ExpandedBorder, clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
 			}
