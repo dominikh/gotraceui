@@ -29,6 +29,18 @@ const (
 	SortDescending
 )
 
+const (
+	DefaultDividerWidth                   unit.Dp = 1
+	DefaultDividerMargin                  unit.Dp = 1
+	DefaultDividerHandleMinVerticalMargin unit.Dp = 2
+	DefaultDividerHandleMaxHeight         unit.Dp = 12
+	DefaultDividerHandleWidth             unit.Dp = 3
+	DefaultDividerHandleRadius            unit.Dp = 2
+	DefaultHeaderPadding                  unit.Dp = 5
+	DefaultHeaderBorder                   unit.Dp = 1
+	DefaultExpandedBorder                 unit.Dp = 1
+)
+
 // TODO(dh): this should be in package widget
 type Table struct {
 	Columns   []Column
@@ -154,8 +166,8 @@ func (tbl *Table) resize(win *Window, gtx layout.Context) {
 
 	var (
 		dividerWidth       = gtx.Dp(DefaultDividerWidth)
-		dividerMargin      = gtx.Dp(1)
-		dividerHandleWidth = gtx.Dp(3)
+		dividerMargin      = gtx.Dp(DefaultDividerMargin)
+		dividerHandleWidth = gtx.Dp(DefaultDividerHandleWidth)
 
 		globalMinWidth = float32(dividerWidth + dividerMargin + dividerHandleWidth)
 	)
@@ -186,8 +198,6 @@ func TableRow(tbl *Table, hdr bool) TableRowStyle {
 	}
 }
 
-const DefaultDividerWidth unit.Dp = 1
-
 func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Window, gtx layout.Context, idx int) layout.Dimensions) layout.Dimensions {
 	var (
 		cols          = len(row.Table.Columns)
@@ -195,11 +205,11 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w func(win *Win
 		tallestHeight = gtx.Constraints.Min.Y
 
 		dividerWidth                   = gtx.Dp(DefaultDividerWidth)
-		dividerMargin                  = gtx.Dp(1)
-		dividerHandleMinVerticalMargin = gtx.Dp(2)
-		dividerHandleMaxHeight         = gtx.Dp(12)
-		dividerHandleWidth             = gtx.Dp(3)
-		dividerHandleRadius            = gtx.Dp(2)
+		dividerMargin                  = gtx.Dp(DefaultDividerMargin)
+		dividerHandleMinVerticalMargin = gtx.Dp(DefaultDividerHandleMinVerticalMargin)
+		dividerHandleMaxHeight         = gtx.Dp(DefaultDividerHandleMaxHeight)
+		dividerHandleWidth             = gtx.Dp(DefaultDividerHandleWidth)
+		dividerHandleRadius            = gtx.Dp(DefaultDividerHandleRadius)
 
 		minWidth = float32(dividerWidth + dividerMargin + dividerHandleWidth)
 	)
@@ -542,9 +552,7 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 			f          = font.Font{Weight: font.ExtraBold}
 			fg         = widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
 			lineHeight = win.TextDimensions(gtx, widget.Label{}, f, win.Theme.TextSize, "").Size.Y
-			paddingDp  = unit.Dp(5)
-			borderDp   = unit.Dp(1)
-			height     = max(gtx.Constraints.Min.Y, lineHeight+gtx.Dp(paddingDp)*2+gtx.Dp(borderDp))
+			height     = max(gtx.Constraints.Min.Y, lineHeight+2*gtx.Dp(DefaultHeaderPadding)+gtx.Dp(DefaultHeaderBorder))
 			col        = &row.Table.Columns[colIdx]
 		)
 
@@ -552,7 +560,7 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 
 		layout.Overlay(gtx,
 			func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Top: paddingDp, Bottom: paddingDp + borderDp, Left: paddingDp, Right: paddingDp}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: DefaultHeaderPadding, Bottom: DefaultHeaderPadding + DefaultHeaderBorder, Left: DefaultHeaderPadding, Right: DefaultHeaderPadding}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					l := widget.Label{MaxLines: 1, Alignment: text.Start}
 					l.Alignment = col.Alignment
 					var s string
@@ -588,7 +596,7 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 			},
 		)
 
-		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.Divider, clip.Rect{Min: image.Pt(0, height-gtx.Dp(borderDp)), Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
+		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.Divider, clip.Rect{Min: image.Pt(0, height-gtx.Dp(DefaultHeaderBorder)), Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
 		return layout.Dimensions{
 			Size: image.Pt(gtx.Constraints.Min.X, height),
 		}
@@ -661,7 +669,7 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 
 	return layout.Rigids(gtx, layout.Vertical,
 		func(gtx layout.Context) layout.Dimensions {
-			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))
+			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
 			paint.FillShape(gtx.Ops, rgba(0xBEBEBEFF), clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
@@ -677,7 +685,7 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 		},
 
 		func(gtx layout.Context) layout.Dimensions {
-			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))
+			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
 			paint.FillShape(gtx.Ops, rgba(0xBEBEBEFF), clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
