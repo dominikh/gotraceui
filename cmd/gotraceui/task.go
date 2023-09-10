@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"math"
 	"math/big"
 	"time"
 
@@ -36,7 +37,7 @@ type Task struct {
 // TODO(dh): separate tasks table from TasksComponent
 type TasksComponent struct {
 	Trace *Trace
-	Tasks []Task
+	Tasks SortedItems[Task]
 
 	mwin *theme.Window
 	// Tasks that have extended information shown, indexed by the task's sequential ID.
@@ -60,7 +61,7 @@ type TasksComponent struct {
 func NewTasksComponent(mwin *theme.Window, tr *Trace, tasks []Task) *TasksComponent {
 	return &TasksComponent{
 		Trace: tr,
-		Tasks: tasks,
+		Tasks: NewSortedItems(NewSimpleItems(tasks)),
 		mwin:  mwin,
 		tabbedStates: map[int]*struct {
 			state     *theme.TabbedState
@@ -100,6 +101,78 @@ func (l *ClickWithData) Layout(gtx layout.Context, w layout.Widget) layout.Dimen
 	})
 }
 
+func (cp *TasksComponent) sort() {
+	switch cp.table.SortedBy {
+	case 0: // ID
+		cp.Tasks.Sort(func(a, b Task) int {
+			return cmp(a.ID, b.ID, cp.table.SortOrder == theme.SortDescending)
+		})
+	case 1: // Name
+		cp.Tasks.Sort(func(a, b Task) int {
+			return cmp(a.Name(cp.Trace.Trace), b.Name(cp.Trace.Trace), cp.table.SortOrder == theme.SortDescending)
+		})
+	case 2: // Start
+		cp.Tasks.Sort(func(a, b Task) int {
+			var starta, startb trace.Timestamp = -1, -1
+			if a.StartEvent != 0 {
+				starta = cp.Trace.Event(a.StartEvent).Ts
+			}
+			if b.StartEvent != 0 {
+				startb = cp.Trace.Event(b.StartEvent).Ts
+			}
+			return cmp(starta, startb, cp.table.SortOrder == theme.SortDescending)
+		})
+	case 3: // End
+		cp.Tasks.Sort(func(a, b Task) int {
+			var enda, endb trace.Timestamp = math.MaxInt64, math.MaxInt64
+			if a.EndEvent != 0 {
+				enda = cp.Trace.Event(a.EndEvent).Ts
+			}
+			if b.EndEvent != 0 {
+				endb = cp.Trace.Event(b.EndEvent).Ts
+			}
+			return cmp(enda, endb, cp.table.SortOrder == theme.SortDescending)
+		})
+	case 4: // Duration
+		cp.Tasks.Sort(func(a, b Task) int {
+			var starta, startb trace.Timestamp = -1, -1
+			traceEnd := cp.Trace.Events[len(cp.Trace.Events)-1].Ts
+			// We use traceEnd + 1 instead of MaxInt64 so that durations still sort usefully even if one of
+			// start or end is missing. For example, even if the end is unknown, one event happening before
+			// the other will have a longer duration.
+			var enda, endb trace.Timestamp = traceEnd + 1, traceEnd + 1
+			if a.StartEvent != 0 {
+				starta = cp.Trace.Event(a.StartEvent).Ts
+			}
+			if b.StartEvent != 0 {
+				startb = cp.Trace.Event(b.StartEvent).Ts
+			}
+			if a.EndEvent != 0 {
+				enda = cp.Trace.Event(a.EndEvent).Ts
+			}
+			if b.EndEvent != 0 {
+				endb = cp.Trace.Event(b.EndEvent).Ts
+			}
+			var da, db time.Duration = -1, -1
+			da = time.Duration(enda - starta)
+			db = time.Duration(endb - startb)
+			return cmp(da, db, cp.table.SortOrder == theme.SortDescending)
+		})
+	case 5: // NumG
+		cp.Tasks.Sort(func(a, b Task) int {
+			return cmp(len(a.Goroutines), len(b.Goroutines), cp.table.SortOrder == theme.SortDescending)
+		})
+	case 6: // NumRegions
+		cp.Tasks.Sort(func(a, b Task) int {
+			return cmp(a.NumRegions, b.NumRegions, cp.table.SortOrder == theme.SortDescending)
+		})
+	case 7: // NumLogs
+		cp.Tasks.Sort(func(a, b Task) int {
+			return cmp(len(a.Logs), len(b.Logs), cp.table.SortOrder == theme.SortDescending)
+		})
+	}
+}
+
 // Layout implements theme.Component.
 func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	const (
@@ -115,15 +188,18 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 
 	if cp.table.Columns == nil {
 		cp.table.SetColumns(win, gtx, []theme.Column{
-			{Name: "ID", Alignment: text.End},
-			{Name: "Name", Alignment: text.Start},
-			{Name: "Start", Alignment: text.End},
-			{Name: "End", Alignment: text.End},
-			{Name: "Duration", Alignment: text.End},
-			{Name: "# goroutines", Alignment: text.End},
-			{Name: "# regions", Alignment: text.End},
-			{Name: "# logs", Alignment: text.End},
+			{Name: "ID", Alignment: text.End, Clickable: true},
+			{Name: "Name", Alignment: text.Start, Clickable: true},
+			{Name: "Start", Alignment: text.End, Clickable: true},
+			{Name: "End", Alignment: text.End, Clickable: true},
+			{Name: "Duration", Alignment: text.End, Clickable: true},
+			{Name: "# goroutines", Alignment: text.End, Clickable: true},
+			{Name: "# regions", Alignment: text.End, Clickable: true},
+			{Name: "# logs", Alignment: text.End, Clickable: true},
 		})
+
+		cp.table.SortedBy = 0
+		cp.table.SortOrder = theme.SortAscending
 	}
 
 	for i, n := 0, cp.clicks.Len(); i < n; i++ {
@@ -151,6 +227,10 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 		}
 	}
 
+	if _, ok := cp.table.SortByClickedColumn(); ok {
+		cp.sort()
+	}
+
 	cp.clicks.Reset()
 
 	return cp.table.Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -164,9 +244,9 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 					fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
 					linkFg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Link)
 					objectLinkFg := widget.ColorTextMaterial(gtx, win.Theme.Palette.NavigationLink)
-					return list.Layout(gtx, len(cp.Tasks), func(gtx layout.Context, index int) layout.Dimensions {
+					return list.Layout(gtx, cp.Tasks.Len(), func(gtx layout.Context, index int) layout.Dimensions {
 						var (
-							task    = &cp.Tasks[index]
+							task    = cp.Tasks.AtPtr(index)
 							rowDims layout.Dimensions
 						)
 						return layout.Rigids(gtx, layout.Vertical,
