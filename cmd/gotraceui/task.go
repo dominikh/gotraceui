@@ -57,6 +57,24 @@ type TasksComponent struct {
 	nfUint64 *NumberFormatter[uint64]
 }
 
+func NewTasksComponent(mwin *theme.Window, tr *Trace, tasks []Task) *TasksComponent {
+	return &TasksComponent{
+		Trace: tr,
+		Tasks: tasks,
+		mwin:  mwin,
+		tabbedStates: map[int]*struct {
+			state     *theme.TabbedState
+			minHeight int
+		}{},
+		goroutineLists:     map[int]*GoroutineList{},
+		expandedAnimations: map[int]time.Time{},
+
+		nfTs:     NewNumberFormatter[trace.Timestamp](local),
+		nfUint64: NewNumberFormatter[uint64](local),
+		nfInt:    NewNumberFormatter[int](local),
+	}
+}
+
 type ClickWithData struct {
 	gesture.Click
 	Link ObjectLink

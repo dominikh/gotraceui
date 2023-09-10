@@ -310,6 +310,7 @@ type Tab struct {
 
 type MainWindow struct {
 	canvas          Canvas
+	tasks           *TasksComponent
 	trace           *Trace
 	explorer        *explorer.Explorer
 	showingExplorer atomic.Bool
@@ -649,22 +650,7 @@ func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Co
 	})
 }
 
-// var table = &theme.TableState{
-// 	Columns: []theme.TableColumn{
-// 		{200},
-// 		{400},
-// 		{200},
-// 	},
-// }
-
-var table theme.Table
-
-var tableState theme.YScrollableListState
-
-var tc *TasksComponent
-
 func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
-
 	win.AddShortcut(theme.Shortcut{Name: "G"})
 	win.AddShortcut(theme.Shortcut{Name: "H"})
 	win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
@@ -741,29 +727,6 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 			gtx.Constraints.Min = gtx.Constraints.Max
 			if mwin.tabbedState.Current < 0 {
 				return layout.Dimensions{}
-			}
-
-			if mwin.tabbedState.Current == 1 {
-				if tc == nil {
-					tc = &TasksComponent{
-						Trace: mwin.trace,
-						Tasks: mwin.trace.Tasks,
-						mwin:  mwin.twin,
-						tabbedStates: map[int]*struct {
-							state     *theme.TabbedState
-							minHeight int
-						}{},
-						goroutineLists:     map[int]*GoroutineList{},
-						expandedAnimations: map[int]time.Time{},
-
-						nfTs:     NewNumberFormatter[trace.Timestamp](local),
-						nfUint64: NewNumberFormatter[uint64](local),
-						nfInt:    NewNumberFormatter[int](local),
-					}
-				}
-
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return tc.Layout(win, gtx)
 			}
 
 			return mwin.tabs[mwin.tabbedState.Current].Layout(win, gtx)
@@ -1168,6 +1131,8 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 		Component:  NewGoroutinesComponent(mwin.trace.Goroutines),
 		Unclosable: true,
 	})
+	mwin.tasks = NewTasksComponent(mwin.twin, mwin.trace, mwin.trace.Tasks)
+	mwin.openTabBg(mwin.tasks)
 }
 
 type durationNumberFormat uint8
