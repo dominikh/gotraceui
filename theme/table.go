@@ -153,6 +153,14 @@ func (tbl *Table) resize(win *Window, gtx layout.Context) {
 			len(tbl.Columns)*gtx.Dp(DefaultDividerWidth)
 	)
 
+	// Avoid values <1. Negative values are naturally bad, and zero leads to NaN when we compute ratios.
+	if oldAvailable < 1 {
+		oldAvailable = 1
+	}
+	if available < 1 {
+		available = 1
+	}
+
 	defer func() {
 		tbl.prevMaxWidth = gtx.Constraints.Max.X
 		tbl.prevMetric = gtx.Metric
@@ -181,7 +189,7 @@ func (tbl *Table) resize(win *Window, gtx layout.Context) {
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
 		r := float32(col.Width) / float32(oldAvailable)
-		col.Width = max(max(col.MinWidth, globalMinWidth), r*float32(available))
+		col.Width = max(col.MinWidth, globalMinWidth, r*float32(available))
 	}
 }
 
