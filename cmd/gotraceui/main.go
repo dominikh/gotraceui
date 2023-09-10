@@ -1125,6 +1125,10 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.panelHistory = nil
 	mwin.tabs = mwin.tabs[:1]
 	mwin.tabbedState.Current = 0
+	mwin.openTabBg(Tab{
+		Component:  NewGoroutinesComponent(mwin.trace.Goroutines),
+		Unclosable: true,
+	})
 }
 
 type durationNumberFormat uint8

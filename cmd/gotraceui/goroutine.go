@@ -1258,3 +1258,36 @@ func (gs *GoroutineList) Clicked() []TextEvent {
 	}
 	return out
 }
+
+type GoroutinesComponent struct {
+	list GoroutineList
+}
+
+func NewGoroutinesComponent(gs []*ptrace.Goroutine) *GoroutinesComponent {
+	return &GoroutinesComponent{
+		list: GoroutineList{
+			Goroutines: NewSortedIndices(gs),
+		},
+	}
+}
+
+// Title implements theme.Component.
+func (*GoroutinesComponent) Title() string {
+	return "Goroutines"
+}
+
+// Transition implements theme.Component.
+func (*GoroutinesComponent) Transition(state theme.ComponentState) {}
+
+// WantsTransition implements theme.Component.
+func (*GoroutinesComponent) WantsTransition() theme.ComponentState {
+	return theme.ComponentStateNone
+}
+
+// Layout implements theme.Component.
+func (gc *GoroutinesComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+	for _, ev := range gc.list.Clicked() {
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
+	}
+	return gc.list.Layout(win, gtx)
+}
