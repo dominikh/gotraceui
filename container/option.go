@@ -21,3 +21,11 @@ func Some[T any](v T) Option[T] {
 func (m Option[T]) Get() (T, bool) {
 	return m.v, m.set
 }
+
+func (m Option[T]) GetOr(alt T) T {
+	if m.set {
+		return m.v
+	} else {
+		return alt
+	}
+}
