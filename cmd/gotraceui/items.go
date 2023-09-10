@@ -26,6 +26,12 @@ type SimpleItems[T any] struct {
 	subslice   bool
 }
 
+func NewSimpleItems[E any, S ~[]E](items S) SimpleItems[E] {
+	return SimpleItems[E]{
+		items: []E(items),
+	}
+}
+
 func (s SimpleItems[T]) At(idx int) T {
 	return s.items[idx]
 }
