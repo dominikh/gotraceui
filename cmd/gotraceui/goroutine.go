@@ -1182,18 +1182,28 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 				tb.DefaultLink(g.Function.Fn, "", g.Function)
 			}
 		case "Start time": // Start time
+			var l string
+			var ts trace.Timestamp
 			if start, ok := g.Start.Get(); ok {
-				tb.DefaultLink(formatTimestamp(nil, start), "", gs.timestampObjects.Append(start))
+				ts = start
+				l = formatTimestamp(nil, start)
 			} else {
-				tb.Span("<unknown>")
+				ts = g.EffectiveStart()
+				l = "before trace start"
 			}
+			tb.DefaultLink(l, "", gs.timestampObjects.Append(ts))
 			txt.Alignment = text.End
 		case "End time": // End time
+			var l string
+			var ts trace.Timestamp
 			if end, ok := g.End.Get(); ok {
-				tb.DefaultLink(formatTimestamp(nil, end), "", gs.timestampObjects.Append(end))
+				ts = end
+				l = formatTimestamp(nil, end)
 			} else {
-				tb.Span("<unknown>")
+				ts = g.EffectiveEnd()
+				l = "after trace end"
 			}
+			tb.DefaultLink(l, "", gs.timestampObjects.Append(ts))
 			txt.Alignment = text.End
 		case "Duration": // Duration
 			// If the goroutine's end wasn't observed, then traceEnd is equal to the trace's end
