@@ -308,20 +308,34 @@ func (cp *TasksComponent) Layout(win *theme.Window, gtx layout.Context) layout.D
 											})
 										}
 									case cDuration:
+										tb := TextBuilder{Theme: win.Theme}
+										var txt Text
+										txt.Reset(win.Theme)
 										traceEnd := cp.Trace.Events[len(cp.Trace.Events)-1].Ts
+										var value, unit string
 										if task.StartEvent == 0 && task.EndEvent == 0 {
 											d := roundDuration(time.Duration(traceEnd))
-											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("≥ %s", d), fg)
+											value, unit = durationNumberFormatSITable.format(d)
+											value = "≥ " + value
 										} else if task.StartEvent == 0 {
 											d := roundDuration(time.Duration(cp.Trace.Event(task.EndEvent).Ts))
-											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("≥ %s", d), fg)
+											value, unit = durationNumberFormatSITable.format(d)
+											value = "≥ " + value
 										} else if task.EndEvent == 0 {
 											d := roundDuration(time.Duration(traceEnd - cp.Trace.Event(task.StartEvent).Ts))
-											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("≥ %s", d), fg)
+											value, unit = durationNumberFormatSITable.format(d)
+											value = "≥ " + value
 										} else {
 											d := roundDuration(time.Duration(cp.Trace.Event(task.EndEvent).Ts - cp.Trace.Event(task.StartEvent).Ts))
-											return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, d.String(), fg)
+											value, unit = durationNumberFormatSITable.format(d)
 										}
+
+										tb.Span(value)
+										tb.Span(" ")
+										s := tb.Span(unit)
+										s.Font.Typeface = "Go Mono"
+										txt.Alignment = text.End
+										return txt.Layout(win, gtx, tb.Spans)
 									case cNumG:
 										return right.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, cp.nfInt.Format("%d", len(task.Goroutines)), fg)
 									case cNumRegions:
