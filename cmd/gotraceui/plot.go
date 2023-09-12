@@ -343,8 +343,8 @@ func (pl *Plot) end(gtx layout.Context, cv *Canvas) int {
 	// XXX this can probably overflow
 
 	timelineEnd := gtx.Constraints.Max.X
-	lastEvent := cv.trace.Events[len(cv.trace.Events)-1]
-	if end := cv.tsToPx(lastEvent.Ts); int(end) < timelineEnd {
+	traceEnd := cv.trace.End()
+	if end := cv.tsToPx(traceEnd); int(end) < timelineEnd {
 		timelineEnd = int(end)
 	}
 	if timelineEnd < 0 {

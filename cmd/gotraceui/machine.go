@@ -182,7 +182,8 @@ func (tt MachineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	// OPT(dh): compute statistics once, not on every frame
 
 	tr := tt.trace
-	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
+	// FIXME(dh): this doesn't seem right for machines that didn't start at 0
+	d := time.Duration(tr.End())
 
 	var procD, syscallD time.Duration
 	for i := 0; i < len(tt.m.Spans); i++ {

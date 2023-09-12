@@ -91,6 +91,14 @@ type Trace struct {
 	trace.Trace
 }
 
+func (t *Trace) End() trace.Timestamp {
+	if len(t.Events) == 0 {
+		return 0
+	}
+
+	return t.Events[len(t.Events)-1].Ts
+}
+
 type Statistics [StateLast]Statistic
 
 func (stat *Statistics) Blocked() time.Duration {

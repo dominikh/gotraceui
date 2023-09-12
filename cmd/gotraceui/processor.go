@@ -24,7 +24,8 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	// OPT(dh): compute statistics once, not on every frame
 
 	tr := tt.trace
-	d := time.Duration(tr.Events[len(tr.Events)-1].Ts)
+	// FIXME(dh): this doesn't seem right for processors that didn't start at 0
+	d := time.Duration(tr.End())
 
 	var userD, gcD time.Duration
 	for i := range tt.p.Spans {

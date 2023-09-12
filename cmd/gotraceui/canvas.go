@@ -618,7 +618,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	}
 
 	if cv.nsPerPx == 0 {
-		end := cv.trace.Events[len(cv.trace.Events)-1].Ts
+		end := cv.trace.End()
 		slack := float64(end) * 0.05
 		cv.nsPerPx = (float64(end) + 2*slack) / float64(cv.width)
 	}

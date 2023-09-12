@@ -1568,7 +1568,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		return nil
 	})
 
-	end := tr.Events[len(tr.Events)-1].Ts
+	end := tr.End()
 
 	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
 	// entire trace.
