@@ -9,7 +9,6 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
-	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/widget"
@@ -44,7 +43,7 @@ func (g *debugGraph) addValue(ts time.Time, val float64) {
 	}{ts, val})
 }
 
-func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+func (g *debugGraph) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.debugGraph.Layout").End()
 
 	// OPT(dh): this function allocates a fair amount. It's only debug code, but even then we want to keep memory usage
@@ -64,7 +63,7 @@ func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensio
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = 0
 				paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
-				return widget.Label{Alignment: text.Middle}.Layout(gtx, th.Shaper, font.Font{}, 12, g.title, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+				return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, g.title, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 			}),
 
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -96,7 +95,7 @@ func (g *debugGraph) Layout(gtx layout.Context, th *theme.Theme) layout.Dimensio
 					}
 				}
 
-				widget.Label{}.Layout(gtx, th.Shaper, font.Font{}, 12, local.Sprintf("Min: %f\nMax: %f\nCurrent: %f", min, max, cur), widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+				widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("Min: %f\nMax: %f\nCurrent: %f", min, max, cur), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 
 				if g.fixedZero {
 					min = 0
@@ -212,32 +211,29 @@ func NewDebugWindow() *DebugWindow {
 
 func (dwin *DebugWindow) Run(win *app.Window) error {
 	var ops op.Ops
+	twin := theme.NewWindow(win)
 	for e := range win.Events() {
 		switch ev := e.(type) {
 		case system.DestroyEvent:
 			return ev.Err
 		case system.FrameEvent:
-			gtx := layout.NewContext(&ops, ev)
-			// gtx.Constraints.Min = image.Point{}
+			twin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				themeWidget := func(fn func(win *theme.Window, gtx layout.Context) layout.Dimensions) layout.Widget {
+					return func(gtx layout.Context) layout.Dimensions { return fn(twin, gtx) }
+				}
 
-			th := theme.NewTheme(ourfont.Collection())
-
-			themeWidget := func(fn func(gtx layout.Context, th *theme.Theme) layout.Dimensions) layout.Widget {
-				return func(gtx layout.Context) layout.Dimensions { return fn(gtx, th) }
-			}
-
-			layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Flexed(1, themeWidget(dwin.cvStart.Layout)),
-				layout.Flexed(1, themeWidget(dwin.cvEnd.Layout)),
-				layout.Flexed(1, themeWidget(dwin.cvY.Layout)),
-				layout.Flexed(1, themeWidget(dwin.cvPxPerNs.Layout)),
-				layout.Flexed(1, themeWidget(dwin.animationProgress.Layout)),
-				layout.Flexed(1, themeWidget(dwin.animationRatio.Layout)),
-				layout.Flexed(1, themeWidget(dwin.frametimes.Layout)),
-			)
-
-			op.InvalidateOp{}.Add(gtx.Ops)
-			ev.Frame(gtx.Ops)
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Flexed(1, themeWidget(dwin.cvStart.Layout)),
+					layout.Flexed(1, themeWidget(dwin.cvEnd.Layout)),
+					layout.Flexed(1, themeWidget(dwin.cvY.Layout)),
+					layout.Flexed(1, themeWidget(dwin.cvPxPerNs.Layout)),
+					layout.Flexed(1, themeWidget(dwin.animationProgress.Layout)),
+					layout.Flexed(1, themeWidget(dwin.animationRatio.Layout)),
+					layout.Flexed(1, themeWidget(dwin.frametimes.Layout)),
+				)
+			})
+			op.InvalidateOp{}.Add(&ops)
+			ev.Frame(&ops)
 		}
 	}
 

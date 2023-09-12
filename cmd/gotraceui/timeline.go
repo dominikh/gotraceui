@@ -458,7 +458,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 			tl.widget.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				labelGtx := gtx
 				labelGtx.Constraints.Min = image.Point{}
-				labelDims := widget.Label{MaxLines: 1}.Layout(labelGtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, tl.label, widget.ColorTextMaterial(gtx, colors[colorTimelineLabel]))
+				labelDims := widget.Label{MaxLines: 1}.Layout(labelGtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, tl.label, win.ColorMaterial(gtx, colors[colorTimelineLabel]))
 				stack := clip.Rect{Max: labelDims.Size}.Push(gtx.Ops)
 				pointer.CursorPointer.Add(gtx.Ops)
 				stack.Pop()
@@ -962,7 +962,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 						gtx.Constraints.Min = image.Point{}
 						gtx.Constraints.Max = image.Pt(int(round32(maxP.X-minP.X)), int(round32(maxP.Y-minP.Y)))
 						dims = widget.Label{MaxLines: 1, Truncator: "…", WrapPolicy: text.WrapGraphemes}.
-							Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+							Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 						call = m.Stop()
 					}
 					middleOfSpan := startPx + (endPx-startPx)/2

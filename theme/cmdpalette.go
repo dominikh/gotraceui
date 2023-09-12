@@ -120,7 +120,6 @@ func (cmd NormalCommand) Filter(input string) bool {
 func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.NormalCommand.Layout").End()
 
-	black := widget.ColorTextMaterial(gtx, rgba(0x000000FF))
 	activeColor := mycolor.Oklch{L: 0.9394, C: 0.22094984386637648, H: 119.08, Alpha: 1}
 
 	bg := cmd.Color
@@ -143,14 +142,14 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 					dims = layout.Rigids(gtx, layout.Vertical,
 						func(gtx layout.Context) layout.Dimensions {
 							f := font.Font{Weight: font.Bold}
-							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.PrimaryLabel, black)
+							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.PrimaryLabel, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 						},
 						func(gtx layout.Context) layout.Dimensions {
 							if cmd.SecondaryLabel == "" {
 								return layout.Dimensions{}
 							}
 							f := font.Font{}
-							return widget.Label{MaxLines: 0}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.SecondaryLabel, black)
+							return widget.Label{MaxLines: 0}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.SecondaryLabel, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 						},
 						func(gtx layout.Context) layout.Dimensions {
 							if cmd.Category == "" {
@@ -158,7 +157,7 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 							}
 							f := font.Font{Style: font.Italic}
 							// XXX avoid the allocation
-							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 12, "Category: "+cmd.Category, black)
+							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 12, "Category: "+cmd.Category, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 						},
 					)
 
@@ -180,7 +179,7 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 										f := font.Font{
 											Weight: font.Bold,
 										}
-										return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.Shortcut, black)
+										return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, f, 14, cmd.Shortcut, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 									})
 								})
 							})

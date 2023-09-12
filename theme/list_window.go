@@ -80,7 +80,7 @@ func (w *ListWindow) Confirmed() (any, bool) {
 // the input tree. That means that typing in an editor can trigger our single-key shortcuts.
 var editorKeyset = key.Set("↓|↑|⎋|A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z")
 
-func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
+func (w *ListWindow) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ListWindow.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -106,7 +106,7 @@ func (w *ListWindow) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						c = rgba(0x000000FF)
 					}
-					return widget.Label{MaxLines: 1}.Layout(gtx, w.theme.Shaper, font.Font{}, w.theme.TextSize, item.Label, widget.ColorTextMaterial(gtx, c))
+					return widget.Label{MaxLines: 1}.Layout(gtx, w.theme.Shaper, font.Font{}, w.theme.TextSize, item.Label, win.ColorMaterial(gtx, c))
 				})
 			})
 		}

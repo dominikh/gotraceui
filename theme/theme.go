@@ -227,7 +227,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 			layout.Spacer{Width: 3}.Layout,
 
 			func(gtx layout.Context) layout.Dimensions {
-				return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, c.TextSize, c.Label, widget.ColorTextMaterial(gtx, c.TextColor))
+				return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, c.TextSize, c.Label, win.ColorMaterial(gtx, c.TextColor))
 			},
 		)
 	})
@@ -337,7 +337,7 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 					layout.Spacer{Width: 3}.Layout,
 
 					func(gtx layout.Context) layout.Dimensions {
-						return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, chkgrp.TextSize, chkgrp.Label, widget.ColorTextMaterial(gtx, chkgrp.TextColor))
+						return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, chkgrp.TextSize, chkgrp.Label, win.ColorMaterial(gtx, chkgrp.TextColor))
 					},
 				)
 			})
@@ -453,7 +453,7 @@ func (f FoldableStyle) Layout(win *Window, gtx layout.Context, contents Widget) 
 		}
 		gtx.Constraints.Min.Y = 0
 		pointer.CursorPointer.Add(gtx.Ops)
-		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, f.TextSize, l, widget.ColorTextMaterial(gtx, f.TextColor))
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, f.TextSize, l, win.ColorMaterial(gtx, f.TextColor))
 
 	})
 	size = dims.Size
@@ -550,7 +550,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 		var padding = gtx.Dp(bt.Padding)
 
 		macro := op.Record(gtx.Ops)
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, bt.TextSize, bt.Text, widget.ColorTextMaterial(gtx, bt.TextColor))
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, bt.TextSize, bt.Text, win.ColorMaterial(gtx, bt.TextColor))
 		call := macro.Stop()
 
 		total := clip.Rect{
@@ -615,7 +615,7 @@ func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, b.Text, widget.ColorTextMaterial(gtx, fg))
+					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, b.Text, win.ColorMaterial(gtx, fg))
 				})
 			})
 		})
@@ -765,8 +765,8 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	const padding = 5
 	const borderWidth = 1
 
-	activeForeground := widget.ColorTextMaterial(gtx, rgba(0x000000FF))
-	inactiveForeground := widget.ColorTextMaterial(gtx, rgba(0x3E3E3EFF))
+	activeForeground := win.ColorMaterial(gtx, rgba(0x000000FF))
+	inactiveForeground := win.ColorMaterial(gtx, rgba(0x3E3E3EFF))
 
 	activeBackground := rgba(0xDDDDFFFF)
 	inactiveBackground := rgba(0xFFFFFFFF)
@@ -917,7 +917,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 					return ts.State.clickables[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						stack := op.Offset(image.Pt(gtx.Dp(padding), gtx.Dp(padding))).Push(gtx.Ops)
 
-						dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, ts.Tabs[i], widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+						dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, ts.Tabs[i], win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 						stack.Pop()
 
 						dims.Size.X += 2 * gtx.Dp(padding)

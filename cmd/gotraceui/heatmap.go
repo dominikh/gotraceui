@@ -390,7 +390,7 @@ func (hmc *HeatmapComponent) Layout(win *theme.Window, gtx layout.Context) layou
 				}
 				label = local.Sprintf("time [%s, %s), range [%d, %d%c, count: %d", b.XStart, b.XEnd, b.YStart, b.YEnd, close, b.Count)
 			}
-			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			// TODO(dh): instead of using a checkbox, use a toggle switch that shows the two options (linear and

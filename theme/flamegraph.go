@@ -342,7 +342,6 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 		// Indices tracks the intra-row span index per level. This is useful for color functions that want to discern
 		// neighboring spans.
-		black := widget.ColorTextMaterial(gtx, rgba(0x000000FF))
 
 		labelsMacro := op.Record(gtx.Ops)
 
@@ -423,7 +422,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 						if float32(win.TextLength(gtx, widget.Label{}, f, 12, l)) > pxSize.X {
 							l = shortenFunctionName(frame.Name)
 						}
-						_, tinf := widget.Label{MaxLines: 1, Alignment: text.Middle}.LayoutDetailed(gtx, win.Theme.Shaper, f, 12, l, black)
+						_, tinf := widget.Label{MaxLines: 1, Alignment: text.Middle}.LayoutDetailed(gtx, win.Theme.Shaper, f, 12, l, win.ColorMaterial(gtx, rgba(0x000000FF)))
 						c := m.Stop()
 						// Don't display a label if it's just a period followed by an ellipsis
 						if tinf.Truncated == 0 || utf8.RuneCountInString(l)-tinf.Truncated != 1 || l[0] != '.' {

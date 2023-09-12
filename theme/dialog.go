@@ -52,7 +52,7 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	titleGtx.Constraints = layout.Normalize(titleGtx.Constraints)
 
 	m := op.Record(titleGtx.Ops)
-	labelDims := widget.Label{MaxLines: 1}.Layout(titleGtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, ds.TitleSize, ds.Title, widget.ColorTextMaterial(gtx, ds.TitleColor))
+	labelDims := widget.Label{MaxLines: 1}.Layout(titleGtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, ds.TitleSize, ds.Title, win.ColorMaterial(gtx, ds.TitleColor))
 	labelCall := m.Stop()
 
 	wGtx := gtx

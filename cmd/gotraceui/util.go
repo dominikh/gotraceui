@@ -73,14 +73,13 @@ func (cf *CellFormatter) Timestamp(win *theme.Window, gtx layout.Context, ts tra
 		link := cf.Clicks.Grow()
 		link.Link = &TimestampObjectLink{Timestamp: ts}
 		return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.NavigationLink)
 			if label == "" {
 				label = formatTimestamp(cf.nfTs, ts)
 			}
 			return widget.Label{
 				MaxLines:  1,
 				Alignment: text.Start,
-			}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, fg)
+			}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.NavigationLink))
 		})
 	})
 }
@@ -90,21 +89,19 @@ func (cf *CellFormatter) Goroutine(win *theme.Window, gtx layout.Context, g *ptr
 		link := cf.Clicks.Grow()
 		link.Link = &GoroutineObjectLink{Goroutine: g}
 		return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.OpenLink)
 			if label == "" {
 				label = cf.nfUint64.Format("%d", g.ID)
 			}
 			return widget.Label{
 				MaxLines:  1,
 				Alignment: text.Start,
-			}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, fg)
+			}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.OpenLink))
 		})
 	})
 }
 
 func (cf *CellFormatter) Duration(win *theme.Window, gtx layout.Context, d time.Duration, approx bool) layout.Dimensions {
 	return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
-		fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
 		value, unit := durationNumberFormatSITable.format(d)
 		// XXX the unit should be set in monospace
 		if approx {
@@ -113,7 +110,7 @@ func (cf *CellFormatter) Duration(win *theme.Window, gtx layout.Context, d time.
 		return widget.Label{
 			MaxLines:  1,
 			Alignment: text.Start,
-		}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("%s %s", value, unit), fg)
+		}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, fmt.Sprintf("%s %s", value, unit), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 	})
 }
 
@@ -127,46 +124,42 @@ func (cf *CellFormatter) Function(win *theme.Window, gtx layout.Context, fn *ptr
 	link := cf.Clicks.Grow()
 	link.Link = &FunctionObjectLink{Function: fn}
 	return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.OpenLink)
 		label := fn.Fn
 		return widget.Label{
 			MaxLines:  1,
 			Alignment: text.Start,
-		}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, fg)
+		}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.OpenLink))
 	})
 }
 
 func (cf *CellFormatter) Number(win *theme.Window, gtx layout.Context, num int) layout.Dimensions {
-	fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
 	label := cf.nfInt.Format("%d", num)
 	return widget.Label{
 		MaxLines:  1,
 		Alignment: text.End,
-	}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, fg)
+	}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 }
 
 func (cf *CellFormatter) EventID(win *theme.Window, gtx layout.Context, num ptrace.EventID) layout.Dimensions {
-	fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
 	label := cf.nfInt.Format("%d", int(num))
 	return widget.Label{
 		MaxLines:  1,
 		Alignment: text.End,
-	}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, fg)
+	}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 }
 
 func (cf *CellFormatter) Text(win *theme.Window, gtx layout.Context, l string) layout.Dimensions {
-	return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+	return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 }
 
 func (cf *CellFormatter) Spans(win *theme.Window, gtx layout.Context, spans Items[ptrace.Span]) layout.Dimensions {
 	link := cf.Clicks.Grow()
 	link.Link = &SpansObjectLink{Spans: spans}
 	return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		fg := widget.ColorTextMaterial(gtx, win.Theme.Palette.OpenLink)
 		label := "<Span>"
 		return widget.Label{
 			MaxLines:  1,
 			Alignment: text.Start,
-		}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, fg)
+		}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.OpenLink))
 	})
 }

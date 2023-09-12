@@ -61,8 +61,19 @@ type Window struct {
 	notification notification
 	windowFrameState
 
-	textLengths *tinylfu.T[string, layout.Dimensions]
-	oklchToSRGB *tinylfu.T[mycolor.Oklch, color.NRGBA]
+	textLengths    *tinylfu.T[string, layout.Dimensions]
+	oklchToSRGB    *tinylfu.T[mycolor.Oklch, color.NRGBA]
+	colorMaterials map[color.NRGBA]op.CallOp
+}
+
+func (win *Window) ColorMaterial(gtx layout.Context, c color.NRGBA) op.CallOp {
+	if op, ok := win.colorMaterials[c]; ok {
+		return op
+	} else {
+		op := widget.ColorTextMaterial(gtx, c)
+		win.colorMaterials[c] = op
+		return op
+	}
 }
 
 func (win *Window) ConvertColor(c mycolor.Oklch) color.NRGBA {
@@ -111,10 +122,11 @@ func NewWindow(win *app.Window) *Window {
 		Futures: &Futures{
 			win: win,
 		},
-		textLengths: tinylfu.New[string, layout.Dimensions](1024, 1024*10),
-		oklchToSRGB: tinylfu.New[mycolor.Oklch, color.NRGBA](1024, 1024*10),
-		shortcuts:   map[Shortcut]struct{}{},
-		scale:       1,
+		textLengths:    tinylfu.New[string, layout.Dimensions](1024, 1024*10),
+		oklchToSRGB:    tinylfu.New[mycolor.Oklch, color.NRGBA](1024, 1024*10),
+		shortcuts:      map[Shortcut]struct{}{},
+		scale:          1,
+		colorMaterials: map[color.NRGBA]op.CallOp{},
 	}
 }
 
@@ -172,14 +184,15 @@ func (win *Window) CommandProviders() []CommandProvider {
 
 func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
+
 	win.Frame++
 	gtx := layout.NewContext(ops, ev)
 	gtx.Metric.PxPerDp *= win.scale
 	gtx.Metric.PxPerSp *= win.scale
-
 	win.windowFrameState = windowFrameState{}
-
 	win.pressedShortcuts = win.pressedShortcuts[:0]
+	clear(win.colorMaterials)
+
 	for _, ev := range gtx.Events(win) {
 		switch ev := ev.(type) {
 		case key.Event:

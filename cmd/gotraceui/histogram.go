@@ -114,7 +114,7 @@ func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) 
 
 		return dims
 	} else {
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing histogram…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing histogram…", win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 	}
 }
 
@@ -183,7 +183,7 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 	settingLabel := func(s string) layout.Dimensions {
 		gtx := gtx
 		gtx.Constraints.Min.Y = 0
-		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, s, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+		return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, s, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 	}
 
 	dims := layout.Rigids(gtx, layout.Vertical,

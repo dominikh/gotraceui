@@ -592,7 +592,6 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 	return TableRow(row.Table, true).Layout(win, gtx, func(win *Window, gtx layout.Context, colIdx int) layout.Dimensions {
 		var (
 			f          = font.Font{Weight: font.ExtraBold}
-			fg         = widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground)
 			lineHeight = win.TextDimensions(gtx, widget.Label{}, f, win.Theme.TextSize, "").Size.Y
 			height     = max(gtx.Constraints.Min.Y, lineHeight+2*gtx.Dp(DefaultHeaderPadding)+gtx.Dp(DefaultHeaderBorder))
 			col        = &row.Table.Columns[colIdx]
@@ -627,7 +626,7 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 						s = col.Name
 					}
 
-					return l.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, s, fg)
+					return l.Layout(gtx, win.Theme.Shaper, f, win.Theme.TextSize, s, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 				})
 			},
 

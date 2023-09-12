@@ -471,7 +471,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								si.stackSelectable.SetText(si.cfg.Stacktrace)
 							}
 
-							return si.stackSelectable.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground), widget.ColorTextMaterial(gtx, win.Theme.Palette.PrimarySelection))
+							return si.stackSelectable.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, win.ColorMaterial(gtx, win.Theme.Palette.Foreground), win.ColorMaterial(gtx, win.Theme.Palette.PrimarySelection))
 						})
 
 					case "Statistics":
@@ -480,7 +480,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								if stats, ok := si.statistics.Result(); ok {
 									return stats.Layout(win, gtx)
 								} else {
-									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 								}
 							},
 
@@ -525,7 +525,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			func(gtx layout.Context) layout.Dimensions {
 				l := "Collecting spans" + textSpinner(gtx.Now)
 				op.InvalidateOp{}.Add(gtx.Ops)
-				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, widget.ColorTextMaterial(gtx, rgba(0x000000FF)))
+				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 			},
 		)
 	}
