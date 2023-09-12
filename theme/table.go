@@ -763,7 +763,27 @@ func SimpleTable(
 	nrows int,
 	cellFn CellFn,
 ) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.SimpleTable").End()
+	return FairlySimpleTable(
+		win,
+		gtx,
+		tbl,
+		scroll,
+		nrows,
+		func(win *Window, gtx layout.Context, row int) layout.Dimensions {
+			return TableSimpleRow(tbl).Layout(win, gtx, row, cellFn)
+		},
+	)
+}
+
+func FairlySimpleTable(
+	win *Window,
+	gtx layout.Context,
+	tbl *Table,
+	scroll *YScrollableListState,
+	nrows int,
+	rowFn RowFn,
+) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.FairlySimpleTable").End()
 
 	return tbl.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return YScrollableList(scroll).Layout(win, gtx, func(win *Window, gtx layout.Context, list *RememberingList) layout.Dimensions {
@@ -771,11 +791,10 @@ func SimpleTable(
 				func(gtx layout.Context) layout.Dimensions {
 					return TableHeaderRow(tbl).Layout(win, gtx)
 				},
+
 				func(gtx layout.Context) layout.Dimensions {
-					return list.Layout(gtx, nrows, func(gtx layout.Context, index int) layout.Dimensions {
-						return TableSimpleRow(tbl).Layout(win, gtx, index, func(win *Window, gtx layout.Context, row, col int) layout.Dimensions {
-							return cellFn(win, gtx, row, col)
-						})
+					return list.Layout(gtx, nrows, func(gtx layout.Context, row int) layout.Dimensions {
+						return rowFn(win, gtx, row)
 					})
 				},
 			)
