@@ -194,9 +194,6 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		},
 	)
 
-	for _, ev := range fi.goroutineList.Clicked() {
-		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
-	}
 	for _, ev := range fi.descriptionText.Events() {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}

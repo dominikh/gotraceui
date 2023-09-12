@@ -10,7 +10,6 @@ import (
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
@@ -648,11 +647,10 @@ func spanTagStrings(tags ptrace.SpanTags) []string {
 }
 
 type SpanList struct {
-	Spans       SortedItems[ptrace.Span]
-	table       theme.Table
-	scrollState theme.YScrollableListState
-
-	clicks mem.BucketSlice[Link]
+	Spans         SortedItems[ptrace.Span]
+	table         theme.Table
+	scrollState   theme.YScrollableListState
+	cellFormatter CellFormatter
 }
 
 func (spans *SpanList) sort() {
@@ -680,6 +678,8 @@ func (spans *SpanList) sort() {
 func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpanList.Layout").End()
 
+	spans.cellFormatter.Update(win, gtx)
+
 	if spans.table.Columns == nil {
 		cols := []theme.Column{
 			{Name: "Span", Clickable: false, Alignment: text.Start},
@@ -695,8 +695,6 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 	if _, ok := spans.table.SortByClickedColumn(); ok {
 		spans.sort()
 	}
-	handleLinkClicks(win, gtx, &spans.clicks)
-	spans.clicks.Reset()
 
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -704,29 +702,13 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		span := spans.Spans.At(row)
 		switch col {
 		case 0:
-			link := spans.clicks.Grow()
-			link.Link = &SpansObjectLink{
-				Spans: spans.Spans.Slice(row, row+1),
-			}
-
-			return (*TextLink)(link).Layout(win, gtx, font.Font{}, text.Start, "<Span>")
+			return spans.cellFormatter.Spans(win, gtx, spans.Spans.Slice(row, row+1))
 		case 1: // Time
-			link := spans.clicks.Grow()
-			link.Link = &TimestampObjectLink{
-				Timestamp: span.Start,
-			}
-			return (*TextLink)(link).Layout(win, gtx, font.Font{}, text.End, formatTimestamp(nil, span.Start))
+			return spans.cellFormatter.Timestamp(win, gtx, span.Start, "")
 		case 2: // Duration
-			value, unit := durationNumberFormatSITable.format(span.Duration())
-			// OPT(dh): avoid allocation
-			l := fmt.Sprintf("%s %s", value, unit)
-			f := font.Font{
-				Typeface: "Go Mono",
-			}
-			return widget.Label{MaxLines: 1, Alignment: text.End}.Layout(gtx, win.Theme.Shaper, f, 12, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+			return spans.cellFormatter.Duration(win, gtx, span.Duration(), false)
 		case 3: // State
-			l := stateNamesCapitalized[span.State]
-			return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, widget.ColorTextMaterial(gtx, win.Theme.Palette.Foreground))
+			return spans.cellFormatter.Text(win, gtx, stateNamesCapitalized[span.State])
 		default:
 			panic(fmt.Sprintf("unreachable: %d", col))
 		}
@@ -738,11 +720,5 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 
 // HoveredLink returns the link that has been hovered during the last call to Layout.
 func (spans *SpanList) HoveredLink() ObjectLink {
-	for i := 0; i < spans.clicks.Len(); i++ {
-		link := spans.clicks.Ptr(i)
-		if link.Hovered() {
-			return link.Link
-		}
-	}
-	return nil
+	return spans.cellFormatter.HoveredLink()
 }

@@ -13,7 +13,6 @@ import (
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -1001,22 +1000,13 @@ type GoroutineList struct {
 		Duration  bool
 	}
 
-	table       *theme.Table
-	scrollState theme.YScrollableListState
-
-	timestampObjects mem.BucketSlice[trace.Timestamp]
-	texts            mem.BucketSlice[Text]
+	table         *theme.Table
+	scrollState   theme.YScrollableListState
+	cellFormatter CellFormatter
 }
 
-// HoveredLink returns the link that has been hovered during the last call to Layout.
 func (evs *GoroutineList) HoveredLink() ObjectLink {
-	for i := 0; i < evs.texts.Len(); i++ {
-		txt := evs.texts.Ptr(i)
-		if h := txt.HoveredLink(); h != nil {
-			return h
-		}
-	}
-	return nil
+	return evs.cellFormatter.HoveredLink()
 }
 
 func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs []*ptrace.Goroutine) {
@@ -1153,58 +1143,37 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineList.Layout").End()
 
 	gs.initTable(win, gtx)
+	gs.cellFormatter.Update(win, gtx)
 
-	gs.timestampObjects.Reset()
-
-	var txtCnt int
-	// OPT(dh): reuse memory
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-		tb := TextBuilder{Theme: win.Theme}
-		var txt *Text
-		if txtCnt < gs.texts.Len() {
-			txt = gs.texts.Ptr(txtCnt)
-		} else {
-			txt = gs.texts.Append(Text{})
-		}
-		txtCnt++
-		txt.Reset(win.Theme)
-
 		g := gs.Goroutines.At(row)
-		switch gs.table.Columns[col].Name {
+		switch colName := gs.table.Columns[col].Name; colName {
 		case "Goroutine": // ID
-			tb.DefaultLink(local.Sprintf("%d", g.ID), "", g)
-			txt.Alignment = text.End
+			return gs.cellFormatter.Goroutine(win, gtx, g, "")
 		case "Function": // Function
-			if g.Function == nil {
-			} else {
-				tb.DefaultLink(g.Function.Fn, "", g.Function)
-			}
+			return gs.cellFormatter.Function(win, gtx, g.Function)
 		case "Start time": // Start time
 			var l string
 			var ts trace.Timestamp
 			if start, ok := g.Start.Get(); ok {
 				ts = start
-				l = formatTimestamp(nil, start)
 			} else {
 				ts = g.EffectiveStart()
 				l = "before trace start"
 			}
-			tb.DefaultLink(l, "", gs.timestampObjects.Append(ts))
-			txt.Alignment = text.End
+			return gs.cellFormatter.Timestamp(win, gtx, ts, l)
 		case "End time": // End time
 			var l string
 			var ts trace.Timestamp
 			if end, ok := g.End.Get(); ok {
 				ts = end
-				l = formatTimestamp(nil, end)
 			} else {
 				ts = g.EffectiveEnd()
 				l = "after trace end"
 			}
-			tb.DefaultLink(l, "", gs.timestampObjects.Append(ts))
-			txt.Alignment = text.End
+			return gs.cellFormatter.Timestamp(win, gtx, ts, l)
 		case "Duration": // Duration
 			// If the goroutine's end wasn't observed, then traceEnd is equal to the trace's end
 			traceEnd := g.EffectiveEnd()
@@ -1212,34 +1181,25 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 			start, sok := g.Start.Get()
 			end, eok := g.End.Get()
 
-			var value, unit string
+			var d time.Duration
+			var approx bool
 			if !sok && !eok {
-				d := time.Duration(traceEnd)
-				value, unit = durationNumberFormatSITable.format(d)
-				value = "≥ " + value
+				d = time.Duration(traceEnd)
+				approx = true
 			} else if !sok {
-				d := time.Duration(end)
-				value, unit = durationNumberFormatSITable.format(d)
-				value = "≥ " + value
+				d = time.Duration(end)
+				approx = true
 			} else if !eok {
-				d := time.Duration(traceEnd - start)
-				value, unit = durationNumberFormatSITable.format(d)
-				value = "≥ " + value
+				d = time.Duration(traceEnd - start)
+				approx = true
 			} else {
-				d := time.Duration(end - start)
-				value, unit = durationNumberFormatSITable.format(d)
+				d = time.Duration(end - start)
 			}
 
-			tb.Span(value)
-			tb.Span(" ")
-			s := tb.Span(unit)
-			s.Font.Typeface = "Go Mono"
-			txt.Alignment = text.End
+			return gs.cellFormatter.Duration(win, gtx, d, approx)
+		default:
+			panic(colName)
 		}
-
-		dims := txt.Layout(win, gtx, tb.Spans)
-		dims.Size = gtx.Constraints.Constrain(dims.Size)
-		return dims
 	}
 
 	dims := theme.SimpleTable(win,
@@ -1256,17 +1216,6 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 	}
 
 	return dims
-}
-
-// Clicked returns all objects of text spans that have been clicked since the last call to Layout.
-func (gs *GoroutineList) Clicked() []TextEvent {
-	// This only allocates when links have been clicked, which is a very low frequency event.
-	var out []TextEvent
-	for i := 0; i < gs.texts.Len(); i++ {
-		txt := gs.texts.Ptr(i)
-		out = append(out, txt.Events()...)
-	}
-	return out
 }
 
 type GoroutinesComponent struct {
@@ -1296,8 +1245,5 @@ func (*GoroutinesComponent) WantsTransition() theme.ComponentState {
 
 // Layout implements theme.Component.
 func (gc *GoroutinesComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	for _, ev := range gc.list.Clicked() {
-		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
-	}
 	return gc.list.Layout(win, gtx)
 }

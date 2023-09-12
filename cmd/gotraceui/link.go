@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"os"
 	"runtime"
 	rdebug "runtime/debug"
@@ -19,12 +18,9 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	"honnef.co/go/gotraceui/widget"
 
-	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
-	"gioui.org/text"
 )
 
 var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
@@ -43,47 +39,6 @@ func (l *Link) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 		l.Click.Add(gtx.Ops)
 		return layout.Dimensions{Size: gtx.Constraints.Min}
 	})
-}
-
-type TextLink Link
-
-func (l *TextLink) Layout(
-	win *theme.Window,
-	gtx layout.Context,
-	f font.Font,
-	align text.Alignment,
-	s string,
-) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "main.TextLink.Layout").End()
-
-	var c color.NRGBA
-	switch l.Link.Action(0).(type) {
-	case NavigationAction:
-		c = win.Theme.Palette.NavigationLink
-	case OpenAction:
-		c = win.Theme.Palette.OpenLink
-	default:
-		c = win.Theme.Palette.Link
-	}
-
-	switch align {
-	case text.Start:
-		return (*Link)(l).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return widget.Label{
-				MaxLines: 1,
-			}.Layout(gtx, win.Theme.Shaper, f, 12, s, widget.ColorTextMaterial(gtx, c))
-		})
-	case text.End:
-		return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
-			return (*Link)(l).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return widget.Label{
-					MaxLines: 1,
-				}.Layout(gtx, win.Theme.Shaper, f, 12, s, widget.ColorTextMaterial(gtx, c))
-			})
-		})
-	default:
-		panic(fmt.Sprintf("unsupported: %v", align))
-	}
 }
 
 type HoveredLinker interface {
