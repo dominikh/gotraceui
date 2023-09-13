@@ -65,15 +65,25 @@ type Window struct {
 
 	textLengths    *tinylfu.T[string, layout.Dimensions]
 	oklchToSRGB    *tinylfu.T[color.Oklch, stdcolor.NRGBA]
-	colorMaterials map[color.Oklch]op.CallOp
+	colorMaterials map[struct {
+		ops *op.Ops
+		c   color.Oklch
+	}]op.CallOp
 }
 
 func (win *Window) ColorMaterial(gtx layout.Context, c color.Oklch) op.CallOp {
-	if op, ok := win.colorMaterials[c]; ok {
+	key := struct {
+		ops *op.Ops
+		c   color.Oklch
+	}{
+		gtx.Ops,
+		c,
+	}
+	if op, ok := win.colorMaterials[key]; ok {
 		return op
 	} else {
 		op := widget.ColorTextMaterial(gtx, win.ConvertColor(c))
-		win.colorMaterials[c] = op
+		win.colorMaterials[key] = op
 		return op
 	}
 }
@@ -132,11 +142,14 @@ func NewWindow(win *app.Window) *Window {
 		Futures: &Futures{
 			win: win,
 		},
-		textLengths:    tinylfu.New[string, layout.Dimensions](1024, 1024*10),
-		oklchToSRGB:    tinylfu.New[color.Oklch, stdcolor.NRGBA](1024, 1024*10),
-		shortcuts:      map[Shortcut]struct{}{},
-		scale:          1,
-		colorMaterials: map[color.Oklch]op.CallOp{},
+		textLengths: tinylfu.New[string, layout.Dimensions](1024, 1024*10),
+		oklchToSRGB: tinylfu.New[color.Oklch, stdcolor.NRGBA](1024, 1024*10),
+		shortcuts:   map[Shortcut]struct{}{},
+		scale:       1,
+		colorMaterials: map[struct {
+			ops *op.Ops
+			c   color.Oklch
+		}]op.CallOp{},
 	}
 }
 
