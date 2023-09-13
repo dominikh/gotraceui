@@ -286,7 +286,7 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		tags := spanTagStrings(firstSpan.Tags)
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Tags",
-			Value: *(tb.Span(strings.Join(tags, ", "))),
+			Value: *tb.Span(strings.Join(tags, ", ")),
 		})
 	}
 

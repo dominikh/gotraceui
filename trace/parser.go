@@ -345,7 +345,7 @@ func (p *Parser) parseRest(progress func(float64)) ([]Event, error) {
 	}
 	for {
 		if progress != nil && len(events)%100_000 == 0 {
-			progress((float64(len(events)+1) / float64(cap(events))))
+			progress(float64(len(events)+1) / float64(cap(events)))
 		}
 	pidLoop:
 		for i := 0; i < len(availableProcs); i++ {
@@ -469,7 +469,7 @@ func (p *Parser) indexAndPartiallyParse(progress func(float64)) error {
 	var raw rawEvent
 	for n := uint64(0); ; n++ {
 		if n%1_000_000 == 0 {
-			progress((float64(p.off+1) / float64(len(p.data))))
+			progress(float64(p.off+1) / float64(len(p.data)))
 		}
 		err := p.readRawEvent(skipArgs|skipStrings|trackBatches, &raw)
 		if err == io.EOF {

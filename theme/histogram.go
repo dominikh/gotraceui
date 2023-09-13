@@ -396,8 +396,8 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 				closing      rune
 			)
 			if !hist.HasOverflow() || hBin != len(hist.Bins)-1 {
-				lower = (hist.Start + (hist.BinWidth * widget.FloatDuration(hBin))).Ceil()
-				upper = (hist.Start + (hist.BinWidth * widget.FloatDuration(hBin+1))).Ceil()
+				lower = (hist.Start + hist.BinWidth*widget.FloatDuration(hBin)).Ceil()
+				upper = (hist.Start + hist.BinWidth*widget.FloatDuration(hBin+1)).Ceil()
 			} else {
 				lower = time.Duration(math.Ceil(float64(hist.Overflow)))
 				upper = hist.MaxValue

@@ -110,12 +110,12 @@ func goroutineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*the
 		switch spans.At(0).State {
 		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCFractional, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
 			// These are the states that are actually on-CPU
-			pid := cv.trace.Event((spans.At(0).Event)).P
+			pid := cv.trace.Event(spans.At(0).Event).P
 			items = append(items, &theme.MenuItem{
 				Label: local.Sprintf("Scroll to processor %d", pid),
 				Action: func() theme.Action {
 					return &ScrollToObjectAction{
-						Object: cv.trace.P(cv.trace.Event((spans.At(0).Event)).P),
+						Object: cv.trace.P(cv.trace.Event(spans.At(0).Event).P),
 					}
 				},
 			})
@@ -875,7 +875,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 			Value: *tb.Span(local.Sprintf("%d", g.ID)),
 		})
 
-		link := *(tb.DefaultLink(g.Function.Fn, "Function of current goroutine", g.Function))
+		link := *tb.DefaultLink(g.Function.Fn, "Function of current goroutine", g.Function)
 		addCmds(link.ObjectLink.Commands())
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Function",
@@ -883,14 +883,14 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		})
 
 		if observedStart {
-			link := *(tb.DefaultLink(formatTimestamp(nil, start), "Start of current goroutine", start))
+			link := *tb.DefaultLink(formatTimestamp(nil, start), "Start of current goroutine", start)
 			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
 				Value: link,
 			})
 		} else {
-			link := *(tb.DefaultLink("before trace start", "Start of trace", start))
+			link := *tb.DefaultLink("before trace start", "Start of trace", start)
 			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
@@ -899,14 +899,14 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		}
 
 		if observedEnd {
-			link := *(tb.DefaultLink(formatTimestamp(nil, end), "End of current goroutine", end))
+			link := *tb.DefaultLink(formatTimestamp(nil, end), "End of current goroutine", end)
 			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
 				Value: link,
 			})
 		} else {
-			link := *(tb.DefaultLink("after trace end", "End of trace", end))
+			link := *tb.DefaultLink("after trace end", "End of trace", end)
 			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
@@ -917,12 +917,12 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		if observedStart && observedEnd {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Lifetime",
-				Value: *(tb.Span(d.String())),
+				Value: *tb.Span(d.String()),
 			})
 		} else {
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Observed duration",
-				Value: *(tb.Span(d.String())),
+				Value: *tb.Span(d.String()),
 			})
 		}
 		var desc Description

@@ -54,7 +54,7 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 			"Time running GC workers: %[5]s (%.2[6]f%%)\n"+
 			"Time inactive: %[7]s (%.2[8]f%%)",
 		tt.p.ID,
-		(len(tt.p.Spans)),
+		len(tt.p.Spans),
 		roundDuration(userD), userPct,
 		roundDuration(gcD), gcPct,
 		roundDuration(inactiveD), inactivePct,
@@ -207,7 +207,7 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 	}
 
 	if spans.Len() == 1 {
-		gid := cv.trace.Event((spans.At(0).Event)).G
+		gid := cv.trace.Event(spans.At(0).Event).G
 		items = append(items, &theme.MenuItem{
 			Label: local.Sprintf("Scroll to goroutine %d", gid),
 			Action: func() theme.Action {

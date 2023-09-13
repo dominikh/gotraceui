@@ -108,10 +108,10 @@ func (rr FRRect) IntoPath(p *clip.Path) {
 	const q = 4 * (math.Sqrt2 - 1) / 3
 	const iq = 1 - q
 
-	se, sw, nw, ne := (rr.SE), (rr.SW), (rr.NW), (rr.NE)
+	se, sw, nw, ne := rr.SE, rr.SW, rr.NW, rr.NE
 	rrf := FRect{
-		Min: f32.Pt((rr.Rect.Min.X), (rr.Rect.Min.Y)),
-		Max: f32.Pt((rr.Rect.Max.X), (rr.Rect.Max.Y)),
+		Min: f32.Pt(rr.Rect.Min.X, rr.Rect.Min.Y),
+		Max: f32.Pt(rr.Rect.Max.X, rr.Rect.Max.Y),
 	}
 	w, n, e, s := rrf.Min.X, rrf.Min.Y, rrf.Max.X, rrf.Max.Y
 

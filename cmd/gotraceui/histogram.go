@@ -54,10 +54,10 @@ func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) 
 			return thist.Layout(win, gtx, whist)
 		})
 
-		if hist.state.Activated != (struct {
+		if hist.state.Activated != struct {
 			Start widget.FloatDuration
 			End   widget.FloatDuration
-		}{}) {
+		}{} {
 			hist.Config.Start = hist.state.Activated.Start
 			hist.Config.End = hist.state.Activated.End
 			hist.changed = true

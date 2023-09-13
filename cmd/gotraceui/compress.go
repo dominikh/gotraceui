@@ -384,7 +384,7 @@ func Encode(in []uint64, out []uint64) []uint64 {
 			data     unsafe.Pointer
 			len, cap int
 		}
-		return myunsafe.Cast[[]uint64](slice{ptr,n,n})
+		return myunsafe.Cast[[]uint64](slice{ptr, n, n})
 	}
 
 	ptrIn := unsafe.Pointer(&in[0])
@@ -821,11 +821,11 @@ func pack1(in *[1]uint64) uint64 {
 
 func zigzag(v uint64) uint64 {
 	d := int64(v)
-	return uint64((d >> 63) ^ (d << 1))
+	return uint64(d>>63 ^ d<<1)
 }
 
 func unzigzag(v uint64) uint64 {
-	return (v >> 1) ^ -(v & 1)
+	return v>>1 ^ -(v & 1)
 }
 
 func deltaZigZagDecode(vs []uint64) {

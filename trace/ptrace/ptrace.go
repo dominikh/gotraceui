@@ -259,7 +259,7 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 			if p > 1 {
 				panic(p)
 			}
-			progress(float64(stage-1)/float64(numStages) + (p / float64(numStages)))
+			progress(float64(stage-1)/float64(numStages) + p/float64(numStages))
 		}
 	}
 

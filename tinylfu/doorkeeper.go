@@ -45,7 +45,7 @@ func (d *doorkeeper) insert(h uint64) bool {
 	h1, h2 := uint32(h), uint32(h>>32)
 	var o uint = 1
 	for i := uint32(0); i < d.k; i++ {
-		o &= d.filter.getset((h1 + (i * h2)) & (d.m - 1))
+		o &= d.filter.getset((h1 + i*h2) & (d.m - 1))
 	}
 	return o == 1
 }

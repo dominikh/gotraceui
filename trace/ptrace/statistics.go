@@ -14,7 +14,7 @@ func ComputeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []i
 		span := p.Spans[i]
 		d := time.Duration(span.End - span.Start)
 		bucket := time.Duration(span.Start) / bucketSize
-		bucketRemainder := bucketSize - (time.Duration(span.Start) % bucketSize)
+		bucketRemainder := bucketSize - time.Duration(span.Start)%bucketSize
 
 		for d > bucketRemainder {
 			buckets[bucket] += bucketRemainder
@@ -32,7 +32,7 @@ func ComputeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []i
 		if n > bucketSize {
 			panic(fmt.Sprintf("bucket %d has value %d, which exceeds bucket size of %d", i, n, bucketSize))
 		}
-		out[i] = int(math.Round((float64(n) / float64(bucketSize)) * 100))
+		out[i] = int(math.Round(float64(n) / float64(bucketSize) * 100))
 	}
 
 	return out

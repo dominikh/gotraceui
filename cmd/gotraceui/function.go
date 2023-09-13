@@ -59,7 +59,7 @@ func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) 
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Function",
-		Value: *(tb.Span(fi.fn.Fn)),
+		Value: *tb.Span(fi.fn.Fn),
 	})
 
 	// TODO(dh): make file link clickable
@@ -89,12 +89,12 @@ func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) 
 	}
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Location",
-		Value: *(tb.Span(fmt.Sprintf("%s:%d", displayPath, fi.fn.Line))),
+		Value: *tb.Span(fmt.Sprintf("%s:%d", displayPath, fi.fn.Line)),
 	})
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "# of goroutines",
-		Value: *(tb.Span(local.Sprintf("%d", len(fi.fn.Goroutines)))),
+		Value: *tb.Span(local.Sprintf("%d", len(fi.fn.Goroutines))),
 	})
 
 	var total time.Duration
@@ -105,7 +105,7 @@ func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) 
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Total time",
-		Value: *(tb.Span(total.String())),
+		Value: *tb.Span(total.String()),
 	})
 
 	desc := Description{Attributes: attrs}

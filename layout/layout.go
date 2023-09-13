@@ -75,10 +75,10 @@ type PixelInset struct {
 func (in PixelInset) Layout(gtx Context, w Widget) Dimensions {
 	defer rtrace.StartRegion(context.Background(), "layout.PixelInset.Layout").End()
 
-	top := (in.Top)
-	right := (in.Right)
-	bottom := (in.Bottom)
-	left := (in.Left)
+	top := in.Top
+	right := in.Right
+	bottom := in.Bottom
+	left := in.Left
 	mcs := gtx.Constraints
 	mcs.Max.X -= left + right
 	if mcs.Max.X < 0 {

@@ -303,14 +303,14 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout
 		r := op.Record(gtx.Ops)
 		totalWidth := 0
 		for i := range row.Table.Columns {
-			colWidth := int((row.Table.Columns[i].Width))
+			colWidth := int(row.Table.Columns[i].Width)
 			totalWidth += colWidth
 		}
 		extra := gtx.Constraints.Min.X - len(row.Table.Columns)*gtx.Dp(DefaultDividerWidth) - totalWidth
 		colExtra := extra
 
 		for i := range row.Table.Columns {
-			colWidth := int((row.Table.Columns[i].Width))
+			colWidth := int(row.Table.Columns[i].Width)
 			if colExtra > 0 {
 				colWidth++
 				colExtra--
@@ -351,7 +351,7 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout
 		for i := range row.Table.drags {
 			var (
 				drag     = &row.Table.drags[i]
-				colWidth = int((row.Table.Columns[i].Width))
+				colWidth = int(row.Table.Columns[i].Width)
 			)
 			dividerStart += colWidth
 			if dividerExtra > 0 {
@@ -442,7 +442,7 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w Widget) l
 
 	var totalWidth int
 	for i := range row.Table.Columns {
-		colWidth := int((row.Table.Columns[i].Width))
+		colWidth := int(row.Table.Columns[i].Width)
 		totalWidth += colWidth
 	}
 	extra := gtx.Constraints.Min.X - len(row.Table.Columns)*gtx.Dp(DefaultDividerWidth) - totalWidth
@@ -461,7 +461,7 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w Widget) l
 
 	dividerStart := 0
 	for i := range row.Table.drags {
-		dividerStart += int((row.Table.Columns[i].Width))
+		dividerStart += int(row.Table.Columns[i].Width)
 		if extra > 0 {
 			dividerStart++
 			extra--

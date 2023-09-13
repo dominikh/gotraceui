@@ -269,9 +269,9 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 
 	m := op.Record(gtx.Ops)
 	var spy *eventx.Spy
-	dims := Bordered{Color: (borderColor), Width: outerBorder}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+	dims := Bordered{Color: borderColor, Width: outerBorder}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return Background{
-			Color: (background),
+			Color: background,
 		}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = width
 			gtx.Constraints.Max.X = width
@@ -299,7 +299,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 				func(gtx layout.Context) layout.Dimensions {
 					size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(separatorHeight))
 					defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-					Fill(win, gtx.Ops, (borderColor))
+					Fill(win, gtx.Ops, borderColor)
 					return layout.Dimensions{
 						Size: size,
 					}

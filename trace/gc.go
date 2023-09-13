@@ -525,7 +525,7 @@ func (c *MMUCurve) Examples(window time.Duration, n int) (worst []UtilWindow) {
 	acc := accumulator{mmu: 1.0, bound: 1.0, nWorst: n}
 	c.mmu(window, &acc)
 	sort.Sort(sort.Reverse(acc.wHeap))
-	return ([]UtilWindow)(acc.wHeap)
+	return []UtilWindow(acc.wHeap)
 }
 
 // MUD returns mutator utilization distribution quantiles for the

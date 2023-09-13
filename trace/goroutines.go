@@ -134,7 +134,7 @@ func (g *GDesc) finalize(lastTs, activeGCStartTime Timestamp, trigger *Event) {
 		s.GExecutionStat = finalStat.sub(s.GExecutionStat)
 		g.Regions = append(g.Regions, s)
 	}
-	*(g.gdesc) = gdesc{}
+	*g.gdesc = gdesc{}
 }
 
 // gdesc is a private part of GDesc that is required only during analysis.

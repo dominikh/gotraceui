@@ -450,14 +450,14 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 
 func (cv *Canvas) visibleSpans(spans Items[ptrace.Span]) Items[ptrace.Span] {
 	// Visible spans have to end after cv.Start and begin before cv.End
-	start := sort.Search((spans.Len()), func(i int) bool {
+	start := sort.Search(spans.Len(), func(i int) bool {
 		s := spans.At(i)
 		return s.End > cv.start
 	})
-	if start == (spans.Len()) {
+	if start == spans.Len() {
 		return NoItems[ptrace.Span]{}
 	}
-	end := sort.Search((spans.Len()), func(i int) bool {
+	end := sort.Search(spans.Len(), func(i int) bool {
 		s := spans.At(i)
 		return s.Start >= cv.End()
 	})
@@ -480,7 +480,7 @@ func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
 	start, end := cv.visibleTimelines(gtx)
 	for _, tl := range cv.timelines[start:end] {
 		for _, track := range tl.tracks {
-			if track.Len == 0 || (track.kind == TrackKindStack && !cv.timeline.displayStackTracks) {
+			if track.Len == 0 || track.kind == TrackKindStack && !cv.timeline.displayStackTracks {
 				continue
 			}
 

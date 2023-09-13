@@ -238,7 +238,7 @@ func (hist *Histogram) HasOverflow() bool {
 }
 
 func (hist *Histogram) BucketRange(i int) (start, end FloatDuration) {
-	start = hist.Start + (hist.BinWidth * FloatDuration(i))
+	start = hist.Start + hist.BinWidth*FloatDuration(i)
 	if !hist.HasOverflow() || i < len(hist.Bins)-1 {
 		end = hist.Start + hist.BinWidth*FloatDuration(i+1)
 	} else {

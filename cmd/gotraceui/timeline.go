@@ -583,7 +583,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
 		// previously merged spans becoming visible again when zooming out.
-		for offset < (spans.Len()) {
+		for offset < spans.Len() {
 			adjustedEnd := end
 			if time.Duration(end-start) < minSpanWidthD {
 				adjustedEnd = start + trace.Timestamp(minSpanWidthD)
@@ -592,19 +592,19 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			// For a span to be large enough to stand on its own, it has to end at least minSpanWidthD later than the
 			// current span. Use binary search to find that span. This also finds gaps, because for a gap to be big
 			// enough, it cannot occur between spans that would be too small according to this search.
-			offset = sort.Search((spans.Len()), func(i int) bool {
+			offset = sort.Search(spans.Len(), func(i int) bool {
 				return spans.At(i).End >= adjustedEnd+trace.Timestamp(minSpanWidthD)
 			})
 
-			if offset == (spans.Len()) {
+			if offset == spans.Len() {
 				// We couldn't find a span -> merge all remaining spans, except for the optional "goroutine returned"
 				// span
-				if spans.At((spans.Len())-1).State == ptrace.StateDone {
-					offset = (spans.Len()) - 1
+				if spans.At(spans.Len()-1).State == ptrace.StateDone {
+					offset = spans.Len() - 1
 					end = spans.At(offset - 1).End
 					break
 				} else {
-					offset = (spans.Len())
+					offset = spans.Len()
 					end = spans.At(offset - 1).End
 					break
 				}
@@ -792,8 +792,8 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 
 		var minP f32.Point
 		var maxP f32.Point
-		minP = f32.Pt((max(startPx, 0)), 0)
-		maxP = f32.Pt((min(endPx, float32(gtx.Constraints.Max.X))), float32(trackHeight))
+		minP = f32.Pt(max(startPx, 0), 0)
+		maxP = f32.Pt(min(endPx, float32(gtx.Constraints.Max.X)), float32(trackHeight))
 
 		highlighted := filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track})
 		if hovered {
