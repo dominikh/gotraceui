@@ -81,6 +81,20 @@ type LocationHistoryEntry struct {
 	y       normalizedY
 }
 
+type canvasAnimation struct {
+	start   trace.Timestamp
+	nsPerPx float64
+	y       normalizedY
+}
+
+func (ca canvasAnimation) Lerp(end canvasAnimation, r float64) canvasAnimation {
+	return canvasAnimation{
+		start:   theme.Lerp(ca.start, end.start, r),
+		nsPerPx: theme.Lerp(ca.nsPerPx, end.nsPerPx, r),
+		y:       theme.Lerp(ca.y, end.y, r),
+	}
+}
+
 type Canvas struct {
 	trace *Trace
 
@@ -107,19 +121,7 @@ type Canvas struct {
 
 	indicateTimestamp container.Option[trace.Timestamp]
 
-	animateTo struct {
-		animating bool
-
-		initialStart   trace.Timestamp
-		initialNsPerPx float64
-		initialY       normalizedY
-
-		targetStart   trace.Timestamp
-		targetNsPerPx float64
-		targetY       normalizedY
-
-		startedAt time.Time
-	}
+	animate theme.Animation[canvasAnimation]
 
 	locationHistory []LocationHistoryEntry
 	// All timelines. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
@@ -271,7 +273,7 @@ func (cv *Canvas) navigateToChecks(start trace.Timestamp, nsPerPx float64, y nor
 }
 
 func (cv *Canvas) cancelNavigation() {
-	cv.animateTo.animating = false
+	cv.animate.Cancel()
 }
 
 // navigateTo modifes the canvas's start, end and y values, recording the previous location in the undo stack.
@@ -299,18 +301,7 @@ func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp,
 }
 
 func (cv *Canvas) navigateToImpl(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
-	cv.animateTo.animating = true
-
-	cv.animateTo.initialStart = cv.start
-	cv.animateTo.initialNsPerPx = cv.nsPerPx
-	cv.animateTo.initialY = cv.y
-
-	cv.animateTo.targetStart = start
-	cv.animateTo.targetNsPerPx = nsPerPx
-	cv.animateTo.targetY = y
-
-	cv.animateTo.startedAt = gtx.Now
-	op.InvalidateOp{}.Add(gtx.Ops)
+	cv.animate.Start(gtx, canvasAnimation{cv.start, cv.nsPerPx, cv.y}, canvasAnimation{start, nsPerPx, y}, animateLength, nil)
 }
 
 func (cv *Canvas) peekLocationHistory() (LocationHistoryEntry, bool) {
@@ -541,14 +532,6 @@ func (cv *Canvas) VisibleWidth(win *theme.Window, gtx layout.Context) int {
 	return gtx.Constraints.Max.X - sbWidth
 }
 
-func easeOutQuart(progress float64) float64 {
-	return 1 - math.Pow(1-progress, 4)
-}
-
-func easeInQuart(progress float64) float64 {
-	return progress * progress * progress * progress
-}
-
 // height returns the sum of the heights of all visible timelines.
 func (cv *Canvas) height(gtx layout.Context) int {
 	if cv.prevFrame.compact == cv.timeline.compact &&
@@ -630,63 +613,30 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		cv.pointerAt = cv.hover.Pointer()
 	}
 
-	if cv.animateTo.animating {
-		// XXX animation really makes it obvious that our span merging algorithm is unstable
+	if !cv.animate.Done() {
+		initialStart := float64(cv.animate.StartValue.start)
+		initialNsPerPx := float64(cv.animate.StartValue.nsPerPx)
+		targetStart := float64(cv.animate.EndValue.start)
+		targetNsPerPx := float64(cv.animate.EndValue.nsPerPx)
 
-		dt := gtx.Now.Sub(cv.animateTo.startedAt)
-		if dt >= animateLength {
-			cv.start = cv.animateTo.targetStart
-			cv.nsPerPx = cv.animateTo.targetNsPerPx
-			cv.y = cv.animateTo.targetY
+		initialWidth := initialNsPerPx*float64(cv.VisibleWidth(win, gtx)) - initialStart
+		targetWidth := targetNsPerPx*float64(cv.VisibleWidth(win, gtx)) - targetStart
 
-			cv.debugWindow.animationProgress.addValue(gtx.Now, 1)
-			cv.debugWindow.animationRatio.addValue(gtx.Now, 1)
-			cv.animateTo.animating = false
+		var ease theme.EasingFunction
+		if targetWidth <= initialWidth {
+			// Zooming in (or not zooming at all)
+			ease = theme.EaseOut(4)
 		} else {
-			timeRatio := float64(dt) / float64(animateLength)
-			var r float64
-
-			{
-				initialStart := float64(cv.animateTo.initialStart)
-				initialNsPerPx := float64(cv.animateTo.initialNsPerPx)
-				targetStart := float64(cv.animateTo.targetStart)
-				targetNsPerPx := float64(cv.animateTo.targetNsPerPx)
-
-				initialWidth := initialNsPerPx*float64(cv.VisibleWidth(win, gtx)) - initialStart
-				targetWidth := targetNsPerPx*float64(cv.VisibleWidth(win, gtx)) - targetStart
-
-				var ease func(float64) float64
-				if targetWidth <= initialWidth {
-					// Zooming in (or not zooming at all)
-					ease = easeOutQuart
-				} else {
-					// Zooming out
-					ease = easeInQuart
-				}
-				r = ease(timeRatio)
-
-				cv.debugWindow.animationProgress.addValue(gtx.Now, timeRatio)
-				cv.debugWindow.animationRatio.addValue(gtx.Now, r)
-
-				curStart := initialStart + (targetStart-initialStart)*r
-				curNsPerPx := initialNsPerPx + (targetNsPerPx-initialNsPerPx)*r
-
-				cv.start = trace.Timestamp(curStart)
-				cv.nsPerPx = curNsPerPx
-			}
-
-			// XXX this looks bad when we panned in both X and Y, because the two animations don't run at the same speed
-			// if the distances are different.
-
-			{
-				initialY := cv.animateTo.initialY
-				targetY := cv.animateTo.targetY
-
-				cv.y = initialY + (targetY-initialY)*normalizedY(r)
-			}
-
-			op.InvalidateOp{}.Add(gtx.Ops)
+			// Zooming out
+			ease = theme.EaseIn(4)
 		}
+
+		cv.animate.Ease = ease
+
+		v := cv.animate.Value(gtx)
+		cv.start = v.start
+		cv.nsPerPx = v.nsPerPx
+		cv.y = v.y
 	}
 
 	win.AddShortcut(theme.Shortcut{Name: key.NameHome})

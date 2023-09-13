@@ -42,6 +42,14 @@ type fgZoom struct {
 	scale       Unit
 }
 
+func (z fgZoom) Lerp(end fgZoom, r float64) fgZoom {
+	return fgZoom{
+		offsetX:     Lerp(z.offsetX, end.offsetX, r),
+		offsetLevel: Lerp(z.offsetLevel, end.offsetLevel, r),
+		scale:       Lerp(z.scale, end.scale, r),
+	}
+}
+
 type Unit float32
 
 type FlameGraphState struct {
@@ -52,14 +60,7 @@ type FlameGraphState struct {
 	zoom        fgZoom
 	zoomHistory []fgZoom
 
-	animateTo struct {
-		animating bool
-
-		initial fgZoom
-		target  fgZoom
-
-		startedAt time.Time
-	}
+	animate Animation[fgZoom]
 
 	prevFrame struct {
 		zoom        fgZoom
@@ -92,10 +93,6 @@ func FlameGraph(state *widget.FlameGraph, sstate *FlameGraphState) FlameGraphSty
 			return color.Oklch{}
 		},
 	}
-}
-
-func easeBezier(t float64) float64 {
-	return t * t * (3.0 - 2.0*t)
 }
 
 func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.Dimensions) {
@@ -160,27 +157,8 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		fg.StyleState.zoom.scale = 1
 	}
 
-	if fg.StyleState.animateTo.animating {
-		dt := gtx.Now.Sub(fg.StyleState.animateTo.startedAt)
-		if dt >= animateLength {
-			fg.StyleState.animateTo.animating = false
-			fg.StyleState.zoom = fg.StyleState.animateTo.target
-
-			// TODO hook up debug window
-		} else {
-			timeRatio := float64(dt) / float64(animateLength)
-
-			initial := fg.StyleState.animateTo.initial
-			target := fg.StyleState.animateTo.target
-
-			r := Unit(easeBezier(timeRatio))
-
-			fg.StyleState.zoom.offsetX = initial.offsetX + (target.offsetX-initial.offsetX)*r
-			fg.StyleState.zoom.offsetLevel = initial.offsetLevel + (target.offsetLevel-initial.offsetLevel)*float32(r)
-			fg.StyleState.zoom.scale = initial.scale + (target.scale-initial.scale)*r
-
-			op.InvalidateOp{}.Add(gtx.Ops)
-		}
+	if !fg.StyleState.animate.Done() {
+		fg.StyleState.zoom = fg.StyleState.animate.Value(gtx)
 	}
 
 	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
@@ -204,10 +182,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 			)
 			prev, fg.StyleState.zoomHistory, ok = myslices.Pop(fg.StyleState.zoomHistory)
 			if ok {
-				fg.StyleState.animateTo.animating = true
-				fg.StyleState.animateTo.startedAt = gtx.Now
-				fg.StyleState.animateTo.initial = fg.StyleState.zoom
-				fg.StyleState.animateTo.target = prev
+				fg.StyleState.animate.Start(gtx, fg.StyleState.zoom, prev, animateLength, EaseBezier)
 			}
 		}
 	}
@@ -464,12 +439,17 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 			fg.StyleState.zoomHistory = append(fg.StyleState.zoomHistory, fg.StyleState.zoom)
 
 			scale := 1.0 / clickedSpan.width
-			fg.StyleState.animateTo.animating = true
-			fg.StyleState.animateTo.initial = fg.StyleState.zoom
-			fg.StyleState.animateTo.target.offsetX = -(clickedSpan.x * scale)
-			fg.StyleState.animateTo.target.offsetLevel = float32(clickedSpan.level)
-			fg.StyleState.animateTo.target.scale = Unit(scale)
-			fg.StyleState.animateTo.startedAt = gtx.Now
+			fg.StyleState.animate.Start(
+				gtx,
+				fg.StyleState.zoom,
+				fgZoom{
+					offsetX:     -(clickedSpan.x * scale),
+					offsetLevel: float32(clickedSpan.level),
+					scale:       Unit(scale),
+				},
+				animateLength,
+				EaseBezier,
+			)
 		}
 
 		if hoveredSpan.frame != nil {
