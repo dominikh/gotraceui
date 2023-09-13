@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
@@ -18,7 +18,6 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
 )
@@ -391,13 +390,13 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout
 					handleRight := handleShape
 					handleRight.Rect = handleRight.Rect.Add(image.Pt(dividerWidth+dividerMargin, 0))
 
-					paint.FillShape(gtx.Ops, win.Theme.Palette.Table.DragHandle, handleLeft.Op(gtx.Ops))
-					paint.FillShape(gtx.Ops, win.Theme.Palette.Table.DragHandle, handleRight.Op(gtx.Ops))
+					FillShape(win, gtx.Ops, win.Theme.Palette.Table.DragHandle, handleLeft.Op(gtx.Ops))
+					FillShape(win, gtx.Ops, win.Theme.Palette.Table.DragHandle, handleRight.Op(gtx.Ops))
 				}
 
 				// Draw the vertical bar
 				stack3 := clip.Rect{Max: image.Pt(dividerWidth, tallestHeight)}.Push(gtx.Ops)
-				paint.Fill(gtx.Ops, win.Theme.Palette.Table.Divider)
+				Fill(win, gtx.Ops, win.Theme.Palette.Table.Divider)
 				stack3.Pop()
 			}
 
@@ -414,10 +413,10 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout
 
 type FauxTableRowStyle struct {
 	Table      *Table
-	Background color.NRGBA
+	Background color.Oklch
 }
 
-func FauxTableRow(tbl *Table, bg color.NRGBA) FauxTableRowStyle {
+func FauxTableRow(tbl *Table, bg color.Oklch) FauxTableRowStyle {
 	return FauxTableRowStyle{
 		Table:      tbl,
 		Background: bg,
@@ -458,7 +457,7 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w Widget) l
 
 	tallestHeight := r.Dimensions.Size.Y
 
-	paint.FillShape(gtx.Ops, row.Background, clip.Rect{Max: image.Pt(totalWidth, tallestHeight)}.Op())
+	FillShape(win, gtx.Ops, row.Background, clip.Rect{Max: image.Pt(totalWidth, tallestHeight)}.Op())
 
 	dividerStart := 0
 	for i := range row.Table.drags {
@@ -471,7 +470,7 @@ func (row FauxTableRowStyle) Layout(win *Window, gtx layout.Context, w Widget) l
 		stack := op.Offset(image.Pt(dividerStart, 0)).Push(gtx.Ops)
 		// Draw the vertical bar
 		stack3 := clip.Rect{Max: image.Pt(dividerWidth, tallestHeight)}.Push(gtx.Ops)
-		paint.Fill(gtx.Ops, win.Theme.Palette.Table.Divider)
+		Fill(win, gtx.Ops, win.Theme.Palette.Table.Divider)
 
 		dividerStart += dividerWidth
 		stack3.Pop()
@@ -551,7 +550,7 @@ func (tbl YScrollableListStyle) Layout(
 				// Draw vertical scrollbar at the right edge.
 				defer op.Offset(image.Pt(gtx.Constraints.Max.X-gtx.Dp(scrollbarWidth), 0)).Push(gtx.Ops).Pop()
 				l, h := FromListPosition(tbl.state.vertList.Position, tbl.state.rememberingList.len, tbl.state.rememberingList.dims.Size.Y)
-				Scrollbar(win.Theme, &tbl.state.vertScroll).Layout(gtx, layout.Vertical, l, h)
+				Scrollbar(win.Theme, &tbl.state.vertScroll).Layout(win, gtx, layout.Vertical, l, h)
 				if delta := tbl.state.vertScroll.ScrollDistance(); delta != 0 {
 					tbl.state.vertList.ScrollBy(delta * float32(tbl.state.rememberingList.len))
 				}
@@ -569,7 +568,7 @@ func (tbl YScrollableListStyle) Layout(
 			gtx.Constraints.Max.X -= gtx.Dp(scrollbarWidth)
 			gtx.Constraints = layout.Normalize(gtx.Constraints)
 			l, h := FromListPosition(tbl.state.horizList.Position, 1, bodyDims.Size.X)
-			dims := Scrollbar(win.Theme, &tbl.state.horizScroll).Layout(gtx, layout.Horizontal, l, h)
+			dims := Scrollbar(win.Theme, &tbl.state.horizScroll).Layout(win, gtx, layout.Horizontal, l, h)
 			if delta := tbl.state.horizScroll.ScrollDistance(); delta != 0 {
 				tbl.state.horizList.ScrollBy(delta)
 			}
@@ -597,7 +596,7 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 			col        = &row.Table.Columns[colIdx]
 		)
 
-		paint.FillShape(gtx.Ops, win.Theme.Palette.Table.HeaderBackground, clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
+		FillShape(win, gtx.Ops, win.Theme.Palette.Table.HeaderBackground, clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, height)}.Op())
 
 		layout.Overlay(gtx,
 			func(gtx layout.Context) layout.Dimensions {
@@ -642,7 +641,8 @@ func (row TableHeaderRowStyle) Layout(win *Window, gtx layout.Context) layout.Di
 			},
 		)
 
-		paint.FillShape(
+		FillShape(
+			win,
 			gtx.Ops,
 			win.Theme.Palette.Table.Divider,
 			clip.Rect{
@@ -687,7 +687,7 @@ func (row TableSimpleRowStyle) Layout(
 
 	return layout.Overlay(gtx,
 		func(gtx layout.Context) layout.Dimensions {
-			return widget.Background{Color: c}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return Background{Color: c}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 				return TableRow(row.Table, false).Layout(win, gtx, func(win *Window, gtx layout.Context, col int) layout.Dimensions {
 					defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -729,7 +729,7 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 	return layout.Rigids(gtx, layout.Vertical,
 		func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
-			paint.FillShape(gtx.Ops, win.Theme.Palette.Table.ExpandedBorder, clip.Rect{Max: size}.Op())
+			FillShape(win, gtx.Ops, win.Theme.Palette.Table.ExpandedBorder, clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
 			}
@@ -737,9 +737,9 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 
 		func(gtx layout.Context) layout.Dimensions {
 			return FauxTableRow(ex.Table, win.Theme.Palette.Background).Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
-				return widget.Background{
+				return Background{
 					Color: win.Theme.Palette.Table.ExpandedBackground,
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 					return w(win, gtx)
 				})
 			})
@@ -747,7 +747,7 @@ func (ex TableExpandedRowStyle) Layout(win *Window, gtx layout.Context, w Widget
 
 		func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(DefaultExpandedBorder))
-			paint.FillShape(gtx.Ops, win.Theme.Palette.Table.ExpandedBorder, clip.Rect{Max: size}.Op())
+			FillShape(win, gtx.Ops, win.Theme.Palette.Table.ExpandedBorder, clip.Rect{Max: size}.Op())
 			return layout.Dimensions{
 				Size: size,
 			}

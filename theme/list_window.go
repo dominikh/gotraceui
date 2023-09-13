@@ -2,9 +2,9 @@ package theme
 
 import (
 	"context"
-	"image/color"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
@@ -94,17 +94,17 @@ func (w *ListWindow) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 
 		fn2 := func(gtx layout.Context) layout.Dimensions {
-			return List(w.theme, &w.list).Layout(gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
+			return List(w.theme, &w.list).Layout(win, gtx, len(w.filtered), func(gtx layout.Context, index int) layout.Dimensions {
 				// XXX use constants for colors
 				item := &w.items[w.filtered[index]]
 				return item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					var c color.NRGBA
+					var c color.Oklch
 					if index == w.index {
-						c = rgba(0xFF0000FF)
+						c = oklch(62.8, 0.258, 29.234)
 					} else if item.click.Hovered() {
-						c = rgba(0xFF00FFFF)
+						c = oklch(70.71, 0.322, 328.36)
 					} else {
-						c = rgba(0x000000FF)
+						c = oklch(0, 0, 0)
 					}
 					return widget.Label{MaxLines: 1}.Layout(gtx, w.theme.Shaper, font.Font{}, w.theme.TextSize, item.Label, win.ColorMaterial(gtx, c))
 				})
@@ -116,7 +116,7 @@ func (w *ListWindow) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		}
 		editor := Editor(w.theme, &w.input, "")
 		editor.Editor.Focus()
-		return flex.Layout(gtx, layout.Rigid(editor.Layout), layout.Flexed(1, fn2))
+		return flex.Layout(gtx, layout.Rigid(Dumb(win, editor.Layout)), layout.Flexed(1, fn2))
 	}()
 
 	// The editor widget selectively handles the up and down arrow keys, depending on the contents of the text field and

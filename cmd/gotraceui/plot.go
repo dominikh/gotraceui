@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"sort"
 	"strings"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -32,7 +32,7 @@ type PlotSeries struct {
 	Name   string
 	Points []ptrace.Point
 	Filled bool
-	Color  color.NRGBA
+	Color  color.Oklch
 
 	disabled bool
 }
@@ -157,7 +157,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		pl.autoScale == pl.prevFrame.autoScale {
 
 		pl.prevFrame.call.Add(gtx.Ops)
-		debugCaching(gtx)
+		debugCaching(win, gtx)
 	} else {
 		pl.prevFrame.constraints = gtx.Constraints
 		pl.prevFrame.hideLegends = pl.hideLegends
@@ -183,7 +183,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			r.End()
 		}
 
-		paint.Fill(gtx.Ops, rgba(0xDFFFEAFF))
+		theme.Fill(win, gtx.Ops, oklch(97.14, 0.043, 156.75))
 
 		{
 			r := rtrace.StartRegion(context.Background(), "draw all points")
@@ -191,7 +191,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				if s.disabled {
 					continue
 				}
-				pl.drawPoints(gtx, cv, s)
+				pl.drawPoints(win, gtx, cv, s)
 			}
 			r.End()
 		}
@@ -205,16 +205,16 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			rec := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 			})
-			paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
-			paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
+			theme.FillShape(win, gtx.Ops, oklch(100, 0, 0), clip.Rect{Max: rec.Dimensions.Size}.Op())
+			paint.ColorOp{Color: win.ConvertColor(oklch(0, 0, 0))}.Add(gtx.Ops)
 			rec.Layout(win, gtx)
 
 			rec = theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.min, pl.Unit), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 			})
 			defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-rec.Dimensions.Size.Y)).Push(gtx.Ops).Pop()
-			paint.FillShape(gtx.Ops, rgba(0xFFFFFFFF), clip.Rect{Max: rec.Dimensions.Size}.Op())
-			paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
+			theme.FillShape(win, gtx.Ops, oklch(100, 0, 0), clip.Rect{Max: rec.Dimensions.Size}.Op())
+			paint.ColorOp{Color: win.ConvertColor(oklch(0, 0, 0))}.Add(gtx.Ops)
 			rec.Layout(win, gtx)
 			r.End()
 		}
@@ -353,7 +353,7 @@ func (pl *Plot) end(gtx layout.Context, cv *Canvas) int {
 	return timelineEnd
 }
 
-func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
+func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s PlotSeries) {
 	defer rtrace.StartRegion(context.Background(), "draw points").End()
 	const lineWidth = 2
 
@@ -441,9 +441,9 @@ func (pl *Plot) drawPoints(gtx layout.Context, cv *Canvas, s PlotSeries) {
 		drawLine(&path, f32.Pt(float32(canvasEnd), float32(gtx.Constraints.Max.Y)), lineWidth)
 		drawLine(&path, f32.Pt(first.X, float32(gtx.Constraints.Max.Y)), lineWidth)
 		drawLine(&path, first, lineWidth)
-		paint.FillShape(gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
+		theme.FillShape(win, gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
 	} else {
-		paint.FillShape(gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
+		theme.FillShape(win, gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
 	}
 }
 

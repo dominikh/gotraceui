@@ -194,7 +194,7 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 		func(gtx layout.Context) layout.Dimensions {
 			tb := theme.TextBox(win.Theme, &hs.State.numBinsEditor, "Number of bins")
 			tb.Validate = validateNumBins
-			return tb.Layout(gtx)
+			return tb.Layout(win, gtx)
 		},
 
 		func(gtx layout.Context) layout.Dimensions {

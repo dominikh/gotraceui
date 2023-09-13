@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
@@ -19,7 +19,6 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
 )
@@ -44,13 +43,13 @@ type HistogramStyle struct {
 	State *HistogramState
 
 	XLabel, YLabel   string
-	TextColor        color.NRGBA
+	TextColor        color.Oklch
 	TextSize         unit.Sp
-	LineColor        color.NRGBA
-	BinColor         color.NRGBA
-	HoveredBinColor  color.NRGBA
-	SelectedBinColor color.NRGBA
-	OverflowBinColor color.NRGBA
+	LineColor        color.Oklch
+	BinColor         color.Oklch
+	HoveredBinColor  color.Oklch
+	SelectedBinColor color.Oklch
+	OverflowBinColor color.Oklch
 }
 
 func Histogram(th *Theme, state *HistogramState) HistogramStyle {
@@ -59,10 +58,10 @@ func Histogram(th *Theme, state *HistogramState) HistogramStyle {
 		TextColor:        th.Palette.Foreground,
 		TextSize:         th.TextSize,
 		LineColor:        th.Palette.Border,
-		BinColor:         rgba(0x1772BBFF),
-		HoveredBinColor:  rgba(0x27BB17FF),
-		SelectedBinColor: rgba(0x27BB17FF),
-		OverflowBinColor: rgba(0xBB1717FF),
+		BinColor:         oklch(54.01, 0.139, 248.98),
+		HoveredBinColor:  oklch(69.06, 0.224, 141.9),
+		SelectedBinColor: oklch(69.06, 0.224, 141.9),
+		OverflowBinColor: oklch(50.62, 0.195, 27.95),
 	}
 }
 
@@ -128,10 +127,6 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		hs.State.pointer = hs.State.hover.Pointer()
 	}
 
-	m := op.Record(gtx.Ops)
-	paint.ColorOp{Color: hs.TextColor}.Add(gtx.Ops)
-	textColor := m.Stop()
-
 	var (
 		tickLength    = gtx.Dp(10)
 		tickThickness = gtx.Dp(1)
@@ -151,7 +146,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		gtx := gtx
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Point{9999, 9999}
-		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, "9.99E+99", textColor)
+		dims := widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, "9.99E+99", win.ColorMaterial(gtx, hs.TextColor))
 		m.Stop()
 		lineHeight = dims.Size.Y
 
@@ -173,27 +168,27 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		gtx := gtx
 
 		// Draw top Y tick
-		paint.FillShape(gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(yAxisWidth-tickLength, 0), Max: image.Pt(yAxisWidth, tickThickness)}.Op())
+		FillShape(win, gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(yAxisWidth-tickLength, 0), Max: image.Pt(yAxisWidth, tickThickness)}.Op())
 
 		// Draw bottom Y tick
-		paint.FillShape(gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(yAxisWidth-tickLength, plotHeight-tickThickness), Max: image.Pt(yAxisWidth, plotHeight)}.Op())
+		FillShape(win, gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(yAxisWidth-tickLength, plotHeight-tickThickness), Max: image.Pt(yAxisWidth, plotHeight)}.Op())
 
 		func() {
 			// Draw top Y tick label
 			gtx := gtx
 			gtx.Constraints.Min.X = yAxisWidth - tickLength
-			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, fmt.Sprintf("%.2e", float64(hist.MaxBinValue)), textColor)
+			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, fmt.Sprintf("%.2e", float64(hist.MaxBinValue)), win.ColorMaterial(gtx, hs.TextColor))
 
 			// Draw bottom Y tick label
 			defer op.Offset(image.Pt(0, plotHeight-lineHeight)).Push(gtx.Ops).Pop()
-			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, "0", textColor)
+			widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, "0", win.ColorMaterial(gtx, hs.TextColor))
 		}()
 
 		// Draw Y label
-		m = op.Record(gtx.Ops)
+		m := op.Record(gtx.Ops)
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Point{9999, 9999}
-		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hs.YLabel, textColor)
+		dims := widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hs.YLabel, win.ColorMaterial(gtx, hs.TextColor))
 		c := m.Stop()
 
 		aff := f32.Affine2D{}.
@@ -212,7 +207,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		gtx.Constraints.Max = image.Point{9999, 9999}
 
 		// Draw first X tick
-		paint.FillShape(gtx.Ops, hs.LineColor, clip.Rect{Max: image.Pt(tickThickness, tickLength)}.Op())
+		FillShape(win, gtx.Ops, hs.LineColor, clip.Rect{Max: image.Pt(tickThickness, tickLength)}.Op())
 
 		// Draw last X tick
 		var lastTickX int
@@ -221,7 +216,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		} else {
 			lastTickX = int(roundf(float32(len(hist.Bins)) * barWidth))
 		}
-		paint.FillShape(gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(lastTickX, 0), Max: image.Pt(lastTickX+2, 20)}.Op())
+		FillShape(win, gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(lastTickX, 0), Max: image.Pt(lastTickX+2, 20)}.Op())
 
 		// Draw X tick labels and range
 		//
@@ -250,7 +245,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		{
 			gtx := gtx
 			gtx.Constraints.Min.X = 0
-			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hist.Start.Ceil().String(), textColor)
+			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hist.Start.Ceil().String(), win.ColorMaterial(gtx, hs.TextColor))
 			availableWidth -= dims.Size.X
 			firstXTickLabelWidth = dims.Size.X
 		}
@@ -260,14 +255,14 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			gtx := gtx
 			m := op.Record(gtx.Ops)
 			gtx.Constraints.Min.X = 0
-			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, end.Ceil().String(), textColor)
+			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, end.Ceil().String(), win.ColorMaterial(gtx, hs.TextColor))
 			m.Stop()
 			availableWidth -= dims.Size.X
 
 		}
 
 		// Layout last X axis tick
-		widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, end.Ceil().String(), textColor)
+		widget.Label{Alignment: text.End}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, end.Ceil().String(), win.ColorMaterial(gtx, hs.TextColor))
 
 		// Measure X axis info
 		var line string
@@ -277,13 +272,13 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 
 			m := op.Record(gtx.Ops)
 			line = fmt.Sprintf("⬅ %d×~%s = %s ➡", numBins, hist.BinWidth.Floor(), (end - hist.Start).Ceil())
-			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, textColor)
+			dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, win.ColorMaterial(gtx, hs.TextColor))
 			m.Stop()
 			if dims.Size.X > availableWidth {
 				line = fmt.Sprintf("⬅ %s ➡", (end - hist.Start).Ceil())
 
 				m := op.Record(gtx.Ops)
-				dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, textColor)
+				dims := widget.Label{Alignment: text.Start}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, win.ColorMaterial(gtx, hs.TextColor))
 				m.Stop()
 				if dims.Size.X > availableWidth {
 					line = ""
@@ -295,13 +290,13 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			stack := op.Offset(image.Pt(firstXTickLabelWidth, 0)).Push(gtx.Ops)
 			gtx.Constraints.Min.X = availableWidth
 			gtx.Constraints.Max.X = gtx.Constraints.Min.X
-			widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, textColor)
+			widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, line, win.ColorMaterial(gtx, hs.TextColor))
 			stack.Pop()
 		}
 
 		// Draw X label
 		defer op.Offset(image.Pt(0, lineHeight+padding)).Push(gtx.Ops).Pop()
-		widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hs.XLabel, textColor)
+		widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, hs.TextSize, hs.XLabel, win.ColorMaterial(gtx, hs.TextColor))
 	}()
 
 	// Draw plot
@@ -310,8 +305,8 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		defer clip.Rect{Max: image.Pt(plotWidth, plotHeight)}.Push(gtx.Ops).Pop()
 
 		// These lines have no transparency and are pixel perfect, so overlap isn't a problem.
-		paint.FillShape(gtx.Ops, hs.LineColor, clip.Rect{Max: image.Pt(borderWidth, plotHeight)}.Op())
-		paint.FillShape(gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(0, plotHeight-borderWidth), Max: image.Pt(plotWidth, plotHeight)}.Op())
+		FillShape(win, gtx.Ops, hs.LineColor, clip.Rect{Max: image.Pt(borderWidth, plotHeight)}.Op())
+		FillShape(win, gtx.Ops, hs.LineColor, clip.Rect{Min: image.Pt(0, plotHeight-borderWidth), Max: image.Pt(plotWidth, plotHeight)}.Op())
 
 		defer op.Offset(image.Pt(borderWidth, 0)).Push(gtx.Ops).Pop()
 		plotWidth := plotWidth - borderWidth
@@ -435,7 +430,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 				Max: image.Pt(x1, y0),
 			}
 
-			var c color.NRGBA
+			var c color.Oklch
 			if hs.State.hover.Hovered() && i == hBin {
 				// Hovered bin
 				c = hs.HoveredBinColor
@@ -463,7 +458,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 				}
 			}
 
-			paint.FillShape(gtx.Ops, c, rect.Op())
+			FillShape(win, gtx.Ops, c, rect.Op())
 		}
 	}()
 

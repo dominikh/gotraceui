@@ -3,15 +3,15 @@ package theme
 import (
 	"context"
 	"image"
-	"image/color"
 	rtrace "runtime/trace"
+
+	"honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
-	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/widget"
 )
 
 // FIXME(dh): click on menu, click on item, menu closed. click on same menu, previously clicked item is still
@@ -50,11 +50,11 @@ func NewMenuStyle(th *Theme, menu *Menu) MenuStyle {
 
 type MenuStyle struct {
 	Menu       *Menu
-	Foreground color.NRGBA
-	Background color.NRGBA
-	Selected   color.NRGBA
-	Border     color.NRGBA
-	Disabled   color.NRGBA
+	Foreground color.Oklch
+	Background color.Oklch
+	Selected   color.Oklch
+	Border     color.Oklch
+	Disabled   color.Oklch
 }
 
 func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
@@ -70,7 +70,7 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		m.Menu.cancelled = false
 	}
 
-	return widget.Background{Color: m.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return Background{Color: m.Background}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		var h, b, off int
 
 		drawGroup := func(gtx layout.Context, g *MenuGroup, off int) {
@@ -116,7 +116,7 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 					bg = m.Selected
 				}
 
-				dims := widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				dims := Background{Color: bg}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 					return g.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return widget.Label{MaxLines: 1}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, g.Label, win.ColorMaterial(gtx, m.Foreground))
@@ -150,8 +150,8 @@ type MenuGroup struct {
 
 type MenuGroupStyle struct {
 	Group      *MenuGroup
-	Background color.NRGBA
-	Border     color.NRGBA
+	Background color.Oklch
+	Border     color.Oklch
 }
 
 func NewMenuGroupStyle(th *Theme, group *MenuGroup) MenuGroupStyle {
@@ -181,9 +181,9 @@ func (g MenuGroupStyle) Layout(win *Window, gtx layout.Context) layout.Dimension
 	gtx.Ops = origOps
 	g.Group.list.Axis = layout.Vertical
 
-	return widget.Bordered{Color: g.Border, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return widget.Background{Color: g.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return (g.Group.list).Layout(gtx, len(g.Group.Items), func(gtx layout.Context, index int) layout.Dimensions {
+	return Bordered{Color: g.Border, Width: 1}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+		return Background{Color: g.Background}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+			return g.Group.list.Layout(gtx, len(g.Group.Items), func(gtx layout.Context, index int) layout.Dimensions {
 				gtx.Constraints.Min.X = maxWidth
 				gtx.Constraints.Max.X = maxWidth
 				return g.Group.Items[index](win, gtx)
@@ -203,10 +203,10 @@ type MenuItem struct {
 
 type MenuItemStyle struct {
 	Item       *MenuItem
-	Foreground color.NRGBA
-	Background color.NRGBA
-	Selected   color.NRGBA
-	Disabled   color.NRGBA
+	Foreground color.Oklch
+	Background color.Oklch
+	Selected   color.Oklch
+	Disabled   color.Oklch
 }
 
 func NewMenuItemStyle(th *Theme, item *MenuItem) MenuItemStyle {
@@ -231,7 +231,7 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 	if !disabled && item.Item.click.Hovered() {
 		bg = item.Selected
 	}
-	dims := widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := Background{Color: bg}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return item.Item.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				l := func(gtx layout.Context) layout.Dimensions {
@@ -265,7 +265,7 @@ func (item *MenuItem) Clicked() bool {
 }
 
 type MenuDividerStyle struct {
-	Color color.NRGBA
+	Color color.Oklch
 }
 
 func MenuDivider(th *Theme) MenuDividerStyle {
@@ -286,6 +286,6 @@ func (mds MenuDividerStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 		Max: image.Pt(gtx.Constraints.Min.X, 1),
 	}
 	shape.Max = gtx.Constraints.Constrain(shape.Max)
-	paint.FillShape(gtx.Ops, mds.Color, shape.Op())
+	FillShape(win, gtx.Ops, mds.Color, shape.Op())
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, height)}
 }

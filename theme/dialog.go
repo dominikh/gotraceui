@@ -3,28 +3,27 @@ package theme
 import (
 	"context"
 	"image"
-	"image/color"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/unit"
 )
 
 type DialogStyle struct {
 	BorderWidth     unit.Dp
-	BorderColor     color.NRGBA
+	BorderColor     color.Oklch
 	Title           string
 	TitleSize       unit.Sp
-	TitleColor      color.NRGBA
-	TitleBackground color.NRGBA
+	TitleColor      color.Oklch
+	TitleBackground color.Oklch
 	TitlePadding    unit.Dp
-	Background      color.NRGBA
+	Background      color.Oklch
 	Padding         unit.Dp
 }
 
@@ -74,27 +73,25 @@ func (ds DialogStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 		labelDims.Size.X = wDims.Size.X
 	}
 
-	return widget.Border{Width: ds.BorderWidth, Color: ds.BorderColor}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.UniformInset(ds.BorderWidth).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Rigids(gtx, layout.Vertical,
-				func(gtx layout.Context) layout.Dimensions {
-					defer clip.Rect{Max: image.Pt(wDims.Size.X+gtx.Dp(ds.Padding)*2, labelDims.Size.Y+gtx.Dp(ds.TitlePadding)*2)}.Push(gtx.Ops).Pop()
-					paint.Fill(gtx.Ops, ds.TitleBackground)
-					return layout.UniformInset(ds.TitlePadding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						labelCall.Add(gtx.Ops)
-						return labelDims
-					})
-				},
+	return Bordered{Width: ds.BorderWidth, Color: ds.BorderColor}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+		return layout.Rigids(gtx, layout.Vertical,
+			func(gtx layout.Context) layout.Dimensions {
+				defer clip.Rect{Max: image.Pt(wDims.Size.X+gtx.Dp(ds.Padding)*2, labelDims.Size.Y+gtx.Dp(ds.TitlePadding)*2)}.Push(gtx.Ops).Pop()
+				Fill(win, gtx.Ops, ds.TitleBackground)
+				return layout.UniformInset(ds.TitlePadding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					labelCall.Add(gtx.Ops)
+					return labelDims
+				})
+			},
 
-				func(gtx layout.Context) layout.Dimensions {
-					defer clip.Rect{Max: image.Pt(wDims.Size.X+gtx.Dp(ds.Padding)*2, wDims.Size.Y+gtx.Dp(ds.Padding)*2)}.Push(gtx.Ops).Pop()
-					paint.Fill(gtx.Ops, ds.Background)
-					return layout.UniformInset(ds.Padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						wCall.Add(gtx.Ops)
-						return wDims
-					})
-				},
-			)
-		})
+			func(gtx layout.Context) layout.Dimensions {
+				defer clip.Rect{Max: image.Pt(wDims.Size.X+gtx.Dp(ds.Padding)*2, wDims.Size.Y+gtx.Dp(ds.Padding)*2)}.Push(gtx.Ops).Pop()
+				Fill(win, gtx.Ops, ds.Background)
+				return layout.UniformInset(ds.Padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					wCall.Add(gtx.Ops)
+					return wDims
+				})
+			},
+		)
 	})
 }

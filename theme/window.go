@@ -2,15 +2,17 @@ package theme
 
 import (
 	"context"
+	"fmt"
 	"image"
-	"image/color"
+	stdcolor "image/color"
+	"math"
 	rtrace "runtime/trace"
 	"strings"
 	"sync"
 	"time"
 	"unsafe"
 
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	myfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/tinylfu"
@@ -62,25 +64,33 @@ type Window struct {
 	windowFrameState
 
 	textLengths    *tinylfu.T[string, layout.Dimensions]
-	oklchToSRGB    *tinylfu.T[mycolor.Oklch, color.NRGBA]
-	colorMaterials map[color.NRGBA]op.CallOp
+	oklchToSRGB    *tinylfu.T[color.Oklch, stdcolor.NRGBA]
+	colorMaterials map[color.Oklch]op.CallOp
 }
 
-func (win *Window) ColorMaterial(gtx layout.Context, c color.NRGBA) op.CallOp {
+func (win *Window) ColorMaterial(gtx layout.Context, c color.Oklch) op.CallOp {
 	if op, ok := win.colorMaterials[c]; ok {
 		return op
 	} else {
-		op := widget.ColorTextMaterial(gtx, c)
+		op := widget.ColorTextMaterial(gtx, win.ConvertColor(c))
 		win.colorMaterials[c] = op
 		return op
 	}
 }
 
-func (win *Window) ConvertColor(c mycolor.Oklch) color.NRGBA {
+func (win *Window) ConvertColor(c color.Oklch) stdcolor.NRGBA {
+	if math.IsNaN(float64(c.L)) || math.IsNaN(float64(c.C)) || math.IsNaN(float64(c.H)) || math.IsNaN(float64(c.A)) {
+		panic(fmt.Sprintf("got NaN in color: %v", c))
+	}
+
+	if c.L > 1 || c.C > 1 || c.A > 1 || c.L < 0 || c.C < 0 || c.H < 0 || c.A < 0 {
+		panic(fmt.Sprintf("color value out of range: %v", c))
+	}
+
 	if out, ok := win.oklchToSRGB.Get(c); ok {
 		return out
 	}
-	out := color.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(color.NRGBA)
+	out := stdcolor.NRGBAModel.Convert(c.MapToSRGBGamut().SRGB()).(stdcolor.NRGBA)
 	win.oklchToSRGB.Add(c, out)
 	return out
 }
@@ -123,10 +133,10 @@ func NewWindow(win *app.Window) *Window {
 			win: win,
 		},
 		textLengths:    tinylfu.New[string, layout.Dimensions](1024, 1024*10),
-		oklchToSRGB:    tinylfu.New[mycolor.Oklch, color.NRGBA](1024, 1024*10),
+		oklchToSRGB:    tinylfu.New[color.Oklch, stdcolor.NRGBA](1024, 1024*10),
 		shortcuts:      map[Shortcut]struct{}{},
 		scale:          1,
-		colorMaterials: map[color.NRGBA]op.CallOp{},
+		colorMaterials: map[color.Oklch]op.CallOp{},
 	}
 }
 
@@ -294,10 +304,10 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		modal := Modal(&win.modal.cancelled)
 		if isPopup {
 			gtx.Constraints.Min = image.Point{}
-			modal.Background = color.NRGBA{}
+			modal.Background = color.Oklch{}
 		} else {
 			gtx.Constraints.Min = gtx.Constraints.Max
-			modal.Background = rgba(0x000000DD)
+			modal.Background = oklcha(0, 0, 0, 0.85)
 		}
 		modal.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

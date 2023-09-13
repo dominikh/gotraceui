@@ -3,17 +3,16 @@ package theme
 import (
 	"context"
 	"image"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/unit"
 )
 
@@ -32,7 +31,7 @@ type ScrollTrackStyle struct {
 	// the edges of the content area.
 	MinorPadding unit.Dp
 	// Color of the track background.
-	Color color.NRGBA
+	Color color.Oklch
 }
 
 // ScrollIndicatorStyle configures the presentation of a scroll indicator.
@@ -44,7 +43,7 @@ type ScrollIndicatorStyle struct {
 	MinorWidth unit.Dp
 	// Color and HoverColor are the normal and hovered colors of the scroll
 	// indicator.
-	Color, HoverColor color.NRGBA
+	Color, HoverColor color.Oklch
 }
 
 // ScrollbarStyle configures the presentation of a scrollbar.
@@ -62,7 +61,7 @@ func Scrollbar(th *Theme, state *widget.Scrollbar) ScrollbarStyle {
 		Track: ScrollTrackStyle{
 			MinorPadding: 2,
 			// TODO(dh): compute color from background color
-			Color: rgba(0x99994CFF),
+			Color: oklch(66.61, 0.1, 108.83),
 		},
 		Indicator: ScrollIndicatorStyle{
 			MajorMinLen: 8,
@@ -80,7 +79,7 @@ func (s ScrollbarStyle) Width() unit.Dp {
 }
 
 // Layout the scrollbar.
-func (s ScrollbarStyle) Layout(gtx layout.Context, axis layout.Axis, viewportStart, viewportEnd float32) layout.Dimensions {
+func (s ScrollbarStyle) Layout(win *Window, gtx layout.Context, axis layout.Axis, viewportStart, viewportEnd float32) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ScrollbarStyle.Layout").End()
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
@@ -104,11 +103,11 @@ func (s ScrollbarStyle) Layout(gtx layout.Context, axis layout.Axis, viewportSta
 		s.Indicator.Color = s.Indicator.HoverColor
 	}
 
-	return s.layout(gtx, axis, viewportStart, viewportEnd)
+	return s.layout(win, gtx, axis, viewportStart, viewportEnd)
 }
 
 // layout the scroll track and indicator.
-func (s ScrollbarStyle) layout(gtx layout.Context, axis layout.Axis, viewportStart, viewportEnd float32) layout.Dimensions {
+func (s ScrollbarStyle) layout(win *Window, gtx layout.Context, axis layout.Axis, viewportStart, viewportEnd float32) layout.Dimensions {
 	// XXX there's an off-by-some somewhere, and padding on the right side is larger than on the left
 
 	inset := layout.Inset{
@@ -140,7 +139,7 @@ func (s ScrollbarStyle) layout(gtx layout.Context, axis layout.Axis, viewportSta
 			defer pointerArea.Push(gtx.Ops).Pop()
 			s.Scrollbar.AddTrack(gtx.Ops)
 
-			paint.FillShape(gtx.Ops, s.Track.Color, clip.Rect(area).Op())
+			FillShape(win, gtx.Ops, s.Track.Color, clip.Rect(area).Op())
 			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -167,7 +166,7 @@ func (s ScrollbarStyle) layout(gtx layout.Context, axis layout.Axis, viewportSta
 				// Lay out the indicator.
 				offset := axis.Convert(image.Pt(viewStart, 0))
 				defer op.Offset(offset).Push(gtx.Ops).Pop()
-				paint.FillShape(gtx.Ops, s.Indicator.Color, clip.Rect{Max: indicatorDims}.Op())
+				FillShape(win, gtx.Ops, s.Indicator.Color, clip.Rect{Max: indicatorDims}.Op())
 
 				// Add the indicator pointer hit area.
 				area := clip.Rect(image.Rectangle{Max: indicatorDims})

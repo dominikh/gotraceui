@@ -6,7 +6,7 @@ import (
 	rtrace "runtime/trace"
 	"strings"
 
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
@@ -16,7 +16,6 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/x/eventx"
 	"golang.org/x/exp/slices"
@@ -82,7 +81,7 @@ type NormalCommand struct {
 	PrimaryLabel   string
 	SecondaryLabel string
 	Category       string
-	Color          mycolor.Oklch
+	Color          color.Oklch
 	Shortcut       string
 	Aliases        []string
 	Fn             func() Action
@@ -120,7 +119,7 @@ func (cmd NormalCommand) Filter(input string) bool {
 func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.NormalCommand.Layout").End()
 
-	activeColor := mycolor.Oklch{L: 0.9394, C: 0.22094984386637648, H: 119.08, Alpha: 1}
+	activeColor := color.Oklch{L: 0.9394, C: 0.22094984386637648, H: 119.08, A: 1}
 
 	bg := cmd.Color
 	if current {
@@ -173,8 +172,8 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 					gtx.Constraints.Min.Y = dims.Size.Y
 					return layout.MiddleAligned(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
-							return widget.Bordered{Width: 1, Color: rgba(0x000000FF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return widget.Background{Color: rgba(0xFFFFFFFF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return Bordered{Width: 1, Color: oklch(0, 0, 0)}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+								return Background{Color: oklch(100, 0, 0)}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 									return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										f := font.Font{
 											Weight: font.Bold,
@@ -190,16 +189,16 @@ func (cmd NormalCommand) Layout(win *Window, gtx layout.Context, current bool) l
 		})
 	})
 
-	return widget.Background{
-		Color: bg.NRGBA(),
-	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return Background{
+		Color: bg,
+	}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return layout.Rigids(gtx, layout.Horizontal,
 			func(gtx layout.Context) layout.Dimensions {
 				if !current {
 					return layout.Dimensions{}
 				}
 
-				paint.FillShape(gtx.Ops, rgba(0x000000FF), clip.Rect{Max: image.Pt(gtx.Dp(indicatorWidth), right.Dimensions.Size.Y)}.Op())
+				FillShape(win, gtx.Ops, oklch(0, 0, 0), clip.Rect{Max: image.Pt(gtx.Dp(indicatorWidth), right.Dimensions.Size.Y)}.Op())
 				return layout.Dimensions{Size: image.Pt(gtx.Dp(indicatorWidth), right.Dimensions.Size.Y)}
 			},
 			func(gtx layout.Context) layout.Dimensions {
@@ -252,8 +251,10 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 		fontSize         unit.Sp = 14
 		separatorHeight  unit.Dp = 2
 		outerBorder      unit.Dp = 1
-		background       uint32  = 0xEEFFEEFF
-		borderColor      uint32  = 0x000000FF
+	)
+	var (
+		background  = oklch(98.29, 0.0286, 145.35)
+		borderColor = oklch(0, 0, 0)
 	)
 
 	width := min(gtx.Dp(desiredWidth), gtx.Constraints.Max.X)
@@ -268,10 +269,10 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 
 	m := op.Record(gtx.Ops)
 	var spy *eventx.Spy
-	dims := widget.Bordered{Color: rgba(borderColor), Width: outerBorder}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return widget.Background{
-			Color: rgba(background),
-		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := Bordered{Color: (borderColor), Width: outerBorder}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+		return Background{
+			Color: (background),
+		}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = width
 			gtx.Constraints.Max.X = width
 			gtx.Constraints.Min.Y = 0
@@ -280,9 +281,9 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 			return layout.Rigids(gtx, layout.Vertical,
 				func(gtx layout.Context) layout.Dimensions {
 					return layout.UniformInset(outerPadding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return widget.Background{
-							Color: rgba(0xFFFFFFFF),
-						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return Background{
+							Color: oklch(100, 0, 0),
+						}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 							prompt := pl.Prompt
 							if prompt == "" {
 								prompt = "Type your command here"
@@ -291,21 +292,21 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 							editor.TextSize = fontSize
 							var ngtx layout.Context
 							spy, ngtx = eventx.Enspy(gtx)
-							return layout.UniformInset(outerPadding).Layout(ngtx, editor.Layout)
+							return layout.UniformInset(outerPadding).Layout(ngtx, Dumb(win, editor.Layout))
 						})
 					})
 				},
 				func(gtx layout.Context) layout.Dimensions {
 					size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(separatorHeight))
 					defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-					paint.Fill(gtx.Ops, rgba(borderColor))
+					Fill(win, gtx.Ops, (borderColor))
 					return layout.Dimensions{
 						Size: size,
 					}
 				},
 				func(gtx layout.Context) layout.Dimensions {
 					cnt := 0
-					return List(win.Theme, &pl.list).Layout(gtx, len(pl.filtered), func(gtx layout.Context, index int) layout.Dimensions {
+					return List(win.Theme, &pl.list).Layout(win, gtx, len(pl.filtered), func(gtx layout.Context, index int) layout.Dimensions {
 						if len(pl.tags) <= cnt {
 							pl.tags = slices.Grow(pl.tags, 1+cnt-len(pl.tags))[:cnt+1]
 						}
@@ -339,7 +340,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 								if index < len(pl.filtered)-1 {
 									size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(separatorHeight)/2)
 									defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-									paint.Fill(gtx.Ops, rgba(0x6e6e6eFF))
+									Fill(win, gtx.Ops, oklch(53.82, 0, 0))
 									return layout.Dimensions{
 										Size: size,
 									}

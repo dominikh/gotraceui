@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 
@@ -16,7 +16,6 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/x/component"
@@ -35,91 +34,91 @@ type Theme struct {
 }
 
 type Palette struct {
-	Background         color.NRGBA
-	Foreground         color.NRGBA
-	ForegroundDisabled color.NRGBA
-	OpenLink           color.NRGBA
-	NavigationLink     color.NRGBA
-	Link               color.NRGBA
-	PrimarySelection   color.NRGBA
+	Background         color.Oklch
+	Foreground         color.Oklch
+	ForegroundDisabled color.Oklch
+	OpenLink           color.Oklch
+	NavigationLink     color.Oklch
+	Link               color.Oklch
+	PrimarySelection   color.Oklch
 
-	Border color.NRGBA
+	Border color.Oklch
 
 	Popup struct {
-		TitleForeground color.NRGBA
-		TitleBackground color.NRGBA
-		Background      color.NRGBA
+		TitleForeground color.Oklch
+		TitleBackground color.Oklch
+		Background      color.Oklch
 	}
 
 	Menu struct {
-		Background color.NRGBA
-		Selected   color.NRGBA
-		Border     color.NRGBA
-		Disabled   color.NRGBA
+		Background color.Oklch
+		Selected   color.Oklch
+		Border     color.Oklch
+		Disabled   color.Oklch
 	}
 
 	Table struct {
-		EvenRowBackground    color.NRGBA
-		OddRowBackground     color.NRGBA
-		HoveredRowBackground color.NRGBA
-		HeaderBackground     color.NRGBA
-		Divider              color.NRGBA
-		DragHandle           color.NRGBA
-		ExpandedBorder       color.NRGBA
-		ExpandedBackground   color.NRGBA
+		EvenRowBackground    color.Oklch
+		OddRowBackground     color.Oklch
+		HoveredRowBackground color.Oklch
+		HeaderBackground     color.Oklch
+		Divider              color.Oklch
+		DragHandle           color.Oklch
+		ExpandedBorder       color.Oklch
+		ExpandedBackground   color.Oklch
 	}
 }
 
 var DefaultPalette = Palette{
-	Background:         rgba(0xFFFFEAFF),
-	Foreground:         rgba(0x000000FF),
-	ForegroundDisabled: rgba(0x727272FF),
-	NavigationLink:     rgba(0xE20000FF),
-	OpenLink:           rgba(0x0000FFFF),
-	Link:               rgba(0x0000FFFF),
-	PrimarySelection:   rgba(0xeeee9e99),
-	Border:             rgba(0x000000FF),
+	Background:         oklch(99.44, 0.027, 106.89),
+	Foreground:         oklch(0, 0, 0),
+	ForegroundDisabled: oklch(55.21, 0, 0),
+	NavigationLink:     oklch(57.32, 0.235, 29.23),
+	OpenLink:           oklch(45.2, 0.31, 264.05),
+	Link:               oklch(45.2, 0.31, 264.05),
+	PrimarySelection:   oklcha(93.11, 0.101, 108.21, 0.6),
+	Border:             oklch(0, 0, 0),
 
 	Popup: struct {
-		TitleForeground color.NRGBA
-		TitleBackground color.NRGBA
-		Background      color.NRGBA
+		TitleForeground color.Oklch
+		TitleBackground color.Oklch
+		Background      color.Oklch
 	}{
-		TitleForeground: rgba(0x000000FF),
-		TitleBackground: rgba(0xEFFFFFFF),
-		Background:      rgba(0xEEFFEEFF),
+		TitleForeground: oklch(0, 0, 0),
+		TitleBackground: oklch(98.82, 0.017, 196.89),
+		Background:      oklch(98.29, 0.029, 145.35),
 	},
 
 	Menu: struct {
-		Background color.NRGBA
-		Selected   color.NRGBA
-		Border     color.NRGBA
-		Disabled   color.NRGBA
+		Background color.Oklch
+		Selected   color.Oklch
+		Border     color.Oklch
+		Disabled   color.Oklch
 	}{
-		Background: rgba(0xEFFFFFFF),
-		Selected:   rgba(0x9CEFEFFF),
-		Border:     rgba(0x9CEFEFFF),
-		Disabled:   rgba(0xAAAAAAFF),
+		Background: oklch(98.82, 0.017, 196.89),
+		Selected:   oklch(89.92, 0.081, 195.81),
+		Border:     oklch(89.92, 0.081, 195.81),
+		Disabled:   oklch(73.8, 0, 0),
 	},
 
 	Table: struct {
-		EvenRowBackground    color.NRGBA
-		OddRowBackground     color.NRGBA
-		HoveredRowBackground color.NRGBA
-		HeaderBackground     color.NRGBA
-		Divider              color.NRGBA
-		DragHandle           color.NRGBA
-		ExpandedBorder       color.NRGBA
-		ExpandedBackground   color.NRGBA
+		EvenRowBackground    color.Oklch
+		OddRowBackground     color.Oklch
+		HoveredRowBackground color.Oklch
+		HeaderBackground     color.Oklch
+		Divider              color.Oklch
+		DragHandle           color.Oklch
+		ExpandedBorder       color.Oklch
+		ExpandedBackground   color.Oklch
 	}{
-		EvenRowBackground:    rgba(0xFFFFEAFF),
-		OddRowBackground:     rgba(0xFFFFEAFF),
-		HoveredRowBackground: rgba(0xF2F2E0FF),
-		HeaderBackground:     rgba(0xF5F5E1FF),
-		Divider:              rgba(0xBEBEBEFF),
-		DragHandle:           rgba(0x000000FF),
-		ExpandedBorder:       rgba(0xBEBEBEFF),
-		ExpandedBackground:   rgba(0xF5CCE1FF),
+		EvenRowBackground:    oklch(99.44, 0.027, 106.89),
+		OddRowBackground:     oklch(99.44, 0.027, 106.89),
+		HoveredRowBackground: oklch(95.63, 0.024, 106.84),
+		HeaderBackground:     oklch(96.48, 0.026, 106.88),
+		Divider:              oklch(80.15, 0, 0),
+		DragHandle:           oklch(0, 0, 0),
+		ExpandedBorder:       oklch(80.15, 0, 0),
+		ExpandedBackground:   oklch(88.63, 0.053, 346),
 	},
 }
 
@@ -136,35 +135,35 @@ func NewTheme(fontCollection []font.FontFace) *Theme {
 }
 
 type ProgressBarStyle struct {
-	ForegroundColor color.NRGBA
-	BackgroundColor color.NRGBA
+	ForegroundColor color.Oklch
+	BackgroundColor color.Oklch
 	BorderWidth     unit.Dp
 	Progress        float32
 }
 
 func ProgressBar(th *Theme, progress float32) ProgressBarStyle {
 	return ProgressBarStyle{
-		ForegroundColor: rgba(0x478847FF),
-		BackgroundColor: rgba(0),
+		ForegroundColor: oklch(56.7, 0.118, 143.83),
+		BackgroundColor: oklcha(0, 0, 0, 0),
 		BorderWidth:     1,
 		Progress:        progress,
 	}
 }
 
-func (p ProgressBarStyle) Layout(gtx layout.Context) layout.Dimensions {
+func (p ProgressBarStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ProgressBarStyle.Layout").End()
 
-	return widget.Border{
+	return Border{
 		Color: p.ForegroundColor,
 		Width: p.BorderWidth,
-	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		// Draw background
 		bg := clip.Rect{Max: gtx.Constraints.Min}.Op()
-		paint.FillShape(gtx.Ops, p.BackgroundColor, bg)
+		FillShape(win, gtx.Ops, p.BackgroundColor, bg)
 
 		// Draw foreground
 		fg := frect{Max: f32.Pt(float32(gtx.Constraints.Min.X)*p.Progress, float32(gtx.Constraints.Min.Y))}.Op(gtx.Ops)
-		paint.FillShape(gtx.Ops, p.ForegroundColor, fg)
+		FillShape(win, gtx.Ops, p.ForegroundColor, fg)
 
 		return layout.Dimensions{
 			Size: gtx.Constraints.Min,
@@ -176,9 +175,9 @@ type CheckBoxStyle struct {
 	Checkbox        widget.Boolean
 	Label           string
 	TextSize        unit.Sp
-	ForegroundColor color.NRGBA
-	BackgroundColor color.NRGBA
-	TextColor       color.NRGBA
+	ForegroundColor color.Oklch
+	BackgroundColor color.Oklch
+	TextColor       color.Oklch
 }
 
 func CheckBox(th *Theme, checkbox widget.Boolean, label string) CheckBoxStyle {
@@ -187,7 +186,7 @@ func CheckBox(th *Theme, checkbox widget.Boolean, label string) CheckBoxStyle {
 		Label:           label,
 		TextColor:       th.Palette.Foreground,
 		ForegroundColor: th.Palette.Foreground,
-		BackgroundColor: rgba(0),
+		BackgroundColor: oklcha(0, 0, 0, 0),
 		TextSize:        th.TextSize,
 	}
 }
@@ -203,11 +202,11 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 
 				ngtx := gtx
 				ngtx.Constraints = layout.Exact(image.Pt(sizePx, sizePx))
-				return widget.Border{
+				return Border{
 					Color: c.ForegroundColor,
 					Width: 1,
-				}.Layout(ngtx, func(gtx layout.Context) layout.Dimensions {
-					paint.FillShape(gtx.Ops, c.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
+				}.Layout(win, ngtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+					FillShape(win, gtx.Ops, c.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
 					if c.Checkbox.Get() {
 						padding := gtx.Constraints.Min.X / 4
 						if padding == 0 {
@@ -217,7 +216,7 @@ func (c CheckBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions
 						miny := minx
 						maxx := gtx.Constraints.Min.X - padding
 						maxy := maxx
-						paint.FillShape(gtx.Ops, c.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
+						FillShape(win, gtx.Ops, c.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
 					}
 
 					return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -237,9 +236,9 @@ type CheckBoxGroupStyle struct {
 	Clickable       *widget.Clickable
 	Label           string
 	TextSize        unit.Sp
-	ForegroundColor color.NRGBA
-	BackgroundColor color.NRGBA
-	TextColor       color.NRGBA
+	ForegroundColor color.Oklch
+	BackgroundColor color.Oklch
+	TextColor       color.Oklch
 }
 
 func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string) CheckBoxGroupStyle {
@@ -248,7 +247,7 @@ func CheckBoxGroup(th *Theme, clickable *widget.Clickable, label string) CheckBo
 		Label:           label,
 		TextColor:       th.Palette.Foreground,
 		ForegroundColor: th.Palette.Foreground,
-		BackgroundColor: rgba(0),
+		BackgroundColor: oklcha(0, 0, 0, 0),
 		TextSize:        th.TextSize,
 	}
 }
@@ -299,11 +298,11 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 					func(gtx layout.Context) layout.Dimensions {
 						ngtx := gtx
 						ngtx.Constraints = layout.Exact(image.Pt(sizePx, sizePx))
-						return widget.Border{
+						return Border{
 							Color: chkgrp.ForegroundColor,
 							Width: 1,
-						}.Layout(ngtx, func(gtx layout.Context) layout.Dimensions {
-							paint.FillShape(gtx.Ops, chkgrp.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
+						}.Layout(win, ngtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+							FillShape(win, gtx.Ops, chkgrp.BackgroundColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
 							switch state {
 							case none:
 							case some:
@@ -317,7 +316,7 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 								miny := minx + padding/2
 								maxy := maxx - padding/2
 
-								paint.FillShape(gtx.Ops, chkgrp.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
+								FillShape(win, gtx.Ops, chkgrp.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
 							case all:
 								padding := gtx.Constraints.Min.X / 4
 								if padding == 0 {
@@ -327,7 +326,7 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 								miny := minx
 								maxx := gtx.Constraints.Min.X - padding
 								maxy := maxx
-								paint.FillShape(gtx.Ops, chkgrp.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
+								FillShape(win, gtx.Ops, chkgrp.ForegroundColor, clip.Rect{Min: image.Pt(minx, miny), Max: image.Pt(maxx, maxy)}.Op())
 							}
 
 							return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -376,14 +375,16 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 	return dims
 }
 
-func rgba(c uint32) color.NRGBA {
-	// XXX does endianness matter?
-	return color.NRGBA{
-		A: uint8(c & 0xFF),
-		B: uint8(c >> 8 & 0xFF),
-		G: uint8(c >> 16 & 0xFF),
-		R: uint8(c >> 24 & 0xFF),
-	}
+// oklch specifies a color in Oklch.
+// 100 >= l >= 0
+// 0.37 >= c >= 0
+// 360 > h >= 0
+func oklch(l, c, h float32) color.Oklch {
+	return color.Oklch{L: l / 100, C: c, H: h, A: 1}
+}
+
+func oklcha(l, c, h, a float32) color.Oklch {
+	return color.Oklch{L: l / 100, C: c, H: h, A: a}
 }
 
 type frect struct {
@@ -426,7 +427,7 @@ type FoldableStyle struct {
 	Closed *widget.Bool
 
 	TextSize  unit.Sp
-	TextColor color.NRGBA
+	TextColor color.Oklch
 }
 
 func Foldable(th *Theme, b *widget.Bool, title string) FoldableStyle {
@@ -484,10 +485,10 @@ type TooltipStyle struct {
 
 	Padding         unit.Dp
 	BorderSize      unit.Dp
-	BorderColor     color.NRGBA
+	BorderColor     color.Oklch
 	TextSize        unit.Sp
-	TextColor       color.NRGBA
-	BackgroundColor color.NRGBA
+	TextColor       color.Oklch
+	BackgroundColor color.Oklch
 }
 
 func Tooltip(th *Theme, msg string) TooltipStyle {
@@ -521,10 +522,10 @@ type BorderedTextStyle struct {
 
 	Padding         unit.Dp
 	BorderSize      unit.Dp
-	BorderColor     color.NRGBA
+	BorderColor     color.Oklch
 	TextSize        unit.Sp
-	TextColor       color.NRGBA
-	BackgroundColor color.NRGBA
+	TextColor       color.Oklch
+	BackgroundColor color.Oklch
 }
 
 func BorderedText(th *Theme, s string) BorderedTextStyle {
@@ -542,7 +543,7 @@ func BorderedText(th *Theme, s string) BorderedTextStyle {
 func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.BorderedTextStyle.Layout").End()
 
-	return widget.Bordered{Color: bt.BorderColor, Width: bt.BorderSize}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return Bordered{Color: bt.BorderColor, Width: bt.BorderSize}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		// Don't inherit the minimum constraint from the parent widget. In this specific case, this widget is being
 		// rendered as part of a flex child.
@@ -558,7 +559,7 @@ func (bt BorderedTextStyle) Layout(win *Window, gtx layout.Context) layout.Dimen
 			Max: image.Pt(dims.Size.X+2*padding, dims.Size.Y+2*padding),
 		}
 
-		paint.FillShape(gtx.Ops, bt.BackgroundColor, total.Op())
+		FillShape(win, gtx.Ops, bt.BackgroundColor, total.Op())
 
 		stack := op.Offset(image.Pt(padding, padding)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -575,19 +576,19 @@ type ButtonStyle struct {
 	Text   string
 	Button *widget.Clickable
 
-	ActiveBackgroundColor color.NRGBA
-	BackgroundColor       color.NRGBA
-	BorderColor           color.NRGBA
-	TextColor             color.NRGBA
-	TextColorDisabled     color.NRGBA
+	ActiveBackgroundColor color.Oklch
+	BackgroundColor       color.Oklch
+	BorderColor           color.Oklch
+	TextColor             color.Oklch
+	TextColorDisabled     color.Oklch
 }
 
 func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 	return ButtonStyle{
 		Text:                  txt,
 		Button:                button,
-		ActiveBackgroundColor: rgba(0xDDDDFFFF),
-		BackgroundColor:       rgba(0xFFFFFFFF),
+		ActiveBackgroundColor: oklch(90.81, 0.046, 285.44),
+		BackgroundColor:       oklch(100, 0, 0),
 		BorderColor:           th.Palette.Border,
 		TextColor:             th.Palette.Foreground,
 		TextColorDisabled:     th.Palette.ForegroundDisabled,
@@ -597,23 +598,23 @@ func Button(th *Theme, button *widget.Clickable, txt string) ButtonStyle {
 func (b ButtonStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ButtonStyle.Layout").End()
 
-	var bg color.NRGBA
+	var bg color.Oklch
 	if b.Button.Pressed(pointer.ButtonPrimary) {
 		bg = b.ActiveBackgroundColor
 	} else {
 		bg = b.BackgroundColor
 	}
 
-	var fg color.NRGBA
+	var fg color.Oklch
 	if gtx.Queue != nil {
 		fg = b.TextColor
 	} else {
 		fg = b.TextColorDisabled
 	}
 
-	return widget.Background{Color: bg}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return Background{Color: bg}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return b.Button.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return widget.Bordered{Color: b.BorderColor, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return Bordered{Color: b.BorderColor, Width: 1}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 				return layout.UniformInset(1).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, b.Text, win.ColorMaterial(gtx, fg))
 				})
@@ -639,7 +640,7 @@ func Grid(th *Theme, state *component.GridState) GridStyle {
 }
 
 // Layout will draw a grid, using fixed column widths and row height.
-func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay.Dimensioner, cellFunc outlay.Cell) layout.Dimensions {
+func (g GridStyle) Layout(win *Window, gtx layout.Context, rows, cols int, dimensioner outlay.Dimensioner, cellFunc outlay.Cell) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.GridStyle.Layout").End()
 
 	// Determine how much space the scrollbars occupy when present.
@@ -688,7 +689,7 @@ func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay
 		c.Constraints.Min = c.Constraints.Max
 		c.Constraints.Min.X += vBarWidth
 		layout.E.Layout(c, func(gtx layout.Context) layout.Dimensions {
-			return g.VScrollbarStyle.Layout(gtx, layout.Vertical, start, end)
+			return g.VScrollbarStyle.Layout(win, gtx, layout.Vertical, start, end)
 		})
 	}
 
@@ -700,7 +701,7 @@ func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay
 		c.Constraints.Min = c.Constraints.Max
 		c.Constraints.Min.Y += hBarWidth
 		layout.S.Layout(c, func(gtx layout.Context) layout.Dimensions {
-			return g.HScrollbarStyle.Layout(gtx, layout.Horizontal, start, end)
+			return g.HScrollbarStyle.Layout(win, gtx, layout.Horizontal, start, end)
 		})
 	}
 	dim.Size.Y += hBarWidth
@@ -710,7 +711,7 @@ func (g GridStyle) Layout(gtx layout.Context, rows, cols int, dimensioner outlay
 
 type ResizeStyle struct {
 	res         *component.Resize
-	BorderColor color.NRGBA
+	BorderColor color.Oklch
 }
 
 func Resize(th *Theme, state *component.Resize) ResizeStyle {
@@ -729,14 +730,14 @@ func (rs ResizeStyle) Layout(win *Window, gtx layout.Context, w1, w2 Widget) lay
 		hnd = func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = 5
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			paint.Fill(gtx.Ops, rs.BorderColor)
+			Fill(win, gtx.Ops, rs.BorderColor)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}
 	case layout.Vertical:
 		hnd = func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.Y = 5
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			paint.Fill(gtx.Ops, rs.BorderColor)
+			Fill(win, gtx.Ops, rs.BorderColor)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}
 	default:
@@ -765,17 +766,17 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	const padding = 5
 	const borderWidth = 1
 
-	activeForeground := win.ColorMaterial(gtx, rgba(0x000000FF))
-	inactiveForeground := win.ColorMaterial(gtx, rgba(0x3E3E3EFF))
+	activeForeground := win.ColorMaterial(gtx, oklch(0, 0, 0))
+	inactiveForeground := win.ColorMaterial(gtx, oklch(36.39, 0, 0))
 
-	activeBackground := rgba(0xDDDDFFFF)
-	inactiveBackground := rgba(0xFFFFFFFF)
+	activeBackground := oklch(90.81, 0.046, 285.44)
+	inactiveBackground := oklch(100, 0, 0)
 
 	activeFont := font.Font{Weight: font.Bold}
 	inactiveFont := font.Font{}
 
-	activeBorder := rgba(0xAAAAFFFF)
-	inactiveBorder := rgba(0xBBBBBBFF)
+	activeBorder := oklch(77.08, 0.121, 283.20)
+	inactiveBorder := oklch(79.21, 0, 0)
 
 	var (
 		leftForeground, rightForeground = activeForeground, inactiveForeground
@@ -818,8 +819,8 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	return ss.State.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				dims := widget.Border{Color: leftBorder, Width: borderWidth}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return widget.Background{Color: leftBackground}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				dims := Border{Color: leftBorder, Width: borderWidth}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+					return Background{Color: leftBackground}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -830,7 +831,7 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 				})
 
 				// Remove right part of the border
-				paint.FillShape(gtx.Ops, leftBackground, clip.Rect{Min: image.Pt(dims.Size.X-gtx.Dp(borderWidth), gtx.Dp(borderWidth)), Max: image.Pt(dims.Size.X, dims.Size.Y-gtx.Dp(borderWidth))}.Op())
+				FillShape(win, gtx.Ops, leftBackground, clip.Rect{Min: image.Pt(dims.Size.X-gtx.Dp(borderWidth), gtx.Dp(borderWidth)), Max: image.Pt(dims.Size.X, dims.Size.Y-gtx.Dp(borderWidth))}.Op())
 
 				return dims
 			}),
@@ -840,13 +841,13 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 				width := gtx.Dp(borderWidth)
 				height := dimsLeft.Size.Y + gtx.Dp(padding)*2
 				size := image.Pt(width, height)
-				paint.FillShape(gtx.Ops, activeBorder, clip.Rect{Max: size}.Op())
+				FillShape(win, gtx.Ops, activeBorder, clip.Rect{Max: size}.Op())
 				return layout.Dimensions{Size: size}
 			}),
 
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				dims := widget.Border{Color: rightBorder, Width: borderWidth}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return widget.Background{Color: rightBackground}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				dims := Border{Color: rightBorder, Width: borderWidth}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+					return Background{Color: rightBackground}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(padding).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -857,7 +858,7 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 				})
 
 				// Remove left part of the border
-				paint.FillShape(gtx.Ops, rightBackground, clip.Rect{Min: image.Pt(0, gtx.Dp(borderWidth)), Max: image.Pt(gtx.Dp(borderWidth), dims.Size.Y-gtx.Dp(borderWidth))}.Op())
+				FillShape(win, gtx.Ops, rightBackground, clip.Rect{Min: image.Pt(0, gtx.Dp(borderWidth)), Max: image.Pt(gtx.Dp(borderWidth), dims.Size.Y-gtx.Dp(borderWidth))}.Op())
 
 				return dims
 			}),
@@ -909,7 +910,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 	const lineThickness = 1
 	const activeLineThickness = 3
 
-	dims := widget.Background{Color: win.Theme.Palette.Background}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dims := Background{Color: win.Theme.Palette.Background}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		return layout.Rigids(gtx, layout.Vertical,
 			// Tabs
 			func(gtx layout.Context) layout.Dimensions {
@@ -928,7 +929,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 							x1 := dims.Size.X
 							y0 := dims.Size.Y - gtx.Dp(activeLineThickness)
 							y1 := y0 + gtx.Dp(activeLineThickness)
-							paint.FillShape(gtx.Ops, rgba(0x9696FFFF), clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
+							FillShape(win, gtx.Ops, oklch(71.79, 0.151, 281.92), clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
 						}
 
 						return dims
@@ -939,7 +940,7 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 			// Line
 			func(gtx layout.Context) layout.Dimensions {
 				r := clip.Rect{Max: image.Pt(gtx.Constraints.Min.X, gtx.Dp(lineThickness))}
-				paint.FillShape(gtx.Ops, rgba(0x000000FF), r.Op())
+				FillShape(win, gtx.Ops, oklch(0, 0, 0), r.Op())
 				return layout.Dimensions{Size: r.Max}
 			},
 

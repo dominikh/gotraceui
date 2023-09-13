@@ -4,11 +4,11 @@ package main
 
 import (
 	"context"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"time"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/widget"
@@ -19,7 +19,6 @@ import (
 	"gioui.org/io/system"
 	"gioui.org/op"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 )
 
@@ -51,7 +50,7 @@ func (g *debugGraph) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	// is constantly changing.
 
 	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, g.background)
+	theme.Fill(win, gtx.Ops, g.background)
 
 	g.mu.Lock()
 	values := g.values
@@ -62,7 +61,6 @@ func (g *debugGraph) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = 0
-				paint.ColorOp{Color: rgba(0x000000FF)}.Add(gtx.Ops)
 				return widget.Label{Alignment: text.Middle}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, g.title, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 			}),
 
@@ -143,7 +141,7 @@ func (g *debugGraph) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					Path:  p.End(),
 					Width: float32(gtx.Dp(1)),
 				}.Op()
-				paint.FillShape(gtx.Ops, color.NRGBA{0, 0, 0, 0xFF}, o)
+				theme.FillShape(win, gtx.Ops, oklch(0, 0, 0), o)
 
 				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
@@ -155,14 +153,14 @@ func NewDebugWindow() *DebugWindow {
 	const timeWindow = 20 * time.Second
 	dwin := &DebugWindow{}
 
-	bgs := []color.NRGBA{
-		rgba(0xFFEBEFFF),
-		rgba(0xEFFFFFFF),
-		rgba(0xFFFFEFFF),
-		rgba(0xEFFFEFFF),
-		rgba(0xC6EBFFFF),
-		rgba(0xEFEFEFFF),
-		rgba(0xFFEBEFFF),
+	bgs := []color.Oklch{
+		oklch(95, 0.02, 3.81),
+		oklch(95, 0.02, 196.89),
+		oklch(95, 0.02, 106.77),
+		oklch(95, 0.02, 145.37),
+		oklch(95, 0.02, 231.58),
+		oklch(95, 0, 0),
+		oklch(95, 0.02, 3.81),
 	}
 
 	dwin.cvStart = debugGraph{

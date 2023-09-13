@@ -68,7 +68,7 @@ func List(th *Theme, state *widget.List) ListStyle {
 }
 
 // Layout the list and its scrollbar.
-func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) layout.Dimensions {
+func (l ListStyle) Layout(win *Window, gtx layout.Context, length int, w layout.ListElement) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.ListStyle.Layout").End()
 
 	// originalConstraints are the constraints that the user passed to ListStyle.Layout. These are the constraints in
@@ -186,7 +186,7 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 		}
 
 		start, end := FromListPosition(l.state.Position, length, majorAxisSize)
-		return l.Main.Layout(gtx, l.state.Axis, start, end)
+		return l.Main.Layout(win, gtx, l.state.Axis, start, end)
 	})
 
 	if l.EnableCrossScrolling {
@@ -203,7 +203,7 @@ func (l ListStyle) Layout(gtx layout.Context, length int, w layout.ListElement) 
 				start = float32(l.state.CrossOffset) / float32(crossWidth)
 				end = start + width
 			}
-			return l.Cross.Layout(gtx, (l.state.Axis+1)%2, start, end)
+			return l.Cross.Layout(win, gtx, (l.state.Axis+1)%2, start, end)
 		})
 	}
 

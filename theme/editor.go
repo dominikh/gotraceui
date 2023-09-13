@@ -4,9 +4,9 @@ package theme
 
 import (
 	"context"
-	"image/color"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/f32color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
@@ -22,13 +22,13 @@ type EditorStyle struct {
 	Font     font.Font
 	TextSize unit.Sp
 	// Color is the text color.
-	Color color.NRGBA
+	Color color.Oklch
 	// Hint contains the text displayed when the editor is empty.
 	Hint string
 	// HintColor is the color of hint text.
-	HintColor color.NRGBA
+	HintColor color.Oklch
 	// SelectionColor is the color of the background for selected text.
-	SelectionColor color.NRGBA
+	SelectionColor color.Oklch
 	Editor         *widget.Editor
 
 	shaper *text.Shaper
@@ -41,23 +41,23 @@ func Editor(th *Theme, editor *widget.Editor, hint string) EditorStyle {
 		Color:          th.Palette.Foreground,
 		shaper:         th.Shaper,
 		Hint:           hint,
-		HintColor:      f32color.MulAlpha(th.Palette.Foreground, 0xbb),
+		HintColor:      f32color.MulAlpha(th.Palette.Foreground, 0.73),
 		SelectionColor: th.Palette.PrimarySelection,
 	}
 }
 
-func (e EditorStyle) Layout(gtx layout.Context) layout.Dimensions {
+func (e EditorStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.EditorStyle.Layout").End()
 
 	// Choose colors.
 	textColorMacro := op.Record(gtx.Ops)
-	paint.ColorOp{Color: e.Color}.Add(gtx.Ops)
+	paint.ColorOp{Color: win.ConvertColor(e.Color)}.Add(gtx.Ops)
 	textColor := textColorMacro.Stop()
 	hintColorMacro := op.Record(gtx.Ops)
-	paint.ColorOp{Color: e.HintColor}.Add(gtx.Ops)
+	paint.ColorOp{Color: win.ConvertColor(e.HintColor)}.Add(gtx.Ops)
 	hintColor := hintColorMacro.Stop()
 	selectionColorMacro := op.Record(gtx.Ops)
-	paint.ColorOp{Color: blendDisabledColor(gtx.Queue == nil, e.SelectionColor)}.Add(gtx.Ops)
+	paint.ColorOp{Color: win.ConvertColor(blendDisabledColor(gtx.Queue == nil, e.SelectionColor))}.Add(gtx.Ops)
 	selectionColor := selectionColorMacro.Stop()
 
 	var maxlines int
@@ -83,7 +83,7 @@ func (e EditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	return dims
 }
 
-func blendDisabledColor(disabled bool, c color.NRGBA) color.NRGBA {
+func blendDisabledColor(disabled bool, c color.Oklch) color.Oklch {
 	if disabled {
 		return f32color.Disabled(c)
 	}
@@ -99,16 +99,16 @@ func TextBox(th *Theme, editor *widget.Editor, hint string) TextBoxStyle {
 	return TextBoxStyle{EditorStyle: Editor(th, editor, hint)}
 }
 
-func (tb TextBoxStyle) Layout(gtx layout.Context) layout.Dimensions {
+func (tb TextBoxStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.TextBoxStyle.Layout").End()
 
 	if tb.Validate != nil && !tb.Validate(tb.Editor.Text()) {
-		tb.Color = rgba(0xFF0000FF)
+		tb.Color = oklch(62.8, 0.258, 29.234)
 	}
-	return widget.Background{Color: rgba(0xFFFFFFFF)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return widget.Bordered{Color: rgba(0x000000FF), Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return Background{Color: oklch(100, 0, 0)}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
+		return Bordered{Color: oklch(0, 0, 0), Width: 1}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return tb.EditorStyle.Layout(gtx)
+				return tb.EditorStyle.Layout(win, gtx)
 			})
 		})
 	})

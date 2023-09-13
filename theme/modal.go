@@ -2,19 +2,18 @@ package theme
 
 import (
 	"context"
-	"image/color"
 	rtrace "runtime/trace"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op/clip"
-	"gioui.org/op/paint"
 )
 
 type ModalStyle struct {
-	Background color.NRGBA
+	Background color.Oklch
 	Cancelled  *bool
 }
 
@@ -29,7 +28,7 @@ func (m ModalStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dim
 
 	// FIXME(dh): the modal doesn't cover the whole window if an offset or transform is active
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, m.Background)
+	Fill(win, gtx.Ops, m.Background)
 
 	for _, ev := range gtx.Events(m) {
 		switch ev := ev.(type) {

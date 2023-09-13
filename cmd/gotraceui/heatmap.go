@@ -178,7 +178,7 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		stack := clip.Rect{Max: dims}.Push(&hm.cachedOps)
 		// Use a white background, instead of the yellowish one we use everywhere else, to improve contrast and
 		// legibility.
-		paint.Fill(&hm.cachedOps, rgba(0xFFFFFFFF))
+		theme.Fill(win, &hm.cachedOps, oklch(100, 0, 0))
 		pointer.InputOp{Tag: hm, Types: pointer.Move}.Add(&hm.cachedOps)
 
 		max := 0
@@ -262,7 +262,7 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			Width: float32(gtx.Dp(1)),
 		}.Op(gtx.Ops)
 		// XXX use constant or theme for the color
-		paint.FillShape(gtx.Ops, rgba(0x0000FFFF), outline)
+		theme.FillShape(win, gtx.Ops, oklch(45.201, 0.31321, 264.05203), outline)
 
 		idx := x*hm.numYBuckets + y
 		hm.hovered = HeatmapBucket{
@@ -337,7 +337,7 @@ func (hmc *HeatmapComponent) Layout(win *theme.Window, gtx layout.Context) layou
 	ySteps := [...]int{1, 2, 4, 5, 10, 20, 25, 50, 100}
 
 	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, win.Theme.Palette.Background)
+	theme.Fill(win, gtx.Ops, win.Theme.Palette.Background)
 
 	if hmc.useLinear.Changed() {
 		hmc.hm.UseLinearColors = hmc.useLinear.Value

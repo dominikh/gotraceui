@@ -3,13 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
-	"image/color"
 	"os"
 	"runtime"
 	"runtime/pprof"
 	"sync"
 	"time"
 
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/trace"
 )
 
@@ -21,7 +21,7 @@ var (
 type debugGraph struct {
 	title           string
 	width           time.Duration
-	background      color.NRGBA
+	background      color.Oklch
 	fixedZero       bool
 	stickyLastValue bool
 

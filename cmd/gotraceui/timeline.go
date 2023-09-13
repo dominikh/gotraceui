@@ -451,7 +451,7 @@ func (tl *Timeline) Layout(win *theme.Window, gtx layout.Context, cv *Canvas, fo
 	if !compact {
 		if tl.widget.Hovered() || forceLabel || topBorder {
 			// Draw border at top of the timeline
-			paint.FillShape(gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
+			theme.FillShape(win, gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
 		if tl.widget.Hovered() || forceLabel {
@@ -706,7 +706,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		gtx.Constraints == track.widget.prevFrame.constraints {
 
 		track.widget.prevFrame.call.Add(gtx.Ops)
-		debugCaching(gtx)
+		debugCaching(win, gtx)
 		return track.widget.prevFrame.dims
 	}
 
@@ -974,7 +974,7 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 						left = minP.X
 					}
 					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
-					paint.ColorOp{Color: win.Theme.Palette.Foreground}.Add(labelsOps)
+					paint.ColorOp{Color: win.ConvertColor(win.Theme.Palette.Foreground)}.Add(labelsOps)
 					stack2 := clip.FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
 					call.Add(labelsOps)
 					stack2.Pop()
@@ -1059,11 +1059,11 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 		bottom := mid + 2
 		if unbornUntilPx > 0 {
 			// Draw the unborn indicator
-			paint.FillShape(gtx.Ops, rgba(0x10a56fFF), clip.FRect{Min: f32.Pt(0, top), Max: f32.Pt(unbornUntilPx, bottom)}.Op(gtx.Ops))
+			theme.FillShape(win, gtx.Ops, oklch(63.87, 0.14, 160.78), clip.FRect{Min: f32.Pt(0, top), Max: f32.Pt(unbornUntilPx, bottom)}.Op(gtx.Ops))
 		}
 		if deadFromPx < visWidthPx {
 			// Draw the dead indicator
-			paint.FillShape(gtx.Ops, rgba(0x6F6F6FFF), clip.FRect{Min: f32.Pt(deadFromPx, top), Max: f32.Pt(visWidthPx, bottom)}.Op(gtx.Ops))
+			theme.FillShape(win, gtx.Ops, oklch(54.17, 0, 0), clip.FRect{Min: f32.Pt(deadFromPx, top), Max: f32.Pt(visWidthPx, bottom)}.Op(gtx.Ops))
 		}
 	}
 
@@ -1071,28 +1071,28 @@ func (track *Track) Layout(win *theme.Window, gtx layout.Context, tl *Timeline, 
 	//
 	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
 	// specific instance.
-	paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: outlinesPath.End()}.Op())
-	paint.FillShape(gtx.Ops, colors[colorSpanHighlightedSecondaryOutline], clip.Outline{Path: highlightedSecondaryOutlinesPath.End()}.Op())
-	paint.FillShape(gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: highlightedPrimaryOutlinesPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: outlinesPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedSecondaryOutline], clip.Outline{Path: highlightedSecondaryOutlinesPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: highlightedPrimaryOutlinesPath.End()}.Op())
 
 	// Then draw the spans
 	for cIdx := range paths {
 		p := &paths[cIdx]
 		if cIdx < int(colorStateLast) {
-			paint.FillShape(gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
+			theme.FillShape(win, gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
 		} else {
 			stack := clip.Outline{Path: p.End()}.Op().Push(gtx.Ops)
 			paint.LinearGradientOp{
 				Stop1:  f32.Pt(0, 10),
-				Color1: colors[cIdx-int(colorStateLast)],
+				Color1: win.ConvertColor(colors[cIdx-int(colorStateLast)]),
 				Stop2:  f32.Pt(0, 20),
-				Color2: colors[colorStateMerged],
+				Color2: win.ConvertColor(colors[colorStateMerged]),
 			}.Add(gtx.Ops)
 			paint.PaintOp{}.Add(gtx.Ops)
 			stack.Pop()
 		}
 	}
-	paint.FillShape(gtx.Ops, rgba(0x000000DD), clip.Outline{Path: eventsPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, oklcha(0, 0, 0, 0.85), clip.Outline{Path: eventsPath.End()}.Op())
 
 	// Finally print labels on top
 	labelsMacro.Stop().Add(gtx.Ops)

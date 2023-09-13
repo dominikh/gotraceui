@@ -231,7 +231,7 @@ func textSpinner(now time.Time) string {
 func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider) {
 	// OPT(dh): there's no need to store the spans in a slice, so TextBuilder isn't what we want
 	// OPT(dh): reuse memory
-	tb := TextBuilder{Theme: win.Theme}
+	tb := TextBuilder{Window: win}
 	var attrs []DescriptionAttribute
 	if si.cfg.Label != "" {
 		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: *tb.Span(si.cfg.Label)})
@@ -463,7 +463,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					gtx.Constraints.Min = gtx.Constraints.Max
 					switch tabs[si.tabbedState.Current] {
 					case "Stack trace":
-						return theme.List(win.Theme, &si.stacktraceList).Layout(gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
+						return theme.List(win.Theme, &si.stacktraceList).Layout(win, gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
 							if index != 0 {
 								panic("impossible")
 							}

@@ -309,7 +309,7 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 
 		// TODO(dh): explicitly select tabular figures from the font. It's not crucial because most fonts default to
 		// it, anyway.
-		txt := styledtext.Text(win.Theme.Shaper, span(win.Theme, value), span(win.Theme, " "), span(win.Theme, unit))
+		txt := styledtext.Text(win.Theme.Shaper, span(win, value), span(win, " "), span(win, unit))
 		txt.Styles[2].Font.Typeface = "Go Mono"
 		if col != 0 {
 			txt.Alignment = text.End

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -23,7 +23,7 @@ import (
 	"gioui.org/io/pointer"
 )
 
-var colorLink = mycolor.Oklch{L: 0.7862, C: 0.104, H: 270, Alpha: 1}
+var colorLink = color.Oklch{L: 0.7862, C: 0.104, H: 270, A: 1}
 
 type Link struct {
 	gesture.Click

@@ -34,8 +34,8 @@ type Text struct {
 }
 
 type TextBuilder struct {
-	Theme *theme.Theme
-	Spans []TextSpan
+	Window *theme.Window
+	Spans  []TextSpan
 }
 
 type TextEvent struct {
@@ -57,8 +57,8 @@ func (txt *TextBuilder) Add(s TextSpan) {
 func (txt *TextBuilder) Span(label string) *TextSpan {
 	style := styledtext.SpanStyle{
 		Content: label,
-		Size:    txt.Theme.TextSize,
-		Color:   txt.Theme.Palette.Foreground,
+		Size:    txt.Window.Theme.TextSize,
+		Color:   txt.Window.ConvertColor(txt.Window.Theme.Palette.Foreground),
 		Font:    ourfont.Collection()[0].Font,
 	}
 	s := TextSpan{
@@ -90,11 +90,11 @@ func (txt *TextBuilder) Link(label string, link ObjectLink) *TextSpan {
 	a := link.Action(0)
 	switch a.(type) {
 	case NavigationAction:
-		s.Color = txt.Theme.Palette.NavigationLink
+		s.Color = txt.Window.ConvertColor(txt.Window.Theme.Palette.NavigationLink)
 	case OpenAction:
-		s.Color = txt.Theme.Palette.OpenLink
+		s.Color = txt.Window.ConvertColor(txt.Window.Theme.Palette.OpenLink)
 	default:
-		s.Color = txt.Theme.Palette.Link
+		s.Color = txt.Window.ConvertColor(txt.Window.Theme.Palette.Link)
 	}
 	return s
 }

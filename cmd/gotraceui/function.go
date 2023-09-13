@@ -54,7 +54,7 @@ func (fi *FunctionInfo) HoveredLink() ObjectLink {
 }
 
 func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) Description {
-	tb := TextBuilder{Theme: win.Theme}
+	tb := TextBuilder{Window: win}
 	var attrs []DescriptionAttribute
 
 	attrs = append(attrs, DescriptionAttribute{

@@ -217,7 +217,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		txtCnt++
 		txt.Reset(win.Theme)
 
-		tb := TextBuilder{Theme: win.Theme}
+		tb := TextBuilder{Window: win}
 
 		// OPT(dh): there are several allocations here, such as creating slices and using fmt.Sprintf
 

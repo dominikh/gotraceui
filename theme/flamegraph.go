@@ -3,7 +3,6 @@ package theme
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"strings"
@@ -11,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	"honnef.co/go/gotraceui/clip"
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -23,7 +22,6 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
-	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
 	"golang.org/x/exp/slices"
@@ -74,7 +72,7 @@ type FlameGraphState struct {
 	}
 
 	// scratch space reused between frames
-	pathsByColor map[mycolor.Oklch]*clip.Path
+	pathsByColor map[color.Oklch]*clip.Path
 	paths        mem.BucketSlice[clip.Path]
 	ops          mem.BucketSlice[op.Ops]
 	indices      []int
@@ -83,15 +81,15 @@ type FlameGraphState struct {
 type FlameGraphStyle struct {
 	State      *widget.FlameGraph
 	StyleState *FlameGraphState
-	Color      func(level, idx int, f *widget.FlamegraphFrame, hovered bool) mycolor.Oklch
+	Color      func(level, idx int, f *widget.FlamegraphFrame, hovered bool) color.Oklch
 }
 
 func FlameGraph(state *widget.FlameGraph, sstate *FlameGraphState) FlameGraphStyle {
 	return FlameGraphStyle{
 		State:      state,
 		StyleState: sstate,
-		Color: func(level, idx int, f *widget.FlamegraphFrame, hovered bool) mycolor.Oklch {
-			return mycolor.Oklch{}
+		Color: func(level, idx int, f *widget.FlamegraphFrame, hovered bool) color.Oklch {
+			return color.Oklch{}
 		},
 	}
 }
@@ -257,7 +255,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 						dspSpan := pxSpan
 						dspSpan.Min.Y = flipY(pxSpan.Min.Y)
 						dspSpan.Max.Y = flipY(pxSpan.Max.Y)
-						paint.FillShape(gtx.Ops, color.NRGBA{0, 0, 0, 0xFF}, dspSpan.Op(gtx.Ops))
+						FillShape(win, gtx.Ops, oklch(0, 0, 0), dspSpan.Op(gtx.Ops))
 					}
 				}
 				if ptPx.X <= pxSpan.Max.X && level < targetLevel {
@@ -322,11 +320,11 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		}
 		fg.StyleState.indices = fg.StyleState.indices[:0]
 		if fg.StyleState.pathsByColor == nil {
-			fg.StyleState.pathsByColor = map[mycolor.Oklch]*clip.Path{}
+			fg.StyleState.pathsByColor = map[color.Oklch]*clip.Path{}
 		} else {
 			clear(fg.StyleState.pathsByColor)
 		}
-		getPath := func(c mycolor.Oklch) *clip.Path {
+		getPath := func(c color.Oklch) *clip.Path {
 			p := fg.StyleState.pathsByColor[c]
 			if p == nil {
 				p = fg.StyleState.paths.Append(clip.Path{})
@@ -422,7 +420,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 						if float32(win.TextLength(gtx, widget.Label{}, f, 12, l)) > pxSize.X {
 							l = shortenFunctionName(frame.Name)
 						}
-						_, tinf := widget.Label{MaxLines: 1, Alignment: text.Middle}.LayoutDetailed(gtx, win.Theme.Shaper, f, 12, l, win.ColorMaterial(gtx, rgba(0x000000FF)))
+						_, tinf := widget.Label{MaxLines: 1, Alignment: text.Middle}.LayoutDetailed(gtx, win.Theme.Shaper, f, 12, l, win.ColorMaterial(gtx, oklch(0, 0, 0)))
 						c := m.Stop()
 						// Don't display a label if it's just a period followed by an ellipsis
 						if tinf.Truncated == 0 || utf8.RuneCountInString(l)-tinf.Truncated != 1 || l[0] != '.' {
@@ -446,11 +444,11 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 		c := labelsMacro.Stop()
 		for c, p := range fg.StyleState.pathsByColor {
-			cc := win.ConvertColor(c)
+			cc := c
 			if debugCaching {
 				cc.A = 50
 			}
-			paint.FillShape(gtx.Ops, cc, clip.Outline{Path: p.End()}.Op())
+			FillShape(win, gtx.Ops, cc, clip.Outline{Path: p.End()}.Op())
 		}
 		c.Add(gtx.Ops)
 

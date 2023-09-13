@@ -5,7 +5,7 @@ import (
 	"fmt"
 	rtrace "runtime/trace"
 
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
 )
@@ -114,7 +114,7 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 
 		cmd := btn.cmd
 		cmd.Category = "Panel"
-		cmd.Color = mycolor.Oklch{L: 0.7862, C: 0.104, H: 140, Alpha: 1}
+		cmd.Color = color.Oklch{L: 0.7862, C: 0.104, H: 140, A: 1}
 		cmd.Fn = func() Action {
 			return ExecuteAction(func(gtx layout.Context) {
 				btn.w.Click()

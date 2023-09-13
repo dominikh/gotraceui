@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"unsafe"
 
 	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -831,7 +831,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 	buildDescription := func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider) {
 		var attrs []DescriptionAttribute
 		// OPT(dh): we don't need TextBuilder to collect the spans in this case.
-		tb := TextBuilder{Theme: win.Theme}
+		tb := TextBuilder{Window: win}
 
 		var cmds theme.CommandSlice
 		addCmds := func(cps []theme.Command) {
@@ -1121,12 +1121,12 @@ func (gs *GoroutineList) initTable(win *theme.Window, gtx layout.Context) {
 	r0 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Pt(99999, 99999)
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, "Goroutine", win.ColorMaterial(gtx, color.NRGBA{}))
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{Weight: font.Bold}, 12, "Goroutine", win.ColorMaterial(gtx, color.Oklch{}))
 	})
 	r1 := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min = image.Point{}
 		gtx.Constraints.Max = image.Pt(99999, 99999)
-		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), win.ColorMaterial(gtx, color.NRGBA{}))
+		return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d", maxID), win.ColorMaterial(gtx, color.Oklch{}))
 	})
 	w := r0.Dimensions.Size.X
 	if x := r1.Dimensions.Size.X; x > w {

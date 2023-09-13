@@ -23,7 +23,7 @@ import (
 	"unicode"
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/container"
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
@@ -58,11 +58,11 @@ var (
 	spanSliceCache          = mem.NewConcurrentSliceCache[ptrace.Span, []ptrace.Span]()
 	stackSpanMetaSliceCache = mem.NewConcurrentSliceCache[stackSpanMeta, []stackSpanMeta]()
 )
-var colorPanel = mycolor.Oklch{L: 0.7862, C: 0.104, H: 140, Alpha: 1}
+var colorPanel = color.Oklch{L: 0.7862, C: 0.104, H: 140, A: 1}
 
-func debugCaching(gtx layout.Context) {
+func debugCaching(win *theme.Window, gtx layout.Context) {
 	if false {
-		paint.Fill(gtx.Ops, rgba(0xFF00FFAA))
+		theme.Fill(win, gtx.Ops, oklcha(70.17, 0.322, 328.36, 0.66))
 	}
 }
 
@@ -219,7 +219,7 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 					}
 				}
 
-				paint.Fill(gtx.Ops, tWin.Theme.Palette.Background)
+				theme.Fill(win, gtx.Ops, tWin.Theme.Palette.Background)
 				return pwin.Panel.Layout(win, gtx)
 			})
 
@@ -542,7 +542,7 @@ func (mwin *MainWindow) Run() error {
 				profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 				// Fill background
-				paint.Fill(gtx.Ops, mwin.twin.Theme.Palette.Background)
+				theme.Fill(win, gtx.Ops, mwin.twin.Theme.Palette.Background)
 
 				switch mwin.state {
 				case "empty":
@@ -601,7 +601,7 @@ func (mwin *MainWindow) renderErrorScene(win *theme.Window, gtx layout.Context) 
 }
 
 func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
-	paint.ColorOp{Color: mwin.twin.Theme.Palette.Foreground}.Add(gtx.Ops)
+	paint.ColorOp{Color: mwin.twin.ConvertColor(mwin.twin.Theme.Palette.Foreground)}.Add(gtx.Ops)
 
 	// Redraw continuously to show progress updates
 	op.InvalidateOp{}.Add(gtx.Ops)
@@ -642,7 +642,7 @@ func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Co
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))
 					gtx.Constraints.Max = gtx.Constraints.Min
-					return theme.ProgressBar(mwin.twin.Theme, float32(progress)).Layout(gtx)
+					return theme.ProgressBar(mwin.twin.Theme, float32(progress)).Layout(win, gtx)
 				}))
 		})
 	})
@@ -780,11 +780,11 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 
 func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
 	var (
-		colorDisplay    = mycolor.Oklch{L: 0.7862, C: 0.104, H: 219.74, Alpha: 1}
-		colorAnalysis   = mycolor.Oklch{L: 0.7862, C: 0.104, H: 82.85, Alpha: 1}
-		colorNavigation = mycolor.Oklch{L: 0.7862, C: 0.104, H: 175.7, Alpha: 1}
-		colorDebug      = mycolor.Oklch{}
-		colorGeneral    = mycolor.Oklch{L: 0.7862, C: 0.104, H: 120, Alpha: 1}
+		colorDisplay    = color.Oklch{L: 0.7862, C: 0.104, H: 219.74, A: 1}
+		colorAnalysis   = color.Oklch{L: 0.7862, C: 0.104, H: 82.85, A: 1}
+		colorNavigation = color.Oklch{L: 0.7862, C: 0.104, H: 175.7, A: 1}
+		colorDebug      = color.Oklch{}
+		colorGeneral    = color.Oklch{L: 0.7862, C: 0.104, H: 120, A: 1}
 	)
 
 	cmds := theme.CommandSlice{
@@ -1252,17 +1252,17 @@ type Window interface {
 	HoveredLinker
 }
 
-func span(th *theme.Theme, text string) styledtext.SpanStyle {
+func span(win *theme.Window, text string) styledtext.SpanStyle {
 	return styledtext.SpanStyle{
 		Content: text,
-		Size:    th.TextSize,
-		Color:   th.Palette.Foreground,
+		Size:    win.Theme.TextSize,
+		Color:   win.ConvertColor(win.Theme.Palette.Foreground),
 		Font:    ourfont.Collection()[0].Font,
 	}
 }
 
-func spanWith(th *theme.Theme, text string, fn func(styledtext.SpanStyle) styledtext.SpanStyle) styledtext.SpanStyle {
-	return fn(span(th, text))
+func spanWith(win *theme.Window, text string, fn func(styledtext.SpanStyle) styledtext.SpanStyle) styledtext.SpanStyle {
+	return fn(span(win, text))
 }
 
 var local = message.NewPrinter(message.MatchLanguage("en"))
@@ -1585,7 +1585,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 			Name:   "Heap size",
 			Points: pt.HeapSize,
 			Filled: true,
-			Color:  rgba(0x7EB072FF),
+			Color:  oklch(70.59, 0.102, 139.64),
 		},
 		PlotSeries{
 			Name:   "Heap goal",
@@ -1658,7 +1658,7 @@ type DescriptionAttribute struct {
 func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text) layout.Dimensions {
 	txt.Reset(win.Theme)
 	// OPT(dh): reuse space
-	tb := TextBuilder{Theme: win.Theme}
+	tb := TextBuilder{Window: win}
 	for _, attr := range desc.Attributes {
 		tb.Bold(fmt.Sprintf("%s: ", attr.Key))
 		tb.Add(attr.Value)
@@ -1703,7 +1703,7 @@ func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context,
 	return theme.NormalCommand{
 		PrimaryLabel:   cmd.Timeline.label,
 		SecondaryLabel: local.Sprintf("%d spans\n%d ns—%d ns (%s)", numSpans, start, end, roundDuration(time.Duration(end-start))),
-		Color:          mycolor.Oklch{L: 0.7862, C: 0.104, H: 139.8, Alpha: 1},
+		Color:          color.Oklch{L: 0.7862, C: 0.104, H: 139.8, A: 1},
 	}.Layout(win, gtx, current)
 }
 

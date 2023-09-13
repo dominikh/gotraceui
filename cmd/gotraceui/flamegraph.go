@@ -7,9 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/op/paint"
 	"honnef.co/go/gotraceui/clip"
-	mycolor "honnef.co/go/gotraceui/color"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -157,7 +156,7 @@ func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Go
 
 func (fgc *FlameGraphComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-	paint.Fill(gtx.Ops, win.Theme.Palette.Background)
+	theme.Fill(win, gtx.Ops, win.Theme.Palette.Background)
 	fg, ok := fgc.fg.Result()
 	if !ok {
 		// XXX
@@ -168,20 +167,20 @@ func (fgc *FlameGraphComponent) Layout(win *theme.Window, gtx layout.Context) la
 	return fgs.Layout(win, gtx)
 }
 
-func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) mycolor.Oklch {
+func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) color.Oklch {
 	if hovered {
-		return mycolor.Oklch{
-			L:     0.94,
-			C:     0.222,
-			H:     119,
-			Alpha: 1,
+		return color.Oklch{
+			L: 0.94,
+			C: 0.222,
+			H: 119,
+			A: 1,
 		}
 	}
 
 	// Mapping from index to color adjustments. The adjustments are sorted to maximize
 	// the differences between neighboring spans.
 	offsets := [...]float32{4, 9, 3, 8, 2, 7, 1, 6, 0, 5}
-	adjustLight := func(mc mycolor.Oklch) mycolor.Oklch {
+	adjustLight := func(mc color.Oklch) color.Oklch {
 		var (
 			oldMax = float32(len(offsets))
 			newMin = float32(-0.05)
@@ -204,42 +203,42 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 	if level == 0 {
 		switch f.Name {
 		case "Running":
-			return adjustLight(colorsOklch[colorStateActive])
+			return adjustLight(colors[colorStateActive])
 		case "blocked":
-			return adjustLight(colorsOklch[colorStateBlocked])
+			return adjustLight(colors[colorStateBlocked])
 		case "send", "recv", "select", "sync", "sync.Once", "sync.Cond":
-			return adjustLight(colorsOklch[colorStateBlockedHappensBefore])
+			return adjustLight(colors[colorStateBlockedHappensBefore])
 		case "GC", "triggering GC":
-			return adjustLight(colorsOklch[colorStateBlockedGC])
+			return adjustLight(colors[colorStateBlockedGC])
 		case "I/O":
-			return adjustLight(colorsOklch[colorStateBlockedNet])
+			return adjustLight(colors[colorStateBlockedNet])
 		case "blocking syscall":
-			return adjustLight(colorsOklch[colorStateBlockedSyscall])
+			return adjustLight(colors[colorStateBlockedSyscall])
 		case "ready":
-			return adjustLight(colorsOklch[colorStateReady])
+			return adjustLight(colors[colorStateReady])
 		}
 	}
 
-	cRuntime := mycolor.Oklch{ // #cb77e1
-		L:     0.699,
-		C:     0.173,
-		H:     318.89,
-		Alpha: 1.0,
+	cRuntime := color.Oklch{ // #cb77e1
+		L: 0.699,
+		C: 0.173,
+		H: 318.89,
+		A: 1.0,
 	}
-	cStdlib := mycolor.Oklch{ // #ffb300
-		L:     0.8179,
-		C:     0.1705233575429752,
-		H:     77.9481021312874,
-		Alpha: 1.0,
+	cStdlib := color.Oklch{ // #ffb300
+		L: 0.8179,
+		C: 0.1705233575429752,
+		H: 77.9481021312874,
+		A: 1.0,
 	}
-	cMain := mycolor.Oklch{ // #007d34
-		L:     0.5167,
-		C:     0.13481202013716384,
-		H:     152.37558843925763,
-		Alpha: 1.0,
+	cMain := color.Oklch{ // #007d34
+		L: 0.5167,
+		C: 0.13481202013716384,
+		H: 152.37558843925763,
+		A: 1.0,
 	}
 
-	var c mycolor.Oklch
+	var c color.Oklch
 	if strings.HasPrefix(f.Name, "runtime.") || strings.HasPrefix(f.Name, "runtime/") || !strings.Contains(f.Name, ".") {
 		c = cRuntime
 	} else {
@@ -273,11 +272,11 @@ func flameGraphColorFn(level, idx int, f *widget.FlamegraphFrame, hovered bool) 
 
 			hue := hueStep * float32(sum%uint64(360.0/hueStep))
 
-			c = mycolor.Oklch{
-				L:     baseLightness,
-				C:     baseChroma,
-				H:     hue,
-				Alpha: 1.0,
+			c = color.Oklch{
+				L: baseLightness,
+				C: baseChroma,
+				H: hue,
+				A: 1.0,
 			}
 		}
 	}

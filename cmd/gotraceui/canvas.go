@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"sort"
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
@@ -855,7 +855,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			pointer.CursorAllScroll.Add(gtx.Ops)
 		}
 
-		drawRegionOverlays := func(spans Items[ptrace.Span], c color.NRGBA, height int) {
+		drawRegionOverlays := func(spans Items[ptrace.Span], c color.Oklch, height int) {
 			var p clip.Path
 			p.Begin(gtx.Ops)
 			visible := cv.visibleSpans(spans)
@@ -882,7 +882,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					Max: f32.Pt(xMax, float32(height)),
 				}.IntoPath(&p)
 			}
-			paint.FillShape(gtx.Ops, c, clip.Outline{Path: p.End()}.Op())
+			theme.FillShape(win, gtx.Ops, c, clip.Outline{Path: p.End()}.Op())
 		}
 
 		// Draw axis, memory graph, timelines, and scrollbar
@@ -963,7 +963,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 								fraction := float32(gtx.Constraints.Max.Y) / float32(totalHeight)
 								sb := theme.Scrollbar(win.Theme, &cv.scrollbar)
-								return sb.Layout(gtx, layout.Vertical, float32(cv.y), float32(cv.y)+fraction)
+								return sb.Layout(win, gtx, layout.Vertical, float32(cv.y), float32(cv.y)+fraction)
 							}),
 						)
 					},
@@ -979,7 +979,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				Min: f32.Pt(min(one, two), 0),
 				Max: f32.Pt(max(one, two), float32(gtx.Constraints.Max.Y)),
 			}
-			paint.FillShape(gtx.Ops, win.Theme.Palette.PrimarySelection, rect.Op(gtx.Ops))
+			theme.FillShape(win, gtx.Ops, win.Theme.Palette.PrimarySelection, rect.Op(gtx.Ops))
 		}
 
 		// Draw STW and GC overlays
@@ -1019,7 +1019,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			Min: image.Pt(int(round32(cv.pointerAt.X)), 0),
 			Max: image.Pt(int(round32(cv.pointerAt.X+1)), gtx.Constraints.Max.Y),
 		}
-		paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, rect.Op())
+		theme.FillShape(win, gtx.Ops, win.Theme.Palette.Foreground, rect.Op())
 
 		// cv.indicateTimestamp is set when the user hovers over a timestamp link. We indicate the destination of the
 		// link by drawing a cursor, or by highlighting the left or right edge of the canvas if the timestamp isn't
@@ -1036,9 +1036,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				c2.A = 0
 				paint.LinearGradientOp{
 					Stop1:  f32.Pt(-5, 0),
-					Color1: c1,
+					Color1: win.ConvertColor(c1),
 					Stop2:  f32.Pt(55, 0),
-					Color2: c2,
+					Color2: win.ConvertColor(c2),
 				}.Add(gtx.Ops)
 				paint.PaintOp{}.Add(gtx.Ops)
 				stack.Pop()
@@ -1052,9 +1052,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				c2.A = 0
 				paint.LinearGradientOp{
 					Stop1:  f32.Pt(float32(gtx.Constraints.Max.X-55), 0),
-					Color1: c2,
+					Color1: win.ConvertColor(c2),
 					Stop2:  f32.Pt(float32(gtx.Constraints.Max.X+5), 0),
-					Color2: c1,
+					Color2: win.ConvertColor(c1),
 				}.Add(gtx.Ops)
 				paint.PaintOp{}.Add(gtx.Ops)
 				stack.Pop()
@@ -1063,7 +1063,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					Min: image.Pt(int(round32(px)), 0),
 					Max: image.Pt(int(round32(px+1)), gtx.Constraints.Max.Y),
 				}
-				paint.FillShape(gtx.Ops, win.Theme.Palette.NavigationLink, rect.Op())
+				theme.FillShape(win, gtx.Ops, win.Theme.Palette.NavigationLink, rect.Op())
 			}
 		}
 
@@ -1333,7 +1333,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 
 	if axis.cv.unchanged(gtx) && axis.prevFrame.origin == origin {
 		axis.prevFrame.call.Add(gtx.Ops)
-		debugCaching(gtx)
+		debugCaching(win, gtx)
 		return axis.prevFrame.dims
 	}
 
@@ -1486,7 +1486,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		drawTick(t, label, false)
 	}
 
-	paint.FillShape(gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: ticksPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: ticksPath.End()}.Op())
 
 	labelHeight := originLabelExtents.Max.Y
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight+0.5)+labelHeight)}

@@ -14,10 +14,10 @@ type Lab struct {
 }
 
 type LCh struct {
-	L     float32
-	C     float32
-	H     float32
-	Alpha float32
+	L float32
+	C float32
+	H float32
+	A float32
 }
 
 type RGB struct {
@@ -75,7 +75,7 @@ func (c LCh) Lab() Lab {
 		L:     c.L,
 		A:     c.C * float32(math.Cos(h)),
 		B:     c.C * float32(math.Sin(h)),
-		Alpha: c.Alpha,
+		Alpha: c.A,
 	}
 }
 
@@ -85,7 +85,7 @@ func (c Oklch) Oklab() Oklab {
 		L:     c.L,
 		A:     c.C * float32(math.Cos(h)),
 		B:     c.C * float32(math.Sin(h)),
-		Alpha: c.Alpha,
+		Alpha: c.A,
 	}
 }
 
@@ -109,10 +109,10 @@ func (c Oklch) MapToSRGBGamut() LinearSRGB {
 	const epsilon = 0.0001
 
 	if c.L >= 1 {
-		return LinearSRGB{1, 1, 1, c.Alpha}
+		return LinearSRGB{1, 1, 1, c.A}
 	}
 	if c.L <= 0 {
-		return LinearSRGB{0, 0, 0, c.Alpha}
+		return LinearSRGB{0, 0, 0, c.A}
 	}
 
 	inGamut := func(color Oklch) (LinearSRGB, bool) {
@@ -246,9 +246,9 @@ func (c LinearSRGB) SRGB() SRGB {
 	t := func(c float32) float32 {
 		cp := float64(c)
 		if cp >= 0.0031308 {
-			return float32((1.055*math.Pow(cp, 1.0/2.4) - 0.055))
+			return float32(1.055*math.Pow(cp, 1.0/2.4) - 0.055)
 		} else {
-			return float32((12.92 * cp))
+			return float32(12.92 * cp)
 		}
 	}
 
