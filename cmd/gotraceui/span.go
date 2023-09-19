@@ -480,7 +480,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 								if stats, ok := si.statistics.Result(); ok {
 									return stats.Layout(win, gtx)
 								} else {
-									return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, "Computing statistics…", win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+									return theme.Label(win.Theme, "Computing statistics…").Layout(win, gtx)
 								}
 							},
 
@@ -525,7 +525,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			func(gtx layout.Context) layout.Dimensions {
 				l := "Collecting spans" + textSpinner(gtx.Now)
 				op.InvalidateOp{}.Add(gtx.Ops)
-				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, l, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+				return theme.Label(win.Theme, l).Layout(win, gtx)
 			},
 		)
 	}

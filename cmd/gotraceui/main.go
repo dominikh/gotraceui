@@ -37,7 +37,6 @@ import (
 
 	"gioui.org/app"
 	"gioui.org/f32"
-	"gioui.org/font"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/io/profile"
@@ -595,7 +594,7 @@ func (mwin *MainWindow) renderErrorScene(win *theme.Window, gtx layout.Context) 
 	gtx.Constraints.Min = gtx.Constraints.Max
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return theme.Dialog(win.Theme, "Error").Layout(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, win.Theme.TextSize, mwin.err.Error(), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+			return theme.Label(win.Theme, mwin.err.Error()).Layout(win, gtx)
 		})
 	})
 }
@@ -609,14 +608,14 @@ func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Co
 	// OPT(dh): only compute this once
 	var maxNameWidth int
 	for _, name := range mwin.progressStages {
-		width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, name)
+		width := theme.Label(win.Theme, name).Length(win, gtx)
 		if width > maxNameWidth {
 			maxNameWidth = width
 		}
 	}
 	maxLabelWidth := maxNameWidth
 	{
-		width := win.TextLength(gtx, widget.Label{}, font.Font{}, win.Theme.TextSize, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages)))
+		width := theme.Label(win.Theme, fmt.Sprintf("100.00%% | (%d/%d) ", len(mwin.progressStages), len(mwin.progressStages))).Length(win, gtx)
 		maxLabelWidth += width
 	}
 
@@ -637,7 +636,10 @@ func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Co
 					pct := fmt.Sprintf("%5.2f%%", progress*100)
 					// Replace space with figure space for correct alignment
 					pct = strings.ReplaceAll(pct, " ", "\u2007")
-					return widget.Label{}.Layout(gtx, mwin.twin.Theme.Shaper, font.Font{}, mwin.twin.Theme.TextSize, fmt.Sprintf("%s | (%d/%d) %s", pct, mwin.progressStage+1, len(mwin.progressStages), name), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+					return theme.Label(
+						win.Theme,
+						fmt.Sprintf("%s | (%d/%d) %s",
+							pct, mwin.progressStage+1, len(mwin.progressStages), name)).Layout(win, gtx)
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(maxLabelWidth, 15))

@@ -991,3 +991,47 @@ func Record(win *Window, gtx layout.Context, w Widget) Recording {
 
 	return Recording{c, dims}
 }
+
+type LabelStyle struct {
+	Font      font.Font
+	Color     color.Oklch
+	Alignment text.Alignment
+	MaxLines  int
+	TextSize  unit.Sp
+	Text      string
+}
+
+func Label(th *Theme, txt string) LabelStyle {
+	return LabelStyle{
+		Font:      font.Font{},
+		Color:     th.Palette.Foreground,
+		Alignment: text.Start,
+		TextSize:  th.TextSize,
+		Text:      txt,
+	}
+}
+
+func LineLabel(th *Theme, txt string) LabelStyle {
+	l := Label(th, txt)
+	l.MaxLines = 1
+	return l
+}
+
+func (ls LabelStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	return widget.Label{
+		MaxLines:  ls.MaxLines,
+		Alignment: ls.Alignment,
+	}.Layout(gtx, win.Theme.Shaper, ls.Font, ls.TextSize, ls.Text, win.ColorMaterial(gtx, ls.Color))
+}
+
+func (ls LabelStyle) Dimensions(win *Window, gtx layout.Context) layout.Dimensions {
+	l := widget.Label{
+		MaxLines:  ls.MaxLines,
+		Alignment: ls.Alignment,
+	}
+	return win.TextDimensions(gtx, l, ls.Font, ls.TextSize, ls.Text)
+}
+
+func (ls LabelStyle) Length(win *Window, gtx layout.Context) int {
+	return ls.Dimensions(win, gtx).Size.X
+}

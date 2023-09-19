@@ -16,10 +16,8 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/f32"
-	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -203,14 +201,14 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			r := rtrace.StartRegion(context.Background(), "legends")
 			// Print legends
 			rec := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.max, pl.Unit), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+				return theme.Label(win.Theme, local.Sprintf("%d %s", pl.max, pl.Unit)).Layout(win, gtx)
 			})
 			theme.FillShape(win, gtx.Ops, oklch(100, 0, 0), clip.Rect{Max: rec.Dimensions.Size}.Op())
 			paint.ColorOp{Color: win.ConvertColor(oklch(0, 0, 0))}.Add(gtx.Ops)
 			rec.Layout(win, gtx)
 
 			rec = theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return widget.Label{}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, local.Sprintf("%d %s", pl.min, pl.Unit), win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+				return theme.Label(win.Theme, local.Sprintf("%d %s", pl.min, pl.Unit)).Layout(win, gtx)
 			})
 			defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-rec.Dimensions.Size.Y)).Push(gtx.Ops).Pop()
 			theme.FillShape(win, gtx.Ops, oklch(100, 0, 0), clip.Rect{Max: rec.Dimensions.Size}.Op())
