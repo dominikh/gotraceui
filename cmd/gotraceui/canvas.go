@@ -945,7 +945,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				subslice: true,
 			}
 			c := colors[colorStateGC]
-			c.A = 0x33
+			c.A = 0.2
 			drawRegionOverlays(sGC, c, gtx.Constraints.Max.Y)
 		}
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
@@ -960,7 +960,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				subslice: true,
 			}
 			c := colors[colorStateSTW]
-			c.A = 0x33
+			c.A = 0.2
 			drawRegionOverlays(sSTW, c, gtx.Constraints.Max.Y)
 		}
 
