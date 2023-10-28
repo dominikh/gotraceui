@@ -131,6 +131,10 @@ func (items *MergedItems[T]) sort(less func(a, b *T) bool) {
 	for _, s := range items.bases {
 		n += s.Len()
 	}
+	if n == 0 {
+		return
+	}
+
 	items.indices = make([]int, 0, n)
 	offsets := make([]int, len(items.bases))
 
