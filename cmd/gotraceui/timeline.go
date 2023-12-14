@@ -281,7 +281,7 @@ func (spans spanAndMetadataSlices[T]) MetadataAt(index int) T { return spans.met
 
 func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 	return &theme.MenuItem{
-		Label:    "Zoom",
+		Label:    PlainLabel("Zoom"),
 		Shortcut: key.ModShortcut.String() + "+LMB",
 		Action: func() theme.Action {
 			return theme.ExecuteAction(func(gtx layout.Context) {
@@ -295,7 +295,7 @@ func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 
 func newOpenSpansMenuItem(spans Items[ptrace.Span]) *theme.MenuItem {
 	return &theme.MenuItem{
-		Label: "Show span info",
+		Label: PlainLabel("Show span info"),
 		Action: func() theme.Action {
 			return &OpenSpansAction{
 				Spans: spans,

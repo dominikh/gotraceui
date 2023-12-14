@@ -258,7 +258,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		r := rtrace.StartRegion(context.Background(), "context menu")
 		items := []*theme.MenuItem{
 			{
-				Label: "Reset extents",
+				Label: PlainLabel("Reset extents"),
 				Action: func() theme.Action {
 					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.min = 0
@@ -268,7 +268,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				},
 			},
 			{
-				Label: "Set extents to global extrema",
+				Label: PlainLabel("Set extents to global extrema"),
 				Action: func() theme.Action {
 					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.min, pl.max = pl.computeExtents(0, math.MaxInt64)
@@ -276,7 +276,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				},
 			},
 			{
-				Label: "Set extents to local extrema",
+				Label: PlainLabel("Set extents to local extrema"),
 				Action: func() theme.Action {
 					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
@@ -284,7 +284,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				},
 			},
 			{
-				Label: ifelse(pl.autoScale, "Don't auto-set extents", "Auto-set extents to local extrema"),
+				Label: ToggleLabel("Don't auto-set extents", "Auto-set extents to local extrema", &pl.autoScale),
 				Action: func() theme.Action {
 					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.autoScale = !pl.autoScale
@@ -292,7 +292,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				},
 			},
 			{
-				Label: ifelse(pl.hideLegends, "Show legends", "Hide legends"),
+				Label: ToggleLabel("Show legends", "Hide legends", &pl.hideLegends),
 				Action: func() theme.Action {
 					return theme.ExecuteAction(func(gtx layout.Context) {
 						pl.hideLegends = !pl.hideLegends
@@ -309,7 +309,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				label = fmt.Sprintf("Hide %q series", s.Name)
 			}
 			item := &theme.MenuItem{
-				Label: label,
+				Label: PlainLabel(label),
 				Action: func() theme.Action {
 					return theme.ExecuteAction(func(gtx layout.Context) {
 						s.disabled = !s.disabled

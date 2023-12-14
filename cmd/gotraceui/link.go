@@ -222,7 +222,7 @@ func (l *GoroutineObjectLink) Action(mods key.Modifiers) theme.Action {
 func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
-			Label: "Scroll to goroutine",
+			Label: PlainLabel("Scroll to goroutine"),
 			Action: func() theme.Action {
 				return &ScrollToObjectAction{
 					Object:     l.Goroutine,
@@ -231,7 +231,7 @@ func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Zoom to goroutine",
+			Label: PlainLabel("Zoom to goroutine"),
 			Action: func() theme.Action {
 				return &ZoomToObjectAction{
 					Object:     l.Goroutine,
@@ -240,13 +240,13 @@ func (l *GoroutineObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Show goroutine information",
+			Label: PlainLabel("Show goroutine information"),
 			Action: func() theme.Action {
 				return (*OpenGoroutineAction)(l)
 			},
 		},
 		{
-			Label: "Open flame graph",
+			Label: PlainLabel("Open flame graph"),
 			Action: func() theme.Action {
 				return (*OpenGoroutineFlameGraphAction)(l)
 			},
@@ -273,7 +273,7 @@ func (l *ProcessorObjectLink) Action(mods key.Modifiers) theme.Action {
 func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
-			Label: "Scroll to processor",
+			Label: PlainLabel("Scroll to processor"),
 			Action: func() theme.Action {
 				return &ScrollToObjectAction{
 					Object:     l.Processor,
@@ -282,7 +282,7 @@ func (l *ProcessorObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Zoom to processor",
+			Label: PlainLabel("Zoom to processor"),
 			Action: func() theme.Action {
 				return &ZoomToObjectAction{
 					Object:     l.Processor,
@@ -331,7 +331,7 @@ func (l *GCObjectLink) Action(mods key.Modifiers) theme.Action {
 func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
-			Label: "Scroll to GC timeline",
+			Label: PlainLabel("Scroll to GC timeline"),
 			Action: func() theme.Action {
 				return &ScrollToObjectAction{
 					Object:     l.GC,
@@ -340,7 +340,7 @@ func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Zoom to GC timeline",
+			Label: PlainLabel("Zoom to GC timeline"),
 			Action: func() theme.Action {
 				return &ZoomToObjectAction{
 					Object:     l.GC,
@@ -349,7 +349,7 @@ func (l *GCObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Show GC information",
+			Label: PlainLabel("Show GC information"),
 			Action: func() theme.Action {
 				return &OpenSpansAction{
 					Spans: l.GC.Spans,
@@ -381,7 +381,7 @@ func (l *STWObjectLink) Action(mods key.Modifiers) theme.Action {
 func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 	return []*theme.MenuItem{
 		{
-			Label: "Scroll to STW timeline",
+			Label: PlainLabel("Scroll to STW timeline"),
 			Action: func() theme.Action {
 				return &ScrollToObjectAction{
 					Object:     l.STW,
@@ -390,7 +390,7 @@ func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Zoom to STW timeline",
+			Label: PlainLabel("Zoom to STW timeline"),
 			Action: func() theme.Action {
 				return &ZoomToObjectAction{
 					Object:     l.STW,
@@ -399,7 +399,7 @@ func (l *STWObjectLink) ContextMenu() []*theme.MenuItem {
 			},
 		},
 		{
-			Label: "Show STW information",
+			Label: PlainLabel("Show STW information"),
 			Action: func() theme.Action {
 				return &OpenSpansAction{
 					Spans: l.STW.Spans,
@@ -430,25 +430,25 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 	if _, ok := l.Spans.Container(); ok {
 		return []*theme.MenuItem{
 			{
-				Label: "Scroll to span start",
+				Label: PlainLabel("Scroll to span start"),
 				Action: func() theme.Action {
 					return ScrollToTimestampAction(l.Spans.At(0).Start)
 				},
 			},
 			{
-				Label: "Scroll to span end",
+				Label: PlainLabel("Scroll to span end"),
 				Action: func() theme.Action {
 					return ScrollToTimestampAction(l.Spans.At(l.Spans.Len() - 1).End)
 				},
 			},
 			{
-				Label: "Zoom to span",
+				Label: PlainLabel("Zoom to span"),
 				Action: func() theme.Action {
 					return (*ZoomToSpansAction)(l)
 				},
 			},
 			{
-				Label: "Show span information",
+				Label: PlainLabel("Show span information"),
 				Action: func() theme.Action {
 					return (*OpenSpansAction)(l)
 				},
@@ -457,19 +457,19 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 	} else {
 		return []*theme.MenuItem{
 			{
-				Label: "Scroll to span start",
+				Label: PlainLabel("Scroll to span start"),
 				Action: func() theme.Action {
 					return ScrollToTimestampAction(l.Spans.At(0).Start)
 				},
 			},
 			{
-				Label: "Scroll to span end",
+				Label: PlainLabel("Scroll to span end"),
 				Action: func() theme.Action {
 					return ScrollToTimestampAction(l.Spans.At(l.Spans.Len() - 1).End)
 				},
 			},
 			{
-				Label: "Show span information",
+				Label: PlainLabel("Show span information"),
 				Action: func() theme.Action {
 					return (*OpenSpansAction)(l)
 				},
