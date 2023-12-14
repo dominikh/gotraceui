@@ -15,6 +15,7 @@ import (
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
+	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -196,6 +197,8 @@ type Canvas struct {
 
 	timelineWidgetsCache mem.AllocationCache[TimelineWidget]
 	trackWidgetsCache    mem.AllocationCache[TrackWidget]
+
+	textures TextureManager
 }
 
 func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
@@ -209,6 +212,10 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 		debugWindow:    dwin,
 		itemToTimeline: make(map[any]*Timeline),
 		timelines:      make([]*Timeline, 0, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2),
+		textures: TextureManager{
+			rgbas:         mysync.NewMutex(&container.RBTree[comparableTimeDuration, *texture]{AllowDuplicates: true}),
+			realizedRGBAs: mysync.NewMutex(container.Set[*texture]{}),
+		},
 	}
 	cv.timeline.displayAllLabels = true
 	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
@@ -411,6 +418,10 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 
 		start := cv.start + ds
 		end := cv.End() - de
+		if start == end {
+			// nsPerPx must never be 0.
+			end++
+		}
 		cv.start = start
 		cv.nsPerPx = float64(end-start) / float64(cv.width)
 	} else if ticks > 0 {
@@ -589,6 +600,10 @@ func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 
 func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.Canvas.Layout").End()
+
+	if win.Frame%compactInterval == 0 {
+		cv.textures.Compact()
+	}
 
 	// Compute the width. This has to make assumptions about the width of the timelines, because we need it
 	// long before we get to laying out the timelines. Practically, the max width of timelines is only restricted by

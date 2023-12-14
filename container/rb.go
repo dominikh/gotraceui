@@ -25,8 +25,9 @@ type Comparable[T any] interface {
 }
 
 type RBTree[K Comparable[K], V any] struct {
-	Root     *RBNode[K, V]
-	NumNodes int
+	Root            *RBNode[K, V]
+	NumValues       int
+	AllowDuplicates bool
 
 	Rotated func(node *RBNode[K, V])
 }
@@ -35,15 +36,34 @@ type RBNode[K Comparable[K], V any] struct {
 	Parent   *RBNode[K, V]
 	Children [2]*RBNode[K, V]
 	Key      K
-	Value    V
+	Values   []V
 	color    Color
 }
 
 func NewRBNode[K Comparable[K], V any](k K, v V) *RBNode[K, V] {
 	return &RBNode[K, V]{
-		Key:   k,
-		Value: v,
+		Key:    k,
+		Values: []V{v},
 	}
+}
+
+func (t *RBTree[K, V]) Inorder(yield func(K, V) bool) {
+	t.Root.Inorder(yield)
+}
+
+func (t *RBNode[K, V]) Inorder(yield func(K, V) bool) bool {
+	if t == nil {
+		return true
+	}
+	if !t.Children[0].Inorder(yield) {
+		return false
+	}
+	for _, v := range t.Values {
+		if !yield(t.Key, v) {
+			return false
+		}
+	}
+	return t.Children[1].Inorder(yield)
 }
 
 func (t *RBTree[K, V]) Search(k K) (node *RBNode[K, V], found bool, dir Direction) {
@@ -102,7 +122,7 @@ func (t *RBTree[K, V]) rotate(p *RBNode[K, V], dir Direction) *RBNode[K, V] {
 
 func (t *RBTree[K, V]) Insert(k K, v V) *RBNode[K, V] {
 	if t.Root == nil {
-		t.NumNodes++
+		t.NumValues++
 		n := NewRBNode(k, v)
 		t.insert(n, nil, 0)
 		return n
@@ -110,10 +130,17 @@ func (t *RBTree[K, V]) Insert(k K, v V) *RBNode[K, V] {
 
 	p, ok, dir := t.Search(k)
 	if ok {
-		p.Value = v
+		if t.AllowDuplicates {
+			t.NumValues++
+			p.Values = append(p.Values, v)
+		} else {
+			// OPT(dh): we could write to p.Values[0] instead, but then we must forbid users from retaining
+			// RBNode.Values even when !t.AllowDuplicates
+			p.Values = []V{v}
+		}
 		return p
 	} else {
-		t.NumNodes++
+		t.NumValues++
 		n := NewRBNode(k, v)
 		t.insert(n, p, dir)
 		return n
@@ -202,7 +229,7 @@ func (n *RBNode[K, V]) Dot(w io.Writer, meta func(n *RBNode[K, V]) string) {
 		} else {
 			c = "red"
 		}
-		label := fmt.Sprintf("%v = %v", n.Key, n.Value)
+		label := fmt.Sprintf("%v = %v", n.Key, n.Values)
 		if meta != nil {
 			label += "\n" + meta(n)
 		}
@@ -279,14 +306,14 @@ func (t *IntervalTree[T, V]) updateAug(n *RBNode[Interval[T], Value[T, V]]) {
 	}
 
 	max := n.Key.Max
-	if c := n.Children[0]; c != nil && c.Value.MaxSubtree > max {
-		max = c.Value.MaxSubtree
+	if c := n.Children[0]; c != nil && c.Values[0].MaxSubtree > max {
+		max = c.Values[0].MaxSubtree
 	}
-	if c := n.Children[1]; c != nil && c.Value.MaxSubtree > max {
-		max = c.Value.MaxSubtree
+	if c := n.Children[1]; c != nil && c.Values[0].MaxSubtree > max {
+		max = c.Values[0].MaxSubtree
 	}
 
-	n.Value.MaxSubtree = max
+	n.Values[0].MaxSubtree = max
 	t.updateAug(n.Parent)
 }
 
@@ -316,7 +343,7 @@ func (t *IntervalTree[T, V]) find(
 		return out
 	}
 
-	if min > node.Value.MaxSubtree {
+	if min > node.Values[0].MaxSubtree {
 		// This node and both subtrees are too small for our start point.
 		return out
 	}
@@ -342,7 +369,7 @@ func (t *IntervalTree[T, V]) findIter(
 		return false
 	}
 
-	if min > node.Value.MaxSubtree {
+	if min > node.Values[0].MaxSubtree {
 		// This node and both subtrees are too small for our start point.
 		return false
 	}

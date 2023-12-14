@@ -742,6 +742,31 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 
 	dims = theme.Resize(win.Theme, &mwin.resize).Layout(win, gtx, mainArea, panelArea)
 
+	func() {
+		// Display a dancing gopher while we're computing textures or unpacking stack tracks.
+		gtx := gtx
+		gtx.Constraints.Min = gtx.Constraints.Max
+
+		var suboptimal bool
+		for _, tl := range mwin.canvas.prevFrame.displayedTls {
+			sub := tl.widget.usedSuboptimalTexture
+			// Only show the gopher if we've been loading textures for 100ms or longer. This avoids the majority of
+			// flickering gophers on fast machines and small traces.
+			if !sub.IsZero() {
+				if gtx.Now.Sub(sub) > 100*time.Millisecond {
+					suboptimal = true
+					break
+				} else {
+					// Make sure we recheck the need for a dancing gopher.
+					op.InvalidateOp{At: gtx.Now.Add(100 * time.Millisecond)}.Add(gtx.Ops)
+				}
+			}
+		}
+		if suboptimal {
+			assets.Animation(gtx, "dance", 64).Layout(gtx, layout.SW)
+		}
+	}()
+
 	// TODO(dh): add a public API to Canvas
 	for _, tl := range mwin.canvas.clickedTimelines {
 		if g, ok := tl.item.(*ptrace.Goroutine); ok {
@@ -1904,4 +1929,25 @@ func cmp[T constraints.Ordered](a, b T, negate bool) int {
 		ret = -ret
 	}
 	return ret
+}
+
+func CanRecv[T any](ch <-chan T) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+func makeClosedChan[T any]() chan T {
+	ch := make(chan T)
+	close(ch)
+	return ch
+}
+
+type comparableTimeDuration time.Duration
+
+func (d1 comparableTimeDuration) Compare(d2 comparableTimeDuration) int {
+	return cmp(d1, d2, false)
 }

@@ -6,7 +6,6 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
-	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -123,82 +122,13 @@ func processorTrackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) 
 	return append(out, labels...)
 }
 
-func processorTrackSpanColor(spans Items[ptrace.Span], tr *Trace) (out [2]colorIndex) {
-	do := func(s ptrace.Span, tr *Trace) colorIndex {
-		if s.Tags&ptrace.SpanTagGC != 0 {
-			return colorStateGC
-		} else {
-			// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
-			return stateColors[s.State]
-		}
+func processorTrackSpanColor(span ptrace.Span, tr *Trace) (out colorIndex) {
+	if span.Tags&ptrace.SpanTagGC != 0 {
+		return colorStateGC
+	} else {
+		// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
+		return stateColors[span.State]
 	}
-
-	if spans.Len() == 1 {
-		return [2]colorIndex{do(spans.At(0), tr), 0}
-	}
-
-	con, ok := spans.Container()
-	assert(ok, "expected spans to have container")
-	tl := con.Timeline
-
-	var (
-		cached [2]colorIndex
-		found  bool
-	)
-
-	tl.spanColorCache.FindIter(spans.At(0).Start, spans.At(spans.Len()-1).End, func(node *container.RBNode[container.Interval[trace.Timestamp], container.Value[trace.Timestamp, [2]colorIndex]]) bool {
-		ival := container.Interval[trace.Timestamp]{
-			Min: spans.At(0).Start,
-			Max: spans.At(spans.Len() - 1).End,
-		}
-		if node.Key.SupersetOf(ival) {
-			if node.Value.Value[1] != 0 {
-				cached = node.Value.Value
-				found = true
-				return true
-			}
-		}
-		if ival.SupersetOf(node.Key) {
-			if node.Value.Value[1] == 0 {
-				cached = node.Value.Value
-				found = true
-				return true
-			}
-		}
-		return false
-	})
-
-	if found {
-		return cached
-	}
-
-	// Analyzing 500 spans takes around 10 μs, which is the amount of CPU time we're willing to spend on analyzing
-	// merged spans. Caching these would not be worth it from a CPU/memory tradeoff perspective.
-	const minCachedSize = 500
-
-	c := do(spans.At(0), tr)
-	for i := 1; i < spans.Len(); i++ {
-		s := spans.At(i)
-		cc := do(s, tr)
-		if cc != c {
-			if i > minCachedSize {
-				// Store a cache entry for the non-mixed-state prefix
-				// OPT(dh): don't store it if a superset of it already exists
-				tl.spanColorCache.Insert(spans.At(0).Start, spans.At(i-1).End, [2]colorIndex{c, colorStateMerged})
-			}
-
-			// Store a cache entry for the non-mixed to mixed transition.
-			tl.spanColorCache.Insert(spans.At(i-1).Start, spans.At(i).End, [2]colorIndex{colorStateMerged, 0})
-
-			return [2]colorIndex{colorStateMerged, 0}
-		}
-	}
-
-	if spans.Len() > minCachedSize {
-		// Store a cache entry for the full non-mixed-state merged span
-		tl.spanColorCache.Insert(spans.At(0).Start, spans.At(spans.Len()-1).End, [2]colorIndex{c, colorStateMerged})
-	}
-	return [2]colorIndex{c, colorStateMerged}
 }
 
 func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem {
@@ -223,8 +153,7 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline {
 	l := local.Sprintf("Processor %d", p.ID)
 	tl := &Timeline{
-		cv:             cv,
-		spanColorCache: container.NewIntervalTree[trace.Timestamp, [2]colorIndex](),
+		cv: cv,
 
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return ProcessorTooltip{p, cv.trace}.Layout(win, gtx)

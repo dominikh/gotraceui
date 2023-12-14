@@ -5,49 +5,56 @@ import (
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
-var colors [colorLast]color.Oklch
+const (
+	colorsLightBase  = 58.51
+	colorsChromaBase = 0.122
+	colorLightStep1  = 15
+	colorLightStep2  = 10
+)
 
-func init() {
-	// Our base lightness is 56.51, and our base chroma is 0.122
-	const l = 58.51
-	const c = 0.122
-	const lStep1 = 15
-	const lStep2 = 10
+var colors = [colorLast]color.Oklch{
+	colorStateActive:    oklch(colorsLightBase, colorsChromaBase, 143.74), // Manually chosen
+	colorStateStack:     oklchDelta(oklch(colorsLightBase, colorsChromaBase, 143.74), colorLightStep1, -0.01, 0),
+	colorStateCPUSample: oklchDelta(oklchDelta(oklch(colorsLightBase, colorsChromaBase, 143.74), colorLightStep1, -0.01, 0), colorLightStep2, -0.01, 0),
 
-	colors[colorStateActive] = oklch(l, c, 143.74) // Manually chosen
-	colors[colorStateStack] = oklchDelta(colors[colorStateActive], lStep1, -0.01, 0)
-	colors[colorStateCPUSample] = oklchDelta(colors[colorStateStack], lStep2, -0.01, 0)
+	colorStateReady:    oklch(colorsLightBase, colorsChromaBase, 206.35), // Manually chosen
+	colorStateInactive: oklch(colorsLightBase, 0, 0),
 
-	colors[colorStateReady] = oklch(l, c, 206.35) // Manually chosen
-	colors[colorStateInactive] = oklch(l, 0, 0)
-
-	colors[colorStateUserRegion] = oklch(l+lStep1+lStep2, c, 331.18) // Manually chosen
+	colorStateUserRegion: oklch(colorsLightBase+colorLightStep1+colorLightStep2, colorsChromaBase, 331.18), // Manually chosen
 
 	// Manually chosen. This is the rarest blocked state, so we darken it to have more range for the other states.
-	colors[colorStateBlocked] = oklch(l-5, c, 23.89)
-	colors[colorStateBlockedSyscall] = oklch(l, c, 23.89)
-	colors[colorStateBlockedNet] = oklch(l+6, c-0.01, 23.89)
-	colors[colorStateBlockedHappensBefore] = oklch(l+lStep2, c, 23.89)
-	colors[colorStateBlockedGC] = oklch(l, c, 0) // a blend of colorStateGC and red
+	colorStateBlocked:              oklch(colorsLightBase-5, colorsChromaBase, 23.89),
+	colorStateBlockedSyscall:       oklch(colorsLightBase, colorsChromaBase, 23.89),
+	colorStateBlockedNet:           oklch(colorsLightBase+6, colorsChromaBase-0.01, 23.89),
+	colorStateBlockedHappensBefore: oklch(colorsLightBase+colorLightStep2, colorsChromaBase, 23.89),
+	colorStateBlockedGC:            oklch(colorsLightBase, colorsChromaBase, 0), // a blend of colorStateGC and red
 
-	colors[colorStateGC] = oklch(l, c, 302.36)
-	colors[colorStateSTW] = oklch(l, c+0.072, 23.89) // STW is the most severe form of blocking, hence the increased chroma
+	colorStateGC:  oklch(colorsLightBase, colorsChromaBase, 302.36),
+	colorStateSTW: oklch(colorsLightBase, colorsChromaBase+0.072, 23.89), // STW is the most severe form of blocking, hence the increased chroma
 
-	colors[colorTimelineLabel] = oklch(62.68, 0, 0)
-	colors[colorTimelineBorder] = oklch(89.75, 0, 0)
+	colorTimelineLabel:  oklch(62.68, 0, 0),
+	colorTimelineBorder: oklch(89.75, 0, 0),
 
 	// 	// TODO(dh): find a nice color for this
 	// We don't use the l constant for thse colors because they're independent from the span colors
-	colors[colorSpanHighlightedPrimaryOutline] = oklch(70.71, 0.322, 328.36)
-	colors[colorSpanHighlightedSecondaryOutline] = oklch(88.44, 0.27, 137.68)
+	colorSpanHighlightedPrimaryOutline:   oklch(70.71, 0.322, 328.36),
+	colorSpanHighlightedSecondaryOutline: oklch(88.44, 0.27, 137.68),
 
-	colors[colorStateMerged] = oklch(l+lStep1, c, 109.91) // Manually chosen, made brighter so it stands out in gradients
+	colorStateMerged: oklch(colorsLightBase+colorLightStep1, colorsChromaBase, 109.91), // Manually chosen, made brighter so it stands out in gradients
 
-	colors[colorStateStuck] = oklch(0, 0, 0)
-	colors[colorStateDone] = oklch(0, 0, 0)
+	colorStateStuck: oklch(0, 0, 0),
+	colorStateDone:  oklch(0, 0, 0),
 
-	colors[colorStateUnknown] = oklch(96.8, 0.211, 109.77)
-	colors[colorStatePlaceholderStackSpan] = oklch(92.59, 0.025, 106.88)
+	colorStateUnknown:              oklch(96.8, 0.211, 109.77),
+	colorStatePlaceholderStackSpan: oklch(92.59, 0.025, 106.88),
+}
+
+var mappedColors [len(colors)]color.LinearSRGB
+
+func init() {
+	for i, c := range colors {
+		mappedColors[i] = c.MapToSRGBGamut()
+	}
 }
 
 type colorIndex uint8
