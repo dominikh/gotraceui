@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
-	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -22,8 +21,6 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 )
-
-var colorLink = color.Oklch{L: 0.7862, C: 0.104, H: 270, A: 1}
 
 type Link struct {
 	gesture.Click
@@ -61,7 +58,6 @@ type MainWindowAction interface {
 type ObjectLink interface {
 	Action(mods key.Modifiers) theme.Action
 	ContextMenu() []*theme.MenuItem
-	Commands() []theme.Command
 }
 
 type OpenGoroutineAction struct {
@@ -692,146 +688,6 @@ func (l *OpenPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 func (*PrevPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.prevPanel()
 }
-
-func (l *GoroutineObjectLink) Commands() []theme.Command {
-	return []theme.Command{
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Scroll to goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"goto", "go to"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return &ScrollToObjectAction{
-					Object:     l.Goroutine,
-					Provenance: l.Provenance,
-				}
-			},
-		},
-
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Zoom to goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return &ZoomToObjectAction{
-					Object:     l.Goroutine,
-					Provenance: l.Provenance,
-				}
-			},
-		},
-
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Show information for goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"open"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return (*OpenGoroutineAction)(l)
-			},
-		},
-
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Open flame graph for goroutine %d: %s", l.Goroutine.ID, l.Goroutine.Function.Fn),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"show", "flamegraph"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return (*OpenGoroutineFlameGraphAction)(l)
-			},
-		},
-	}
-}
-func (l *ProcessorObjectLink) Commands() []theme.Command {
-	return []theme.Command{
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Scroll to processor %d", l.Processor.ID),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"goto", "go to"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return &ScrollToObjectAction{
-					Object:     l.Processor,
-					Provenance: l.Provenance,
-				}
-			},
-		},
-
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Zoom to processor %d", l.Processor.ID),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return &ZoomToObjectAction{
-					Object:     l.Processor,
-					Provenance: l.Provenance,
-				}
-			},
-		},
-	}
-}
-func (l *TimestampObjectLink) Commands() []theme.Command {
-	return []theme.Command{
-		theme.NormalCommand{
-			PrimaryLabel:   local.Sprintf("Pan to %d ns", l.Timestamp),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"goto", "go to", "scroll", fmt.Sprintf("%d", l.Timestamp)},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return ScrollToTimestampAction(l.Timestamp)
-			},
-		},
-	}
-}
-func (l *FunctionObjectLink) Commands() []theme.Command {
-	return []theme.Command{
-		theme.NormalCommand{
-			PrimaryLabel:   fmt.Sprintf("Show information for function %s", l.Function.Fn),
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"open"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return (*OpenFunctionAction)(l)
-			},
-		},
-	}
-}
-func (l *GCObjectLink) Commands() []theme.Command {
-	return []theme.Command{
-		theme.NormalCommand{
-			PrimaryLabel:   "Show GC spans",
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"open"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return &OpenSpansAction{l.GC.Spans}
-			},
-		},
-	}
-}
-func (l *STWObjectLink) Commands() []theme.Command {
-	return []theme.Command{
-		theme.NormalCommand{
-			PrimaryLabel:   "Show STW spans",
-			SecondaryLabel: l.Provenance,
-			Category:       "Link",
-			Aliases:        []string{"open"},
-			Color:          colorLink,
-			Fn: func() theme.Action {
-				return &OpenSpansAction{l.STW.Spans}
-			},
-		},
-	}
-}
-func (l *SpansObjectLink) Commands() []theme.Command { return nil }
 
 func (*OpenGoroutineAction) IsOpenAction()                    {}
 func (*OpenGoroutineFlameGraphAction) IsOpenAction()          {}

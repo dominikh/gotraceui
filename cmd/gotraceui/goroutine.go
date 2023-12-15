@@ -824,15 +824,10 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		}
 	}
 
-	buildDescription := func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider) {
+	buildDescription := func(win *theme.Window, gtx layout.Context) Description {
 		var attrs []DescriptionAttribute
 		// OPT(dh): we don't need TextBuilder to collect the spans in this case.
 		tb := TextBuilder{Window: win}
-
-		var cmds theme.CommandSlice
-		addCmds := func(cps []theme.Command) {
-			cmds = append(cmds, cps...)
-		}
 
 		start := spans[0].Start
 		end := spans[len(spans)-1].End
@@ -848,7 +843,6 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 					local.Sprintf("Goroutine %d (%s)", g.Parent, parent.Function.Fn),
 					"Parent of current goroutine",
 					parent)
-				addCmds(link.ObjectLink.Commands())
 				attrs = append(attrs, DescriptionAttribute{
 					Key:   "Parent",
 					Value: link,
@@ -858,7 +852,6 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 					local.Sprintf("Goroutine %d", g.Parent),
 					"Parent of current goroutine",
 					parent)
-				addCmds(link.ObjectLink.Commands())
 				attrs = append(attrs, DescriptionAttribute{
 					Key:   "Parent",
 					Value: link,
@@ -872,7 +865,6 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		})
 
 		link := *tb.DefaultLink(g.Function.Fn, "Function of current goroutine", g.Function)
-		addCmds(link.ObjectLink.Commands())
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "Function",
 			Value: link,
@@ -880,14 +872,12 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 
 		if observedStart {
 			link := *tb.DefaultLink(formatTimestamp(nil, start), "Start of current goroutine", start)
-			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
 				Value: link,
 			})
 		} else {
 			link := *tb.DefaultLink("before trace start", "Start of trace", start)
-			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Created at",
 				Value: link,
@@ -896,14 +886,12 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 
 		if observedEnd {
 			link := *tb.DefaultLink(formatTimestamp(nil, end), "End of current goroutine", end)
-			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
 				Value: link,
 			})
 		} else {
 			link := *tb.DefaultLink("after trace end", "End of trace", end)
-			addCmds(link.ObjectLink.Commands())
 			attrs = append(attrs, DescriptionAttribute{
 				Key:   "Returned at",
 				Value: link,
@@ -923,7 +911,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		}
 		var desc Description
 		desc.Attributes = attrs
-		return desc, cmds
+		return desc
 	}
 
 	cfg := SpansInfoConfig{
@@ -931,40 +919,24 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		Stacktrace: stacktrace,
 		Navigations: SpansInfoConfigNavigations{
 			Scroll: struct {
-				ButtonLabel  string
-				CommandLabel string
-				Fn           func() theme.Action
+				ButtonLabel string
+				Fn          func() theme.Action
 			}{
-				ButtonLabel:  "Scroll to goroutine",
-				CommandLabel: local.Sprintf("Scroll to goroutine %d: %s", g.ID, g.Function.Fn),
+				ButtonLabel: "Scroll to goroutine",
 				Fn: func() theme.Action {
 					return &ScrollToObjectAction{Object: g}
 				},
 			},
 
 			Zoom: struct {
-				ButtonLabel  string
-				CommandLabel string
-				Fn           func() theme.Action
+				ButtonLabel string
+				Fn          func() theme.Action
 			}{
-				ButtonLabel:  "Zoom to goroutine",
-				CommandLabel: local.Sprintf("Zoom to goroutine %d: %s", g.ID, g.Function.Fn),
+				ButtonLabel: "Zoom to goroutine",
 				Fn: func() theme.Action {
 					return &ZoomToObjectAction{Object: g}
 				},
 			},
-		},
-		Commands: func() theme.CommandProvider {
-			return theme.CommandSlice{
-				theme.NormalCommand{
-					PrimaryLabel: local.Sprintf("Open flame graph for goroutine %d: %s", g.ID, g.Function.Fn),
-					Category:     "Panel",
-					Color:        colorPanel,
-					Fn: func() theme.Action {
-						return &OpenGoroutineFlameGraphAction{Goroutine: g}
-					},
-				},
-			}
 		},
 		Statistics: func(win *theme.Window) *theme.Future[*SpansStats] {
 			return theme.NewFuture(win, func(cancelled <-chan struct{}) *SpansStats {

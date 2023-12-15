@@ -15,7 +15,6 @@ import (
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
-	"gioui.org/io/pointer"
 	"gioui.org/op"
 	"gioui.org/text"
 )
@@ -65,7 +64,7 @@ type SpansInfo struct {
 	tabbedState     theme.TabbedState
 	stackSelectable widget.Selectable
 
-	descriptionBuilder func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider)
+	descriptionBuilder func(win *theme.Window, gtx layout.Context) Description
 	descriptionText    Text
 	hoveredLink        ObjectLink
 
@@ -85,25 +84,22 @@ type SpansInfo struct {
 type SpansInfoConfig struct {
 	Title              string
 	Label              string
-	DescriptionBuilder func(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider)
+	DescriptionBuilder func(win *theme.Window, gtx layout.Context) Description
 	Stacktrace         string
 	Statistics         func(win *theme.Window) *theme.Future[*SpansStats]
 	Navigations        SpansInfoConfigNavigations
 	ShowHistogram      bool
-	Commands           func() theme.CommandProvider
 }
 
 type SpansInfoConfigNavigations struct {
 	Scroll struct {
-		ButtonLabel  string
-		CommandLabel string
-		Fn           func() theme.Action
+		ButtonLabel string
+		Fn          func() theme.Action
 	}
 
 	Zoom struct {
-		ButtonLabel  string
-		CommandLabel string
-		Fn           func() theme.Action
+		ButtonLabel string
+		Fn          func() theme.Action
 	}
 }
 
@@ -228,7 +224,7 @@ func textSpinner(now time.Time) string {
 	}
 }
 
-func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Context) (Description, theme.CommandProvider) {
+func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Context) Description {
 	// OPT(dh): there's no need to store the spans in a slice, so TextBuilder isn't what we want
 	// OPT(dh): reuse memory
 	tb := TextBuilder{Window: win}
@@ -237,24 +233,17 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 		attrs = append(attrs, DescriptionAttribute{Key: "Label", Value: *tb.Span(si.cfg.Label)})
 	}
 
-	var cmds theme.CommandSlice
-	addCmds := func(cps []theme.Command) {
-		cmds = append(cmds, cps...)
-	}
-
 	spans := si.spans.MustResult()
 
 	firstSpan := spans.At(0)
 	lastSpan := LastSpan(spans)
 	link := *tb.DefaultLink(formatTimestamp(nil, firstSpan.Start), "Start of current spans", firstSpan.Start)
-	addCmds(link.ObjectLink.Commands())
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
 		Value: link,
 	})
 
 	link = *tb.DefaultLink(formatTimestamp(nil, lastSpan.End), "End of current spans", lastSpan.End)
-	addCmds(link.ObjectLink.Commands())
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "End",
 		Value: link,
@@ -293,14 +282,13 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	if c, ok := spans.Container(); ok {
 		tl := c.Timeline
 		link := *tb.DefaultLink(tl.shortName, "Timeline containing current spans", tl.item)
-		addCmds(link.ObjectLink.Commands())
 		attrs = append(attrs, DescriptionAttribute{
 			Key:   "In",
 			Value: link,
 		})
 	}
 
-	return Description{Attributes: attrs}, cmds
+	return Description{Attributes: attrs}
 }
 
 func (si *SpansInfo) scrollAndPanToSpans(win *theme.Window) {
@@ -330,8 +318,6 @@ func (si *SpansInfo) HoveredLink() ObjectLink {
 func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpansInfo.Layout").End()
 
-	var cmds theme.CommandSlice
-
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
@@ -360,7 +346,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				type button struct {
 					w     *widget.Clickable
 					label string
-					cmd   theme.NormalCommand
 				}
 
 				var buttonsLeft []button
@@ -369,18 +354,11 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						{
 							&si.buttons.scrollAndPanToSpans.Clickable,
 							"Scroll and pan to spans",
-							theme.NormalCommand{
-								PrimaryLabel: "Scroll and pan to spans",
-								Aliases:      []string{"goto", "go to"},
-							},
 						},
 
 						{
 							&si.buttons.zoomToSpans.Clickable,
 							"Zoom to spans",
-							theme.NormalCommand{
-								PrimaryLabel: "Zoom to spans",
-							},
 						},
 					}
 					if si.cfg.Navigations.Scroll.ButtonLabel != "" {
@@ -388,15 +366,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					}
 					if si.cfg.Navigations.Zoom.ButtonLabel != "" {
 						buttonsLeft[1].label = si.cfg.Navigations.Zoom.ButtonLabel
-					}
-					buttonsLeft[0].cmd.PrimaryLabel = buttonsLeft[0].label
-					buttonsLeft[1].cmd.PrimaryLabel = buttonsLeft[1].label
-
-					if si.cfg.Navigations.Scroll.CommandLabel != "" {
-						buttonsLeft[0].cmd.PrimaryLabel = si.cfg.Navigations.Scroll.CommandLabel
-					}
-					if si.cfg.Navigations.Zoom.CommandLabel != "" {
-						buttonsLeft[1].cmd.PrimaryLabel = si.cfg.Navigations.Zoom.CommandLabel
 					}
 				}
 
@@ -409,16 +378,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						}),
 						layout.Rigid(layout.Spacer{Width: 5}.Layout),
 					)
-
-					cmd := btn.cmd
-					cmd.Category = "Panel"
-					cmd.Color = colorPanel
-					cmd.Fn = func() theme.Action {
-						return theme.ExecuteAction(func(gtx layout.Context) {
-							btn.w.Click(pointer.ButtonPrimary)
-						})
-					}
-					cmds = append(cmds, cmd)
 				}
 				children = append(children, layout.Flexed(1, nothing))
 				children = append(children, layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)))
@@ -433,10 +392,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
 				si.descriptionText.Reset(win.Theme)
-				desc, cp := si.descriptionBuilder(win, gtx)
-				if cp != nil {
-					win.AddCommandProvider(cp)
-				}
+				desc := si.descriptionBuilder(win, gtx)
 				return desc.Layout(win, gtx, &si.descriptionText)
 			},
 			func(gtx layout.Context) layout.Dimensions {
@@ -606,12 +562,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	if si.hist.Changed() {
 		si.computeHistogram(win, &si.hist.Config)
 	}
-
-	var allCmds theme.CommandProvider = cmds
-	if si.cfg.Commands != nil {
-		allCmds = theme.MultiCommandProvider{Providers: []theme.CommandProvider{cmds, si.cfg.Commands()}}
-	}
-	win.AddCommandProvider(allCmds)
 
 	return dims
 }

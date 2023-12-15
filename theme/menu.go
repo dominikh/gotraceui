@@ -196,7 +196,9 @@ type MenuItem struct {
 	Label    func() string
 	Shortcut string
 	Disabled func() bool
-	Action   func() Action
+	// The action to execute when the menu item is activated. This is only used for context menus, not main
+	// menus.
+	Action func() Action
 
 	click widget.PrimaryClickable
 }

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	rdebug "runtime/debug"
 	"runtime/pprof"
 	rtrace "runtime/trace"
 	"slices"
@@ -57,7 +58,6 @@ var (
 	spanSliceCache          = mem.NewConcurrentSliceCache[ptrace.Span, []ptrace.Span]()
 	stackSpanMetaSliceCache = mem.NewConcurrentSliceCache[stackSpanMeta, []stackSpanMeta]()
 )
-var colorPanel = color.Oklch{L: 0.7862, C: 0.104, H: 140, A: 1}
 
 func debugCaching(win *theme.Window, gtx layout.Context) {
 	if false {
@@ -311,6 +311,7 @@ type MainWindow struct {
 	trace           *Trace
 	explorer        *explorer.Explorer
 	showingExplorer atomic.Bool
+	mainMenu        *MainMenu
 
 	cpuProfile *os.File
 
@@ -396,6 +397,7 @@ func (mwin *MainWindow) setState(state string) {
 func (mwin *MainWindow) SetState(state string) {
 	mwin.twin.EmitAction(theme.ExecuteAction(func(gtx layout.Context) {
 		mwin.twin.CloseModal()
+		mwin.twin.Menu.Close()
 		mwin.setState(state)
 	}))
 }
@@ -460,6 +462,127 @@ func ToggleLabel(t, f string, b *bool) func() string {
 
 func PlainLabel(s string) func() string { return func() string { return s } }
 
+type MainMenu struct {
+	File struct {
+		OpenTrace theme.MenuItem
+		Quit      theme.MenuItem
+	}
+
+	Display struct {
+		UndoNavigation       theme.MenuItem
+		ScrollToTop          theme.MenuItem
+		ZoomToFit            theme.MenuItem
+		JumpToBeginning      theme.MenuItem
+		HighlightSpans       theme.MenuItem
+		ToggleCompactDisplay theme.MenuItem
+		ToggleTimelineLabels theme.MenuItem
+		ToggleStackTracks    theme.MenuItem
+	}
+
+	Analyze struct {
+		OpenHeatmap    theme.MenuItem
+		OpenFlameGraph theme.MenuItem
+	}
+
+	Debug struct {
+		Memprofile   theme.MenuItem
+		Cpuprofile   theme.MenuItem
+		GC           theme.MenuItem
+		FreeOSMemory theme.MenuItem
+	}
+
+	menu *theme.Menu
+}
+
+func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
+	m := &MainMenu{}
+
+	m.File.OpenTrace = theme.MenuItem{Label: PlainLabel("Open trace")}
+	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
+
+	notMainDisabled := func() bool { return mwin.state != "main" }
+	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
+	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of canvas"), Disabled: notMainDisabled}
+	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible timelines"), Disabled: notMainDisabled}
+	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
+	m.Display.HighlightSpans = theme.MenuItem{Shortcut: "H", Label: PlainLabel("Highlight spans…"), Disabled: notMainDisabled}
+	m.Display.ToggleCompactDisplay = theme.MenuItem{Shortcut: "C", Label: ToggleLabel("Disable compact display", "Enable compact display", &mwin.canvas.timeline.compact), Disabled: notMainDisabled}
+	m.Display.ToggleTimelineLabels = theme.MenuItem{Shortcut: "X", Label: ToggleLabel("Hide timeline labels", "Show timeline labels", &mwin.canvas.timeline.displayAllLabels), Disabled: notMainDisabled}
+	m.Display.ToggleStackTracks = theme.MenuItem{Shortcut: "S", Label: ToggleLabel("Hide stack frames", "Show stack frames", &mwin.canvas.timeline.displayStackTracks), Disabled: notMainDisabled}
+
+	m.Debug.Memprofile = theme.MenuItem{Label: PlainLabel("Write memory profile")}
+	m.Debug.Cpuprofile = theme.MenuItem{Label: func() string {
+		if mwin.cpuProfile == nil {
+			return "Start CPU profile"
+		} else {
+			return "Stop CPU profile"
+		}
+	}}
+	m.Debug.GC = theme.MenuItem{Label: PlainLabel("Force garbage collection")}
+	m.Debug.FreeOSMemory = theme.MenuItem{Label: PlainLabel("Force garbage collection & return unused memory to OS")}
+
+	m.Analyze.OpenHeatmap = theme.MenuItem{Label: PlainLabel("Open processor utilization heatmap"), Disabled: notMainDisabled}
+	m.Analyze.OpenFlameGraph = theme.MenuItem{Label: PlainLabel("Open flame graph"), Disabled: notMainDisabled}
+
+	m.menu = &theme.Menu{
+		Groups: []theme.MenuGroup{
+			{
+				Label: "File",
+				Items: []theme.Widget{
+					theme.NewMenuItemStyle(win.Theme, &m.File.OpenTrace).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.File.Quit).Layout,
+				},
+			},
+			{
+				Label: "Display",
+				Items: []theme.Widget{
+					// TODO(dh): disable Undo menu item when there are no more undo steps
+					theme.NewMenuItemStyle(win.Theme, &m.Display.UndoNavigation).Layout,
+
+					theme.MenuDivider(win.Theme).Layout,
+
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ScrollToTop).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ZoomToFit).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.JumpToBeginning).Layout,
+
+					theme.MenuDivider(win.Theme).Layout,
+
+					theme.NewMenuItemStyle(win.Theme, &m.Display.HighlightSpans).Layout,
+
+					theme.MenuDivider(win.Theme).Layout,
+
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleCompactDisplay).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleTimelineLabels).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.ToggleStackTracks).Layout,
+					// TODO(dh): add items for STW and GC overlays
+					// TODO(dh): add item for tooltip display
+				},
+			},
+			{
+				Label: "Analyze",
+				Items: []theme.Widget{
+					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenHeatmap).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Analyze.OpenFlameGraph).Layout,
+				},
+			},
+		},
+	}
+
+	if softDebug {
+		m.menu.Groups = append(m.menu.Groups, theme.MenuGroup{
+			Label: "Debug",
+			Items: []theme.Widget{
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.Cpuprofile).Layout,
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.Memprofile).Layout,
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.GC).Layout,
+				theme.NewMenuItemStyle(win.Theme, &m.Debug.FreeOSMemory).Layout,
+			},
+		})
+	}
+
+	return m
+}
+
 func displayHighlightSpansDialog(win *theme.Window, filter *Filter) {
 	hd := HighlightDialog(win, filter)
 	win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -495,7 +618,8 @@ func (mwin *MainWindow) Run() error {
 	profileTag := new(int)
 	var ops op.Ops
 
-	var commands []Command
+	mwin.mainMenu = NewMainMenu(mwin, mwin.twin)
+	mwin.twin.Menu = mwin.mainMenu.menu
 
 	var prevTotalAlloc uint64
 	var prevMallocs uint64
@@ -526,13 +650,9 @@ func (mwin *MainWindow) Run() error {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 				gtx.Constraints.Min = image.Point{}
 
-				for _, cmd := range commands {
-					cmd(mwin, gtx)
-				}
 				for _, l := range win.Actions() {
 					mwin.openLink(gtx, l)
 				}
-				commands = commands[:0]
 
 				for _, ev := range gtx.Events(&mwin.pointerAt) {
 					mwin.pointerAt = ev.(pointer.Event).Position
@@ -560,6 +680,16 @@ func (mwin *MainWindow) Run() error {
 
 				// Fill background
 				theme.Fill(win, gtx.Ops, mwin.twin.Theme.Palette.Background)
+
+				if mwin.mainMenu.File.Quit.Clicked() {
+					win.Menu.Close()
+					os.Exit(0)
+				}
+
+				if mwin.mainMenu.File.OpenTrace.Clicked() {
+					win.Menu.Close()
+					mwin.showFileOpenDialog()
+				}
 
 				switch mwin.state {
 				case "empty":
@@ -671,7 +801,6 @@ func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Co
 func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	win.AddShortcut(theme.Shortcut{Name: "G"})
 	win.AddShortcut(theme.Shortcut{Name: "H"})
-	win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"})
 
 	for _, s := range win.PressedShortcuts() {
 		switch s {
@@ -682,12 +811,111 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 
 		case theme.Shortcut{Name: "H"}:
 			displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-
-		case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Space"}:
-			cmd := &theme.CommandPalette{}
-			cmd.Set(theme.MultiCommandProvider{win.CommandProviders()})
-			win.SetModal(cmd.Layout)
 		}
+	}
+
+	if mwin.mainMenu.Display.UndoNavigation.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.UndoNavigation(gtx)
+	}
+	if mwin.mainMenu.Display.ScrollToTop.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.ScrollToTop(gtx)
+	}
+	if mwin.mainMenu.Display.ZoomToFit.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.ZoomToFitCurrentView(gtx)
+	}
+	if mwin.mainMenu.Display.JumpToBeginning.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.JumpToBeginning(gtx)
+	}
+	if mwin.mainMenu.Display.HighlightSpans.Clicked() {
+		win.Menu.Close()
+		displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
+	}
+	if mwin.mainMenu.Display.ToggleCompactDisplay.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.ToggleCompactDisplay()
+	}
+	if mwin.mainMenu.Display.ToggleTimelineLabels.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.ToggleTimelineLabels()
+	}
+	if mwin.mainMenu.Display.ToggleStackTracks.Clicked() {
+		win.Menu.Close()
+		mwin.canvas.ToggleStackTracks()
+	}
+	if mwin.mainMenu.Analyze.OpenHeatmap.Clicked() {
+		win.Menu.Close()
+		mwin.openHeatmap()
+	}
+	if mwin.mainMenu.Analyze.OpenFlameGraph.Clicked() {
+		win.Menu.Close()
+		mwin.openFlameGraph(nil)
+	}
+	if mwin.mainMenu.Debug.Cpuprofile.Clicked() {
+		win.Menu.Close()
+		if mwin.cpuProfile != nil {
+			pprof.StopCPUProfile()
+			if err := mwin.cpuProfile.Close(); err == nil {
+				win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
+			} else {
+				win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
+			}
+			mwin.cpuProfile = nil
+		} else {
+			f, path, err := func() (*os.File, string, error) {
+				path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
+				f, err := os.Create(path)
+				if err != nil {
+					return nil, "", err
+				}
+				if err := pprof.StartCPUProfile(f); err != nil {
+					f.Close()
+					return nil, "", err
+				}
+				return f, path, nil
+			}()
+			if err == nil {
+				win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
+			} else {
+				win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
+			}
+			mwin.cpuProfile = f
+		}
+	}
+	if mwin.mainMenu.Debug.Memprofile.Clicked() {
+		win.Menu.Close()
+		path, err := func() (string, error) {
+			runtime.GC()
+			path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
+			f, err := os.Create(path)
+			if err != nil {
+				return "", err
+			}
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				return "", err
+			}
+			return path, f.Close()
+		}()
+		if err == nil {
+			win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
+		} else {
+			win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
+		}
+	}
+	if mwin.mainMenu.Debug.GC.Clicked() {
+		win.Menu.Close()
+		start := time.Now()
+		runtime.GC()
+		d := time.Since(start)
+		win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
+	}
+	if mwin.mainMenu.Debug.FreeOSMemory.Clicked() {
+		win.Menu.Close()
+		rdebug.FreeOSMemory()
+		win.ShowNotification(gtx, "Returned unused memory to OS")
 	}
 
 	mwin.canvas.indicateTimestamp = container.None[trace.Timestamp]()
@@ -731,7 +959,6 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	mwin.debugWindow.cvEnd.addValue(gtx.Now, float64(mwin.canvas.End()))
 	mwin.debugWindow.cvY.addValue(gtx.Now, float64(mwin.canvas.y))
 
-	win.AddCommandProvider(mwin.defaultCommands())
 	var dims layout.Dimensions
 
 	mainArea := func(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -821,315 +1048,6 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	}
 
 	return dims
-}
-
-func (mwin *MainWindow) defaultCommands() theme.CommandProvider {
-	var (
-		colorDisplay    = color.Oklch{L: 0.7862, C: 0.104, H: 219.74, A: 1}
-		colorAnalysis   = color.Oklch{L: 0.7862, C: 0.104, H: 82.85, A: 1}
-		colorNavigation = color.Oklch{L: 0.7862, C: 0.104, H: 175.7, A: 1}
-		colorDebug      = color.Oklch{}
-		colorGeneral    = color.Oklch{L: 0.7862, C: 0.104, H: 120, A: 1}
-	)
-
-	cmds := theme.CommandSlice{
-		theme.NormalCommand{
-			Category:     "Navigation",
-			PrimaryLabel: "Scroll to timeline…",
-			Aliases:      []string{"goto", "go to"},
-			Shortcut:     "G",
-			Color:        colorNavigation,
-			Fn: func() theme.Action {
-				return &OpenScrollToTimelineAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Navigation",
-			PrimaryLabel: "Undo previous navigation",
-			Shortcut:     key.ModShortcut.String() + "+Z",
-			Color:        colorNavigation,
-			Fn: func() theme.Action {
-				return &CanvasUndoNavigationAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Navigation",
-			PrimaryLabel: "Scroll to top of canvas",
-			Aliases:      []string{"jump", "beginning"},
-			Shortcut:     "Home",
-			Color:        colorNavigation,
-			Fn: func() theme.Action {
-				return &CanvasScrollToTopAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Navigation",
-			PrimaryLabel: "Zoom to fit visible timelines",
-			Shortcut:     key.ModShortcut.String() + "+Home",
-			Color:        colorNavigation,
-			Fn: func() theme.Action {
-				return &CanvasZoomToFitCurrentViewAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Highlight spans…",
-			Shortcut:     "H",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &OpenHighlightSpansDialogAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Navigation",
-			PrimaryLabel: "Pan to beginning of time",
-			Aliases:      []string{"scroll", "jump"},
-			Shortcut:     "Shift+Home",
-			Color:        colorNavigation,
-			Fn: func() theme.Action {
-				return &CanvasJumpToBeginningAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Analysis",
-			PrimaryLabel: "Open processor utilization heatmap",
-			Color:        colorAnalysis,
-			Fn: func() theme.Action {
-				return &OpenHeatmapAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "Analysis",
-			PrimaryLabel: "Open flame graph",
-			Aliases:      []string{"flamegraph"},
-			Color:        colorAnalysis,
-			Fn: func() theme.Action {
-				return &OpenFlameGraphAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "General",
-			PrimaryLabel: "Open trace",
-			Color:        colorGeneral,
-			Fn: func() theme.Action {
-				return &OpenFileOpenAction{}
-			}},
-
-		theme.NormalCommand{
-			Category:     "General",
-			PrimaryLabel: "Quit",
-			Color:        colorGeneral,
-			Fn: func() theme.Action {
-				return &ExitAction{}
-			}},
-	}
-
-	if mwin.canvas.timeline.displayStackTracks {
-		cmds = append(cmds, theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Hide stack tracks",
-			Shortcut:     "S",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &CanvasToggleStackTracksAction{}
-			},
-		})
-	} else {
-		cmds = append(cmds, theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show stack tracks",
-			Shortcut:     "S",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &CanvasToggleStackTracksAction{}
-			},
-		})
-	}
-
-	if mwin.canvas.timeline.compact {
-		cmds = append(cmds, theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Disable compact display",
-			Shortcut:     "C",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &CanvasToggleCompactDisplayAction{}
-			}})
-	} else {
-		cmds = append(cmds, theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Enable compact display",
-			Shortcut:     "C",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &CanvasToggleCompactDisplayAction{}
-			}})
-	}
-
-	if mwin.canvas.timeline.displayAllLabels {
-		cmds = append(cmds, theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Hide timeline labels",
-			Aliases:      []string{"show"},
-			Shortcut:     "X",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &CanvasToggleTimelineLabelsAction{}
-			}})
-	} else {
-		cmds = append(cmds, theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show timeline labels",
-			Aliases:      []string{"hide"},
-			Shortcut:     "X",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return &CanvasToggleTimelineLabelsAction{}
-			}})
-	}
-
-	cmds = append(cmds,
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show all tooltips",
-			Aliases:      []string{"toggle", "hide"},
-			Shortcut:     "T",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return theme.ExecuteAction(func(gtx layout.Context) {
-					mwin.canvas.timeline.showTooltips = showTooltipsBoth
-					showTooltipSettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showTooltips)
-				})
-			},
-		},
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show no tooltips",
-			Aliases:      []string{"toggle", "hide"},
-			Shortcut:     "T",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return theme.ExecuteAction(func(gtx layout.Context) {
-					mwin.canvas.timeline.showTooltips = showTooltipsNone
-					showTooltipSettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showTooltips)
-				})
-			},
-		},
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show span tooltips only",
-			Aliases:      []string{"toggle", "hide"},
-			Shortcut:     "T",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return theme.ExecuteAction(func(gtx layout.Context) {
-					mwin.canvas.timeline.showTooltips = showTooltipsSpans
-					showTooltipSettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showTooltips)
-				})
-			},
-		},
-
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show STW and GC overlays",
-			Aliases:      []string{"hide"},
-			Shortcut:     "O",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return theme.ExecuteAction(func(gtx layout.Context) {
-					mwin.canvas.timeline.showGCOverlays = showGCOverlaysBoth
-					showGCOverlaySettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showGCOverlays)
-				})
-			},
-		},
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show STW overlays only",
-			Aliases:      []string{"hide"},
-			Shortcut:     "O",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return theme.ExecuteAction(func(gtx layout.Context) {
-					mwin.canvas.timeline.showGCOverlays = showGCOverlaysSTW
-					showGCOverlaySettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showGCOverlays)
-				})
-			},
-		},
-		theme.NormalCommand{
-			Category:     "Display",
-			PrimaryLabel: "Show no STW or GC overlays",
-			Aliases:      []string{"hide"},
-			Shortcut:     "O",
-			Color:        colorDisplay,
-			Fn: func() theme.Action {
-				return theme.ExecuteAction(func(gtx layout.Context) {
-					mwin.canvas.timeline.showGCOverlays = showGCOverlaysNone
-					showGCOverlaySettingNotification(mwin.twin, gtx, mwin.canvas.timeline.showGCOverlays)
-				})
-			},
-		},
-	)
-
-	if softDebug {
-		cmds = append(cmds,
-			theme.NormalCommand{
-				Category:     "Debug",
-				PrimaryLabel: "Write memory profile",
-				Color:        colorDebug,
-				Fn: func() theme.Action {
-					return &WriteMemoryProfileAction{}
-				}},
-
-			theme.NormalCommand{
-				Category:     "Debug",
-				PrimaryLabel: "Force garbage collection",
-				Aliases:      []string{"run", "gc"},
-				Color:        colorDebug,
-				Fn: func() theme.Action {
-					return &RunGarbageCollectionAction{}
-				}},
-
-			theme.NormalCommand{
-				Category:     "Debug",
-				PrimaryLabel: "Force garbage collection & return unused memory to OS",
-				Aliases:      []string{"run", "gc", "free", "operating system"},
-				Color:        colorDebug,
-				Fn: func() theme.Action {
-					return &RunFreeOSMemoryAction{}
-				}},
-		)
-
-		if mwin.cpuProfile == nil {
-			cmds = append(cmds, theme.NormalCommand{
-				Category:     "Debug",
-				PrimaryLabel: "Start CPU profile",
-				Color:        colorDebug,
-				Fn: func() theme.Action {
-					return &StartCPUProfileAction{}
-				}})
-		} else {
-			cmds = append(cmds, theme.NormalCommand{
-				Category:     "Debug",
-				PrimaryLabel: "Stop CPU profile",
-				Color:        colorDebug,
-				Fn: func() theme.Action {
-					return &StopCPUProfileAction{}
-				}})
-		}
-	}
-
-	slices.SortFunc(cmds, func(a, b theme.Command) int {
-		an := a.(theme.NormalCommand)
-		bn := b.(theme.NormalCommand)
-
-		if n := cmp(an.Category, bn.Category, false); n != 0 {
-			return n
-		} else {
-			return cmp(an.PrimaryLabel, bn.PrimaryLabel, false)
-		}
-	})
-
-	return cmds
 }
 
 func (mwin *MainWindow) showFileOpenDialog() {
