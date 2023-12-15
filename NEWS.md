@@ -1,4 +1,26 @@
-# v0.3.0 (unreleased)
+# v0.4.0 (unreleased)
+
+- Require Go 1.21 for building Gotraceui
+- All tables now have resizable and sortable columns
+- Added flame graphs
+- Links to timelines and spans now default to opening information
+- Links that open things and links that navigate use different colors (red and blue, respectively)
+- Clicking on spans in GC and STW timelines no longer crashes
+- Hovering table rows highlights them
+- When hovering timestamp links, their targets will be indicated in the timelines view
+- Spans have a new context menu item, to open their span information
+- Switch to a tabbed user interface instead of using multiple windows
+- Added a Goroutines tab that lists all goroutines in the trace
+- Panels can be converted into tabs
+- Added context menu to goroutine labels in timelines view
+- No longer create empty GC or STW timelines
+- Merged spans now display a detailed representation of the contained spans
+- Fixed a rare crash at startup
+- Fixed a rare crash for some traces
+- Handle DPI changes while Gotraceui is running
+- Display user-friendly strings instead of `<unknown>` for unknown timestamps
+
+# v0.3.0 (2023-08-07)
 
 - Added support for traces produced by Go 1.21
 - Improved the formatting of durations in statistics
