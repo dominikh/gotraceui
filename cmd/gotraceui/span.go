@@ -78,7 +78,7 @@ type SpansInfo struct {
 
 	initialized bool
 
-	theme.PanelButtons
+	theme.ComponentButtons
 }
 
 type SpansInfoConfig struct {
@@ -380,7 +380,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					)
 				}
 				children = append(children, layout.Flexed(1, nothing))
-				children = append(children, layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)))
+				children = append(children, layout.Rigid(theme.Dumb(win, si.ComponentButtons.Layout)))
 
 				// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
 				// panel contents, nor the infinite width of a possible surrounding list.
@@ -468,7 +468,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 			func(gtx layout.Context) layout.Dimensions {
 				children := []layout.FlexChild{
 					layout.Flexed(1, nothing),
-					layout.Rigid(theme.Dumb(win, si.PanelButtons.Layout)),
+					layout.Rigid(theme.Dumb(win, si.ComponentButtons.Layout)),
 				}
 
 				// Right-aligned buttons should be aligned with the right side of the visible panel, not the width of the
@@ -519,7 +519,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	for si.buttons.zoomToSpans.Clicked() {
 		si.zoomToSpans(win)
 	}
-	for si.PanelButtons.Backed() {
+	for si.ComponentButtons.Backed() {
 		si.mwin.EmitAction(&PrevPanelAction{})
 	}
 	for si.buttons.selectUserRegion.Clicked() {

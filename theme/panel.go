@@ -2,7 +2,6 @@ package theme
 
 import (
 	"context"
-	"fmt"
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/color"
@@ -10,35 +9,22 @@ import (
 	"honnef.co/go/gotraceui/widget"
 )
 
-type Panel interface {
-	Component
-}
-
-type PanelButtons struct {
+type ComponentButtons struct {
 	close  widget.PrimaryClickable
 	back   widget.PrimaryClickable
 	detach widget.PrimaryClickable
 	attach widget.PrimaryClickable
 
-	windowed bool
+	state ComponentState
 }
 
-func (pb *PanelButtons) Transition(state ComponentState) {
-	switch state {
-	case ComponentStatePanel:
-		pb.windowed = false
-	case ComponentStateWindow:
-		pb.windowed = true
-	case ComponentStateClosed:
-		// Nothing to do
-	default:
-		panic(fmt.Sprintf("unsupported transition to state %q", state))
-	}
+func (pb *ComponentButtons) Transition(state ComponentState) {
+	pb.state = state
 }
 
-func (pb *PanelButtons) WantsTransition() ComponentState {
+func (pb *ComponentButtons) WantsTransition() ComponentState {
 	if pb.detach.Clicked() {
-		return ComponentStateWindow
+		return ComponentStateTab
 	} else if pb.attach.Clicked() {
 		return ComponentStatePanel
 	} else if pb.close.Clicked() {
@@ -48,11 +34,11 @@ func (pb *PanelButtons) WantsTransition() ComponentState {
 	}
 }
 
-func (pb *PanelButtons) Backed() bool {
+func (pb *ComponentButtons) Backed() bool {
 	return pb.back.Clicked()
 }
 
-func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+func (pb *ComponentButtons) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.PanelButtons.Layout").End()
 
 	type button struct {
@@ -62,7 +48,28 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 	}
 
 	var buttons []button
-	if pb.windowed {
+	switch pb.state {
+	case ComponentStatePanel:
+		buttons = []button{
+			{
+				&pb.back,
+				"Back",
+				NormalCommand{
+					PrimaryLabel: "Go to previous panel",
+					Aliases:      []string{"back"},
+				},
+			},
+
+			{
+				&pb.detach,
+				"Tabify",
+				NormalCommand{
+					PrimaryLabel: "Turn panel into tab",
+				},
+			},
+		}
+	case ComponentStateTab:
+	case ComponentStateWindow:
 		buttons = []button{
 			{
 				&pb.attach,
@@ -77,25 +84,6 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 				"Close",
 				NormalCommand{
 					PrimaryLabel: "Close panel",
-				},
-			},
-		}
-	} else {
-		buttons = []button{
-			{
-				&pb.back,
-				"Back",
-				NormalCommand{
-					PrimaryLabel: "Go to previous panel",
-					Aliases:      []string{"back"},
-				},
-			},
-
-			{
-				&pb.detach,
-				"Detach",
-				NormalCommand{
-					PrimaryLabel: "Detach panel",
 				},
 			},
 		}
@@ -127,14 +115,14 @@ func (pb *PanelButtons) Layout(win *Window, gtx layout.Context) layout.Dimension
 	return layout.Rigids(gtx, layout.Horizontal, children...)
 }
 
-// WidgetPanel turns any widget into a Panel. You are responsible for handling panel button events.
-type WidgetPanel struct {
+// WidgetComponent turns any widget into a Component. You are responsible for handling component button events.
+type WidgetComponent struct {
 	w Widget
-	PanelButtons
+	ComponentButtons
 }
 
-func (wp *WidgetPanel) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.WidgetPanel.Layout").End()
+func (wp *WidgetComponent) Layout(win *Window, gtx layout.Context) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.WidgetComponent.Layout").End()
 
-	return layout.Rigids(gtx, layout.Horizontal, Dumb(win, wp.PanelButtons.Layout), Dumb(win, wp.w))
+	return layout.Rigids(gtx, layout.Horizontal, Dumb(win, wp.ComponentButtons.Layout), Dumb(win, wp.w))
 }

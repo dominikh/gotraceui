@@ -34,7 +34,7 @@ type FunctionInfo struct {
 
 	initialized bool
 
-	theme.PanelButtons
+	theme.ComponentButtons
 }
 
 func NewFunctionInfo(tr *Trace, mwin *theme.Window, fn *ptrace.Function) *FunctionInfo {
@@ -147,7 +147,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 				layout.Flexed(1, nothing),
-				layout.Rigid(theme.Dumb(win, fi.PanelButtons.Layout)),
+				layout.Rigid(theme.Dumb(win, fi.ComponentButtons.Layout)),
 			)
 		},
 
@@ -209,7 +209,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		fi.descriptionText.HoveredLink(),
 	)
 
-	for fi.PanelButtons.Backed() {
+	for fi.ComponentButtons.Backed() {
 		fi.mwin.EmitAction(&PrevPanelAction{})
 	}
 

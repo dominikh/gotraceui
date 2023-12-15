@@ -297,7 +297,7 @@ func shortenFunctionName(s string) string {
 type Command func(*MainWindow, layout.Context)
 
 type Panel interface {
-	theme.Panel
+	theme.Component
 	HoveredLinker
 }
 
@@ -932,6 +932,10 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 			mwin.prevPanel()
 		case theme.ComponentStateWindow:
 			mwin.openPanelWindow(mwin.panel)
+			mwin.prevPanel()
+		case theme.ComponentStateTab:
+			mwin.panel.Transition(theme.ComponentStateTab)
+			mwin.openTab(Tab{Component: mwin.panel})
 			mwin.prevPanel()
 		case theme.ComponentStatePanel, theme.ComponentStateNone:
 			// Nothing to do
