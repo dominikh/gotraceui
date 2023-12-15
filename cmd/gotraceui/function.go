@@ -21,7 +21,6 @@ type FunctionInfo struct {
 	mwin          *theme.Window
 	fn            *ptrace.Function
 	trace         *Trace
-	title         string
 	tabbedState   theme.TabbedState
 	goroutineList GoroutineList
 
@@ -120,7 +119,7 @@ func (fi *FunctionInfo) init(win *theme.Window) {
 }
 
 func (fi *FunctionInfo) Title() string {
-	return fi.title
+	return fi.fn.Fn
 }
 
 func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
