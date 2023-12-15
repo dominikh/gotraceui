@@ -122,9 +122,9 @@ func (si *SpansInfo) init(win *theme.Window) {
 		firstSpan := spans.At(0)
 		lastSpan := LastSpan(spans)
 		if haveContainer {
-			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s\n", firstSpan.Start, lastSpan.End, c.Timeline.shortName)
+			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s", firstSpan.Start, lastSpan.End, c.Timeline.shortName)
 		} else {
-			si.cfg.Title = local.Sprintf("%d ns–%d ns\n", firstSpan.Start, lastSpan.End)
+			si.cfg.Title = local.Sprintf("%d ns–%d ns", firstSpan.Start, lastSpan.End)
 		}
 	}
 
