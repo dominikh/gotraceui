@@ -167,7 +167,7 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 		NewTrack(tl, TrackKindUnspecified),
 	}
 
-	ss := SimpleItems[ptrace.Span]{
+	ss := SimpleItems[ptrace.Span, any]{
 		items: p.Spans,
 		container: ItemContainer{
 			Timeline: tl,

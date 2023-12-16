@@ -156,7 +156,7 @@ func stackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string 
 	if spans.At(0).State == statePlaceholder {
 		return out
 	}
-	pc := spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0).pc
+	pc := spans.MetadataAtPtr(0).(*stackSpanMeta).pc
 	f := tr.PCs[pc]
 
 	short := shortenFunctionName(f.Fn)
@@ -174,7 +174,7 @@ func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr 
 		var label string
 		if state.spans.Len() == 1 {
 			if state.spans.At(0).State != statePlaceholder {
-				meta := state.spans.(MetadataSpans[stackSpanMeta]).MetadataAt(0)
+				meta := state.spans.MetadataAtPtr(0).(*stackSpanMeta)
 				pc := meta.pc
 				f := tr.PCs[pc]
 				label = local.Sprintf("Function: %s\n", f.Fn)
@@ -217,7 +217,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	track.Start = g.EffectiveStart()
 	track.End = g.EffectiveEnd()
 	track.Len = len(g.Spans)
-	track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
+	track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
 		items: g.Spans,
 		container: ItemContainer{
 			Timeline: tl,
@@ -239,7 +239,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		track.Len = len(ug)
 		track.events = tl.tracks[0].events
 		track.hideEventMarkers = true
-		track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
+		track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
 			items: ug,
 			container: ItemContainer{
 				Timeline: tl,
@@ -947,7 +947,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 	}
 
 	tl := canvas.itemToTimeline[g]
-	ss := SimpleItems[ptrace.Span]{
+	ss := SimpleItems[ptrace.Span, any]{
 		items: spans,
 		container: ItemContainer{
 			Timeline: tl,

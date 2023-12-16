@@ -137,7 +137,7 @@ func (tr *Track) Spans(win *theme.Window) *theme.Future[Items[ptrace.Span]] {
 		return tr.spans
 	}
 	if tr.compressedSpans.count == 0 {
-		tr.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
+		tr.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
 			container: ItemContainer{
 				Timeline: tr.parent,
 				Track:    tr,
@@ -232,16 +232,14 @@ func (tr *Track) Spans(win *theme.Window) *theme.Future[Items[ptrace.Span]] {
 		uint64SliceCache.Put(pcs)
 		uint64SliceCache.Put(nums)
 
-		out := spanAndMetadataSlices[stackSpanMeta]{
-			Items: SimpleItems[ptrace.Span]{
-				items: spans,
-				container: ItemContainer{
-					Timeline: tr.parent,
-					Track:    tr,
-				},
-				subslice: true,
+		out := SimpleItems[ptrace.Span, stackSpanMeta]{
+			items: spans,
+			metas: metas,
+			container: ItemContainer{
+				Timeline: tr.parent,
+				Track:    tr,
 			},
-			meta: metas,
+			subslice: true,
 		}
 
 		boolSliceCache.Put(isCPUSample)
@@ -259,25 +257,6 @@ func (tr *Track) Spans(win *theme.Window) *theme.Future[Items[ptrace.Span]] {
 
 	return tr.spans
 }
-
-type MetadataSpans[T any] interface {
-	Metadata() []T
-	MetadataAt(index int) T
-}
-
-type spanAndMetadataSlices[T any] struct {
-	Items[ptrace.Span]
-	meta []T
-}
-
-func (spans spanAndMetadataSlices[T]) Metadata() []T { return spans.meta }
-func (spans spanAndMetadataSlices[T]) Slice(start, end int) Items[ptrace.Span] {
-	return spanAndMetadataSlices[T]{
-		Items: spans.Items.Slice(start, end),
-		meta:  spans.meta[start:end],
-	}
-}
-func (spans spanAndMetadataSlices[T]) MetadataAt(index int) T { return spans.meta[index] }
 
 func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 	return &theme.MenuItem{
@@ -410,11 +389,10 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 		if track.compressedSpans.count != 0 {
 			if track.spans != nil {
 				if spans, ok := track.spans.ResultNoWait(); ok {
-					if spans, ok := spans.(spanAndMetadataSlices[stackSpanMeta]); ok {
-						stackSpanMetaSliceCache.Put(spans.meta)
-						if items, ok := spans.Items.(SimpleItems[ptrace.Span]); ok {
-							spanSliceCache.Put(items.items)
-						}
+					// XXX instead of special-casing SimpleItems and stackSpanMeta here, specify some interface
+					if spans, ok := spans.(SimpleItems[ptrace.Span, stackSpanMeta]); ok {
+						stackSpanMetaSliceCache.Put(spans.metas)
+						spanSliceCache.Put(spans.items)
 					}
 				}
 			}
@@ -686,7 +664,7 @@ func (track *Track) Layout(
 
 	spans, haveSpans := track.Spans(win).ResultNoWait()
 	if !haveSpans {
-		spans = SimpleItems[ptrace.Span]{
+		spans = SimpleItems[ptrace.Span, any]{
 			items: []ptrace.Span{
 				{
 					Start: track.Start,
@@ -1176,7 +1154,7 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 		NewTrack(tl, TrackKindUnspecified),
 	}
 
-	ss := SimpleItems[ptrace.Span]{
+	ss := SimpleItems[ptrace.Span, any]{
 		items: spans,
 		container: ItemContainer{
 			Timeline: tl,
@@ -1208,7 +1186,7 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	tl.tracks = []*Track{
 		NewTrack(tl, TrackKindUnspecified),
 	}
-	ss := SimpleItems[ptrace.Span]{
+	ss := SimpleItems[ptrace.Span, any]{
 		items: spans,
 		container: ItemContainer{
 			Timeline: tl,

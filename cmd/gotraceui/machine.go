@@ -228,7 +228,7 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	tl.tracks[0].Start = m.Spans[0].Start
 	tl.tracks[0].End = m.Spans[len(m.Spans)-1].End
 	tl.tracks[0].Len = len(m.Spans)
-	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
+	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
 		items: m.Spans,
 		container: ItemContainer{
 			Timeline: tl,
@@ -243,7 +243,7 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 	tl.tracks[1].Start = m.Goroutines[0].Start
 	tl.tracks[1].End = m.Goroutines[len(m.Goroutines)-1].End
 	tl.tracks[1].Len = len(m.Goroutines)
-	tl.tracks[1].spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span]{
+	tl.tracks[1].spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
 		items: m.Goroutines,
 		container: ItemContainer{
 			Timeline: tl,

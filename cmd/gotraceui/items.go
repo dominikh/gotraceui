@@ -17,52 +17,65 @@ type Items[T any] interface {
 	// Container returns the ItemContainer that applies to all items, or false if there is no singular container.
 	Container() (ItemContainer, bool)
 	ContainerAt(idx int) ItemContainer
+	MetadataAtPtr(index int) any
 }
 
-type SimpleItems[T any] struct {
+type SimpleItems[T, M any] struct {
 	items      []T
+	metas      []M
 	container  ItemContainer
 	contiguous bool
 	subslice   bool
 }
 
-func NewSimpleItems[E any, S ~[]E](items S) SimpleItems[E] {
-	return SimpleItems[E]{
+func NewSimpleItems[E, M any, SE ~[]E, SM ~[]M](items SE, meta SM) SimpleItems[E, M] {
+	return SimpleItems[E, M]{
 		items: []E(items),
+		metas: []M(meta),
 	}
 }
 
-func (s SimpleItems[T]) At(idx int) T {
+func (s SimpleItems[T, M]) At(idx int) T {
 	return s.items[idx]
 }
 
-func (s SimpleItems[T]) AtPtr(idx int) *T {
+func (s SimpleItems[T, M]) AtPtr(idx int) *T {
 	return &s.items[idx]
 }
 
-func (s SimpleItems[T]) Contiguous() bool {
+func (s SimpleItems[T, M]) Contiguous() bool {
 	return s.contiguous
 }
 
-func (s SimpleItems[T]) Subslice() bool {
+func (s SimpleItems[T, M]) Subslice() bool {
 	return s.subslice
 }
 
-func (s SimpleItems[T]) Container() (ItemContainer, bool) {
+func (s SimpleItems[T, M]) Container() (ItemContainer, bool) {
 	return s.container, true
 }
 
-func (s SimpleItems[T]) ContainerAt(idx int) ItemContainer {
+func (s SimpleItems[T, M]) ContainerAt(idx int) ItemContainer {
 	return s.container
 }
 
-func (s SimpleItems[T]) Len() int {
+func (s SimpleItems[T, M]) Len() int {
 	return len(s.items)
 }
 
-func (s SimpleItems[T]) Slice(start int, end int) Items[T] {
+func (s SimpleItems[T, M]) Slice(start int, end int) Items[T] {
 	s.items = s.items[start:end]
+	if len(s.metas) != 0 {
+		s.metas = s.metas[start:end]
+	}
 	return s
+}
+
+func (s SimpleItems[T, M]) MetadataAtPtr(idx int) any {
+	if len(s.metas) == 0 {
+		return nil
+	}
+	return &s.metas[idx]
 }
 
 type MergedItems[T any] struct {
@@ -245,6 +258,11 @@ func (items MergedItems[T]) Subslice() bool {
 	}
 }
 
+func (items MergedItems[T]) MetadataAtPtr(idx int) any {
+	a, b := items.index(idx)
+	return items.bases[a].MetadataAtPtr(b)
+}
+
 type NoItems[T any] struct{}
 
 func (NoItems[T]) At(idx int) T {
@@ -281,6 +299,10 @@ func (NoItems[T]) Slice(start int, end int) Items[T] {
 	} else {
 		panic("cannot slice NoItems")
 	}
+}
+
+func (NoItems[T]) MetadataAtPtr(idx int) any {
+	return nil
 }
 
 type ItemsSubset[T any] struct {
@@ -325,6 +347,10 @@ func (items ItemsSubset[T]) Container() (ItemContainer, bool) {
 
 func (items ItemsSubset[T]) ContainerAt(idx int) ItemContainer {
 	return items.Base.ContainerAt(items.Subset[idx])
+}
+
+func (items ItemsSubset[T]) MetadataAtPtr(idx int) any {
+	return items.Base.MetadataAtPtr(items.Subset[idx])
 }
 
 func FilterItems[T any](items Items[T], fn func(item *T) bool) Items[T] {
@@ -431,3 +457,13 @@ func (items SortedItems[T]) Subslice() bool {
 	// Generally not a subslice because the items might be sorted.
 	return false
 }
+
+func (items SortedItems[T]) MetadataAtPtr(idx int) any {
+	return items.Base.MetadataAtPtr(items.Map(idx))
+}
+
+var _ Items[int] = NoItems[int]{}
+var _ Items[int] = SimpleItems[int, int]{}
+var _ Items[int] = MergedItems[int]{}
+var _ Items[int] = SortedItems[int]{}
+var _ Items[int] = ItemsSubset[int]{}

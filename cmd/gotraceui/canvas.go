@@ -864,7 +864,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 				// TODO(dh): make this less brittle. relying on the fact that cv.timelines[0] and [1] are GC and STW
 				// respectively is bad.
-				sGC := SimpleItems[ptrace.Span]{
+				sGC := SimpleItems[ptrace.Span, any]{
 					items: cv.trace.GC,
 					container: ItemContainer{
 						Timeline: cv.timelines[0],
@@ -872,7 +872,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 					},
 					subslice: true,
 				}
-				sSTW := SimpleItems[ptrace.Span]{
+				sSTW := SimpleItems[ptrace.Span, any]{
 					items: cv.trace.STW,
 					container: ItemContainer{
 						Timeline: cv.timelines[1],
@@ -951,7 +951,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if cv.timeline.showGCOverlays >= showGCOverlaysBoth {
 			// TODO(dh): make this less brittle. relying on the fact that cv.timelines[0] and [1] are GC and STW
 			// respectively is bad.
-			sGC := SimpleItems[ptrace.Span]{
+			sGC := SimpleItems[ptrace.Span, any]{
 				items: cv.trace.GC,
 				container: ItemContainer{
 					Timeline: cv.timelines[0],
@@ -966,7 +966,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if cv.timeline.showGCOverlays >= showGCOverlaysSTW {
 			// TODO(dh): make this less brittle. relying on the fact that cv.timelines[0] and [1] are GC and STW
 			// respectively is bad.
-			sSTW := SimpleItems[ptrace.Span]{
+			sSTW := SimpleItems[ptrace.Span, any]{
 				items: cv.trace.STW,
 				container: ItemContainer{
 					Timeline: cv.timelines[1],
