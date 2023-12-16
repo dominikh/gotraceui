@@ -524,20 +524,22 @@ even though in the latter case we still don't know what happened for the first \
 \section{Links}
 
 Gotraceui's UI contains many kinds of links, such as links to timestamps, goroutines, functions, etc.
+
+Links are color-coded. Red links refer to timestamps and blue links refer to \emph{objects} such as goroutines or spans.
+
 Left-clicking on links executes their default action,
 and most links also have alternate actions that can be accessed using the context menu,
 or by holding certain modifier keys while left-clicking.
 
-
 Clicking on a timestamp scrolls the canvas to that point in time, specifically by scrolling the time to the origin configured in the axis.
 Links to processors, goroutines, and spans all share the same functionality:
 \begin{itemize}
-\item Clicking on one scrolls the canvas to the corresponding timeline.
+\item Clicking on one opens the corresponding information panel.
 \item Holding \keys{\shortcut} while clicking on one zooms to it.
-\item Holding \keys{\shift} while clicking on one opens the corresponding panel.
+\item Holding \keys{\shift} while clicking on one scrolls the canvas to the corresponding timeline or beginning timestamp.
 \end{itemize}
 
-The context menu of span links allows scrolling to their beginnings or ends.
+The context menu of span links allows scrolling to their beginnings or ends, in addition to opening their info and zooming to them.
 
 \section{Panels}\label{panels}
 
