@@ -140,6 +140,9 @@ Execution traces, then, provide an accurate view into what our code is doing whi
 In other words, they show us what our code is waiting on.
 This, too, can help diagnose performance issues (this time caused by us), deadlocks, and more.
 
+Finally, the \code{runtime/trace} package allows us to annotate our code with regions, tasks, and logs.
+These help us group spans and provide additional information, making tracing useful for debugging \textsc{cpu} usage, too.
+
 Unfortunately, the tracer hasn't seen widespread adoption.
 This can be attributed to shortcomings in the official frontend, the \emph{Trace viewer}.
 The trace viewer isn't a custom-made tool for viewing Go execution traces;
