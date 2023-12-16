@@ -37,20 +37,20 @@
 \hypersetup{
   pdflicenseurl = {https://creativecommons.org/licenses/by-sa/4.0/}}
 
-\definecolor{stateActive}{HTML}{448844}
-\definecolor{stateBlockedGC}{HTML}{9C6FD6}
-\definecolor{stateBlockedHappensBefore}{HTML}{BB6363}
-\definecolor{stateBlockedNet}{HTML}{BB5D5D}
-\definecolor{stateBlockedSyscall}{HTML}{BA4F41}
-\definecolor{stateBlocked}{HTML}{BA4141}
-\definecolor{stateGC}{HTML}{9C6FD6}
-\definecolor{stateInactive}{HTML}{888888}
-\definecolor{stateReady}{HTML}{4BACB8}
+% XXX update colors
+\definecolor{stateActive}{HTML}{4A8E4A}
+\definecolor{stateBlockedGC}{HTML}{B55A79}
+\definecolor{stateBlockedHappensBefore}{HTML}{DB7A75}
+\definecolor{stateBlockedNet}{HTML}{C9716C}
+\definecolor{stateBlockedSyscall}{HTML}{B95B57}
+\definecolor{stateBlocked}{HTML}{A94C49}
+\definecolor{stateGC}{HTML}{8A68B8}
+\definecolor{stateInactive}{HTML}{7C7C7C}
+\definecolor{stateReady}{HTML}{008F9F}
 \definecolor{stateStuck}{HTML}{000000}
-\definecolor{stateMerged}{HTML}{B9BB63}
-\definecolor{stateUserRegion}{HTML}{F2A2E8}
-\definecolor{stateStack}{HTML}{79B579}
-\definecolor{stateSampled}{HTML}{98D597}
+\definecolor{stateUserRegion}{HTML}{F8ABEE}
+\definecolor{stateStack}{HTML}{7DBC7B}
+\definecolor{stateSampled}{HTML}{A1DB9F}
 
 \newcommand{\code}[1]{{\ttfamily\mbox{#1}}}
 \newcommand{\noun}[1]{{\emph{#1}}}
@@ -58,7 +58,25 @@
 \newcommand{\todo}[1]{{\color{red}#1}}
 \newcommand{\shortcut}{\ctrl{} or \cmdmac}
 
+\newcommand{\screenshot}[2]{%
+\begin{figure}[!ht]
+  \centering
+  \includegraphics[width=\textwidth]{images/screenshots/#1}
+  \caption{#2}
+\end{figure}}
+
 \sisetup{group-separator={,}}
+
+\newenvironment{keybindings}{%
+\begingroup
+\def\arraystretch{1.5}%
+\begin{tabular}{ll}
+  Input & Function \\
+  \hline
+}{%
+\end{tabular}
+\endgroup
+}
 
 
 \AtBeginEnvironment{verbatim}{\microtypesetup{activate=false}}
@@ -101,7 +119,6 @@
 \end{titlingpage}
 
 \microtypesetup{protrusion=false}
-\enlargethispage{2\baselineskip}
 \tableofcontents
 \microtypesetup{protrusion=true}
 
@@ -113,6 +130,8 @@
 % - event in span tooltip
 % - highlighting of related spans
 % - highlight spans dialog
+% - tabs
+% - goroutine tab
 
 \chapter{Introduction}
 
@@ -279,11 +298,7 @@ defer trace.StartRegion(ctx, "myTracedRegion").End()
 \end{verbatim}
 There is also a helper function called \code{WithRegion} that wraps the execution of a function in a region.
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{images/screenshots/user-regions.png}
-  \caption{User regions showing how part of Gotraceui's \textsc{ui} is being rendered.}
-\end{figure}
+\screenshot{user-regions.png}{User regions showing how part of Gotraceui's \textsc{ui} is being rendered.}
 
 Finally, tasks exist to group work that is happening across multiple goroutines.
 For example, if an incoming \textsc{api} request causes multiple goroutines to do work on behalf of that request in parallel, a task will be able to tie all of them together.
@@ -320,16 +335,14 @@ You can additionally use the \code{-cpuprofile} flag to include \textsc{cpu} pro
 \chapter{The user interface}
 The following sections will describe the various components of Gotraceui's \textsc{ui}.
 
-\section{Main window}
-The main window displays a main menu and an interactive \noun{timelines view} representing the trace data.
-The view can be moved around by dragging with \keys{LMB}, by using the scroll wheel, or by using the scrollbar.
-Holding \keys{\shortcut} while scrolling zooms in and out, centered around the cursor's position.
-Dragging with \keys{\shortcut + LMB} selects a region of time to zoom to.
-The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed,
-as well as commands for quick navigation.
+The Gotraceui \textsc{ui} consists of a main menu, a list of tabs, the main view displaying the current tab, and a side panel.
+
+\section{Timelines}
+When loading a trace, the initially selected tab (\emph{Timelines}) displays the \noun{timelines view}.
+This is an interactive view consisting of multiple elements, most prominently \noun{timelines} representing the trace data.
 
 \subsection{Axis}
-The top of the window shows the \noun{axis}.
+The top of the timelines view shows the \noun{axis}.
 The bold tick indicates the origin of the axis and displays the absolute time at that point in the trace.
 Ticks to the left and right of the origin show relative decrements and increments to this absolute time.
 
@@ -342,14 +355,14 @@ while origins set via the context menu will stay at their relative position.
 
 Additionally, the axis contains red and purple sections,
 which correspond to the garbage collector's stop-the-world phase and general activity.
-Pressing \keys{O} cycles through displaying the red section, both sections, or none of the sections across the entire timelines view.
+Pressing \keys{O} cycles through displaying the red section, both sections, or none of the sections across the entire view.
 
 \subsection{Memory plot}
 
 The axis is followed by the \noun{memory plot}, which shows memory usage (more specifically the size of the heap) and the garbage collector goal, using green and purple respectively.
 Hovering anywhere on the plot will show a tooltip with the exact numeric values.
 The memory plot is separated from the timelines by a black border.
-This border can be clicked and dragged to resize the plot.
+This border can be dragged to resize the plot.
 
 The plot's context menu offers the following additional features:
 
@@ -368,7 +381,7 @@ The plot's context menu offers the following additional features:
 \subsection{Timelines, tracks, and spans}
 The main section of the timelines view consists of a number of horizontally stacked timelines.
 A timeline might show a processor, a goroutine, or phases of the garbage collector.
-Every timeline has a label, hovering over which may display a tooltip.
+Every timeline has a label, hovering over which may display a tooltip, and right-clicking which may open a context menu.
 
 For example, for processors, the tooltip will show how much time was spent executing user code,
 doing garbage collection work,
@@ -376,23 +389,25 @@ and being idle.
 Pressing \keys{\shortcut + LMB} on a label will zoom the view such that all spans in that timeline are visible.
 Pressing \keys{LMB} on a goroutine label will open a panel with additional information about the goroutine (see \cref{panels} for more on panels.)
 
-A timeline consists of one or more horizontally stacked \noun{tracks},
-each track consisting of a series of \noun{spans}.
+A timeline consists of one or more horizontally stacked \noun{tracks}
+and each track consists of a series of \noun{spans}.
 A span represents a state for some duration of time.
 For example, a goroutine may be blocked on a channel send operation for \qty{100}{\milli\second}, and this would be displayed as a single span.
 Tracks can visualize various things, such as the states of goroutines, call stacks, or user regions.
 
-The space before the first and after the last span in a track is filled with \emph{whiskers}, which are green and grey respectively.
+The space before the first and after the last span in a track is filled with \noun{whiskers}, which are green and grey respectively.
 To differentiate goroutines that ended during the trace from goroutines that were still running by the end of the trace,
 the tracks of goroutines that have ended have a final, black span, indicating the end of the goroutine.
 
+The view can be moved around by dragging with \keys{LMB}, by using the scroll wheel, or by using the scrollbar.
+Holding \keys{\shortcut} while scrolling zooms in and out, centered around the cursor's position.
+Holding \keys{\shift} while scrolling swaps the axes. That is, scrolling vertically will scroll horizontally and vice versa.
+Dragging with \keys{\shortcut + LMB} selects a region of time to zoom to.
 
-\begin{figure}[h]
-\includegraphics[width=\textwidth]{images/screenshots/track_whiskers_spans_end.png}
-\caption{
-  A complete goroutine track, showing whiskers, two actual spans, and the end of goroutine indicator.
-}
-\end{figure}
+The \menu{Display} menu contains commands for changing the way timelines are displayed,
+as well as commands for quick navigation.
+
+\screenshot{track_whiskers_spans_end.png}{A complete goroutine track, showing whiskers, two actual spans, and the end of goroutine indicator.}
 
 Hovering over a span will show context-specific information about it,
 including its state and duration,
@@ -406,13 +421,22 @@ Different kinds of timelines and tracks use different color schemes.
 These are explained in \cref{span-colors}.
 
 Depending on the zoom level, individual spans may be too small to display.
-Gotraceui uses two strategies to ensure that spans are always visible.
-First, it merges consecutive tiny spans, displaying them as one big span instead.
-Such merged spans get their own color.
-Zooming into merged spans unmerges them.
-Second, if there aren't enough spans to merge, the span is given a minimum size.
+When that happens, Gotraceui groups small spans together in a \emph{merged} span,
+which is rendered using a downsampled preview of the contained spans.
+Zooming into merged spans will progressively show higher resolution previews,
+until eventually the merged spans break up into individual spans.
 
-All spans have context menus, which include at least a \menu{Zoom} option, which acts identically to \keys{\shortcut + LMB}.
+\screenshot{merged-span.png}{The preview of a merged span consisting of 55,000 spans.}
+
+Computing the previews for merged spans can sometimes take a long time,
+in which case we fall back to lower quality previews or a placeholder while the better preview gets computed in the background.
+As long as some of the visible previews aren't displayed in the best quality possible,
+a dancing gopher will be shown.
+
+All spans have context menus,
+which include at least a \menu{Zoom} option,
+which acts identically to \keys{\shortcut + LMB},
+and a \menu{Show span info} option, which opens the span panel.
 Some spans have more options:
 
 \begin{itemize}
@@ -434,11 +458,6 @@ You can find an exhaustive list of all goroutine states --- and the correspondin
 User regions are displayed in \traceState{light pink}{stateUserRegion}.
 Stack traces are displayed either in a \traceState{light shade of green}{stateStack} if they're from events,
 or in a \traceState{lighter shade of green}{stateSampled} if they've been acquired via \textsc{cpu} sampling.
-
-When small spans get merged, they will be displayed in one of two ways:
-if all merged spans have the same state,
-they will be displayed using a gradient from \traceState{light yellow}{stateMerged} to the color of the merged spans.
-For merged spans with mixed states, a solid light yellow is shown instead.
 
 \subsubsection{Span tags}\label{tags}
 Gotraceui annotates spans with tags, which further describe the states goroutines are in.
@@ -508,16 +527,13 @@ You shouldn't rely on sampled stack traces to fill in the gaps between two runti
 It is important to either look at runtime events or \textsc{cpu} samples, but not both together.
 Runtime events show an exact history of what happened in the runtime, while \textsc{cpu} samples show a guess at what happened in user code.
 
-\begin{figure}[h]
-\includegraphics[width=\textwidth]{images/screenshots/sampling.png}
-\caption{
+\screenshot{sampling.png}{%
   The trace of a loop parsing \textsc{png} files.
   Each pink span denotes an iteration.
   The \textsc{cpu} samples give us a rough idea of what was happening, but their resolution is quite coarse.
   There were six samples in total, which is less than one sample per iteration.
   We can be fairly certain that most time was spent somewhere in \code{readImagePass}, but beyond that we don't have enough data.
 }
-\end{figure}
 
 It is also important to understand that \textsc{cpu} profiling samples happen at a fairly constant rate, which means all samples have the same uncertainty.
 Runtime events, however, can happen at arbitrary points.
@@ -526,9 +542,9 @@ even though in the latter case we still don't know what happened for the first \
 
 \section{Links}
 
-Gotraceui's UI contains many kinds of links, such as links to timestamps, goroutines, functions, etc.
+Gotraceui's \textsc{ui} contains many kinds of links, such as links to timestamps, goroutines, functions, etc.
 
-Links are color-coded. Red links refer to timestamps and blue links refer to \emph{objects} such as goroutines or spans.
+Links are color-coded. Red links refer to timestamps and blue links refer to \noun{objects} such as goroutines or spans.
 
 Left-clicking on links executes their default action,
 and most links also have alternate actions that can be accessed using the context menu,
@@ -544,16 +560,19 @@ Links to processors, goroutines, and spans all share the same functionality:
 
 The context menu of span links allows scrolling to their beginnings or ends, in addition to opening their info and zooming to them.
 
+Hovering over timestamp links highlights the timestamp in the timelines view.
+This either uses a red cursor, if the timestamp is visible,
+or it highlights the left or right border of the view to indicate the direction in which the timestamp lies.
+
 \section{Panels}\label{panels}
 
 Gotraceui uses a side panel to display additional information about entities such as goroutines and spans.
 Clicking on a supported entity opens the panel on the right side of the window.
 
-Panels can be resized by dragging the black line, and they can be closed by pressing the \menu{Close} button in the top right.
+Panels can be resized by dragging the black line.
 Clicking \menu{Back} will go back to the previously displayed panel. This can be used repeatedly.
-Finally, clicking \menu{Detach} will turn the panel into a standalone window.
-Multiple panels can be detached at the same time.
-A window can be turned back into a panel by clicking the \menu{Attach} button.
+Finally, clicking \menu{Tabify} will turn a panel into a tab (see \cref{tabs} for more information on tabs).
+% A window can be turned back into a panel by clicking the \menu{Attach} button.
 
 Depending on the type of panel, additional buttons may exist.
 
@@ -585,7 +604,7 @@ Span panels display the following information:
 \item Basic information, such as the start and end time.
 \item Statistics of the different states.
 \item A list of the individual spans.
-\item For goroutine spans, including user regions, events that occured during the span.
+\item For goroutine spans, including user regions, events that occurred during the span.
 \item For unmerged spans, the stack trace.
 \end{itemize}
 
@@ -606,10 +625,26 @@ Function panels display the following information:
 \item Basic information, such as how many goroutines ran the function
 \item A list of all goroutines.
 \item A histogram, showing the durations of goroutines that ran the function.
-  See \cref{histograms} for more information on using the histogram.
+  See \cref{histograms} for more information on using histograms.
 \end{itemize}
 
-\section{Heatmaps}
+\section{Tabs}\label{tabs}
+
+The main \textsc{ui} uses tabs to display the major features of Gotraceui.
+These are the timelines view, the list of goroutines, heatmaps, and flame graphs.
+Furthermore, every panel can be converted to a tab using the \menu{Tabify} button.
+
+Most tabs can be closed by clicking on them with the middle mouse button,
+with the exception of the \emph{Timelines} and \emph{Goroutines} tabs.
+
+When the tab bar contains more tabs than can be displayed it can be scrolled horizontally,
+or by holding \keys{\shift} while scrolling vertically.
+
+\subsection{Goroutines}
+
+The \emph{Goroutines} tab displays a tabular view of all goroutines in the trace.
+
+\subsection{Heatmaps}
 
 Gotraceui can display processor utilization using quantized heatmaps.
 These can be accessed via \menu{Analyze>Open processor utilization heatmap}.
@@ -641,11 +676,42 @@ On the flip side, a linear palette allows comparing absolute values just by look
   \caption{Two heatmaps showing a trace with 31 processors at 95--100\% utilization and one processor at 0--5\% utilization. Note how on the left, the single processor is barely visible.}
 \end{figure}
 
-The bottom of the heatmap window displays information about the currently hovered bucket:
+The bottom of the heatmap tab displays information about the currently hovered bucket:
 the range of time and the range of utilization represented by the bucket, as well as the number of processors in said bucket.
 
 Please note that \emph{processor} refers to the concept from the Go runtime, and not actual \textsc{cpu}s or \textsc{cpu} cores.
 While processor utilization is a good estimate for actual \textsc{cpu} utilization, it cannot account for the \textsc{os} scheduler, nor for cgo.
+
+\subsection{Flame graphs}\label{flamegraphs}
+
+Gotraceui can display flame graphs based on \textsc{cpu} sampling as well as the stack traces associated with tracing
+events.
+
+\begin{displayquote}[Brendan Gregg]
+  Flame graphs are a visualization of hierarchical data, created to visualize stack traces of profiled
+  software so that the most frequent code-paths to be identified quickly and accurately.
+\end{displayquote}
+
+Our flame graphs follow the common conventions:
+colors don't have any meaning and only serve to differentiate spans,
+and the order of spans on the X axis is alphabetical.
+Gotraceui assigns colors so that functions from the same package have the same hue,
+using different lightness values to differentiate neighboring spans.
+
+\screenshot{flame-graph.png}{A goroutine flame graph.}
+
+There are two ways of opening flame graphs:
+the first is by using \menu{Analyze>Open flame graph}.
+This will open a flame graph visualizing all of the \textsc{cpu} samples found in the trace.
+The second is by choosing the \menu{Open flame graph} option in goroutine context menus.
+This will open a flame graph specific to that goroutine,
+displaying both \textsc{cpu} samples (under the root span titled \enquote{Running})
+and stacks from goroutine state transitions (e.g. being blocked on a channel send),
+thus showing both on- and off-\textsc{cpu} time.
+
+Flame graphs are interactive.
+Hovering over spans will display tooltips with useful information.
+Pressing \keys{\shortcut + LMB} on a span will zoom to it and \keys{\shortcut + Z} undoes zooming.
 
 \section{Histograms}\label{histograms}
 
@@ -673,53 +739,33 @@ For example, if you have a server application where each user request is served 
 then you can use the histogram to focus on the time range you deem unacceptable ---
 for example, requests might be intended to only take up to \qty{10}{\milli\second} and all goroutines that run for more than that are problematic.
 
-\section{Flame graphs}\label{flamegraphs}
+\section{Tables}\label{tables}
 
-Gotraceui can display flame graphs based on CPU sampling as well as the stack traces associated with tracing
-events.
-
-\begin{displayquote}[Brendan Gregg]
-  Flame graphs are a visualization of hierarchical data, created to visualize stack traces of profiled
-  software so that the most frequent code-paths to be identified quickly and accurately.
-\end{displayquote}
-
-Our flame graphs follow the common conventions:
-colors don't have any meaning and only serve to differentiate spans,
-and the order of spans on the X axis is alphabetical.
-Gotraceui assigns colors so that functions from the same package have the same hue,
-using different lightness values to differentiate neighboring spans.
-
-\begin{figure}[h!]
-  \centering
-  \includegraphics[width=\textwidth]{images/screenshots/flame-graph.png}
-  \caption{A goroutine flame graph.}
-\end{figure}
-
-There are two ways of opening flame graphs:
-the first is by using \menu{Analyze>Open flame graph}.
-This will open a flame graph visualizing all of the CPU samples found in the trace.
-The second is by choosing the \menu{Open flame graph} option in goroutine context menus.
-This will open a flame graph specific to that goroutine,
-displaying both CPU samples (under the root span titled \enquote{Running})
-and stacks from goroutine state transitions (e.g. being blocked on a channel send),
-thus showing both on- and off-CPU time.
-
-Flame graphs are interactive.
-Hovering over spans will display tooltips with useful information.
-Pressing \keys{\shortcut + LMB} on a span will zoom to it and \keys{\shortcut + Z} undoes zooming.
+Tables are used in various places.
+They allow sorting columns by clicking on their headers.
+They also allow resizing columns by dragging the divider between column headers.
+Without any modifier keys, dragging the divider will adjust the ratio between two columns.
+When holding the \keys{\shift} key while dragging,
+the size of the left column will be adjusted without changing the size the right column.
+This might increase the width of the table.
 
 \section{Mouse and keyboard controls}
 
-\subsection*{Main window}
+\subsection*{Global}
 
-\begingroup
-\def\arraystretch{1.5}%
-\begin{tabular}{ll}
-  Input & Function \\
-  \hline
+\begin{keybindings}
+  \keys{\shortcut + {+}} & Increase \textsc{ui} scale \\
+  \keys{\shortcut + =} & Increase \textsc{ui} scale \\
+  \keys{\shortcut + -} & Decrease \textsc{ui} scale \\
+  \keys{\shortcut + 0} & Reset \textsc{ui} scale \\
+  \keys{RMB} (click) & Open context menu
+\end{keybindings}
+
+\subsection*{Timelines view}
+
+\begin{keybindings}
   \keys{LMB} (click) & Open timeline and span information \\
   \keys{LMB} (drag) & Pan the timelines view \\
-  \keys{RMB} (click) & Open context menu \\
   \keys{\shortcut + LMB} (drag) & Zoom to selected area \\
   \keys{\shortcut + LMB} (click) & Zoom to clicked span or timeline \\
   % XXX scroll wheel
@@ -736,47 +782,30 @@ Pressing \keys{\shortcut + LMB} on a span will zoom to it and \keys{\shortcut + 
   \keys{T} & Toggle displaying tooltips \\
   \keys{X} & Toggle display of all timeline labels \\
   \keys{\shortcut + Z} &  Undo navigation
-\end{tabular}
-\endgroup
+\end{keybindings}
 
 \subsection*{Heatmaps}
 
-\begingroup
-\def\arraystretch{1.5}%
-\begin{tabular}{ll}
-  Input & Function \\
-  \hline
+\begin{keybindings}
   \keys{\arrowkey{<}} & Decrease X-axis bucket size by \qty{10}{\milli\second} \\
   \keys{\arrowkey{>}} & Increase X-axis bucket size by \qty{10}{\milli\second} \\
   \keys{\arrowkey{v}} & Decrease Y-axis bucket size \\
   \keys{\arrowkey{^}} & Increase Y-axis bucket size
-\end{tabular}
-\endgroup
+\end{keybindings}
 
 \subsection*{Histograms}
 
-\begingroup
-\def\arraystretch{1.5}%
-\begin{tabular}{ll}
-  Input & Function \\
-  \hline
+\begin{keybindings}
   \keys{LMB} (double-click) & Zoom to selected bin \\
-  \keys{\shortcut + LMB} (drag) & Zoom to selected bins \\
-  \keys{RMB} (click) & Open context menu
-\end{tabular}
-\endgroup
+  \keys{\shortcut + LMB} (drag) & Zoom to selected bins
+\end{keybindings}
 
 \subsection*{Flame graphs}
 
-\begingroup
-\def\arraystretch{1.5}%
-\begin{tabular}{ll}
-  Input & Function \\
-  \hline
+\begin{keybindings}
   \keys{\shortcut + LMB} (click) & Zoom to clicked span \\
   \keys{\shortcut + Z} & Undo navigation
-\end{tabular}
-\endgroup
+\end{keybindings}
 
 \chapter{The Go runtime}
 
@@ -923,6 +952,8 @@ Each state name's background color corresponds to the span color used in Gotrace
 \item[stuck:] Goroutines in this state are stuck and can never make progress.
   This happens, for example, when receiving from a nil channel or using \code{select} with no cases.
 
+\item[done:] This state is used for synthetic spans that indicate that goroutines have exited.
+
 \end{description}
 
 \section{Pollable vs.\ non-pollable \textsc{i/o}}\label{netpoller}
@@ -960,11 +991,7 @@ However, the most important use case of the netpoller is undoubtedly network con
 In Gotraceui, blocking on pollable \textsc{i/o} is represented using \textsc{i/o} spans, while non-pollable \textsc{i/o} is shown as syscalls in the way described in \cref{syscalls}.
 For pollable \textsc{i/o}, span tooltips may additionally show the kind of \textsc{i/o}, such as network reads. This information is based on tags, which are described in \cref{tags}.
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[scale=2]{images/screenshots/pollable-io-span.png}
-  \caption{A span blocked on a pollable network read.}
-\end{figure}
+\screenshot{pollable-io-span.png}{A span blocked on a pollable network read.}
 
 \section{Garbage collection}\label{gc}
 Go uses a concurrent mark and sweep garbage collector.
