@@ -243,7 +243,7 @@ For reference, an example \qty{300}{\mega\byte} trace file was produced by traci
 resulting in \num{66044021} events.
 This represents an extreme example.
 Many of your traces will be much smaller than that.
-For example, tracing \code{net/http}'s tests produces a \qty{7.3}{\mega\byte} trace instead. 
+For example, tracing \code{net/http}'s tests produces a \qty{7.3}{\mega\byte} trace instead.
 
 \chapter{Adding tracing to your application}
 
@@ -321,7 +321,7 @@ The following sections will describe the various components of Gotraceui's \text
 The main window displays a main menu and an interactive \noun{canvas} representing the trace data.
 The canvas can be moved around by dragging with \keys{LMB}, by using the scroll wheel, or by using the scrollbar.
 Holding \keys{\shortcut} while scrolling zooms in and out, centered around the cursor's position.
-Dragging with \keys{\shortcut+LMB} selects a region of time to zoom to.
+Dragging with \keys{\shortcut + LMB} selects a region of time to zoom to.
 The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed on the canvas,
 as well as commands for quick navigation.
 
@@ -370,7 +370,7 @@ Every timeline has a label, hovering over which may display a tooltip.
 For example, for processors, the tooltip will show how much time was spent executing user code,
 doing garbage collection work,
 and being idle.
-Pressing \keys{\shortcut+LMB} on a label will zoom the canvas such that all spans in that timeline are visible.
+Pressing \keys{\shortcut + LMB} on a label will zoom the canvas such that all spans in that timeline are visible.
 Pressing \keys{LMB} on a goroutine label will open a panel with additional information about the goroutine (see \cref{panels} for more on panels.)
 
 A timeline consists of one or more horizontally stacked \noun{tracks},
@@ -396,7 +396,7 @@ including its state and duration,
 but also additional information such as tags (see \cref{tags})
 or the reason for being in a certain state.
 Pressing \keys{LMB} on a span will open a panel with additional information about the span, including a list of events that happened during that span.
-Pressing \keys{\shortcut+LMB} on a span will zoom to the span.
+Pressing \keys{\shortcut + LMB} on a span will zoom to the span.
 
 Spans have different colors depending on the states they represent.
 Different kinds of timelines and tracks use different color schemes.
@@ -409,7 +409,7 @@ Such merged spans get their own color.
 Zooming into merged spans unmerges them.
 Second, if there aren't enough spans to merge, the span is given a minimum size.
 
-All spans have context menus, which include at least a \menu{Zoom} option, which acts identically to \keys{\shortcut+LMB}.
+All spans have context menus, which include at least a \menu{Zoom} option, which acts identically to \keys{\shortcut + LMB}.
 Some spans have more options:
 
 \begin{itemize}
@@ -519,7 +519,7 @@ Runtime events show an exact history of what happened in the runtime, while \tex
 It is also important to understand that \textsc{cpu} profiling samples happen at a fairly constant rate, which means all samples have the same uncertainty.
 Runtime events, however, can happen at arbitrary points.
 If a sample is followed by a runtime event \qty{1}{\milli\second} later then it will look much smaller than if it were followed by a runtime event \qty{9}{\milli\second} later,
-even though in the latter case we still don't know what happened for the first \qty{9}{\milli\second}. 
+even though in the latter case we still don't know what happened for the first \qty{9}{\milli\second}.
 
 \section{Links}
 
@@ -550,7 +550,7 @@ Finally, clicking \menu{Detach} will turn the panel into a standalone window.
 Multiple panels can be detached at the same time.
 A window can be turned back into a panel by clicking the \menu{Attach} button.
 
-Depending on the type of panel, additional buttons may exist. 
+Depending on the type of panel, additional buttons may exist.
 
 Panels consist of summary information at the top and tabs that display more specific information.
 
