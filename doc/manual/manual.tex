@@ -668,6 +668,41 @@ For example, if you have a server application where each user request is served 
 then you can use the histogram to focus on the time range you deem unacceptable ---
 for example, requests might be intended to only take up to \qty{10}{\milli\second} and all goroutines that run for more than that are problematic.
 
+\section{Flame graphs}\label{flamegraphs}
+
+Gotraceui can display flame graphs based on CPU sampling as well as the stack traces associated with tracing
+events.
+
+\begin{displayquote}[Brendan Gregg]
+  Flame graphs are a visualization of hierarchical data, created to visualize stack traces of profiled
+  software so that the most frequent code-paths to be identified quickly and accurately.
+\end{displayquote}
+
+Our flame graphs follow the common conventions:
+colors don't have any meaning and only serve to differentiate spans,
+and the order of spans on the X axis is alphabetical.
+Gotraceui assigns colors so that functions from the same package have the same hue,
+using different lightness values to differentiate neighboring spans.
+
+\begin{figure}[h!]
+  \centering
+  \includegraphics[width=\textwidth]{images/screenshots/flame-graph.png}
+  \caption{A goroutine flame graph.}
+\end{figure}
+
+There are two ways of opening flame graphs:
+the first is by using \menu{Analyze>Open flame graph}.
+This will open a flame graph visualizing all of the CPU samples found in the trace.
+The second is by choosing the \menu{Open flame graph} option in goroutine context menus.
+This will open a flame graph specific to that goroutine,
+displaying both CPU samples (under the root span titled \enquote{Running})
+and stacks from goroutine state transitions (e.g. being blocked on a channel send),
+thus showing both on- and off-CPU time.
+
+Flame graphs are interactive.
+Hovering over spans will display tooltips with useful information.
+Pressing \keys{\shortcut + LMB} on a span will zoom to it and \keys{\shortcut + Z} undoes zooming.
+
 \section{Mouse and keyboard controls}
 
 \subsection*{Main window}
@@ -723,6 +758,18 @@ for example, requests might be intended to only take up to \qty{10}{\milli\secon
   \keys{LMB} (double-click) & Zoom to selected bin \\
   \keys{\shortcut + LMB} (drag) & Zoom to selected bins \\
   \keys{RMB} (click) & Open context menu
+\end{tabular}
+\endgroup
+
+\subsection*{Flame graphs}
+
+\begingroup
+\def\arraystretch{1.5}%
+\begin{tabular}{ll}
+  Input & Function \\
+  \hline
+  \keys{\shortcut + LMB} (click) & Zoom to clicked span \\
+  \keys{\shortcut + Z} & Undo navigation
 \end{tabular}
 \endgroup
 
