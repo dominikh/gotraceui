@@ -77,6 +77,7 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateRunningG:                "Active",
 	ptrace.StateUserRegion:              "User region",
 	ptrace.StateStack:                   "Stack frame",
+	ptrace.StateCPUSample:               "Stack frame (sampled)",
 }
 
 func goroutineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string {
