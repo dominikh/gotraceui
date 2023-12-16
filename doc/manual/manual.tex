@@ -321,11 +321,11 @@ You can additionally use the \code{-cpuprofile} flag to include \textsc{cpu} pro
 The following sections will describe the various components of Gotraceui's \textsc{ui}.
 
 \section{Main window}
-The main window displays a main menu and an interactive \noun{canvas} representing the trace data.
-The canvas can be moved around by dragging with \keys{LMB}, by using the scroll wheel, or by using the scrollbar.
+The main window displays a main menu and an interactive \noun{timelines view} representing the trace data.
+The view can be moved around by dragging with \keys{LMB}, by using the scroll wheel, or by using the scrollbar.
 Holding \keys{\shortcut} while scrolling zooms in and out, centered around the cursor's position.
 Dragging with \keys{\shortcut + LMB} selects a region of time to zoom to.
-The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed on the canvas,
+The \menu{Display} menu contains commands for changing the way \noun{timelines} are displayed,
 as well as commands for quick navigation.
 
 \subsection{Axis}
@@ -337,12 +337,12 @@ By default, the origin is placed at the center of the axis,
 as analyzing traces often involves looking at what happened before and after an event.
 The origin can be moved by clicking and dragging anywhere on the axis.
 Alternatively, the context menu of the axis allows quickly placing the origin at the beginning, middle, or end of the axis.
-Manually placed origins will stay in place when resizing the window or canvas,
+Manually placed origins will stay in place when resizing the window or timelines view,
 while origins set via the context menu will stay at their relative position.
 
 Additionally, the axis contains red and purple sections,
 which correspond to the garbage collector's stop-the-world phase and general activity.
-Pressing \keys{O} cycles through displaying the red section, both sections, or none of the sections across the entire canvas.
+Pressing \keys{O} cycles through displaying the red section, both sections, or none of the sections across the entire timelines view.
 
 \subsection{Memory plot}
 
@@ -366,14 +366,14 @@ The plot's context menu offers the following additional features:
 \end{description}
 
 \subsection{Timelines, tracks, and spans}
-The main section of the canvas consists of a number of horizontally stacked timelines.
+The main section of the timelines view consists of a number of horizontally stacked timelines.
 A timeline might show a processor, a goroutine, or phases of the garbage collector.
 Every timeline has a label, hovering over which may display a tooltip.
 
 For example, for processors, the tooltip will show how much time was spent executing user code,
 doing garbage collection work,
 and being idle.
-Pressing \keys{\shortcut + LMB} on a label will zoom the canvas such that all spans in that timeline are visible.
+Pressing \keys{\shortcut + LMB} on a label will zoom the view such that all spans in that timeline are visible.
 Pressing \keys{LMB} on a goroutine label will open a panel with additional information about the goroutine (see \cref{panels} for more on panels.)
 
 A timeline consists of one or more horizontally stacked \noun{tracks},
@@ -534,12 +534,12 @@ Left-clicking on links executes their default action,
 and most links also have alternate actions that can be accessed using the context menu,
 or by holding certain modifier keys while left-clicking.
 
-Clicking on a timestamp scrolls the canvas to that point in time, specifically by scrolling the time to the origin configured in the axis.
+Clicking on a timestamp scrolls the timelines view to that point in time, specifically by scrolling the time to the origin configured in the axis.
 Links to processors, goroutines, and spans all share the same functionality:
 \begin{itemize}
 \item Clicking on one opens the corresponding information panel.
 \item Holding \keys{\shortcut} while clicking on one zooms to it.
-\item Holding \keys{\shift} while clicking on one scrolls the canvas to the corresponding timeline or beginning timestamp.
+\item Holding \keys{\shift} while clicking on one scrolls the timelines view to the corresponding timeline or beginning timestamp.
 \end{itemize}
 
 The context menu of span links allows scrolling to their beginnings or ends, in addition to opening their info and zooming to them.
@@ -718,14 +718,14 @@ Pressing \keys{\shortcut + LMB} on a span will zoom to it and \keys{\shortcut + 
   Input & Function \\
   \hline
   \keys{LMB} (click) & Open timeline and span information \\
-  \keys{LMB} (drag) & Pan the canvas \\
+  \keys{LMB} (drag) & Pan the timelines view \\
   \keys{RMB} (click) & Open context menu \\
   \keys{\shortcut + LMB} (drag) & Zoom to selected area \\
   \keys{\shortcut + LMB} (click) & Zoom to clicked span or timeline \\
   % XXX scroll wheel
   % XXX shift + scroll wheel
   % XXX shortcut + scroll wheel
-  \keys{Home} & Scroll to top of canvas \\
+  \keys{Home} & Scroll to top of timelines view \\
   \keys{\shortcut + Home} & Zoom to fit currently visible timelines \\
   \keys{\shift + Home} & Jump to beginning of trace \\
   \keys{C} & Toggle compact display \\
