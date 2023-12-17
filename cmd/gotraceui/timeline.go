@@ -570,13 +570,11 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
 		// previously merged spans becoming visible again when zooming out.
 		for offset < spans.Len() {
-			adjustedEnd := end
-
 			// For a span to be large enough to stand on its own, it has to end at least minSpanWidthD later than the
 			// current span. Use binary search to find that span. This also finds gaps, because for a gap to be big
 			// enough, it cannot occur between spans that would be too small according to this search.
 			offset = sort.Search(spans.Len(), func(i int) bool {
-				return spans.At(i).End >= adjustedEnd+trace.Timestamp(minSpanWidthD)
+				return spans.At(i).End >= end+trace.Timestamp(minSpanWidthD)
 			})
 
 			if offset == spans.Len() {
@@ -599,9 +597,6 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			cStart := candidateSpan.Start
 			cEnd := candidateSpan.End
 			prevEnd := prevSpan.End
-			if adjustedEnd > cStart {
-				cStart = adjustedEnd
-			}
 			if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(cStart-prevEnd) >= minSpanWidthD {
 				end = spans.At(offset - 1).End
 				break
