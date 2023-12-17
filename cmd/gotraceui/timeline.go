@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
 	"math"
 	rtrace "runtime/trace"
 	"sort"
@@ -304,6 +305,8 @@ type TrackWidget struct {
 
 	hover gesture.Hover
 	click gesture.Click
+
+	scratchHighlighted []clip.FRect
 
 	// cached state
 	prevFrame struct {
@@ -629,7 +632,6 @@ func (track *Track) Layout(
 	tr := cv.trace
 	trackHeight := gtx.Dp(timelineTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
-	spanHighlightedBorderWidth := gtx.Dp(spanHighlightedBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
@@ -721,13 +723,12 @@ func (track *Track) Layout(
 	//gcassert:noescape
 	paths := [colorStateLast]clip.Path{}
 
+	var hoveredSpan clip.FRect
+	highlightedSpans := track.widget.scratchHighlighted[:0]
+
 	var outlinesPath clip.Path
-	var highlightedPrimaryOutlinesPath clip.Path
-	var highlightedSecondaryOutlinesPath clip.Path
 	var eventsPath clip.Path
 	outlinesPath.Begin(track.widget.outlinesOps.Get())
-	highlightedPrimaryOutlinesPath.Begin(track.widget.highlightedPrimaryOutlinesOps.Get())
-	highlightedSecondaryOutlinesPath.Begin(track.widget.highlightedSecondaryOutlinesOps.Get())
 	eventsPath.Begin(track.widget.eventsOps.Get())
 	labelsOps := track.widget.labelsOps.Get()
 	labelsMacro := op.Record(labelsOps)
@@ -773,82 +774,44 @@ func (track *Track) Layout(
 		minP = f32.Pt(max(startPx, 0), 0)
 		maxP = f32.Pt(min(endPx, float32(gtx.Constraints.Max.X)), float32(trackHeight))
 
-		highlighted := filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track})
-		isPlaceholder := dspSpans.Len() != 0 && dspSpans.At(0).State == statePlaceholder
-		if hovered {
-			highlightedPrimaryOutlinesPath.MoveTo(minP)
-			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			highlightedPrimaryOutlinesPath.LineTo(maxP)
-			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			highlightedPrimaryOutlinesPath.Close()
+		if filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) {
+			highlightedSpans = append(highlightedSpans, clip.FRect{Min: minP, Max: maxP})
+		}
+
+		if dspSpans.Len() != 0 && dspSpans.At(0).State != statePlaceholder {
+			off := float32(spanBorderWidth)
+			leftOff := off
+			rightOff := -off
+			// TODO(dh): do we need 'first'? can startPx be negative for the second span?
+			if (first && startPx < 0) || !first && startPx == prevEndPx {
+				leftOff = 0
+			}
+			if endPx > float32(cv.width) {
+				rightOff = 0
+			}
+
+			outlinesPath.MoveTo(minP)
+			outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+			outlinesPath.LineTo(maxP)
+			outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+			outlinesPath.Close()
 
 			// Cut a hole
-			off := float32(spanHighlightedBorderWidth)
-			highlightedPrimaryOutlinesPath.MoveTo(minP.Add(f32.Pt(off, off)))
-			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: minP.X + off, Y: maxP.Y - off})
-			highlightedPrimaryOutlinesPath.LineTo(maxP.Add(f32.Pt(-off, -off)))
-			highlightedPrimaryOutlinesPath.LineTo(f32.Point{X: maxP.X - off, Y: minP.Y + off})
-			highlightedPrimaryOutlinesPath.Close()
-		} else if highlighted {
-			highlightedSecondaryOutlinesPath.MoveTo(minP)
-			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-			highlightedSecondaryOutlinesPath.LineTo(maxP)
-			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-			highlightedSecondaryOutlinesPath.Close()
+			outlinesPath.MoveTo(minP.Add(f32.Pt(leftOff, off)))
+			outlinesPath.LineTo(f32.Point{X: minP.X + leftOff, Y: maxP.Y - off})
+			outlinesPath.LineTo(maxP.Add(f32.Pt(rightOff, -off)))
+			outlinesPath.LineTo(f32.Point{X: maxP.X + rightOff, Y: minP.Y + off})
+			outlinesPath.Close()
 
-			// Cut a hole
-			off := float32(spanHighlightedBorderWidth)
-			highlightedSecondaryOutlinesPath.MoveTo(minP.Add(f32.Pt(off, off)))
-			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: minP.X + off, Y: maxP.Y - off})
-			highlightedSecondaryOutlinesPath.LineTo(maxP.Add(f32.Pt(-off, -off)))
-			highlightedSecondaryOutlinesPath.LineTo(f32.Point{X: maxP.X - off, Y: minP.Y + off})
-			highlightedSecondaryOutlinesPath.Close()
-		} else {
-			if dspSpans.Len() != 0 && dspSpans.At(0).State != statePlaceholder && (endPx-startPx) > float32(gtx.Dp(minSpanWidthDp)) {
-				outlinesPath.MoveTo(minP)
-				outlinesPath.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-				outlinesPath.LineTo(maxP)
-				outlinesPath.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-				outlinesPath.Close()
-
-				// Cut a hole
-				off := float32(spanBorderWidth)
-				outlinesPath.MoveTo(minP.Add(f32.Pt(off, off)))
-				outlinesPath.LineTo(f32.Point{X: minP.X + off, Y: maxP.Y - off})
-				outlinesPath.LineTo(maxP.Add(f32.Pt(-off, -off)))
-				outlinesPath.LineTo(f32.Point{X: maxP.X - off, Y: minP.Y + off})
-				outlinesPath.Close()
+			if hovered {
+				hoveredSpan = clip.FRect{Min: minP, Max: maxP}
 			}
 		}
 
-		if endPx-startPx > float32(gtx.Dp(minSpanWidthDp)) {
+		if endPx-startPx >= float32(gtx.Dp(minSpanWidthDp)) {
 			if dspSpans.Len() == 1 {
-				borderWidth := spanBorderWidth
-				if hovered || highlighted {
-					borderWidth = spanHighlightedBorderWidth
-				}
-				if first && startPx < 0 {
-					// Never draw a left border for truncated spans
-				} else if !first && startPx == prevEndPx && !(highlighted || hovered) {
-					// Don't draw left border if it'd touch a right border, unless the span is highlighted
-				} else {
-					if !isPlaceholder {
-						minP.X += float32(borderWidth)
-					}
-				}
-				prevEndPx = endPx
-
-				if !isPlaceholder {
-					minP.Y += float32(borderWidth)
-					if endPx <= float32(gtx.Constraints.Max.X) {
-						maxP.X -= float32(borderWidth)
-					}
-					maxP.Y -= float32(borderWidth)
-				}
-
-				if maxP.X-minP.X > 0 {
+				if maxP.X > minP.X {
 					p := &paths[cs]
-
 					p.MoveTo(minP)
 					p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
 					p.LineTo(maxP)
@@ -1001,10 +964,9 @@ func (track *Track) Layout(
 					}
 				}
 			}
-
-			first = false
 		}
-
+		prevEndPx = endPx
+		first = false
 	}
 
 	allDspSpans := track.widget.prevFrame.dspSpans[:0]
@@ -1098,35 +1060,50 @@ func (track *Track) Layout(
 		}
 	}
 
-	// Draw the span outlines. We draw these as solid rectangles and let the spans overlay them.
-	//
-	// Drawing solid rectangles that get covered up seems to be much faster than using strokes, at least in this
-	// specific instance.
-	theme.FillShape(win, gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: outlinesPath.End()}.Op())
-	theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedSecondaryOutline], clip.Outline{Path: highlightedSecondaryOutlinesPath.End()}.Op())
-	theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: highlightedPrimaryOutlinesPath.End()}.Op())
-
-	// Then draw the spans
+	// Draw the spans
 	for cIdx := range paths {
-		p := &paths[cIdx]
-		if cIdx < int(colorStateLast) {
-			theme.FillShape(win, gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
-		} else {
-			stack := clip.Outline{Path: p.End()}.Op().Push(gtx.Ops)
-			paint.LinearGradientOp{
-				Stop1:  f32.Pt(0, 10),
-				Color1: win.ConvertColor(colors[cIdx-int(colorStateLast)]),
-				Stop2:  f32.Pt(0, 20),
-				Color2: win.ConvertColor(colors[colorStateMerged]),
-			}.Add(gtx.Ops)
-			paint.PaintOp{}.Add(gtx.Ops)
-			stack.Pop()
-		}
+		theme.FillShape(win, gtx.Ops, colors[cIdx], clip.Outline{Path: paths[cIdx].End()}.Op())
 	}
+
+	// Highlight the hovered span
+	if hoveredSpan != (clip.FRect{}) {
+		stack := hoveredSpan.Op(gtx.Ops).Push(gtx.Ops)
+		paint.LinearGradientOp{
+			Stop1:  hoveredSpan.Max,
+			Stop2:  f32.Pt(hoveredSpan.Max.X, hoveredSpan.Min.Y+float32(trackHeight)/4),
+			Color1: colors[colorSpanHighlightedPrimaryOutline].NRGBA(),
+			Color2: color.NRGBA{0, 0, 0, 0},
+		}.Add(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+		stack.Pop()
+	}
+
+	// Highlight highlighted spans
+	for _, r := range highlightedSpans {
+		if r == hoveredSpan {
+			continue
+		}
+		stack := r.Op(gtx.Ops).Push(gtx.Ops)
+		paint.LinearGradientOp{
+			Stop1:  r.Max,
+			Stop2:  f32.Pt(r.Max.X, r.Min.Y+float32(trackHeight)/4),
+			Color1: colors[colorSpanHighlightedSecondaryOutline].NRGBA(),
+			Color2: color.NRGBA{0, 0, 0, 0},
+		}.Add(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+		stack.Pop()
+	}
+
+	// Draw the event markers
 	theme.FillShape(win, gtx.Ops, oklcha(0, 0, 0, 0.85), clip.Outline{Path: eventsPath.End()}.Op())
 
-	// Finally print labels on top
+	// Print labels
 	labelsMacro.Stop().Add(gtx.Ops)
+
+	// Draw the span outlines
+	theme.FillShape(win, gtx.Ops, win.Theme.Palette.Foreground, clip.Outline{Path: outlinesPath.End()}.Op())
+
+	track.widget.scratchHighlighted = highlightedSpans[:0]
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, trackHeight)}
 }

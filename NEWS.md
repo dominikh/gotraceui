@@ -19,6 +19,8 @@
 - Fixed a rare crash for some traces
 - Handle DPI changes while Gotraceui is running
 - Display user-friendly strings instead of `<unknown>` for unknown timestamps
+- Hovered and highlighted spans are now indicated with a gradient instead of the border color
+- Span borders more accurately show if the span's beginning or end are outside the visible area
 
 # v0.3.0 (2023-08-07)
 
