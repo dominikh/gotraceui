@@ -773,8 +773,7 @@ func (track *Track) Layout(
 		minP = f32.Pt(max(startPx, 0), 0)
 		maxP = f32.Pt(min(endPx, float32(gtx.Constraints.Max.X)), float32(trackHeight))
 
-		// highlighted := filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track})
-		highlighted := false
+		highlighted := filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track})
 		isPlaceholder := dspSpans.Len() != 0 && dspSpans.At(0).State == statePlaceholder
 		if hovered {
 			highlightedPrimaryOutlinesPath.MoveTo(minP)
