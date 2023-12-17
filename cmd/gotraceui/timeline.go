@@ -540,12 +540,24 @@ func defaultSpanColor(span ptrace.Span, tr *Trace) colorIndex {
 }
 
 type renderedSpansIterator struct {
-	offset int
-	cv     *Canvas
-	spans  Items[ptrace.Span]
+	offset      int
+	cv          *Canvas
+	spans       Items[ptrace.Span]
+	initialized bool
+}
+
+func (it *renderedSpansIterator) findFirstVisible() {
+	it.offset = sort.Search(it.spans.Len(), func(i int) bool {
+		s := it.spans.At(i)
+		return s.End > it.cv.start
+	})
 }
 
 func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace.Span], startPx, endPx float32, ok bool) {
+	if !it.initialized {
+		it.findFirstVisible()
+	}
+
 	offset := it.offset
 	if offset >= it.spans.Len() {
 		return nil, 0, 0, false
@@ -561,10 +573,55 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 	s := spans.AtPtr(offset)
 	offset++
 
+	if s.Start >= it.cv.End() {
+		return nil, 0, 0, false
+	}
+
 	start := s.Start
 	end := s.End
 
 	if time.Duration(end-start) < minSpanWidthD && s.State != ptrace.StateDone {
+		// Only the first span we iterate over can have off-screen spans to the left.
+		if !it.initialized {
+			for noffset := offset - 1; noffset >= 0; {
+				// Merge tiny spans to the left
+
+				// Find the first span that starts early enough that it might either be big enough, or have big enough a
+				// gap towards us. We do this by looking for the inverse condition and taking the span before what we
+				// find.
+				limit := min(noffset+1, spans.Len())
+				noffset = sort.Search(limit, func(i int) bool {
+					return spans.At(i).Start > start-trace.Timestamp(minSpanWidthD)
+				})
+				assert(noffset != limit, "should've found ourselves")
+				if noffset == 0 {
+					// Even the first span isn't far enough away. Merge all spans.
+					start = spans.At(0).Start
+					startOffset = 0
+					break
+				}
+
+				noffset--
+
+				candidateSpan := spans.AtPtr(noffset)
+				nextSpan := spans.AtPtr(noffset + 1)
+
+				cStart := candidateSpan.Start
+				cEnd := candidateSpan.End
+				nextStart := nextSpan.Start
+
+				if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(nextStart-cEnd) >= minSpanWidthD {
+					// The found span is either large, or far away. Stop merging at the span that follows it.
+					start = nextSpan.Start
+					startOffset = noffset + 1
+					break
+				} else {
+					// This span isn't good enough. Keep looking.
+					start = cStart
+				}
+			}
+		}
+
 		// Merge all tiny spans until we find a span or gap that's big enough to stand on its own. We do not stop
 		// merging after we've reached the minimum size because that can lead to multiple merges being next to each
 		// other. Not only does this look bad, it is also prone to tiny spans toggling between two merged spans, and
@@ -598,15 +655,16 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			cEnd := candidateSpan.End
 			prevEnd := prevSpan.End
 			if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(cStart-prevEnd) >= minSpanWidthD {
-				end = spans.At(offset - 1).End
+				end = prevSpan.End
 				break
 			} else {
-				end = spans.At(offset).End
+				end = cEnd
 				offset++
 			}
 		}
 	}
 
+	it.initialized = true
 	it.offset = offset
 	startPx = float32(start-cvStart) / nsPerPx
 	endPx = float32(end-cvStart) / nsPerPx
@@ -735,6 +793,9 @@ func (track *Track) Layout(
 	first := true
 	var prevEndPx float32
 	doSpans := func(dspSpans Items[ptrace.Span], startPx, endPx float32) {
+		if endPx < 0 {
+			return
+		}
 		hovered := false
 		if track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= startPx && track.widget.hover.Pointer().X < endPx && haveSpans {
 			// Highlight the span under the cursor
@@ -981,8 +1042,9 @@ func (track *Track) Layout(
 	} else {
 		it := renderedSpansIterator{
 			cv:    cv,
-			spans: cv.visibleSpans(spans),
+			spans: spans,
 		}
+
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
 			if !ok {
