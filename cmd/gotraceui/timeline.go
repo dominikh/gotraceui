@@ -493,7 +493,7 @@ func (tl *Timeline) Layout(
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, tl, cv.timeline.filter, cv.timeline.automaticFilter, trackSpanLabels)
+		dims := track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
 		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 		if spans := track.widget.HoveredSpans(); spans.Len() != 0 {
 			tl.widget.hoveredSpans = spans
@@ -676,7 +676,6 @@ func (track *Track) Layout(
 	gtx layout.Context,
 	tl *Timeline,
 	filter Filter,
-	automaticFilter Filter,
 	labelsOut *[]string,
 ) (dims layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
@@ -830,7 +829,7 @@ func (track *Track) Layout(
 		minP = f32.Pt(max(startPx, 0), 0)
 		maxP = f32.Pt(min(endPx, float32(gtx.Constraints.Max.X)), float32(trackHeight))
 
-		if filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) || automaticFilter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) {
+		if filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) {
 			highlightedSpans = append(highlightedSpans, clip.FRect{Min: minP, Max: maxP})
 		}
 

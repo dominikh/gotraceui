@@ -157,7 +157,6 @@ type Canvas struct {
 
 	timeline struct {
 		filter             Filter
-		automaticFilter    Filter
 		displayAllLabels   bool
 		compact            bool
 		displayStackTracks bool
@@ -187,7 +186,6 @@ type Canvas struct {
 		hoveredSpans       Items[ptrace.Span]
 		width              int
 		filter             Filter
-		automaticFilter    Filter
 	}
 
 	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
@@ -341,7 +339,6 @@ func (cv *Canvas) unchanged(gtx layout.Context) bool {
 		cv.prevFrame.compact == cv.timeline.compact &&
 		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
 		cv.prevFrame.filter == cv.timeline.filter &&
-		cv.prevFrame.automaticFilter == cv.timeline.automaticFilter &&
 		cv.prevFrame.metric == gtx.Metric
 }
 
@@ -1042,13 +1039,11 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
 	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 	cv.prevFrame.filter = cv.timeline.filter
-	cv.prevFrame.automaticFilter = cv.timeline.automaticFilter
 	cv.prevFrame.metric = gtx.Metric
 
 	cv.clickedSpans = cv.clickedSpans[:0]
 	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
 	cv.timeline.hoveredTimeline = nil
-	cv.timeline.automaticFilter = Filter{Mode: FilterModeAnd}
 	for _, tl := range cv.prevFrame.displayedTls {
 		if clicked := tl.widget.ClickedSpans(); clicked.Len() > 0 {
 			cv.clickedSpans = append(cv.clickedSpans, clicked)
@@ -1060,37 +1055,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.timeline.hoveredSpans = spans
 			}
 
-			switch hitem := tl.item.(type) {
-			case *ptrace.Goroutine:
-				if spans.Len() == 0 {
-					// A goroutine timeline is hovered, but no spans within are.
-					cv.timeline.automaticFilter.Processor.Goroutine = hitem.ID
-				} else {
-					// Highlight processor spans for the same goroutine if they overlap with the highlighted span.
-					cv.timeline.automaticFilter.Processor.Goroutine = hitem.ID
-					cv.timeline.automaticFilter.Processor.StartAfter = cv.timeline.hoveredSpans.At(0).Start
-					cv.timeline.automaticFilter.Processor.EndBefore = LastSpan(cv.timeline.hoveredSpans).End
-				}
-
-			case *ptrace.Processor:
-				if spans.Len() == 1 {
-					cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(spans.At(0).Event).G
-				}
-
-				cv.timeline.automaticFilter.Machine.Processor = hitem.ID
-
-			case *ptrace.Machine:
-				if spans.Len() == 1 {
-					o := spans.At(0)
-					if o.State == ptrace.StateRunningG {
-						cv.timeline.automaticFilter.Processor.Goroutine = cv.trace.Event(o.Event).G
-					}
-
-					if o.State == ptrace.StateRunningP {
-						cv.timeline.automaticFilter.Machine.Processor = cv.trace.Event(o.Event).P
-					}
-				}
-			}
 			break
 		}
 	}
