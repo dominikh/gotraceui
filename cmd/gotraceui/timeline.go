@@ -863,160 +863,158 @@ func (track *Track) Layout(
 			}
 		}
 
-		if endPx-startPx >= float32(gtx.Dp(minSpanWidthDp)) {
-			if dspSpans.Len() == 1 {
-				if maxP.X > minP.X {
-					p := &paths[cs]
-					p.MoveTo(minP)
-					p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-					p.LineTo(maxP)
-					p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-					p.Close()
+		if dspSpans.Len() == 1 {
+			if maxP.X > minP.X {
+				p := &paths[cs]
+				p.MoveTo(minP)
+				p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
+				p.LineTo(maxP)
+				p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
+				p.Close()
+			}
+		}
+
+		var spanTooltipState SpanTooltipState
+		spanTooltipState.events = NoItems[ptrace.EventID]{}
+		spanTooltipState.eventsUnderCursor = NoItems[ptrace.EventID]{}
+		if cv.timeline.showTooltips < showTooltipsNone && hovered {
+			spanTooltipState.spans = dspSpans
+			if !track.hideEventMarkers {
+				spanTooltipState.events = Events(dspSpans, tr)
+			}
+		}
+
+		dotRadiusX := float32(gtx.Dp(4))
+		dotRadiusY := float32(gtx.Dp(3))
+		if !track.hideEventMarkers && maxP.X-minP.X > dotRadiusX*2 {
+			events := Events(dspSpans, tr)
+
+			dotGap := float32(gtx.Dp(1))
+			centerY := float32(trackHeight) / 2
+
+			for i, n := 0, events.Len(); i < n; i++ {
+				ev := events.At(i)
+				px := cv.tsToPx(tr.Event(ev).Ts)
+
+				if px+dotRadiusX < minP.X {
+					continue
+				}
+				if px-dotRadiusX > maxP.X {
+					break
+				}
+
+				start := px
+				end := px
+				oldi := i
+				// Merge events that are too close together
+				for {
+					delta := dotRadiusX*2 + dotGap
+					needle := end + delta
+					j := sort.Search(n, func(j int) bool {
+						ev := events.At(j)
+						return cv.tsToPx(tr.Event(ev).Ts) >= needle
+					})
+					if j == n {
+						// We couldn't find an event -> merge all remaining events
+						i = j - 1
+						end = cv.tsToPx(tr.Event(events.At(i)).Ts)
+						break
+					}
+					candidate := tr.Event(events.At(j))
+					prev := tr.Event(events.At(j - 1))
+					prevPx := cv.tsToPx(prev.Ts)
+					candidatePx := cv.tsToPx(candidate.Ts)
+					if candidatePx > prevPx+delta {
+						i = j - 1
+						end = prevPx
+						break
+					} else {
+						end = candidatePx
+					}
+				}
+
+				if minP.X != 0 && start-dotRadiusX < minP.X {
+					start = minP.X + dotRadiusX
+				}
+				if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
+					end = maxP.X - dotRadiusX
+				}
+
+				minX := start - dotRadiusX
+				minY := centerY - dotRadiusY
+				maxX := end + dotRadiusX
+				maxY := centerY + dotRadiusY
+
+				eventsPath.MoveTo(f32.Pt(minX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, minY))
+				eventsPath.LineTo(f32.Pt(maxX, maxY))
+				eventsPath.LineTo(f32.Pt(minX, maxY))
+				eventsPath.Close()
+
+				if cv.timeline.showTooltips < showTooltipsNone && track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= minX && track.widget.hover.Pointer().X < maxX {
+					spanTooltipState.eventsUnderCursor = events.Slice(oldi, i+1)
 				}
 			}
+		}
 
-			var spanTooltipState SpanTooltipState
-			spanTooltipState.events = NoItems[ptrace.EventID]{}
-			spanTooltipState.eventsUnderCursor = NoItems[ptrace.EventID]{}
-			if cv.timeline.showTooltips < showTooltipsNone && hovered {
-				spanTooltipState.spans = dspSpans
-				if !track.hideEventMarkers {
-					spanTooltipState.events = Events(dspSpans, tr)
-				}
-			}
+		if spanTooltipState.spans != nil && track.spanTooltip != nil {
+			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				// OPT(dh): this allocates for the closure
+				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
+				return track.spanTooltip(win, gtx, tr, spanTooltipState)
+			})
+		}
 
-			dotRadiusX := float32(gtx.Dp(4))
-			dotRadiusY := float32(gtx.Dp(3))
-			if !track.hideEventMarkers && maxP.X-minP.X > dotRadiusX*2 {
-				events := Events(dspSpans, tr)
-
-				dotGap := float32(gtx.Dp(1))
-				centerY := float32(trackHeight) / 2
-
-				for i, n := 0, events.Len(); i < n; i++ {
-					ev := events.At(i)
-					px := cv.tsToPx(tr.Event(ev).Ts)
-
-					if px+dotRadiusX < minP.X {
+		if track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) && dspSpans.Len() == 1 {
+			// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
+			// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
+			// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
+			// empty string to effectively display no label.
+			//
+			// We don't try to render a label for very small spans.
+			if *labelsOut = track.spanLabel(dspSpans, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
+				for i, label := range *labelsOut {
+					if label == "" {
 						continue
 					}
-					if px-dotRadiusX > maxP.X {
-						break
-					}
 
-					start := px
-					end := px
-					oldi := i
-					// Merge events that are too close together
-					for {
-						delta := dotRadiusX*2 + dotGap
-						needle := end + delta
-						j := sort.Search(n, func(j int) bool {
-							ev := events.At(j)
-							return cv.tsToPx(tr.Event(ev).Ts) >= needle
-						})
-						if j == n {
-							// We couldn't find an event -> merge all remaining events
-							i = j - 1
-							end = cv.tsToPx(tr.Event(events.At(i)).Ts)
-							break
-						}
-						candidate := tr.Event(events.At(j))
-						prev := tr.Event(events.At(j - 1))
-						prevPx := cv.tsToPx(prev.Ts)
-						candidatePx := cv.tsToPx(candidate.Ts)
-						if candidatePx > prevPx+delta {
-							i = j - 1
-							end = prevPx
-							break
-						} else {
-							end = candidatePx
-						}
-					}
-
-					if minP.X != 0 && start-dotRadiusX < minP.X {
-						start = minP.X + dotRadiusX
-					}
-					if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
-						end = maxP.X - dotRadiusX
-					}
-
-					minX := start - dotRadiusX
-					minY := centerY - dotRadiusY
-					maxX := end + dotRadiusX
-					maxY := centerY + dotRadiusY
-
-					eventsPath.MoveTo(f32.Pt(minX, minY))
-					eventsPath.LineTo(f32.Pt(maxX, minY))
-					eventsPath.LineTo(f32.Pt(maxX, maxY))
-					eventsPath.LineTo(f32.Pt(minX, maxY))
-					eventsPath.Close()
-
-					if cv.timeline.showTooltips < showTooltipsNone && track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= minX && track.widget.hover.Pointer().X < maxX {
-						spanTooltipState.eventsUnderCursor = events.Slice(oldi, i+1)
-					}
-				}
-			}
-
-			if spanTooltipState.spans != nil && track.spanTooltip != nil {
-				win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-					// OPT(dh): this allocates for the closure
-					// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-					return track.spanTooltip(win, gtx, tr, spanTooltipState)
-				})
-			}
-
-			if track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) && dspSpans.Len() == 1 {
-				// The Label callback, if set, returns a list of labels to try and use for the span. We pick the first label
-				// that fits fully in the span, as it would be drawn untruncated. That is, the ideal label size depends on
-				// the zoom level, not panning. If no label fits, we use the last label in the list. This label can be the
-				// empty string to effectively display no label.
-				//
-				// We don't try to render a label for very small spans.
-				if *labelsOut = track.spanLabel(dspSpans, tr, (*labelsOut)[:0]); len(*labelsOut) > 0 {
-					for i, label := range *labelsOut {
-						if label == "" {
+					font := font.Font{Weight: font.ExtraBold}
+					n := win.TextLength(gtx, widget.Label{}, font, win.Theme.TextSize, label)
+					if float32(n) > endPx-startPx {
+						// This label doesn't fit. If the callback provided more labels, try those instead. If it is the
+						// last label, use it and let Gio truncate it, appending a truncation indicator if necessary.
+						if i < len(*labelsOut)-1 {
 							continue
 						}
-
-						font := font.Font{Weight: font.ExtraBold}
-						n := win.TextLength(gtx, widget.Label{}, font, win.Theme.TextSize, label)
-						if float32(n) > endPx-startPx {
-							// This label doesn't fit. If the callback provided more labels, try those instead. If it is the
-							// last label, use it and let Gio truncate it, appending a truncation indicator if necessary.
-							if i < len(*labelsOut)-1 {
-								continue
-							}
-						}
-
-						var dims layout.Dimensions
-						var call op.CallOp
-						{
-							gtx := gtx
-							gtx.Ops = labelsOps
-							m := op.Record(gtx.Ops)
-							gtx.Constraints.Min = image.Point{}
-							gtx.Constraints.Max = image.Pt(int(round32(maxP.X-minP.X)), int(round32(maxP.Y-minP.Y)))
-							dims = widget.Label{MaxLines: 1, Truncator: "…", WrapPolicy: text.WrapGraphemes}.
-								Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
-							call = m.Stop()
-						}
-						middleOfSpan := startPx + (endPx-startPx)/2
-						left := middleOfSpan - float32(dims.Size.X)/2
-						if left+float32(dims.Size.X) > maxP.X {
-							left = maxP.X - float32(dims.Size.X)
-						}
-						if left < minP.X {
-							left = minP.X
-						}
-						stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
-						paint.ColorOp{Color: win.ConvertColor(win.Theme.Palette.Foreground)}.Add(labelsOps)
-						stack2 := clip.FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
-						call.Add(labelsOps)
-						stack2.Pop()
-						stack.Pop()
-						break
 					}
+
+					var dims layout.Dimensions
+					var call op.CallOp
+					{
+						gtx := gtx
+						gtx.Ops = labelsOps
+						m := op.Record(gtx.Ops)
+						gtx.Constraints.Min = image.Point{}
+						gtx.Constraints.Max = image.Pt(int(round32(maxP.X-minP.X)), int(round32(maxP.Y-minP.Y)))
+						dims = widget.Label{MaxLines: 1, Truncator: "…", WrapPolicy: text.WrapGraphemes}.
+							Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
+						call = m.Stop()
+					}
+					middleOfSpan := startPx + (endPx-startPx)/2
+					left := middleOfSpan - float32(dims.Size.X)/2
+					if left+float32(dims.Size.X) > maxP.X {
+						left = maxP.X - float32(dims.Size.X)
+					}
+					if left < minP.X {
+						left = minP.X
+					}
+					stack := op.Offset(image.Pt(int(left), 0)).Push(labelsOps)
+					paint.ColorOp{Color: win.ConvertColor(win.Theme.Palette.Foreground)}.Add(labelsOps)
+					stack2 := clip.FRect{Max: f32.Pt(maxP.X-minP.X, maxP.Y-minP.Y)}.Op(labelsOps).Push(labelsOps)
+					call.Add(labelsOps)
+					stack2.Pop()
+					stack.Pop()
+					break
 				}
 			}
 		}
