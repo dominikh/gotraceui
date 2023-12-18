@@ -664,6 +664,24 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 		}
 	}
 
+	if n := it.spans.Len(); n > 0 && offset == n {
+		switch offset - startOffset {
+		case 0:
+		case 1:
+			s := it.spans.AtPtr(offset - 1)
+			if s.State == ptrace.StateDone {
+				end = start + trace.Timestamp(minSpanWidthD)
+			}
+		default:
+			// Don't include the end of goroutine marker in merged spans
+			s := it.spans.AtPtr(offset - 1)
+			if s.State == ptrace.StateDone {
+				offset--
+				end = s.End
+			}
+		}
+	}
+
 	it.initialized = true
 	it.offset = offset
 	startPx = float32(start-cvStart) / nsPerPx
@@ -770,10 +788,6 @@ func (track *Track) Layout(
 	for i := range track.widget.ops {
 		track.widget.ops[i].Reset()
 	}
-	// one path per single-color span
-	//
-	//gcassert:noescape
-	paths := [colorStateLast]clip.Path{}
 
 	var hoveredSpan clip.FRect
 	highlightedSpans := track.widget.scratchHighlighted[:0]
@@ -785,12 +799,9 @@ func (track *Track) Layout(
 	labelsOps := track.widget.labelsOps.Get()
 	labelsMacro := op.Record(labelsOps)
 
-	for i := range paths {
-		paths[i].Begin(&track.widget.ops[i])
-	}
-
 	first := true
 	var prevEndPx float32
+	var endMarker [2]f32.Point
 	doSpans := func(dspSpans Items[ptrace.Span], startPx, endPx float32) {
 		if endPx < 0 {
 			return
@@ -817,11 +828,6 @@ func (track *Track) Layout(
 					})
 				}
 			}
-		}
-
-		var cs colorIndex
-		if dspSpans.Len() == 1 {
-			cs = track.SpanColor(dspSpans.At(0), tr)
 		}
 
 		var minP f32.Point
@@ -860,17 +866,6 @@ func (track *Track) Layout(
 
 			if hovered {
 				hoveredSpan = clip.FRect{Min: minP, Max: maxP}
-			}
-		}
-
-		if dspSpans.Len() == 1 {
-			if maxP.X > minP.X {
-				p := &paths[cs]
-				p.MoveTo(minP)
-				p.LineTo(f32.Point{X: maxP.X, Y: minP.Y})
-				p.LineTo(maxP)
-				p.LineTo(f32.Point{X: minP.X, Y: maxP.Y})
-				p.Close()
 			}
 		}
 
@@ -1018,6 +1013,13 @@ func (track *Track) Layout(
 				}
 			}
 		}
+
+		if dspSpans.Len() == 1 {
+			if s := dspSpans.At(0); s.State == ptrace.StateDone {
+				endMarker = [2]f32.Point{minP, maxP}
+			}
+		}
+
 		prevEndPx = endPx
 		first = false
 	}
@@ -1026,8 +1028,20 @@ func (track *Track) Layout(
 	// OPT(dh): reuse slice between frames
 	var texs []TextureStack
 	texs = track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs)
-	for _, tex := range texs {
-		if !tex.Add(win, gtx, &cv.textures, tr, gtx.Ops) {
+	for i, tex := range texs {
+		var fudge float32
+		if i == 1 {
+			// This is an ugly hack to make sure neighboring textures don't have a tiny gap due to rounding
+			// errors, either in our code or in the renderer. It assumes that there are at most two textures,
+			// which is currently the case, because our texWidth is 8192 and the maximum width we can render
+			// with Gio is twice that.
+			//
+			// We have to fudge by quite a significant amount, because minor overlap (as big as 0.15 pixels)
+			// doesn't eliminate the artifacts. Shifting to the left by 0.5 ensures we round to the previous
+			// full pixel.
+			fudge = -0.5
+		}
+		if !tex.Add(win, gtx, &cv.textures, tr, gtx.Ops, fudge) {
 			track.widget.lowQualityRender = true
 		}
 	}
@@ -1114,9 +1128,9 @@ func (track *Track) Layout(
 		}
 	}
 
-	// Draw the spans
-	for cIdx := range paths {
-		theme.FillShape(win, gtx.Ops, colors[cIdx], clip.Outline{Path: paths[cIdx].End()}.Op())
+	// Draw the end of goroutine marker
+	if endMarker != ([2]f32.Point{}) {
+		theme.FillShape(win, gtx.Ops, colors[colorStateDone], clip.FRect{Min: endMarker[0].Add(f32.Pt(-0.5, 0)), Max: endMarker[1]}.Op(gtx.Ops))
 	}
 
 	// Highlight the hovered span

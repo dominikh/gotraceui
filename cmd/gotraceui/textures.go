@@ -157,7 +157,7 @@ type TextureStack struct {
 	texs []Texture
 }
 
-func (tex TextureStack) Add(win *theme.Window, gtx layout.Context, tm *TextureManager, tr *Trace, ops *op.Ops) (best bool) {
+func (tex TextureStack) Add(win *theme.Window, gtx layout.Context, tm *TextureManager, tr *Trace, ops *op.Ops, fudge float32) (best bool) {
 	trackHeight := float32(gtx.Dp(timelineTrackHeightDp))
 	for i, t := range tex.texs {
 		_, imgOp, ok := tm.Image(win, tr, t.tex)
@@ -185,7 +185,7 @@ func (tex TextureStack) Add(win *theme.Window, gtx layout.Context, tm *TextureMa
 		}
 
 		// The offset only affects the clip, while the scale affects both the clip and the image.
-		defer op.Affine(f32.Affine2D{}.Offset(f32.Pt(t.XOffset, 0))).Push(ops).Pop()
+		defer op.Affine(f32.Affine2D{}.Offset(f32.Pt(t.XOffset+fudge, 0))).Push(ops).Pop()
 		// TODO(dh): is there a way we can fill the current clip, without having to specify its height?
 		defer op.Affine(f32.Affine2D{}.Scale(f32.Pt(0, 0), f32.Pt(t.XScale, trackHeight))).Push(ops).Pop()
 		defer clip.Rect(image.Rect(0, 0, texWidth, 1)).Push(ops).Pop()
