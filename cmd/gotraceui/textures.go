@@ -988,24 +988,14 @@ func decompressTexture(out, data []byte) []byte {
 	for len(data) >= 3 {
 		switch data[0] {
 		case 'r':
+			_ = data[11:]
 			n := int(binary.LittleEndian.Uint16(data[1:]))
-			var seq [8]byte
-			copy(seq[:], data[3:3+8])
+			seq := binary.LittleEndian.Uint64(data[3:])
 			data = data[11:]
 
-			if n < 1 {
-				continue
-			}
-
-			_ = out[(n-1)*8+7]
-			ptr := unsafe.Pointer(&out[0])
-			for i := 0; i < n; i++ {
-				if i != 0 {
-					// Increment pointer at the beginning of the loop to avoid pointing outside allocation
-					// after the loop is done.
-					ptr = unsafe.Add(ptr, 8)
-				}
-				*(*uint64)(ptr) = *(*uint64)(unsafe.Pointer(&seq[0]))
+			ptr := unsafe.Slice((*uint64)(unsafe.Pointer(&out[0])), n)
+			for i := range ptr {
+				ptr[i] = seq
 			}
 
 			out = out[n*8:]
