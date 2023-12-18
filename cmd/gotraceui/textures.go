@@ -64,13 +64,11 @@ package main
 // panning to the left and right.
 
 import (
-	"bytes"
-	"compress/flate"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"image"
 	stdcolor "image/color"
-	"io"
 	"math"
 	"math/rand"
 	rtrace "runtime/trace"
@@ -79,7 +77,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
+	"github.com/golang/snappy"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/container"
@@ -121,16 +121,13 @@ const (
 	maxRGBAMemoryUsage = maxTextureMemoryUsage - maxCompressedMemoryUsage
 )
 
+// Statically check that texWidth * 4 is a multiple of 8
+const _ = -uint((texWidth * 4) % 8)
+
 var pixelsPool = &sync.Pool{
 	New: func() any {
 		s := make([]pixel, texWidth)
 		return &s
-	},
-}
-
-var flateWriterPool = &sync.Pool{
-	New: func() any {
-		return (*flate.Writer)(nil)
 	},
 }
 
@@ -824,11 +821,7 @@ func (tm *TextureManager) realize(tex *texture, tr *Trace) {
 			// The image may have already been realized for us by compute.
 			if tex.realized.image == nil {
 				pix := make([]byte, texWidth*4)
-				r := flate.NewReader(bytes.NewReader(tex.computed.compressed))
-				io.ReadFull(r, pix)
-				if err := r.Close(); err != nil {
-					panic(fmt.Sprintf("error decompressing texture: %s", err))
-				}
+				decompressTexture(pix, tex.computed.compressed)
 				tex.realized.image = &image.RGBA{
 					Pix:    pix,
 					Stride: 4,
@@ -887,20 +880,7 @@ func (tm *TextureManager) compute(tex *texture, tr *Trace) {
 		case *image.Uniform:
 			tex.computed.uniform = img
 		case *image.RGBA:
-			buf := bytes.NewBuffer(nil)
-			// We benchmarked planar RLE vs packed DEFLATE. Compression, RLE was slightly faster at worse compression.
-			// Decompression, DEFLATE was 3x faster. However, compress/flate allocates significant amounts of memory in
-			// flate.NewReader, so this might be worth reconsidering.
-			w := flateWriterPool.Get().(*flate.Writer)
-			if w == nil {
-				w, _ = flate.NewWriter(buf, flate.BestSpeed)
-			} else {
-				w.Reset(buf)
-			}
-			defer flateWriterPool.Put(w)
-			w.Write(img.Pix)
-			w.Close()
-			tex.computed.compressed = buf.Bytes()
+			tex.computed.compressed = compressTexture(img.Pix)
 			// Textures get computed to be realized, so don't throw away the image and realize it right away.
 			// Don't touch tex.realized.done, however, as this is managed by the realize method, which may
 			// have called compute.
@@ -912,11 +892,146 @@ func (tm *TextureManager) compute(tex *texture, tr *Trace) {
 
 			tm.Stats.RealizedRGBAs.Add(1)
 			tm.Stats.CompressedNum.Add(1)
-			tm.Stats.CompressedSize.Add(uint64(len(buf.Bytes())))
+			tm.Stats.CompressedSize.Add(uint64(len(tex.computed.compressed)))
 		default:
 			panic(fmt.Sprintf("unexpected type %T", img))
 		}
 	}()
+}
+
+// OPT(dh): reuse output slice
+func compressTexture(data []byte) []byte {
+	var prefix, suffix uint
+
+	first := binary.LittleEndian.Uint64(data)
+	last := binary.LittleEndian.Uint64(data[len(data)-8:])
+	for i := 0; i < len(data); i += 8 {
+		if first != binary.LittleEndian.Uint64(data[i:]) {
+			break
+		}
+		prefix += 8
+	}
+	for i := len(data) - 8; i >= 0; i -= 8 {
+		if last != binary.LittleEndian.Uint64(data[i:]) {
+			break
+		}
+		suffix += 8
+	}
+
+	out := make([]byte, 4)
+	binary.LittleEndian.PutUint32(out, uint32(len(data)))
+
+	if prefix == uint(len(data)) {
+		suffix = 0
+	}
+
+	if prefix > 11 {
+		n := len(out)
+		out = slices.Grow(out, 11)[:n+11]
+		out[n+0] = 'r'
+		binary.LittleEndian.PutUint16(out[n+1:], uint16(prefix/8))
+		binary.LittleEndian.PutUint64(out[n+3:], first)
+	} else {
+		prefix = 0
+	}
+
+	if suffix <= 11 {
+		suffix = 0
+	}
+
+	if rem := uint(len(data)) - prefix - suffix; rem > 0 {
+		remData := data[prefix : len(data)-int(suffix)]
+		// OPT(dh): reuse slice
+		z := snappy.Encode(nil, remData)
+
+		if len(z) > len(remData) {
+			n := len(out)
+			out = slices.Grow(out, len(z)+3)[:n+3+len(remData)]
+			out[n] = 'd'
+			binary.LittleEndian.PutUint16(out[n+1:], uint16(rem))
+			copy(out[n+3:], remData)
+		} else {
+			n := len(out)
+			out = slices.Grow(out, len(z)+3)[:n+3+len(z)]
+			out[n] = 'z'
+			binary.LittleEndian.PutUint16(out[n+1:], uint16(len(z)))
+			copy(out[n+3:], z)
+		}
+	}
+
+	if suffix > 11 {
+		n := len(out)
+		out = slices.Grow(out, 11)[:n+11]
+		out[n+0] = 'r'
+		binary.LittleEndian.PutUint16(out[n+1:], uint16(suffix/8))
+		binary.LittleEndian.PutUint64(out[n+3:], last)
+	}
+
+	return out
+}
+
+func decompressTexture(out, data []byte) []byte {
+	if len(data) < 4 {
+		return nil
+	}
+
+	sz := binary.LittleEndian.Uint32(data)
+	if cap(out) < int(sz) {
+		out = make([]byte, sz)
+	} else {
+		out = out[:sz]
+	}
+	origOut := out
+
+	data = data[4:]
+
+	for len(data) >= 3 {
+		switch data[0] {
+		case 'r':
+			n := int(binary.LittleEndian.Uint16(data[1:]))
+			var seq [8]byte
+			copy(seq[:], data[3:3+8])
+			data = data[11:]
+
+			if n < 1 {
+				continue
+			}
+
+			_ = out[(n-1)*8+7]
+			ptr := unsafe.Pointer(&out[0])
+			for i := 0; i < n; i++ {
+				if i != 0 {
+					// Increment pointer at the beginning of the loop to avoid pointing outside allocation
+					// after the loop is done.
+					ptr = unsafe.Add(ptr, 8)
+				}
+				*(*uint64)(ptr) = *(*uint64)(unsafe.Pointer(&seq[0]))
+			}
+
+			out = out[n*8:]
+		case 'd':
+			n := binary.LittleEndian.Uint16(data[1:])
+			copy(out, data[3:3+n])
+			data = data[3+n:]
+			out = out[n:]
+		case 'z':
+			n := int(binary.LittleEndian.Uint16(data[1:]))
+			m, err := snappy.DecodedLen(data[3 : 3+n][:])
+			if err != nil {
+				panic(err)
+			}
+			dec, err := snappy.Decode(out[:m], data[3:3+n])
+			if err != nil {
+				panic(err)
+			}
+			data = data[3+n:]
+			out = out[len(dec):]
+		default:
+			panic(fmt.Sprintf("%q", data[0]))
+		}
+	}
+
+	return origOut
 }
 
 func instantUniform(tex *texture, uniform *image.Uniform, op paint.ImageOp) *texture {
