@@ -131,6 +131,13 @@ var pixelsPool = &sync.Pool{
 	},
 }
 
+var pixPool = &sync.Pool{
+	New: func() any {
+		s := make([]byte, texWidth*4)
+		return s
+	},
+}
+
 var closedDoneChannel = makeClosedChan[struct{}]()
 
 var (
@@ -577,7 +584,11 @@ func computeTexture(tex *texture) image.Image {
 		}
 	}
 
-	img := image.NewRGBA(image.Rect(0, 0, texWidth, 1))
+	img := &image.RGBA{
+		Pix:    pixPool.Get().([]byte),
+		Stride: 4 * texWidth,
+		Rect:   image.Rect(0, 0, texWidth, 1),
+	}
 	// Cache the conversion of the final pixel colors to sRGB.
 	srgbCache := map[color.LinearSRGB]stdcolor.RGBA{}
 	firstSet := false
@@ -618,6 +629,10 @@ func computeTexture(tex *texture) image.Image {
 
 	// Turn single-color textures into uniforms. That's a compression ratio of texWidth.
 	if allSame {
+		//lint:ignore SA6002 We don't control the type of img.Pix, we don't want to track the slice
+		// separately, and this is still replacing a texWidth*4 large allocation with a 24 bytes large
+		// one.
+		pixPool.Put(img.Pix)
 		return image.NewUniform(firstColor)
 	}
 
@@ -799,6 +814,12 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 	s, unlock := tm.realizedRGBAs.Lock()
 	defer unlock.Unlock()
 	for _, tex := range texs {
+		if img, ok := tex.realized.image.(*image.RGBA); ok {
+			//lint:ignore SA6002 We don't control the type of img.Pix, we don't want to track the slice
+			// separately, and this is still replacing a texWidth*4 large allocation with a 24 bytes large
+			// one.
+			pixPool.Put(img.Pix)
+		}
 		tex.realized = textureRealized{}
 		s.Delete(tex)
 	}
@@ -820,7 +841,7 @@ func (tm *TextureManager) realize(tex *texture, tr *Trace) {
 		} else {
 			// The image may have already been realized for us by compute.
 			if tex.realized.image == nil {
-				pix := make([]byte, texWidth*4)
+				pix := pixPool.Get().([]byte)
 				decompressTexture(pix, tex.computed.compressed)
 				tex.realized.image = &image.RGBA{
 					Pix:    pix,
