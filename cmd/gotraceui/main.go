@@ -306,6 +306,7 @@ type Tab struct {
 	Unclosable bool
 }
 
+// TODO(dh): split MainWindow into two types, one for the application as a whole and one for the main window.
 type MainWindow struct {
 	canvas          Canvas
 	trace           *Trace
@@ -314,6 +315,8 @@ type MainWindow struct {
 	mainMenu        *MainMenu
 
 	cpuProfile *os.File
+
+	gc *GCScheduler
 
 	// Channel used by goroutines to report critical errors.
 	errs chan error
@@ -350,6 +353,7 @@ func NewMainWindow() *MainWindow {
 		debugWindow: NewDebugWindow(),
 		errs:        make(chan error),
 		subwindows:  map[Window]struct{}{},
+		gc:          NewGCScheduler(0, 0),
 		resize: component.Resize{
 			Axis:  layout.Horizontal,
 			Ratio: 0.70,
@@ -362,6 +366,8 @@ func NewMainWindow() *MainWindow {
 		},
 	}
 
+	go mwin.gc.Run()
+
 	return &mwin
 }
 
@@ -369,6 +375,10 @@ func NewMainWindow() *MainWindow {
 // window when it's done. OpenTrace should be called from a different goroutine than the render loop.
 func (mwin *MainWindow) OpenTrace(r io.Reader) {
 	mwin.SetState("loadingTrace")
+	// Use standard GC pacing while loading trace
+	mwin.gc.Pause()
+	defer mwin.gc.Resume()
+
 	res, err := loadTrace(r, mwin, &mwin.canvas)
 	if memprofileLoad != "" {
 		writeMemprofile(memprofileLoad)

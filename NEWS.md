@@ -22,6 +22,8 @@
 - Hovered and highlighted spans are now indicated with a gradient instead of the border color
 - Span borders more accurately show if the span's beginning or end are outside the visible area
 - Merged spans no longer stop at the screen boundaries
+- Lowered peak memory usage
+
 
 # v0.3.0 (2023-08-07)
 
