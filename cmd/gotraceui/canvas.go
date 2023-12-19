@@ -449,15 +449,13 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 func (cv *Canvas) visibleSpans(spans Items[ptrace.Span]) Items[ptrace.Span] {
 	// Visible spans have to end after cv.Start and begin before cv.End
 	start := sort.Search(spans.Len(), func(i int) bool {
-		s := spans.At(i)
-		return s.End > cv.start
+		return spans.AtPtr(i).End > cv.start
 	})
 	if start == spans.Len() {
 		return NoItems[ptrace.Span]{}
 	}
 	end := sort.Search(spans.Len(), func(i int) bool {
-		s := spans.At(i)
-		return s.Start >= cv.End()
+		return spans.AtPtr(i).Start >= cv.End()
 	})
 
 	return spans.Slice(start, end)
@@ -775,8 +773,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 	for _, tl := range cv.prevFrame.displayedTls {
 		if spans := tl.widget.NavigatedSpans(); spans.Len() > 0 {
-			start := spans.At(0).Start
-			end := LastSpan(spans).End
+			start := spans.AtPtr(0).Start
+			end := LastSpanPtr(spans).End
 			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 			break
 		}
@@ -821,7 +819,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			p.Begin(gtx.Ops)
 			visible := cv.visibleSpans(spans)
 			for i := 0; i < visible.Len(); i++ {
-				s := visible.At(i)
+				s := visible.AtPtr(i)
 				start := s.Start
 				end := s.End
 

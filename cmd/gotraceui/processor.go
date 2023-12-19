@@ -66,7 +66,7 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if state.spans.Len() == 1 {
-		s := state.spans.At(0)
+		s := state.spans.AtPtr(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateRunningG {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -106,7 +106,7 @@ func processorInvalidateCache(tl *Timeline, cv *Canvas) bool {
 	}
 
 	// If we got to this point, then both slices have exactly one element.
-	if cv.trace.Event(cv.prevFrame.hoveredSpans.At(0).Event).G != cv.trace.Event(cv.timeline.hoveredSpans.At(0).Event).G {
+	if cv.trace.Event(cv.prevFrame.hoveredSpans.AtPtr(0).Event).G != cv.trace.Event(cv.timeline.hoveredSpans.AtPtr(0).Event).G {
 		return true
 	}
 
@@ -117,12 +117,12 @@ func processorTrackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) 
 	if spans.Len() != 1 {
 		return out
 	}
-	g := tr.G(tr.Event(spans.At(0).Event).G)
+	g := tr.G(tr.Event(spans.AtPtr(0).Event).G)
 	labels := tr.goroutineSpanLabels(g)
 	return append(out, labels...)
 }
 
-func processorTrackSpanColor(span ptrace.Span, tr *Trace) (out colorIndex) {
+func processorTrackSpanColor(span *ptrace.Span, tr *Trace) (out colorIndex) {
 	if span.Tags&ptrace.SpanTagGC != 0 {
 		return colorStateGC
 	} else {
@@ -138,7 +138,7 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 	}
 
 	if spans.Len() == 1 {
-		gid := cv.trace.Event(spans.At(0).Event).G
+		gid := cv.trace.Event(spans.AtPtr(0).Event).G
 		items = append(items, &theme.MenuItem{
 			Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 			Action: func() theme.Action {

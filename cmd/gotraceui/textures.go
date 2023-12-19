@@ -339,7 +339,7 @@ func (r *Renderer) planTextures(
 	// returning a uniform placeholder span, because it shouldn't be longer than the track. 2, when looking for an
 	// existing, higher resolution texture that covers the entire range. It doesn't have to cover the larger void
 	// produced by zooming out beyond the size of the track. It only has to cover up to the actual track end.
-	end = min(end, spans.At(spans.Len()-1).End)
+	end = min(end, spans.AtPtr(spans.Len()-1).End)
 
 	rtrace.Logf(context.Background(), "texture renderer", "effective end is %d", end)
 
@@ -503,10 +503,10 @@ func computeTexture(tex *texture) image.Image {
 	}
 
 	first := sort.Search(tex.spans.Len(), func(i int) bool {
-		return tex.spans.At(i).End >= tex.start
+		return tex.spans.AtPtr(i).End >= tex.start
 	})
 	last := sort.Search(tex.spans.Len(), func(i int) bool {
-		return tex.spans.At(i).Start >= end
+		return tex.spans.AtPtr(i).Start >= end
 	})
 
 	pixelsPtr := pixelsPool.Get().(*[]pixel)
@@ -544,7 +544,7 @@ func computeTexture(tex *texture) image.Image {
 	}
 
 	for i := first; i < last; i++ {
-		span := tex.spans.At(i)
+		span := tex.spans.AtPtr(i)
 
 		firstBucket := float64(span.Start-tex.start) / tex.nsPerPx
 		lastBucket := float64(span.End-tex.start) / tex.nsPerPx
@@ -559,7 +559,7 @@ func computeTexture(tex *texture) image.Image {
 		firstBucket = max(firstBucket, 0)
 		lastBucket = min(lastBucket, texWidth)
 
-		colorIdx := tex.track.SpanColor(tex.spans.At(i), tex.track.parent.cv.trace)
+		colorIdx := tex.track.SpanColor(tex.spans.AtPtr(i), tex.track.parent.cv.trace)
 		c := mappedColors[colorIdx]
 
 		if int(firstBucket) == int(lastBucket) {
@@ -666,14 +666,14 @@ func (r *Renderer) Render(
 		return out
 	}
 
-	if spans.At(0).State == statePlaceholder {
+	if spans.AtPtr(0).State == statePlaceholder {
 		// Don't go through the normal pipeline for making textures if the spans are placeholders (which happens when we
 		// are dealing with compressed tracks.). Caching them would be wrong, as cached textures don't get invalidated
 		// when spans change, and computing them is trivial.
 		rtrace.Logf(context.Background(), "texture renderer", "returning uniform texture for stack placeholder")
 
-		newStart := max(start, spans.At(0).Start)
-		newEnd := min(end, spans.At(0).End)
+		newStart := max(start, spans.AtPtr(0).Start)
+		newEnd := min(end, spans.AtPtr(0).End)
 		if newStart >= end || newEnd <= start {
 			return nil
 		}
@@ -711,10 +711,10 @@ func (r *Renderer) Render(
 	// Shift start point to the left to align with a multiple of texWidth * nsPerPx...
 	start = trace.Timestamp(m * math.Floor(float64(start)/m))
 	// ... but don't set start point to before the track's start.
-	start = max(start, spans.At(0).Start)
+	start = max(start, spans.AtPtr(0).Start)
 	// Don't set end beyond track's end. This doesn't have any effect on the computed texture, but limits how many
 	// textures we compute to cover the requested area.
-	end = min(end, spans.At(spans.Len()-1).End)
+	end = min(end, spans.AtPtr(spans.Len()-1).End)
 
 	if start >= end {
 		// We don't need a texture for an empty time interval

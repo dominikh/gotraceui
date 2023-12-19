@@ -1650,12 +1650,12 @@ func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context,
 	switch item := cmd.Timeline.item.(type) {
 	case *GC:
 		numSpans = item.Spans.Len()
-		start = item.Spans.At(0).Start
-		end = LastSpan(item.Spans).End
+		start = item.Spans.AtPtr(0).Start
+		end = LastSpanPtr(item.Spans).End
 	case *STW:
 		numSpans = item.Spans.Len()
-		start = item.Spans.At(0).Start
-		end = LastSpan(item.Spans).End
+		start = item.Spans.AtPtr(0).Start
+		end = LastSpanPtr(item.Spans).End
 	case *ptrace.Goroutine:
 		numSpans = len(item.Spans)
 		start = item.EffectiveStart()

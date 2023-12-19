@@ -16,7 +16,7 @@ func machineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) [
 	if spans.Len() != 1 {
 		return out
 	}
-	span := spans.At(0)
+	span := spans.AtPtr(0)
 	switch span.State {
 	case ptrace.StateRunningP:
 		p := tr.P(tr.Event(span.Event).P)
@@ -32,7 +32,7 @@ func machineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) [
 func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
 	var label string
 	if state.spans.Len() == 1 {
-		s := state.spans.At(0)
+		s := state.spans.AtPtr(0)
 		ev := tr.Event(s.Event)
 		switch s.State {
 		case ptrace.StateRunningP:
@@ -56,7 +56,7 @@ func machineTrack0SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 	}
 
 	if spans.Len() == 1 {
-		s := spans.At(0)
+		s := spans.AtPtr(0)
 		switch s.State {
 		case ptrace.StateRunningP:
 			pid := cv.trace.Event(s.Event).P
@@ -79,12 +79,12 @@ func machineTrack1SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) [
 	if spans.Len() != 1 {
 		return out
 	}
-	g := tr.G(tr.Event(spans.At(0).Event).G)
+	g := tr.G(tr.Event(spans.AtPtr(0).Event).G)
 	labels := tr.goroutineSpanLabels(g)
 	return append(out, labels...)
 }
 
-func machineTrack1SpanColor(span ptrace.Span, tr *Trace) colorIndex {
+func machineTrack1SpanColor(span *ptrace.Span, tr *Trace) colorIndex {
 	gid := tr.Events[span.Event].G
 	g := tr.G(gid)
 	switch fn := g.Function.Fn; fn {
@@ -100,7 +100,7 @@ func machineTrack1SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 	items = append(items, newZoomMenuItem(cv, spans))
 
 	if spans.Len() == 1 {
-		s := spans.At(0)
+		s := spans.AtPtr(0)
 		switch s.State {
 		case ptrace.StateRunningG:
 			gid := cv.trace.Event(s.Event).G
@@ -145,7 +145,7 @@ func machineInvalidateCache(tl *Timeline, cv *Canvas) bool {
 	}
 
 	// If we got to this point, then both slices have exactly one element.
-	if cv.trace.Event(cv.prevFrame.hoveredSpans.At(0).Event).P != cv.trace.Event(cv.timeline.hoveredSpans.At(0).Event).P {
+	if cv.trace.Event(cv.prevFrame.hoveredSpans.AtPtr(0).Event).P != cv.trace.Event(cv.timeline.hoveredSpans.AtPtr(0).Event).P {
 		return true
 	}
 

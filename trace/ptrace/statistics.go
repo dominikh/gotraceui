@@ -40,7 +40,6 @@ func ComputeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []i
 
 // Spans is an interface that allows ComputeStatistics to operate on abstract collections of spans, not just slices.
 type Spans interface {
-	At(idx int) Span
 	AtPtr(idx int) *Span
 	Len() int
 }
@@ -51,7 +50,6 @@ func ToSpans(spans []Span) Spans {
 
 type spansSlice []Span
 
-func (spans spansSlice) At(idx int) Span     { return spans[idx] }
 func (spans spansSlice) AtPtr(idx int) *Span { return &spans[idx] }
 func (spans spansSlice) Len() int            { return len(spans) }
 

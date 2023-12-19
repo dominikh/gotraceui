@@ -110,7 +110,7 @@ type Track struct {
 	Len   int
 
 	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
-	spanColor       func(span ptrace.Span, tr *Trace) colorIndex
+	spanColor       func(span *ptrace.Span, tr *Trace) colorIndex
 	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
 	spanContextMenu func(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem
 
@@ -118,7 +118,7 @@ type Track struct {
 	widget *TrackWidget
 }
 
-func (track *Track) SpanColor(span ptrace.Span, tr *Trace) colorIndex {
+func (track *Track) SpanColor(span *ptrace.Span, tr *Trace) colorIndex {
 	if track.spanColor != nil {
 		return track.spanColor(span, tr)
 	} else {
@@ -265,8 +265,8 @@ func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 		Shortcut: key.ModShortcut.String() + "+LMB",
 		Action: func() theme.Action {
 			return theme.ExecuteAction(func(gtx layout.Context) {
-				start := spans.At(0).Start
-				end := LastSpan(spans).End
+				start := spans.AtPtr(0).Start
+				end := LastSpanPtr(spans).End
 				cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 			})
 		},
@@ -535,7 +535,7 @@ func (tl *Timeline) Layout(
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }
 
-func defaultSpanColor(span ptrace.Span, tr *Trace) colorIndex {
+func defaultSpanColor(span *ptrace.Span, tr *Trace) colorIndex {
 	return stateColors[span.State]
 }
 
@@ -548,8 +548,7 @@ type renderedSpansIterator struct {
 
 func (it *renderedSpansIterator) findFirstVisible() {
 	it.offset = sort.Search(it.spans.Len(), func(i int) bool {
-		s := it.spans.At(i)
-		return s.End > it.cv.start
+		return it.spans.AtPtr(i).End > it.cv.start
 	})
 }
 
@@ -591,12 +590,12 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 				// find.
 				limit := min(noffset+1, spans.Len())
 				noffset = sort.Search(limit, func(i int) bool {
-					return spans.At(i).Start > start-trace.Timestamp(minSpanWidthD)
+					return spans.AtPtr(i).Start > start-trace.Timestamp(minSpanWidthD)
 				})
 				assert(noffset != limit, "should've found ourselves")
 				if noffset == 0 {
 					// Even the first span isn't far enough away. Merge all spans.
-					start = spans.At(0).Start
+					start = spans.AtPtr(0).Start
 					startOffset = 0
 					break
 				}
@@ -631,19 +630,19 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			// current span. Use binary search to find that span. This also finds gaps, because for a gap to be big
 			// enough, it cannot occur between spans that would be too small according to this search.
 			offset = sort.Search(spans.Len(), func(i int) bool {
-				return spans.At(i).End >= end+trace.Timestamp(minSpanWidthD)
+				return spans.AtPtr(i).End >= end+trace.Timestamp(minSpanWidthD)
 			})
 
 			if offset == spans.Len() {
 				// We couldn't find a span -> merge all remaining spans, except for the optional "goroutine returned"
 				// span
-				if spans.At(spans.Len()-1).State == ptrace.StateDone {
+				if LastSpanPtr(spans).State == ptrace.StateDone {
 					offset = spans.Len() - 1
-					end = spans.At(offset - 1).End
+					end = spans.AtPtr(offset - 1).End
 					break
 				} else {
 					offset = spans.Len()
-					end = spans.At(offset - 1).End
+					end = spans.AtPtr(offset - 1).End
 					break
 				}
 			}
@@ -839,7 +838,7 @@ func (track *Track) Layout(
 			highlightedSpans = append(highlightedSpans, clip.FRect{Min: minP, Max: maxP})
 		}
 
-		if dspSpans.Len() != 0 && dspSpans.At(0).State != statePlaceholder {
+		if dspSpans.Len() != 0 && dspSpans.AtPtr(0).State != statePlaceholder {
 			off := float32(spanBorderWidth)
 			leftOff := off
 			rightOff := -off
@@ -1087,7 +1086,8 @@ func (track *Track) Layout(
 				// If the first displayed span is also the first overall span, display an indicator that the
 				// goroutine/processor hasn't been created yet.
 				dspFirst := track.widget.prevFrame.dspSpans[0]
-				if dspFirst.dspSpans.At(0) == spans.At(0) {
+				// OPT(dh): can we use pointer identity here?
+				if *dspFirst.dspSpans.AtPtr(0) == *spans.AtPtr(0) {
 					end := dspFirst.startPx
 					unbornUntilPx = end
 				}
@@ -1095,7 +1095,8 @@ func (track *Track) Layout(
 				// If the last displayed span is also the last overall span, display an indicator that the
 				// goroutine/processor is dead.
 				dspLast := track.widget.prevFrame.dspSpans[len(track.widget.prevFrame.dspSpans)-1]
-				if LastSpan(dspLast.dspSpans) == LastSpan(spans) {
+				// OPT(dh): can we use pointer identity here?
+				if *LastSpanPtr(dspLast.dspSpans) == *LastSpanPtr(spans) {
 					start := dspLast.endPx
 					deadFromPx = start
 				}
@@ -1182,8 +1183,8 @@ func singleSpanLabel(label string) func(spans Items[ptrace.Span], tr *Trace, out
 	}
 }
 
-func singleSpanColor(c colorIndex) func(span ptrace.Span, tr *Trace) colorIndex {
-	return func(span ptrace.Span, tr *Trace) colorIndex {
+func singleSpanColor(c colorIndex) func(span *ptrace.Span, tr *Trace) colorIndex {
+	return func(span *ptrace.Span, tr *Trace) colorIndex {
 		return c
 	}
 }
@@ -1246,8 +1247,7 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.tracks[0].spanLabel = func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
-		span := spans.At(0)
-		kindID := tr.Events[span.Event].Args[trace.ArgSTWStartKind]
+		kindID := tr.Events[spans.AtPtr(0).Event].Args[trace.ArgSTWStartKind]
 		return append(out, stwSpanLabels[tr.STWReason(kindID)])
 	}
 	tl.tracks[0].spanColor = singleSpanColor(colorStateSTW)

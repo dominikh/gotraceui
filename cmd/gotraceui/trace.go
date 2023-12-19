@@ -41,6 +41,6 @@ func (t *Trace) processorSpanLabels(p *ptrace.Processor) []string {
 }
 
 //gcassert:inline
-func (t *Trace) Reason(s ptrace.Span) reason {
-	return reasonByEventType[t.Events[s.Event].Type]
+func (t *Trace) Reason(evID ptrace.EventID) reason {
+	return reasonByEventType[t.Events[evID].Type]
 }

@@ -134,7 +134,8 @@ func (evs *EventList) eventMessage(ev *trace.Event) []string {
 }
 
 func (evs *EventList) sort() {
-	evs.filteredEvents.Sort(func(a, b ptrace.EventID) int {
+	evs.filteredEvents.Sort(func(ap, bp *ptrace.EventID) int {
+		a, b := *ap, *bp
 		// This function has to stay in sync with the cell function in Layout
 		switch evs.table.SortedBy {
 		case 0: // Time
@@ -334,8 +335,8 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		c, ok := spans.Container()
 		assert(ok, "didn't expect subslice with multiple containers")
 
-		sStart := spans.At(0).Start
-		sEnd := spans.At(spans.Len() - 1).End
+		sStart := spans.AtPtr(0).Start
+		sEnd := spans.AtPtr(spans.Len() - 1).End
 
 		allEvents := c.Track.events
 		if len(allEvents) == 0 {

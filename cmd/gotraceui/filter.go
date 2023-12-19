@@ -56,8 +56,7 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 			}
 
 			for i := 0; i < spans.Len(); i++ {
-				s := spans.At(i)
-				if f.HasState(s.State) {
+				if f.HasState(spans.AtPtr(i).State) {
 					return true, false
 				}
 			}
@@ -77,7 +76,7 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 			spans := spans
 			if f.Processor.StartAfter != 0 {
 				off = sort.Search(spans.Len(), func(i int) bool {
-					return spans.At(i).Start >= f.Processor.StartAfter
+					return spans.AtPtr(i).Start >= f.Processor.StartAfter
 				})
 			}
 
@@ -86,7 +85,7 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 			}
 
 			for i := off; i < spans.Len(); i++ {
-				span := spans.At(i)
+				span := spans.AtPtr(i)
 				// OPT(dh): don't be O(n)
 
 				if span.Start > f.Processor.EndBefore {
@@ -117,8 +116,7 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 				if _, ok := container.Timeline.item.(*ptrace.Processor); ok {
 					tr := container.Timeline.cv.trace
 					for i := 0; i < spans.Len(); i++ {
-						s := spans.At(i)
-						g := tr.G(tr.Event(s.Event).G)
+						g := tr.G(tr.Event(spans.AtPtr(i).Event).G)
 						if g.ID == f.Processor.Goroutine {
 							return true, false
 						}
@@ -136,8 +134,7 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 				if _, ok := container.Timeline.item.(*ptrace.Machine); ok {
 					tr := container.Timeline.cv.trace
 					for i := 0; i < spans.Len(); i++ {
-						s := spans.At(i)
-						p := tr.P(tr.Event(s.Event).P)
+						p := tr.P(tr.Event(spans.AtPtr(i).Event).P)
 						if p.ID == f.Machine.Processor {
 							return true, false
 						}

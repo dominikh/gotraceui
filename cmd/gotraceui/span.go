@@ -19,8 +19,8 @@ import (
 	"gioui.org/text"
 )
 
-func LastSpan(sel ptrace.Spans) ptrace.Span {
-	return sel.At(sel.Len() - 1)
+func LastSpanPtr(sel ptrace.Spans) *ptrace.Span {
+	return sel.AtPtr(sel.Len() - 1)
 }
 
 func SpansDuration(sel Items[ptrace.Span]) time.Duration {
@@ -28,11 +28,11 @@ func SpansDuration(sel Items[ptrace.Span]) time.Duration {
 		return 0
 	}
 	if sel.Contiguous() {
-		return time.Duration(LastSpan(sel).End - sel.At(0).Start)
+		return time.Duration(LastSpanPtr(sel).End - sel.AtPtr(0).Start)
 	} else {
 		var total time.Duration
 		for i := 0; i < sel.Len(); i++ {
-			total += time.Duration(sel.At(i).End - sel.At(i).Start)
+			total += time.Duration(sel.AtPtr(i).End - sel.AtPtr(i).Start)
 		}
 		return total
 	}
@@ -119,17 +119,17 @@ func (si *SpansInfo) init(win *theme.Window) {
 	spans := si.spans.MustResult()
 	c, haveContainer := spans.Container()
 	if si.cfg.Title == "" {
-		firstSpan := spans.At(0)
-		lastSpan := LastSpan(spans)
+		firstStart := spans.AtPtr(0).Start
+		lastEnd := LastSpanPtr(spans).End
 		if haveContainer {
-			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s", firstSpan.Start, lastSpan.End, c.Timeline.shortName)
+			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s", firstStart, lastEnd, c.Timeline.shortName)
 		} else {
-			si.cfg.Title = local.Sprintf("%d ns–%d ns", firstSpan.Start, lastSpan.End)
+			si.cfg.Title = local.Sprintf("%d ns–%d ns", firstStart, lastEnd)
 		}
 	}
 
 	if si.cfg.Stacktrace == "" && haveContainer && spans.Len() == 1 {
-		ev := si.trace.Events[spans.At(0).Event]
+		ev := si.trace.Events[spans.AtPtr(0).Event]
 		stk := si.trace.Stacks[ev.StkID]
 		sb := strings.Builder{}
 		for _, f := range stk {
@@ -178,11 +178,11 @@ func (si *SpansInfo) init(win *theme.Window) {
 	}
 
 	si.state = theme.NewFuture(win, func(cancelled <-chan struct{}) string {
-		firstSpan := spans.At(0)
-		state := stateNames[firstSpan.State]
+		firstState := spans.AtPtr(0).State
+		state := stateNames[firstState]
 		for i := 1; i < spans.Len(); i++ {
-			s := spans.At(i).State
-			if s != firstSpan.State {
+			s := spans.AtPtr(i).State
+			if s != firstState {
 				state = "mixed"
 				break
 			}
@@ -200,7 +200,7 @@ func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramCo
 	n := spans.Len()
 	spanDurations := make([]time.Duration, n)
 	for i := 0; i < n; i++ {
-		s := spans.At(i)
+		s := spans.AtPtr(i)
 		d := time.Duration(s.End - s.Start)
 		spanDurations[i] = d
 	}
@@ -235,8 +235,8 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 
 	spans := si.spans.MustResult()
 
-	firstSpan := spans.At(0)
-	lastSpan := LastSpan(spans)
+	firstSpan := spans.AtPtr(0)
+	lastSpan := LastSpanPtr(spans)
 	link := *tb.DefaultLink(formatTimestamp(nil, firstSpan.Start), "Start of current spans", firstSpan.Start)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
@@ -396,7 +396,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				return desc.Layout(win, gtx, &si.descriptionText)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				if spans.Len() == 1 && spans.At(0).State == ptrace.StateUserRegion {
+				if spans.Len() == 1 && spans.AtPtr(0).State == ptrace.StateUserRegion {
 					gtx.Constraints.Min = image.Point{}
 					return theme.Button(win.Theme, &si.buttons.selectUserRegion.Clickable, "Select user region").Layout(win, gtx)
 				}
@@ -523,7 +523,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.mwin.EmitAction(&PrevPanelAction{})
 	}
 	for si.buttons.selectUserRegion.Clicked() {
-		needle := si.trace.Strings[si.trace.Event(spans.At(0).Event).Args[2]]
+		needle := si.trace.Strings[si.trace.Event(spans.AtPtr(0).Event).Args[2]]
 		ft := theme.NewFuture[Items[ptrace.Span]](win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
 			var bases []Items[ptrace.Span]
 			for _, tl := range si.allTimelines {
@@ -607,15 +607,15 @@ func (spans *SpanList) sort() {
 	switch spans.table.SortedBy {
 	case 0: // Span, impossible
 	case 1: // Start time
-		spans.Spans.Sort(func(a, b ptrace.Span) int {
+		spans.Spans.Sort(func(a, b *ptrace.Span) int {
 			return cmp(a.Start, b.Start, spans.table.SortOrder == theme.SortDescending)
 		})
 	case 2: // Duration
-		spans.Spans.Sort(func(a, b ptrace.Span) int {
+		spans.Spans.Sort(func(a, b *ptrace.Span) int {
 			return cmp(a.Duration(), b.Duration(), spans.table.SortOrder == theme.SortDescending)
 		})
 	case 3: // State
-		spans.Spans.Sort(func(a, b ptrace.Span) int {
+		spans.Spans.Sort(func(a, b *ptrace.Span) int {
 			sa := stateNames[a.State]
 			sb := stateNames[b.State]
 			return cmp(sa, sb, spans.table.SortOrder == theme.SortDescending)
@@ -649,7 +649,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
-		span := spans.Spans.At(row)
+		span := spans.Spans.AtPtr(row)
 		switch col {
 		case 0:
 			return spans.cellFormatter.Spans(win, gtx, spans.Spans.Slice(row, row+1))

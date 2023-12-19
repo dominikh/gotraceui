@@ -417,10 +417,10 @@ func (s SortedItems[T]) Map(idx int) int {
 	return s.Order[idx]
 }
 
-func (s SortedItems[T]) Sort(cmp func(a, b T) int) {
+func (s SortedItems[T]) Sort(cmp func(a, b *T) int) {
 	slices.SortFunc(s.Order, func(a, b int) int {
-		ea := s.Base.At(a)
-		eb := s.Base.At(b)
+		ea := s.Base.AtPtr(a)
+		eb := s.Base.AtPtr(b)
 		return cmp(ea, eb)
 	})
 }
