@@ -13,18 +13,18 @@ type Bool struct {
 	Value bool
 
 	clk PrimaryActivatable
-
-	changed bool
 }
 
 func (b *Bool) Get() bool  { return b.Value }
 func (b *Bool) Set(v bool) { b.Value = v }
 
-// Changed reports whether Value has changed since the last
-// call to Changed.
-func (b *Bool) Changed() bool {
-	changed := b.changed
-	b.changed = false
+// Update the widget state and report whether Value was changed.
+func (b *Bool) Update(gtx layout.Context) bool {
+	changed := false
+	for b.clk.Clicked(gtx) {
+		b.Value = !b.Value
+		changed = true
+	}
 	return changed
 }
 
@@ -43,21 +43,12 @@ func (b *Bool) Focused() bool {
 	return b.clk.Focused()
 }
 
-func (b *Bool) Update(gtx layout.Context) bool {
-	for b.clk.Clicked(gtx) {
-		b.Value = !b.Value
-		b.changed = true
-	}
-	return b.Value
-}
-
 func (b *Bool) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.Bool.Layout").End()
 
-	set := b.Update(gtx)
-
+	b.Update(gtx)
 	dims := b.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		semantic.SelectedOp(set).Add(gtx.Ops)
+		semantic.SelectedOp(b.Value).Add(gtx.Ops)
 		semantic.DisabledOp(gtx.Queue == nil).Add(gtx.Ops)
 		return w(gtx)
 	})

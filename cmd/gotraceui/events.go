@@ -198,10 +198,10 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 
 	evs.timestampObjects.Reset()
 
-	if evs.Filter.ShowGoCreate.Changed() ||
-		evs.Filter.ShowGoUnblock.Changed() ||
-		evs.Filter.ShowGoSysCall.Changed() ||
-		evs.Filter.ShowUserLog.Changed() {
+	if evs.Filter.ShowGoCreate.Update(gtx) ||
+		evs.Filter.ShowGoUnblock.Update(gtx) ||
+		evs.Filter.ShowGoSysCall.Update(gtx) ||
+		evs.Filter.ShowUserLog.Update(gtx) {
 		evs.UpdateFilter()
 	}
 

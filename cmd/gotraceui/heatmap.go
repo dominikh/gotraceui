@@ -338,7 +338,7 @@ func (hmc *HeatmapComponent) Layout(win *theme.Window, gtx layout.Context) layou
 	defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 	theme.Fill(win, gtx.Ops, win.Theme.Palette.Background)
 
-	if hmc.useLinear.Changed() {
+	if hmc.useLinear.Update(gtx) {
 		hmc.hm.UseLinearColors = hmc.useLinear.Value
 	}
 
