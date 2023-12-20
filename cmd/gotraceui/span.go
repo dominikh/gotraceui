@@ -67,6 +67,7 @@ type SpansInfo struct {
 	descriptionBuilder func(win *theme.Window, gtx layout.Context) Description
 	descriptionText    Text
 	hoveredLink        ObjectLink
+	prevSpans          []TextSpan
 
 	stacktraceList widget.List
 
@@ -331,10 +332,10 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		}
 	}
 
-	for _, ev := range si.descriptionText.Events() {
+	for _, ev := range si.descriptionText.Update(gtx, si.prevSpans) {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
-	for _, ev := range si.eventList.Clicked() {
+	for _, ev := range si.eventList.Update(gtx) {
 		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
 	}
 
@@ -398,7 +399,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.mwin.EmitAction(&OpenPanelAction{NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines)})
 	}
 
-	if si.hist.Changed() {
+	if si.hist.Update(gtx) {
 		si.computeHistogram(win, &si.hist.Config)
 	}
 
@@ -470,7 +471,9 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				gtx.Constraints.Min = image.Point{}
 				si.descriptionText.Reset(win.Theme)
 				desc := si.descriptionBuilder(win, gtx)
-				return desc.Layout(win, gtx, &si.descriptionText)
+				dims, spans := desc.Layout(win, gtx, &si.descriptionText)
+				si.prevSpans = spans
+				return dims
 			},
 			func(gtx layout.Context) layout.Dimensions {
 				if spans.Len() == 1 && spans.AtPtr(0).State == ptrace.StateUserRegion {

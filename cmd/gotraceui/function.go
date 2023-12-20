@@ -31,6 +31,7 @@ type FunctionInfo struct {
 
 	descriptionText Text
 	hoveredLink     ObjectLink
+	prevSpans       []TextSpan
 
 	initialized bool
 
@@ -130,6 +131,30 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		fi.initialized = true
 	}
 
+	for _, ev := range fi.descriptionText.Update(gtx, fi.prevSpans) {
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
+	}
+	firstNonNil := func(els ...ObjectLink) ObjectLink {
+		for _, el := range els {
+			if el != nil {
+				return el
+			}
+		}
+		return nil
+	}
+	fi.hoveredLink = firstNonNil(
+		fi.goroutineList.HoveredLink(),
+		fi.descriptionText.HoveredLink(),
+	)
+
+	for fi.ComponentButtons.Backed(gtx) {
+		fi.mwin.EmitAction(&PrevPanelAction{})
+	}
+
+	if fi.hist.Update(gtx) {
+		fi.histGoroutines = fi.computeHistogram(win, &fi.hist.Config)
+	}
+
 	// Inset of 5 pixels on all sides. We can't use layout.Inset because it doesn't decrease the minimum constraint,
 	// which we do care about here.
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
@@ -155,7 +180,9 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{}
 			fi.descriptionText.Reset(win.Theme)
-			return fi.buildDescription(win, gtx).Layout(win, gtx, &fi.descriptionText)
+			dims, spans := fi.buildDescription(win, gtx).Layout(win, gtx, &fi.descriptionText)
+			fi.prevSpans = spans
+			return dims
 		},
 
 		func(gtx layout.Context) layout.Dimensions { return layout.Spacer{Height: 10}.Layout(gtx) },
@@ -192,30 +219,6 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 			})
 		},
 	)
-
-	for _, ev := range fi.descriptionText.Events() {
-		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
-	}
-	firstNonNil := func(els ...ObjectLink) ObjectLink {
-		for _, el := range els {
-			if el != nil {
-				return el
-			}
-		}
-		return nil
-	}
-	fi.hoveredLink = firstNonNil(
-		fi.goroutineList.HoveredLink(),
-		fi.descriptionText.HoveredLink(),
-	)
-
-	for fi.ComponentButtons.Backed(gtx) {
-		fi.mwin.EmitAction(&PrevPanelAction{})
-	}
-
-	if fi.hist.Changed() {
-		fi.histGoroutines = fi.computeHistogram(win, &fi.hist.Config)
-	}
 
 	return dims
 }

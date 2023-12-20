@@ -77,7 +77,6 @@ type HistogramConfig struct {
 }
 
 func NewHistogram(cfg *HistogramConfig, values []time.Duration) *Histogram {
-
 	var (
 		start, end     FloatDuration
 		rejectOutliers bool

@@ -141,6 +141,74 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 		}
 	}
 
+	if clicked {
+		r := rtrace.StartRegion(context.Background(), "context menu")
+		items := []*theme.MenuItem{
+			{
+				Label: PlainLabel("Reset extents"),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						pl.min = 0
+						_, pl.max = pl.computeExtents(0, math.MaxInt64)
+						pl.autoScale = false
+					})
+				},
+			},
+			{
+				Label: PlainLabel("Set extents to global extrema"),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						pl.min, pl.max = pl.computeExtents(0, math.MaxInt64)
+					})
+				},
+			},
+			{
+				Label: PlainLabel("Set extents to local extrema"),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
+					})
+				},
+			},
+			{
+				Label: ToggleLabel("Don't auto-set extents", "Auto-set extents to local extrema", &pl.autoScale),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						pl.autoScale = !pl.autoScale
+					})
+				},
+			},
+			{
+				Label: ToggleLabel("Show legends", "Hide legends", &pl.hideLegends),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						pl.hideLegends = !pl.hideLegends
+					})
+				},
+			},
+		}
+		for i := range pl.series {
+			s := &pl.series[i]
+			var label string
+			if s.disabled {
+				label = fmt.Sprintf("Show %q series", s.Name)
+			} else {
+				label = fmt.Sprintf("Hide %q series", s.Name)
+			}
+			item := &theme.MenuItem{
+				Label: PlainLabel(label),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						s.disabled = !s.disabled
+					})
+				},
+			}
+			items = append(items, item)
+		}
+		win.SetContextMenu(items)
+		r.End()
+	}
+
 	var bitmap uint64
 	for i, s := range pl.series {
 		if s.disabled {
@@ -251,74 +319,6 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 				return theme.Tooltip(win.Theme, strings.Join(lines, "\n")).Layout(win, gtx)
 			})
 		}
-		r.End()
-	}
-
-	if clicked {
-		r := rtrace.StartRegion(context.Background(), "context menu")
-		items := []*theme.MenuItem{
-			{
-				Label: PlainLabel("Reset extents"),
-				Action: func() theme.Action {
-					return theme.ExecuteAction(func(gtx layout.Context) {
-						pl.min = 0
-						_, pl.max = pl.computeExtents(0, math.MaxInt64)
-						pl.autoScale = false
-					})
-				},
-			},
-			{
-				Label: PlainLabel("Set extents to global extrema"),
-				Action: func() theme.Action {
-					return theme.ExecuteAction(func(gtx layout.Context) {
-						pl.min, pl.max = pl.computeExtents(0, math.MaxInt64)
-					})
-				},
-			},
-			{
-				Label: PlainLabel("Set extents to local extrema"),
-				Action: func() theme.Action {
-					return theme.ExecuteAction(func(gtx layout.Context) {
-						pl.min, pl.max = pl.computeExtents(cv.start, cv.End())
-					})
-				},
-			},
-			{
-				Label: ToggleLabel("Don't auto-set extents", "Auto-set extents to local extrema", &pl.autoScale),
-				Action: func() theme.Action {
-					return theme.ExecuteAction(func(gtx layout.Context) {
-						pl.autoScale = !pl.autoScale
-					})
-				},
-			},
-			{
-				Label: ToggleLabel("Show legends", "Hide legends", &pl.hideLegends),
-				Action: func() theme.Action {
-					return theme.ExecuteAction(func(gtx layout.Context) {
-						pl.hideLegends = !pl.hideLegends
-					})
-				},
-			},
-		}
-		for i := range pl.series {
-			s := &pl.series[i]
-			var label string
-			if s.disabled {
-				label = fmt.Sprintf("Show %q series", s.Name)
-			} else {
-				label = fmt.Sprintf("Hide %q series", s.Name)
-			}
-			item := &theme.MenuItem{
-				Label: PlainLabel(label),
-				Action: func() theme.Action {
-					return theme.ExecuteAction(func(gtx layout.Context) {
-						s.disabled = !s.disabled
-					})
-				},
-			}
-			items = append(items, item)
-		}
-		win.SetContextMenu(items)
 		r.End()
 	}
 

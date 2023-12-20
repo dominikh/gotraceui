@@ -35,6 +35,7 @@ type EventList struct {
 
 	timestampObjects mem.BucketSlice[trace.Timestamp]
 	texts            mem.BucketSlice[Text]
+	prevSpans        []TextSpan
 }
 
 func (evs *EventList) UpdateFilter() {
@@ -82,17 +83,6 @@ func (evs *EventList) UpdateFilter() {
 			max = n
 		}
 	}
-}
-
-// Clicked returns all objects of text spans that have been clicked during the last call to Layout.
-func (evs *EventList) Clicked() []TextEvent {
-	// This only allocates when links have been clicked, which is a very low frequency event.
-	var out []TextEvent
-	for i := 0; i < evs.texts.Len(); i++ {
-		txt := evs.texts.Ptr(i)
-		out = append(out, txt.Events()...)
-	}
-	return out
 }
 
 // HoveredLink returns the link that has been hovered during the last call to Layout.
@@ -181,6 +171,27 @@ func (evs *EventList) sort() {
 	})
 }
 
+func (evs *EventList) Update(gtx layout.Context) []TextEvent {
+	evs.table.Update(gtx)
+
+	if _, ok := evs.table.SortByClickedColumn(); ok {
+		evs.sort()
+	}
+
+	if evs.Filter.ShowGoCreate.Update(gtx) ||
+		evs.Filter.ShowGoUnblock.Update(gtx) ||
+		evs.Filter.ShowGoSysCall.Update(gtx) ||
+		evs.Filter.ShowUserLog.Update(gtx) {
+		evs.UpdateFilter()
+	}
+
+	for i := 0; i < evs.texts.Len(); i++ {
+		evs.texts.Ptr(i).Update(gtx, evs.prevSpans)
+	}
+
+	return nil
+}
+
 func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.EventList.Layout").End()
 
@@ -192,18 +203,10 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		evs.table.SetColumns(win, gtx, cols)
 	}
 
-	if _, ok := evs.table.SortByClickedColumn(); ok {
-		evs.sort()
-	}
+	evs.Update(gtx)
 
 	evs.timestampObjects.Reset()
-
-	if evs.Filter.ShowGoCreate.Update(gtx) ||
-		evs.Filter.ShowGoUnblock.Update(gtx) ||
-		evs.Filter.ShowGoSysCall.Update(gtx) ||
-		evs.Filter.ShowUserLog.Update(gtx) {
-		evs.UpdateFilter()
-	}
+	evs.prevSpans = evs.prevSpans[:0]
 
 	var txtCnt int
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
@@ -276,6 +279,7 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 
 		dims := txt.Layout(win, gtx, tb.Spans)
 		dims.Size = gtx.Constraints.Constrain(dims.Size)
+		evs.prevSpans = append(evs.prevSpans, tb.Spans...)
 		return dims
 	}
 

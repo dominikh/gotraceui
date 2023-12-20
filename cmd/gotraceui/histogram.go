@@ -25,6 +25,8 @@ type InteractiveHistogram struct {
 	settingsState HistogramSettingsState
 	click         widget.Clickable
 	changed       bool
+
+	shouldCloseModal bool
 }
 
 func (hist *InteractiveHistogram) Set(win *theme.Window, data []time.Duration) {
@@ -36,81 +38,91 @@ func (hist *InteractiveHistogram) Set(win *theme.Window, data []time.Duration) {
 	})
 }
 
-func (hist *InteractiveHistogram) Changed() bool {
-	b := hist.changed
-	hist.changed = false
-	return b
+type InteractiveHistogramUpdateResult struct {
+}
+
+func (hist *InteractiveHistogram) Update(gtx layout.Context) (changed bool) {
+	saved, cancelled := hist.settingsState.Update(gtx)
+	if saved {
+		hist.Config.Bins = hist.settingsState.NumBins()
+		hist.Config.RejectOutliers = hist.settingsState.RejectOutliers()
+		changed = true
+		hist.shouldCloseModal = true
+	}
+	if cancelled {
+		hist.settingsState.Reset(hist.Config)
+		hist.shouldCloseModal = true
+	}
+	if start, end, ok := hist.state.Update(gtx); ok {
+		hist.Config.Start = start
+		hist.Config.End = end
+		changed = true
+	}
+	if hist.changed {
+		hist.changed = false
+		changed = true
+	}
+	return changed
 }
 
 func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.InteractiveHistogram.Layout").End()
 
+	hist.Update(gtx)
+
+	if hist.shouldCloseModal {
+		hist.shouldCloseModal = false
+		win.CloseModal()
+	}
+
+	for {
+		click, ok := hist.click.Clicked(gtx)
+		if !ok {
+			break
+		}
+		if click.Button != pointer.ButtonSecondary {
+			continue
+		}
+
+		menu := []*theme.MenuItem{
+			{
+				Label: PlainLabel("Change settings"),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
+							gtx.Constraints.Max = gtx.Constraints.Min
+							return theme.Dialog(win.Theme, "Histogram settings").Layout(win, gtx, HistogramSettings(&hist.settingsState).Layout)
+						})
+					})
+				},
+			},
+
+			{
+				// TODO disable when there is nothing to zoom out to
+				Label: PlainLabel("Zoom out"),
+				Action: func() theme.Action {
+					return theme.ExecuteAction(func(gtx layout.Context) {
+						hist.Config.Start = 0
+						hist.Config.End = 0
+						hist.changed = true
+					})
+				},
+			},
+		}
+		win.SetContextMenu(menu)
+	}
+
 	whist, ok := hist.widget.Result()
 	if ok {
+		hist.state.Histogram = whist
 		thist := theme.Histogram(win.Theme, &hist.state)
 		thist.XLabel = "Duration"
 		thist.YLabel = "Count"
+
 		dims := hist.click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return thist.Layout(win, gtx, whist)
+			return thist.Layout(win, gtx)
 		})
-
-		if hist.state.Activated != struct {
-			Start widget.FloatDuration
-			End   widget.FloatDuration
-		}{} {
-			hist.Config.Start = hist.state.Activated.Start
-			hist.Config.End = hist.state.Activated.End
-			hist.changed = true
-		}
-
-		for {
-			click, ok := hist.click.Clicked(gtx)
-			if !ok {
-				break
-			}
-			if click.Button != pointer.ButtonSecondary {
-				continue
-			}
-
-			menu := []*theme.MenuItem{
-				{
-					Label: PlainLabel("Change settings"),
-					Action: func() theme.Action {
-						return theme.ExecuteAction(func(gtx layout.Context) {
-							win.SetModal(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min = gtx.Constraints.Constrain(image.Pt(1000, 500))
-								gtx.Constraints.Max = gtx.Constraints.Min
-								return theme.Dialog(win.Theme, "Histogram settings").Layout(win, gtx, HistogramSettings(&hist.settingsState).Layout)
-							})
-						})
-					},
-				},
-
-				{
-					// TODO disable when there is nothing to zoom out to
-					Label: PlainLabel("Zoom out"),
-					Action: func() theme.Action {
-						return theme.ExecuteAction(func(gtx layout.Context) {
-							hist.Config.Start = 0
-							hist.Config.End = 0
-							hist.changed = true
-						})
-					},
-				},
-			}
-			win.SetContextMenu(menu)
-		}
-
-		if hist.settingsState.Saved() {
-			hist.Config.Bins = hist.settingsState.NumBins()
-			hist.Config.RejectOutliers = hist.settingsState.RejectOutliers()
-			hist.changed = true
-			win.CloseModal()
-		}
-		if hist.settingsState.Cancelled() {
-			hist.settingsState.Reset(hist.Config)
-			win.CloseModal()
-		}
 
 		return dims
 	} else {
@@ -119,24 +131,21 @@ func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) 
 }
 
 type HistogramSettingsState struct {
-	saved, cancelled bool
-
 	numBinsEditor  widget.Editor
 	filterOutliers widget.Bool
 	save           widget.PrimaryClickable
 	cancel         widget.PrimaryClickable
 }
 
-func (hss *HistogramSettingsState) Saved() bool {
-	b := hss.saved
-	hss.saved = false
-	return b
-}
+func (hs *HistogramSettingsState) Update(gtx layout.Context) (saved, cancelled bool) {
+	for hs.save.Clicked(gtx) {
+		saved = true
+	}
+	for hs.cancel.Clicked(gtx) {
+		cancelled = true
+	}
 
-func (hss *HistogramSettingsState) Cancelled() bool {
-	b := hss.cancelled
-	hss.cancelled = false
-	return b
+	return saved, cancelled
 }
 
 func (hss *HistogramSettingsState) NumBins() int {
@@ -172,9 +181,6 @@ func HistogramSettings(state *HistogramSettingsState) HistogramSettingsStyle {
 
 func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.HistogramSettingsStyle.Layout").End()
-
-	hs.State.saved = false
-	hs.State.cancelled = false
 
 	validateNumBins := func(s string) bool {
 		return len(s) <= 4
@@ -243,13 +249,6 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 			)
 		},
 	)
-
-	for hs.State.save.Clicked(gtx) {
-		hs.State.saved = true
-	}
-	for hs.State.cancel.Clicked(gtx) {
-		hs.State.cancelled = true
-	}
 
 	return dims
 }

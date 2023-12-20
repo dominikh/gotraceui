@@ -1639,7 +1639,7 @@ type DescriptionAttribute struct {
 	Value TextSpan
 }
 
-func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text) layout.Dimensions {
+func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text) (layout.Dimensions, []TextSpan) {
 	txt.Reset(win.Theme)
 	// OPT(dh): reuse space
 	tb := TextBuilder{Window: win}
@@ -1649,7 +1649,7 @@ func (desc Description) Layout(win *theme.Window, gtx layout.Context, txt *Text)
 		tb.Span("\n")
 	}
 
-	return txt.Layout(win, gtx, tb.Spans)
+	return txt.Layout(win, gtx, tb.Spans), tb.Spans
 }
 
 type ScrollToTimelineCommand struct {

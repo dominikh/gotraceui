@@ -24,18 +24,15 @@ import (
 )
 
 type HistogramState struct {
-	hover gesture.Hover
-	click gesture.Click
+	Histogram *widget.Histogram
 
-	pointer f32.Point
+	hover        gesture.Hover
+	click        gesture.Click
+	prevBarWidth float32
 
 	dragging struct {
 		active      bool
 		startBucket int
-	}
-
-	Activated struct {
-		Start, End widget.FloatDuration
 	}
 }
 
@@ -65,8 +62,97 @@ func Histogram(th *Theme, state *HistogramState) HistogramStyle {
 	}
 }
 
-func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Histogram) layout.Dimensions {
+func (hs *HistogramState) Update(gtx layout.Context) (start, end widget.FloatDuration, ok bool) {
+	if hs.Histogram == nil {
+		return 0, 0, false
+	}
+
+	clicked := false
+	for _, click := range hs.click.Update(gtx.Queue) {
+		if click.Button != pointer.ButtonPrimary {
+			continue
+		}
+		if click.Kind != gesture.KindClick {
+			continue
+		}
+		if click.NumClicks == 2 {
+			clicked = true
+		}
+	}
+
+	hovered := hs.hover.Update(gtx)
+
+	var (
+		trackDragStart bool
+		trackDragEnd   bool
+	)
+
+	for _, ev := range gtx.Events(hs) {
+		if ev, ok := ev.(pointer.Event); ok {
+			switch ev.Kind {
+			case pointer.Press:
+				if ev.Modifiers == key.ModShortcut {
+					hs.dragging.active = true
+					trackDragStart = true
+				}
+			case pointer.Release:
+				if hs.dragging.active {
+					trackDragEnd = true
+				}
+				hs.dragging.active = false
+			case pointer.Cancel:
+				hs.dragging.active = false
+			}
+		}
+	}
+
+	// In theory, it should be impossible for hovered to be false while any click happened, but let's be on
+	// the safe side.
+	if hovered {
+		bin := int(hs.hover.Pointer().X / hs.prevBarWidth)
+		if bin < 0 {
+			bin = 0
+		} else if bin >= len(hs.Histogram.Bins) {
+			bin = len(hs.Histogram.Bins) - 1
+		}
+
+		if clicked {
+			start, end = hs.Histogram.BucketRange(bin)
+			if bin == len(hs.Histogram.Bins) {
+				// The final bin is closed
+				end += 1
+			}
+		}
+
+		if trackDragStart {
+			hs.dragging.startBucket = bin
+		}
+
+		if trackDragEnd {
+			start, end = hs.selectedRange(bin)
+			hs.dragging.active = false
+			hs.dragging.startBucket = 0
+		}
+	}
+
+	return start, end, !(start == 0 && end == 0)
+}
+
+func (hs *HistogramState) selectedRange(bin int) (start, end widget.FloatDuration) {
+	if bin > hs.dragging.startBucket {
+		start, _ = hs.Histogram.BucketRange(hs.dragging.startBucket)
+		_, end = hs.Histogram.BucketRange(bin)
+	} else {
+		_, end = hs.Histogram.BucketRange(hs.dragging.startBucket)
+		start, _ = hs.Histogram.BucketRange(bin)
+	}
+	return start, end
+}
+
+func (hs HistogramStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.HistogramStyle.Layout").End()
+
+	hist := hs.State.Histogram
 
 	roundf := func(f float32) float32 {
 		return float32(math.Round(float64(f)))
@@ -82,50 +168,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 
 	gtx.Constraints.Max = gtx.Constraints.Min
 
-	hs.State.Activated.Start = 0
-	hs.State.Activated.End = 0
-
-	hs.State.hover.Update(gtx.Queue)
-
-	var (
-		trackActivate  bool
-		trackDragStart bool
-		trackDragEnd   bool
-	)
-	for _, click := range hs.State.click.Update(gtx.Queue) {
-		if click.Button != pointer.ButtonPrimary {
-			continue
-		}
-		if click.Kind != gesture.KindClick {
-			continue
-		}
-		if click.NumClicks == 2 {
-			trackActivate = true
-		}
-	}
-
-	for _, ev := range gtx.Events(hs.State) {
-		if ev, ok := ev.(pointer.Event); ok {
-			switch ev.Kind {
-			case pointer.Press:
-				if ev.Modifiers == key.ModShortcut {
-					hs.State.dragging.active = true
-					trackDragStart = true
-				}
-			case pointer.Release:
-				if hs.State.dragging.active {
-					trackDragEnd = true
-				}
-				hs.State.dragging.active = false
-			case pointer.Cancel:
-				hs.State.dragging.active = false
-			}
-		}
-	}
-
-	if hs.State.hover.Update(gtx.Queue) {
-		hs.State.pointer = hs.State.hover.Pointer()
-	}
+	hovered := hs.State.hover.Update(gtx.Queue)
 
 	var (
 		tickLength    = gtx.Dp(10)
@@ -330,39 +373,6 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			hBin = len(hist.Bins) - 1
 		}
 
-		if trackActivate {
-			start, end := hist.BucketRange(hBin)
-			if hBin == len(hist.Bins)-1 {
-				// The final bin is closed
-				end += 1
-			}
-			hs.State.Activated.Start = start
-			hs.State.Activated.End = end
-		}
-		if trackDragStart {
-			hs.State.dragging.startBucket = hBin
-		}
-
-		selectedRange := func() (start, end widget.FloatDuration) {
-			if hBin > hs.State.dragging.startBucket {
-				start, _ = hist.BucketRange(hs.State.dragging.startBucket)
-				_, end = hist.BucketRange(hBin)
-			} else {
-				_, end = hist.BucketRange(hs.State.dragging.startBucket)
-				start, _ = hist.BucketRange(hBin)
-			}
-			return start, end
-		}
-		if trackDragEnd {
-			start, end := selectedRange()
-			hs.State.Activated.Start = start
-			hs.State.Activated.End = end
-			hs.State.dragging = struct {
-				active      bool
-				startBucket int
-			}{}
-		}
-
 		// Say we have a floating-point bin range of [140.40ns, 280.80ns) – we don't want to
 		// deal with displaying sub-nanosecond precision numbers, so instead we round the
 		// numbers to [141ns, 281ns). We can do this because our actual measurements are
@@ -374,7 +384,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		// preceeding bin's upper bound is exclusive, so there is no overlap between bins when
 		// rounding.
 		if hs.State.dragging.active {
-			startf, endf := selectedRange()
+			startf, endf := hs.State.selectedRange(hBin)
 			start, end := startf.Ceil(), endf.Ceil()
 			var (
 				s string
@@ -389,7 +399,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			win.SetTooltip(func(win *Window, gtx layout.Context) layout.Dimensions {
 				return Tooltip(win.Theme, s).Layout(win, gtx)
 			})
-		} else if hs.State.hover.Update(gtx.Queue) {
+		} else if hovered {
 			var (
 				s            string
 				lower, upper time.Duration
@@ -431,7 +441,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			}
 
 			var c color.Oklch
-			if hs.State.hover.Update(gtx.Queue) && i == hBin {
+			if hovered && i == hBin {
 				// Hovered bin
 				c = hs.HoveredBinColor
 			} else {

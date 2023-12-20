@@ -93,14 +93,7 @@ func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 	tbl.prevMetric = gtx.Metric
 }
 
-func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.Table.Layout").End()
-
-	tbl.resize(win, gtx)
-	tbl.rowHovers.Reset()
-	dims := w(win, gtx)
-	dims.Size = gtx.Constraints.Constrain(dims.Size)
-
+func (tbl *Table) Update(gtx layout.Context) {
 	tbl.clickedColumn = container.None[int]()
 	for i := range tbl.headerClicks {
 		click := &tbl.headerClicks[i]
@@ -110,6 +103,15 @@ func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimen
 			}
 		}
 	}
+}
+
+func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
+	defer rtrace.StartRegion(context.Background(), "theme.Table.Layout").End()
+
+	tbl.resize(win, gtx)
+	tbl.rowHovers.Reset()
+	dims := w(win, gtx)
+	dims.Size = gtx.Constraints.Constrain(dims.Size)
 
 	return dims
 }

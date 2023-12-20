@@ -980,6 +980,10 @@ func (evs *GoroutineList) HoveredLink() ObjectLink {
 
 func (gl *GoroutineList) SetGoroutines(win *theme.Window, gtx layout.Context, gs []*ptrace.Goroutine) {
 	gl.initTable(win, gtx)
+	gl.setGoroutines(gtx, gs)
+}
+
+func (gl *GoroutineList) setGoroutines(gtx layout.Context, gs []*ptrace.Goroutine) {
 	gl.Goroutines.Reset(gs)
 
 	switch gl.table.Columns[gl.table.SortedBy].Name {
@@ -1108,10 +1112,18 @@ func (gs *GoroutineList) initTable(win *theme.Window, gtx layout.Context) {
 	gs.table.Columns[1].Width = max(0, gs.table.Columns[1].Width-float32(d))
 }
 
+func (gs *GoroutineList) Update(gtx layout.Context) {
+	if _, ok := gs.table.SortByClickedColumn(); ok {
+		// Trigger resorting.
+		gs.setGoroutines(gtx, gs.Goroutines.Items)
+	}
+}
+
 func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.GoroutineList.Layout").End()
 
 	gs.initTable(win, gtx)
+	gs.Update(gtx)
 	gs.cellFormatter.Update(win, gtx)
 
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
@@ -1178,11 +1190,6 @@ func (gs *GoroutineList) Layout(win *theme.Window, gtx layout.Context) layout.Di
 		gs.Goroutines.Len(),
 		cellFn,
 	)
-
-	if _, ok := gs.table.SortByClickedColumn(); ok {
-		// Trigger resorting.
-		gs.SetGoroutines(win, gtx, gs.Goroutines.Items)
-	}
 
 	return dims
 }

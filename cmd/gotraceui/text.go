@@ -105,10 +105,6 @@ func (txt *Text) Reset(th *theme.Theme) {
 	txt.Alignment = 0
 }
 
-func (txt *Text) Events() []TextEvent {
-	return txt.events
-}
-
 // HoveredLink returns the link that was hovered in the last call to Layout.
 func (txt *Text) HoveredLink() ObjectLink {
 	if txt.hovered == nil {
@@ -116,6 +112,29 @@ func (txt *Text) HoveredLink() ObjectLink {
 	} else {
 		return txt.hovered.ObjectLink
 	}
+}
+
+// Update updates Text and returns the events that happened. The returned slice is only valid until the next call to
+// Update or Reset.
+func (txt *Text) Update(gtx layout.Context, spans []TextSpan) []TextEvent {
+	out := txt.events[:0]
+
+	txt.hovered = nil
+	for i := range spans {
+		s := &spans[i]
+		if s.Click != nil {
+			for _, ev := range s.Click.Update(gtx.Queue) {
+				out = append(out, TextEvent{s, ev})
+			}
+			if s.Click.Hovered() {
+				txt.hovered = s
+			}
+		}
+	}
+
+	txt.events = out[:0]
+
+	return out
 }
 
 func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan) layout.Dimensions {
@@ -135,20 +154,6 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan)
 				clickableIdx++
 			}
 			s.Click = clk
-		}
-	}
-
-	txt.events = txt.events[:0]
-	txt.hovered = nil
-	for i := range spans {
-		s := &spans[i]
-		if s.Click != nil {
-			for _, ev := range s.Click.Update(gtx.Queue) {
-				txt.events = append(txt.events, TextEvent{s, ev})
-			}
-			if s.Click.Hovered() {
-				txt.hovered = s
-			}
 		}
 	}
 

@@ -279,6 +279,10 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		gs.table.SortedBy = 0
 	}
 
+	if _, ok := gs.table.SortByClickedColumn(); ok {
+		gs.sort()
+	}
+
 	cellFn := func(win *theme.Window, gtx layout.Context, row, col int) layout.Dimensions {
 		var value, unit string
 		switch col {
@@ -318,10 +322,6 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 	}
 
 	dims := theme.SimpleTable(win, gtx, &gs.table, &gs.scrollState, gs.stats.Len(), cellFn)
-
-	if _, ok := gs.table.SortByClickedColumn(); ok {
-		gs.sort()
-	}
 
 	return dims
 }
