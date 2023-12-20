@@ -49,7 +49,7 @@ func (b *Bool) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	b.Update(gtx)
 	dims := b.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		semantic.SelectedOp(b.Value).Add(gtx.Ops)
-		semantic.DisabledOp(gtx.Queue == nil).Add(gtx.Ops)
+		semantic.EnabledOp(gtx.Queue != nil).Add(gtx.Ops)
 		return w(gtx)
 	})
 	return dims
@@ -111,7 +111,7 @@ func (bit *BackedBit[T]) Layout(gtx layout.Context, w layout.Widget) layout.Dime
 	set := bit.Update(gtx)
 	dims := bit.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		semantic.SelectedOp(set).Add(gtx.Ops)
-		semantic.DisabledOp(gtx.Queue == nil).Add(gtx.Ops)
+		semantic.EnabledOp(gtx.Queue != nil).Add(gtx.Ops)
 		return w(gtx)
 	})
 	return dims

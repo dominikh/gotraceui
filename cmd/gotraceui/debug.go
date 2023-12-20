@@ -210,7 +210,8 @@ func NewDebugWindow() *DebugWindow {
 func (dwin *DebugWindow) Run(win *app.Window) error {
 	var ops op.Ops
 	twin := theme.NewWindow(win)
-	for e := range win.Events() {
+	for {
+		e := win.NextEvent()
 		switch ev := e.(type) {
 		case system.DestroyEvent:
 			return ev.Err

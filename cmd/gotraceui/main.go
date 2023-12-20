@@ -193,7 +193,8 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 	tWin := theme.NewWindow(win)
 
 	var dead bool
-	for e := range win.Events() {
+	for {
+		e := win.NextEvent()
 		switch ev := e.(type) {
 		case system.DestroyEvent:
 			return ev.Err
@@ -638,7 +639,8 @@ func (mwin *MainWindow) Run() error {
 	var mem runtime.MemStats
 	var frameCounter uint64
 
-	for e := range win.Events() {
+	for {
+		e := win.NextEvent()
 		mwin.explorer.ListenEvents(e)
 
 		switch ev := e.(type) {
@@ -823,7 +825,7 @@ func (mwin *MainWindow) Run() error {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 				gtx.Constraints.Min = image.Point{}
 
-				pointer.InputOp{Tag: &mwin.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+				pointer.InputOp{Tag: &mwin.pointerAt, Kinds: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
 
 				profile.Op{Tag: profileTag}.Add(gtx.Ops)
 

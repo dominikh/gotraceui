@@ -2,6 +2,7 @@
 package ptrace
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"runtime"
@@ -971,7 +972,7 @@ func populateObjects(tr *Trace, progress func(float64)) {
 	sort.Slice(tr.Machines, func(i, j int) bool { return tr.Machines[i].ID < tr.Machines[j].ID })
 	sort.Slice(tr.Tasks, func(i, j int) bool { return tr.Tasks[i].ID < tr.Tasks[j].ID })
 	for _, f := range tr.Functions {
-		slices.SortFunc(f.Goroutines, func(a, b *Goroutine) bool { return a.SeqID < b.SeqID })
+		slices.SortFunc(f.Goroutines, func(a, b *Goroutine) int { return cmp.Compare(a.SeqID, b.SeqID) })
 	}
 	progress(4.0 / 5.0)
 

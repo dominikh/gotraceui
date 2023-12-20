@@ -704,7 +704,7 @@ func (track *Track) Layout(
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: track, Types: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	pointer.InputOp{Tag: track, Kinds: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
 	track.widget.click.Add(gtx.Ops)
 	track.widget.hover.Add(gtx.Ops)
 

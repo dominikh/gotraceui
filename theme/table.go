@@ -247,8 +247,8 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout
 		drag.hover.Update(gtx.Queue)
 		// OPT(dh): Events allocates
 		var delta float32
-		for _, ev := range drag.drag.Events(gtx.Metric, gtx.Queue, gesture.Horizontal) {
-			switch ev.Type {
+		for _, ev := range drag.drag.Update(gtx.Metric, gtx.Queue, gesture.Horizontal) {
+			switch ev.Kind {
 			case pointer.Press:
 				drag.startPos = ev.Position.X
 				drag.shrinkNeighbor = !ev.Modifiers.Contain(key.ModShift)

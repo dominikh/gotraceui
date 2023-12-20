@@ -33,7 +33,7 @@ func (m ModalStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dim
 	for _, ev := range gtx.Events(m) {
 		switch ev := ev.(type) {
 		case pointer.Event:
-			if (ev.Priority == pointer.Foremost || ev.Priority == pointer.Grabbed) && ev.Type == pointer.Press {
+			if (ev.Priority == pointer.Foremost || ev.Priority == pointer.Grabbed) && ev.Kind == pointer.Press {
 				*m.Cancelled = true
 			}
 
@@ -45,7 +45,7 @@ func (m ModalStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dim
 	}
 
 	// TODO(dh): the tags should be pointers
-	pointer.InputOp{Tag: m, Types: 0xFF}.Add(gtx.Ops)
+	pointer.InputOp{Tag: m, Kinds: 0xFF}.Add(gtx.Ops)
 	// TODO(dh): prevent all keyboard input from bubbling up
 	// OPT(dh): using m as the tag allocates, because m is of type ModalStyle.
 	key.InputOp{Tag: m, Keys: "A|B|C|D|E|F|G|H|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|⎋"}.Add(gtx.Ops)

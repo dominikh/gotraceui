@@ -71,7 +71,7 @@ type ClickKind uint8
 func (c *Click) Add(ops *op.Ops) {
 	pointer.InputOp{
 		Tag:   c,
-		Types: pointer.Press | pointer.Release | pointer.Enter | pointer.Leave,
+		Kinds: pointer.Press | pointer.Release | pointer.Enter | pointer.Leave,
 	}.Add(ops)
 }
 
@@ -105,7 +105,7 @@ func (c *Click) Update(q event.Queue) []ClickEvent {
 		prevButtons := c.prevButtons
 		c.prevButtons = e.Buttons
 
-		switch e.Type {
+		switch e.Kind {
 		case pointer.Release:
 			// e.Buttons contains the buttons which are still pressed, so we need to process the bits that aren't set
 
@@ -206,7 +206,7 @@ func (h *Hover) Add(ops *op.Ops) {
 	defer pointer.PassOp{}.Push(ops).Pop()
 	pointer.InputOp{
 		Tag:   h,
-		Types: pointer.Move | pointer.Drag | pointer.Enter | pointer.Leave | pointer.Cancel,
+		Kinds: pointer.Move | pointer.Drag | pointer.Enter | pointer.Leave | pointer.Cancel,
 	}.Add(ops)
 }
 
@@ -219,7 +219,7 @@ func (h *Hover) Update(q event.Queue) bool {
 
 		h.pointerAt = e.Position
 
-		switch e.Type {
+		switch e.Kind {
 		case pointer.Cancel:
 			h.hovered = false
 		case pointer.Leave:

@@ -279,7 +279,7 @@ func (win *Window) Layout(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
 	// Handle all keyboard input that wasn't handled by the window contents
 	key.InputOp{Tag: win}.Add(gtx.Ops)
-	pointer.InputOp{Tag: win, Types: 0xFF}.Add(gtx.Ops)
+	pointer.InputOp{Tag: win, Kinds: 0xFF}.Add(gtx.Ops)
 
 	if win.Menu != nil {
 		dims := NewMenuStyle(win.Theme, win.Menu).Layout(win, gtx)
@@ -368,7 +368,7 @@ func (win *Window) Layout(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 				// on those areas to close the model, so register our own input op covering the whole area. win.modal.w
 				// still has precedence for the areas that it does register input ops for.
 				defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
-				pointer.InputOp{Tag: &gtx, Types: 0xFF}.Add(gtx.Ops)
+				pointer.InputOp{Tag: &gtx, Kinds: 0xFF}.Add(gtx.Ops)
 
 				call.Add(gtx.Ops)
 				return dims

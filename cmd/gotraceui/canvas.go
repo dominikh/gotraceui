@@ -721,7 +721,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	for _, ev := range gtx.Events(cv) {
 		switch ev := ev.(type) {
 		case pointer.Event:
-			switch ev.Type {
+			switch ev.Kind {
 			case pointer.Scroll:
 				// XXX deal with Gio's asinine "scroll focused area into view" behavior when shrinking windows
 				cv.abortZoomSelection()
@@ -738,8 +738,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
-	for _, ev := range cv.drag.drag.Events(gtx.Metric, gtx, gesture.Both) {
-		switch ev.Type {
+	for _, ev := range cv.drag.drag.Update(gtx.Metric, gtx, gesture.Both) {
+		switch ev.Kind {
 		case pointer.Press:
 			if ev.Modifiers == 0 {
 				cv.drag.ready = true
@@ -805,7 +805,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		pointer.InputOp{
 			Tag:          cv,
 			ScrollBounds: image.Rectangle{Min: image.Pt(-100, -100), Max: image.Pt(100, 100)},
-			Types:        pointer.Move | pointer.Scroll,
+			Kinds:        pointer.Move | pointer.Scroll,
 		}.Add(gtx.Ops)
 		if cv.drag.active {
 			pointer.CursorAllScroll.Add(gtx.Ops)
@@ -1210,8 +1210,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		}
 	}
 
-	for _, ev := range axis.drag.Events(gtx.Metric, gtx.Queue, gesture.Horizontal) {
-		if ev.Type == pointer.Press || ev.Type == pointer.Drag {
+	for _, ev := range axis.drag.Update(gtx.Metric, gtx.Queue, gesture.Horizontal) {
+		if ev.Kind == pointer.Press || ev.Kind == pointer.Drag {
 			// We've grabbed the input, which makes us responsible for updating the canvas's cursor.
 			axis.cv.setPointerPosition(ev.Position)
 			width := axis.cv.VisibleWidth(win, gtx)

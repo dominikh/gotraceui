@@ -319,7 +319,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 						return layout.Rigids(gtx, layout.Vertical,
 							func(gtx layout.Context) layout.Dimensions {
 								for _, ev := range gtx.Events(tag) {
-									if ev, ok := ev.(pointer.Event); ok && ev.Type == pointer.Move {
+									if ev, ok := ev.(pointer.Event); ok && ev.Kind == pointer.Move {
 										pl.active = index
 									}
 								}
@@ -332,7 +332,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 								dims := pl.cmds.At(pl.filtered[index]).Layout(win, gtx, pl.active == index)
 								defer clip.Rect{Max: dims.Size}.Push(gtx.Ops).Pop()
 								pointer.CursorPointer.Add(gtx.Ops)
-								pointer.InputOp{Types: pointer.Move, Tag: tag}.Add(gtx.Ops)
+								pointer.InputOp{Kinds: pointer.Move, Tag: tag}.Add(gtx.Ops)
 								ges.Add(gtx.Ops)
 								return dims
 							},

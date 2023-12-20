@@ -106,7 +106,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 
 	for _, ev := range gtx.Events(hs.State) {
 		if ev, ok := ev.(pointer.Event); ok {
-			switch ev.Type {
+			switch ev.Kind {
 			case pointer.Press:
 				if ev.Modifiers == key.ModShortcut {
 					hs.State.dragging.active = true
@@ -318,7 +318,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		gtx.Constraints.Min = image.Point{plotWidth, plotHeight}
 		gtx.Constraints.Max = gtx.Constraints.Min
 
-		pointer.InputOp{Tag: hs.State, Types: pointer.Press | pointer.Release | pointer.Drag | pointer.Cancel}.Add(gtx.Ops)
+		pointer.InputOp{Tag: hs.State, Kinds: pointer.Press | pointer.Release | pointer.Drag | pointer.Cancel}.Add(gtx.Ops)
 		hs.State.click.Add(gtx.Ops)
 		hs.State.hover.Add(gtx.Ops)
 

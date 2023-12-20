@@ -178,7 +178,7 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		// Use a white background, instead of the yellowish one we use everywhere else, to improve contrast and
 		// legibility.
 		theme.Fill(win, &hm.cachedOps, oklch(100, 0, 0))
-		pointer.InputOp{Tag: hm, Types: pointer.Move}.Add(&hm.cachedOps)
+		pointer.InputOp{Tag: hm, Kinds: pointer.Move}.Add(&hm.cachedOps)
 
 		max := 0
 		for _, v := range hm.data {
