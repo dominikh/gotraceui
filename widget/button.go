@@ -80,7 +80,7 @@ func (b *Activatable) Update(gtx layout.Context) []Click {
 	clicks = append(clicks, b.requestedClicks...)
 	b.requestedClicks = b.requestedClicks[:0]
 
-	for _, e := range b.click.Events(gtx.Queue) {
+	for _, e := range b.click.Events(gtx) {
 		switch e.Kind {
 		case gesture.KindClick:
 			clicks = append(clicks, Click{
@@ -205,7 +205,7 @@ func (b *Clickable) Update(gtx layout.Context) []Click {
 	clicks = append(clicks, b.requestedClicks...)
 	b.requestedClicks = b.requestedClicks[:0]
 
-	for _, e := range b.click.Events(gtx.Queue) {
+	for _, e := range b.click.Events(gtx) {
 		switch e.Kind {
 		case gesture.KindClick:
 			clicks = append(clicks, Click{
