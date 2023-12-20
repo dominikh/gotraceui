@@ -143,7 +143,7 @@ func (txt *Text) Layout(win *theme.Window, gtx layout.Context, spans []TextSpan)
 	for i := range spans {
 		s := &spans[i]
 		if s.Click != nil {
-			for _, ev := range s.Click.Events(gtx.Queue) {
+			for _, ev := range s.Click.Update(gtx.Queue) {
 				txt.events = append(txt.events, TextEvent{s, ev})
 			}
 			if s.Click.Hovered() {

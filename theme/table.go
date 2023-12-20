@@ -104,7 +104,7 @@ func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimen
 	tbl.clickedColumn = container.None[int]()
 	for i := range tbl.headerClicks {
 		click := &tbl.headerClicks[i]
-		for _, ev := range click.Events(gtx.Queue) {
+		for _, ev := range click.Update(gtx.Queue) {
 			if ev.Button == pointer.ButtonPrimary && ev.Kind == gesture.KindClick {
 				tbl.clickedColumn = container.Some(i)
 			}
@@ -376,7 +376,7 @@ func (row TableRowStyle) Layout(win *Window, gtx layout.Context, w RowFn) layout
 				pointer.CursorColResize.Add(gtx.Ops)
 
 				// Draw the left and right extensions when hovered.
-				if drag.hover.Hovered() || drag.drag.Dragging() {
+				if drag.hover.Update(gtx.Queue) || drag.drag.Dragging() {
 					handleShape := clip.UniformRRect(
 						image.Rect(
 							0,
@@ -681,7 +681,7 @@ func (row TableSimpleRowStyle) Layout(
 	}
 	hover := row.Table.rowHovers.Ptr(rowIdx)
 	hover.Update(gtx.Queue)
-	if hover.Hovered() {
+	if hover.Update(gtx.Queue) {
 		c = win.Theme.Palette.Table.HoveredRowBackground
 	}
 

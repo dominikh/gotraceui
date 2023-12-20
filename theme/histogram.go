@@ -92,7 +92,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		trackDragStart bool
 		trackDragEnd   bool
 	)
-	for _, click := range hs.State.click.Events(gtx.Queue) {
+	for _, click := range hs.State.click.Update(gtx.Queue) {
 		if click.Button != pointer.ButtonPrimary {
 			continue
 		}
@@ -123,7 +123,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		}
 	}
 
-	if hs.State.hover.Hovered() {
+	if hs.State.hover.Update(gtx.Queue) {
 		hs.State.pointer = hs.State.hover.Pointer()
 	}
 
@@ -389,7 +389,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			win.SetTooltip(func(win *Window, gtx layout.Context) layout.Dimensions {
 				return Tooltip(win.Theme, s).Layout(win, gtx)
 			})
-		} else if hs.State.hover.Hovered() {
+		} else if hs.State.hover.Update(gtx.Queue) {
 			var (
 				s            string
 				lower, upper time.Duration
@@ -431,7 +431,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 			}
 
 			var c color.Oklch
-			if hs.State.hover.Hovered() && i == hBin {
+			if hs.State.hover.Update(gtx.Queue) && i == hBin {
 				// Hovered bin
 				c = hs.HoveredBinColor
 			} else {

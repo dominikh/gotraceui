@@ -134,7 +134,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 	pl.hover.Add(gtx.Ops)
 
 	var clicked bool
-	for _, click := range pl.click.Events(gtx.Queue) {
+	for _, click := range pl.click.Update(gtx.Queue) {
 		if click.Kind == gesture.KindPress && click.Button == pointer.ButtonSecondary {
 			clicked = true
 			break

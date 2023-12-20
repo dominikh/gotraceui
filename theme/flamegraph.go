@@ -149,7 +149,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		levelHeight = float32(height + gtx.Dp(rowSpacingDp))
 	)
 
-	if fg.StyleState.hover.Hovered() {
+	if fg.StyleState.hover.Update(gtx.Queue) {
 		ptPx = fg.StyleState.hover.Pointer()
 	}
 
@@ -166,7 +166,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 	fg.StyleState.hover.Update(gtx.Queue)
 
 	var trackClicked bool
-	for _, ev := range fg.StyleState.click.Events(gtx.Queue) {
+	for _, ev := range fg.StyleState.click.Update(gtx.Queue) {
 		if ev.Kind == gesture.KindClick &&
 			ev.Button == pointer.ButtonPrimary &&
 			ev.Modifiers == key.ModShortcut {

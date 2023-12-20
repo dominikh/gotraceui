@@ -615,10 +615,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		cv.nsPerPx = (float64(end) + 2*slack) / float64(cv.width)
 	}
 
-	cv.timeline.hover.Update(gtx.Queue)
-	cv.hover.Update(gtx.Queue)
-
-	if cv.hover.Hovered() {
+	if cv.hover.Update(gtx.Queue) {
 		cv.pointerAt = cv.hover.Pointer()
 	}
 
@@ -1046,7 +1043,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		if clicked := tl.widget.ClickedSpans(); clicked.Len() > 0 {
 			cv.clickedSpans = append(cv.clickedSpans, clicked)
 		}
-		if tl.widget.Hovered() {
+		if tl.widget.Hovered(gtx) {
 			cv.timeline.hoveredTimeline = tl
 			spans := tl.widget.HoveredSpans()
 			if spans.Len() > 0 {
@@ -1097,7 +1094,7 @@ func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout
 	for i := start; i < end; i++ {
 		tl := cv.timelines[i]
 		stack := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		topBorder := i > 0 && cv.timelines[i-1].widget.Hovered()
+		topBorder := i > 0 && cv.timelines[i-1].widget.Hovered(gtx)
 		tl.Layout(win, gtx, cv, cv.timeline.displayAllLabels, cv.timeline.compact, topBorder, &cv.trackSpanLabels)
 		stack.Pop()
 
@@ -1177,7 +1174,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	axis.click.Add(gtx.Ops)
 	axis.drag.Add(gtx.Ops)
 
-	for _, ev := range axis.click.Events(gtx.Queue) {
+	for _, ev := range axis.click.Update(gtx.Queue) {
 		if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
 			win.SetContextMenu(
 				[]*theme.MenuItem{

@@ -84,11 +84,11 @@ type TimelineWidget struct {
 	usedSuboptimalTexture time.Time
 }
 
-func (tw *TimelineWidget) Hovered() bool {
+func (tw *TimelineWidget) Hovered(gtx layout.Context) bool {
 	if tw == nil {
 		return false
 	}
-	return tw.hover.Hovered()
+	return tw.hover.Update(gtx.Queue)
 }
 
 type SpanTooltipState struct {
@@ -462,12 +462,12 @@ func (tl *Timeline) Layout(
 	tl.widget.hover.Add(gtx.Ops)
 
 	if !compact {
-		if tl.widget.Hovered() || forceLabel || topBorder {
+		if tl.widget.Hovered(gtx) || forceLabel || topBorder {
 			// Draw border at top of the timeline
 			theme.FillShape(win, gtx.Ops, colors[colorTimelineBorder], clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(1))}.Op())
 		}
 
-		if tl.widget.Hovered() || forceLabel {
+		if tl.widget.Hovered(gtx) || forceLabel {
 			tl.widget.labelClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				labelGtx := gtx
 				labelGtx.Constraints.Min = image.Point{}
@@ -719,7 +719,7 @@ func (track *Track) Layout(
 
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
-	for _, ev := range track.widget.click.Events(gtx.Queue) {
+	for _, ev := range track.widget.click.Update(gtx.Queue) {
 		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
 			switch ev.Modifiers {
 			case key.ModShortcut:
@@ -751,7 +751,7 @@ func (track *Track) Layout(
 	}
 
 	// // OPT(dh): don't redraw if the only change is cv.y
-	if !track.widget.hover.Hovered() &&
+	if !track.widget.hover.Update(gtx.Queue) &&
 		!track.widget.prevFrame.hovered &&
 		cv.unchanged(gtx) &&
 		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
@@ -764,7 +764,7 @@ func (track *Track) Layout(
 		return track.widget.prevFrame.dims
 	}
 
-	track.widget.prevFrame.hovered = track.widget.hover.Hovered()
+	track.widget.prevFrame.hovered = track.widget.hover.Update(gtx.Queue)
 	track.widget.prevFrame.constraints = gtx.Constraints
 
 	origOps := gtx.Ops
@@ -806,7 +806,7 @@ func (track *Track) Layout(
 			return
 		}
 		hovered := false
-		if track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= startPx && track.widget.hover.Pointer().X < endPx && haveSpans {
+		if track.widget.hover.Update(gtx.Queue) && track.widget.hover.Pointer().X >= startPx && track.widget.hover.Pointer().X < endPx && haveSpans {
 			// Highlight the span under the cursor
 			hovered = true
 			track.widget.hoveredSpans = dspSpans
@@ -945,7 +945,7 @@ func (track *Track) Layout(
 				eventsPath.LineTo(f32.Pt(minX, maxY))
 				eventsPath.Close()
 
-				if cv.timeline.showTooltips < showTooltipsNone && track.widget.hover.Hovered() && track.widget.hover.Pointer().X >= minX && track.widget.hover.Pointer().X < maxX {
+				if cv.timeline.showTooltips < showTooltipsNone && track.widget.hover.Update(gtx.Queue) && track.widget.hover.Pointer().X >= minX && track.widget.hover.Pointer().X < maxX {
 					spanTooltipState.eventsUnderCursor = events.Slice(oldi, i+1)
 				}
 			}

@@ -93,8 +93,8 @@ func (c *Click) Pressed(btn pointer.Buttons) bool {
 	return false
 }
 
-// Events returns the next click events, if any.
-func (c *Click) Events(q event.Queue) []ClickEvent {
+// Update state and return the click events.
+func (c *Click) Update(q event.Queue) []ClickEvent {
 	var events []ClickEvent
 	for _, evt := range q.Events(c) {
 		e, ok := evt.(pointer.Event)
@@ -201,11 +201,6 @@ type Hover struct {
 	pointerAt f32.Point
 }
 
-// Hovered returns whether a pointer is inside the area.
-func (h *Hover) Hovered() bool {
-	return h.hovered
-}
-
 // Add the handler to the operation list to detect hovering.
 func (h *Hover) Add(ops *op.Ops) {
 	defer pointer.PassOp{}.Push(ops).Pop()
@@ -215,7 +210,7 @@ func (h *Hover) Add(ops *op.Ops) {
 	}.Add(ops)
 }
 
-func (h *Hover) Update(q event.Queue) {
+func (h *Hover) Update(q event.Queue) bool {
 	for _, evt := range q.Events(h) {
 		e, ok := evt.(pointer.Event)
 		if !ok {
@@ -235,6 +230,7 @@ func (h *Hover) Update(q event.Queue) {
 			h.hovered = true
 		}
 	}
+	return h.hovered
 }
 
 func (h *Hover) Pointer() f32.Point {

@@ -323,7 +323,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 										pl.active = index
 									}
 								}
-								for _, ev := range ges.Events(gtx.Queue) {
+								for _, ev := range ges.Update(gtx.Queue) {
 									if ev.Kind == gesture.KindClick {
 										win.EmitAction(pl.cmds.At(pl.filtered[index]).Link())
 										win.CloseModal()
