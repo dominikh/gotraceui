@@ -720,14 +720,14 @@ func (track *Track) Layout(
 	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
 	// nil.
 	for _, ev := range track.widget.click.Events(gtx.Queue) {
-		if ev.Type == gesture.TypeClick && ev.Button == pointer.ButtonPrimary {
+		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
 			switch ev.Modifiers {
 			case key.ModShortcut:
 				trackNavigatedSpans = true
 			case 0:
 				trackClickedSpans = true
 			}
-		} else if ev.Type == gesture.TypePress && ev.Button == pointer.ButtonSecondary {
+		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
 			trackContextMenuSpans = true
 		}
 	}

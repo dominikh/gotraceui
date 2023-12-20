@@ -557,10 +557,10 @@ func (l *ZoomToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 }
 
 func handleLinkClick(win *theme.Window, ev gesture.ClickEvent, link ObjectLink) {
-	if ev.Type == gesture.TypeClick && ev.Button == pointer.ButtonPrimary {
+	if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
 		link := link.Action(ev.Modifiers)
 		win.EmitAction(link)
-	} else if ev.Type == gesture.TypePress && ev.Button == pointer.ButtonSecondary {
+	} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
 		menu := link.ContextMenu()
 		if len(menu) != 0 {
 			win.SetContextMenu(menu)

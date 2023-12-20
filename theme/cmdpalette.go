@@ -324,7 +324,7 @@ func (pl *CommandPalette) Layout(win *Window, gtx layout.Context) layout.Dimensi
 									}
 								}
 								for _, ev := range ges.Events(gtx.Queue) {
-									if ev.Type == gesture.TypeClick {
+									if ev.Kind == gesture.KindClick {
 										win.EmitAction(pl.cmds.At(pl.filtered[index]).Link())
 										win.CloseModal()
 									}

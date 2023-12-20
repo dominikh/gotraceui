@@ -167,7 +167,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 	var trackClicked bool
 	for _, ev := range fg.StyleState.click.Events(gtx.Queue) {
-		if ev.Type == gesture.TypeClick &&
+		if ev.Kind == gesture.KindClick &&
 			ev.Button == pointer.ButtonPrimary &&
 			ev.Modifiers == key.ModShortcut {
 			trackClicked = true

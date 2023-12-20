@@ -135,7 +135,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 	var clicked bool
 	for _, click := range pl.click.Events(gtx.Queue) {
-		if click.Type == gesture.TypePress && click.Button == pointer.ButtonSecondary {
+		if click.Kind == gesture.KindPress && click.Button == pointer.ButtonSecondary {
 			clicked = true
 			break
 		}

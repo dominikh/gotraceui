@@ -15,15 +15,15 @@ import (
 const doubleClickDuration = 200 * time.Millisecond
 
 const (
-	// TypePress is reported for the first pointer
+	// KindPress is reported for the first pointer
 	// press.
-	TypePress ClickType = iota
-	// TypeClick is reported when a click action
+	KindPress ClickKind = iota
+	// KindClick is reported when a click action
 	// is complete.
-	TypeClick
-	// TypeCancel is reported when the gesture is
+	KindClick
+	// KindCancel is reported when the gesture is
 	// cancelled.
-	TypeCancel
+	KindCancel
 )
 
 type clickButton struct {
@@ -52,10 +52,10 @@ type Click struct {
 }
 
 // ClickEvent represent a click action, either a
-// TypePress for the beginning of a click or a
-// TypeClick for a completed click.
+// KindPress for the beginning of a click or a
+// KindClick for a completed click.
 type ClickEvent struct {
-	Type      ClickType
+	Kind      ClickKind
 	Position  image.Point
 	Source    pointer.Source
 	Modifiers key.Modifiers
@@ -65,7 +65,7 @@ type ClickEvent struct {
 	NumClicks int
 }
 
-type ClickType uint8
+type ClickKind uint8
 
 // Add the handler to the operation list to receive click events.
 func (c *Click) Add(ops *op.Ops) {
@@ -119,9 +119,9 @@ func (c *Click) Events(q event.Queue) []ClickEvent {
 				}
 				btn.pressed = false
 				if !c.entered || c.hovered {
-					events = append(events, ClickEvent{Type: TypeClick, Position: e.Position.Round(), Source: e.Source, Button: 1 << i, Modifiers: e.Modifiers, NumClicks: btn.clicks})
+					events = append(events, ClickEvent{Kind: KindClick, Position: e.Position.Round(), Source: e.Source, Button: 1 << i, Modifiers: e.Modifiers, NumClicks: btn.clicks})
 				} else {
-					events = append(events, ClickEvent{Type: TypeCancel, Button: 1 << i})
+					events = append(events, ClickEvent{Kind: KindCancel, Button: 1 << i})
 				}
 			}
 
@@ -135,7 +135,7 @@ func (c *Click) Events(q event.Queue) []ClickEvent {
 				c.hovered = false
 				c.entered = false
 				if wasPressed {
-					events = append(events, ClickEvent{Type: TypeCancel, Button: 1 << i})
+					events = append(events, ClickEvent{Kind: KindCancel, Button: 1 << i})
 				}
 			}
 		case pointer.Press:
@@ -162,7 +162,7 @@ func (c *Click) Events(q event.Queue) []ClickEvent {
 					btn.clicks = 1
 				}
 				btn.clickedAt = e.Time
-				events = append(events, ClickEvent{Type: TypePress, Position: e.Position.Round(), Source: e.Source, Button: 1 << i, Modifiers: e.Modifiers, NumClicks: btn.clicks})
+				events = append(events, ClickEvent{Kind: KindPress, Position: e.Position.Round(), Source: e.Source, Button: 1 << i, Modifiers: e.Modifiers, NumClicks: btn.clicks})
 			}
 		case pointer.Leave:
 			// Leave affects all buttons

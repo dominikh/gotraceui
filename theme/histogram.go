@@ -96,7 +96,7 @@ func (hs HistogramStyle) Layout(win *Window, gtx layout.Context, hist *widget.Hi
 		if click.Button != pointer.ButtonPrimary {
 			continue
 		}
-		if click.Type != gesture.TypeClick {
+		if click.Kind != gesture.KindClick {
 			continue
 		}
 		if click.NumClicks == 2 {

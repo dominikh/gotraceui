@@ -1178,7 +1178,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	axis.drag.Add(gtx.Ops)
 
 	for _, ev := range axis.click.Events(gtx.Queue) {
-		if ev.Type == gesture.TypePress && ev.Button == pointer.ButtonSecondary {
+		if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
 			win.SetContextMenu(
 				[]*theme.MenuItem{
 					{

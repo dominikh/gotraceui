@@ -105,7 +105,7 @@ func (tbl *Table) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimen
 	for i := range tbl.headerClicks {
 		click := &tbl.headerClicks[i]
 		for _, ev := range click.Events(gtx.Queue) {
-			if ev.Button == pointer.ButtonPrimary && ev.Type == gesture.TypeClick {
+			if ev.Button == pointer.ButtonPrimary && ev.Kind == gesture.KindClick {
 				tbl.clickedColumn = container.Some(i)
 			}
 		}

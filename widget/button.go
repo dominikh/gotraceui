@@ -75,15 +75,15 @@ func (b *Activatable) update(gtx layout.Context) {
 	}
 
 	for _, e := range b.click.Events(gtx.Queue) {
-		switch e.Type {
-		case gesture.TypeClick:
+		switch e.Kind {
+		case gesture.KindClick:
 			b.clicks = append(b.clicks, Click{
 				Button:    e.Button,
 				Modifiers: e.Modifiers,
 				NumClicks: e.NumClicks,
 			})
-		case gesture.TypeCancel:
-		case gesture.TypePress:
+		case gesture.KindCancel:
+		case gesture.KindPress:
 			if e.Source == pointer.Mouse {
 				key.FocusOp{Tag: &b.keyTag}.Add(gtx.Ops)
 			}
@@ -196,15 +196,15 @@ func (b *Clickable) update(gtx layout.Context) {
 	}
 
 	for _, e := range b.click.Events(gtx.Queue) {
-		switch e.Type {
-		case gesture.TypeClick:
+		switch e.Kind {
+		case gesture.KindClick:
 			b.clicks = append(b.clicks, Click{
 				Button:    e.Button,
 				Modifiers: e.Modifiers,
 				NumClicks: e.NumClicks,
 			})
-		case gesture.TypeCancel:
-		case gesture.TypePress:
+		case gesture.KindCancel:
+		case gesture.KindPress:
 		}
 	}
 }
