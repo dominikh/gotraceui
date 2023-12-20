@@ -43,15 +43,21 @@ func (b *Bool) Focused() bool {
 	return b.clk.Focused()
 }
 
+func (b *Bool) Update(gtx layout.Context) bool {
+	for b.clk.Clicked(gtx) {
+		b.Value = !b.Value
+		b.changed = true
+	}
+	return b.Value
+}
+
 func (b *Bool) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.Bool.Layout").End()
 
+	set := b.Update(gtx)
+
 	dims := b.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		for b.clk.Clicked() {
-			b.Value = !b.Value
-			b.changed = true
-		}
-		semantic.SelectedOp(b.Value).Add(gtx.Ops)
+		semantic.SelectedOp(set).Add(gtx.Ops)
 		semantic.DisabledOp(gtx.Queue == nil).Add(gtx.Ops)
 		return w(gtx)
 	})
@@ -100,15 +106,20 @@ func (bit *BackedBit[T]) Focused() bool {
 	return bit.clk.Focused()
 }
 
+func (bit *BackedBit[T]) Update(gtx layout.Context) bool {
+	for bit.clk.Clicked(gtx) {
+		bit.Set(!bit.Get())
+		bit.changed = true
+	}
+	return bit.Get()
+}
+
 func (bit *BackedBit[T]) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.BackedBit.Layout").End()
 
+	set := bit.Update(gtx)
 	dims := bit.clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		for bit.clk.Clicked() {
-			bit.Set(!bit.Get())
-			bit.changed = true
-		}
-		semantic.SelectedOp(bit.Get()).Add(gtx.Ops)
+		semantic.SelectedOp(set).Add(gtx.Ops)
 		semantic.DisabledOp(gtx.Queue == nil).Add(gtx.Ops)
 		return w(gtx)
 	})
@@ -118,5 +129,6 @@ func (bit *BackedBit[T]) Layout(gtx layout.Context, w layout.Widget) layout.Dime
 type Boolean interface {
 	Set(bool)
 	Get() bool
+	Update(layout.Context) bool
 	Layout(layout.Context, layout.Widget) layout.Dimensions
 }

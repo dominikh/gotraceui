@@ -33,7 +33,7 @@ func (fc *FlameGraphComponent) Title() string {
 func (tlc *FlameGraphComponent) Transition(theme.ComponentState) {
 }
 
-func (tlc *FlameGraphComponent) WantsTransition() theme.ComponentState {
+func (tlc *FlameGraphComponent) WantsTransition(gtx layout.Context) theme.ComponentState {
 	return theme.ComponentStateNone
 }
 

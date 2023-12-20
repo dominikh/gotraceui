@@ -423,6 +423,23 @@ func (tl *Timeline) Layout(
 		*tl.widget = TimelineWidget{}
 	}
 
+	tl.widget.labelClicks = 0
+	for _, click := range tl.widget.labelClick.Update(gtx) {
+		switch click.Button {
+		case pointer.ButtonPrimary:
+			if click.Modifiers == 0 {
+				tl.widget.labelClicks++
+			} else if click.Modifiers == key.ModShortcut {
+				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
+				// assumption to make.
+				tl.widget.navigatedSpans = tl.tracks[0].Spans(win).Wait()
+			}
+
+		case pointer.ButtonSecondary:
+			tl.widget.labelRightClicks++
+		}
+	}
+
 	tl.widget.hover.Update(gtx.Queue)
 
 	// TODO(dh): we could replace all uses of timelineHeight by using normal Gio widget patterns: lay out all the
@@ -514,23 +531,6 @@ func (tl *Timeline) Layout(
 		tl.widget.usedSuboptimalTexture = gtx.Now
 	}
 	stack.Pop()
-
-	tl.widget.labelClicks = 0
-	for _, click := range tl.widget.labelClick.Clicks() {
-		switch click.Button {
-		case pointer.ButtonPrimary:
-			if click.Modifiers == 0 {
-				tl.widget.labelClicks++
-			} else if click.Modifiers == key.ModShortcut {
-				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
-				// assumption to make.
-				tl.widget.navigatedSpans = tl.tracks[0].Spans(win).Wait()
-			}
-
-		case pointer.ButtonSecondary:
-			tl.widget.labelRightClicks++
-		}
-	}
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }

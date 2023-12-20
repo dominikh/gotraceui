@@ -209,7 +209,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 		fi.descriptionText.HoveredLink(),
 	)
 
-	for fi.ComponentButtons.Backed() {
+	for fi.ComponentButtons.Backed(gtx) {
 		fi.mwin.EmitAction(&PrevPanelAction{})
 	}
 

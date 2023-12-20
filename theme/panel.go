@@ -22,24 +22,24 @@ func (pb *ComponentButtons) Transition(state ComponentState) {
 	pb.state = state
 }
 
-func (pb *ComponentButtons) WantsTransition() ComponentState {
-	if pb.detach.Clicked() {
+func (pb *ComponentButtons) WantsTransition(gtx layout.Context) ComponentState {
+	if pb.detach.Clicked(gtx) {
 		return ComponentStateTab
-	} else if pb.attach.Clicked() {
+	} else if pb.attach.Clicked(gtx) {
 		return ComponentStatePanel
-	} else if pb.close.Clicked() {
+	} else if pb.close.Clicked(gtx) {
 		return ComponentStateClosed
 	} else {
 		return ComponentStateNone
 	}
 }
 
-func (pb *ComponentButtons) Backed() bool {
-	return pb.back.Clicked()
+func (pb *ComponentButtons) Backed(gtx layout.Context) bool {
+	return pb.back.Clicked(gtx)
 }
 
 func (pb *ComponentButtons) Layout(win *Window, gtx layout.Context) layout.Dimensions {
-	defer rtrace.StartRegion(context.Background(), "theme.PanelButtons.Layout").End()
+	defer rtrace.StartRegion(context.Background(), "theme.ComponentButtons.Layout").End()
 
 	type button struct {
 		w     *widget.PrimaryClickable

@@ -35,11 +35,11 @@ func (b *Activatable) Focused() bool {
 	return b.focused
 }
 
-// Layout and update the button state
+// Layout and update the button state.
 func (b *Activatable) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.Activatable.Layout").End()
 
-	b.update(gtx)
+	b.Update(gtx)
 	m := op.Record(gtx.Ops)
 	dims := w(gtx)
 	c := m.Stop()
@@ -64,21 +64,26 @@ func (b *Activatable) Layout(gtx layout.Context, w layout.Widget) layout.Dimensi
 	return dims
 }
 
-// update the button state by processing events.
-func (b *Activatable) update(gtx layout.Context) {
-	// Flush clicks from before the last update.
-	n := copy(b.clicks, b.clicks[b.prevClicks:])
-	b.clicks = b.clicks[:n]
-	b.prevClicks = n
-
+// Update the button state by processing events, and return the resulting
+// clicks, if any.
+func (b *Activatable) Update(gtx layout.Context) []Click {
+	b.clicks = nil
 	if gtx.Queue == nil {
-		return
+		b.focused = false
 	}
+	if b.requestFocus {
+		key.FocusOp{Tag: &b.keyTag}.Add(gtx.Ops)
+		b.requestFocus = false
+	}
+
+	var clicks []Click
+	clicks = append(clicks, b.requestedClicks...)
+	b.requestedClicks = b.requestedClicks[:0]
 
 	for _, e := range b.click.Events(gtx.Queue) {
 		switch e.Kind {
 		case gesture.KindClick:
-			b.clicks = append(b.clicks, Click{
+			clicks = append(clicks, Click{
 				Button:    e.Button,
 				Modifiers: e.Modifiers,
 				NumClicks: e.NumClicks,
@@ -113,23 +118,23 @@ func (b *Activatable) update(gtx layout.Context) {
 				}
 				// only register a key as a click if the key was pressed and released while this button was focused
 				b.pressedKey = ""
-				b.clicks = append(b.clicks, Click{
+				clicks = append(clicks, Click{
 					Modifiers: e.Modifiers,
 					NumClicks: 1,
 				})
 			}
 		}
 	}
+
+	return clicks
 }
 
 // Clickable represents a clickable area.
 type Clickable struct {
-	click  gesture.Click
-	clicks []Click
-	// prevClicks is the index into clicks that marks the clicks
-	// from the most recent Layout call. prevClicks is used to keep
-	// clicks bounded.
-	prevClicks int
+	click gesture.Click
+	// clicks is for saved clicks to support Clicked.
+	clicks          []Click
+	requestedClicks []Click
 }
 
 // Click represents a click.
@@ -139,9 +144,9 @@ type Click struct {
 	NumClicks int
 }
 
-// Click executes a simple programmatic click
+// Click executes a simple programmatic click.
 func (b *Clickable) Click(btn pointer.Buttons) {
-	b.clicks = append(b.clicks, Click{
+	b.requestedClicks = append(b.requestedClicks, Click{
 		Button:    btn,
 		Modifiers: 0,
 		NumClicks: 1,
@@ -150,17 +155,21 @@ func (b *Clickable) Click(btn pointer.Buttons) {
 
 // Clicked reports whether there are pending clicks as would be
 // reported by Clicks. If so, Clicked removes the earliest click.
-func (b *Clickable) Clicked() (Click, bool) {
-	if len(b.clicks) == 0 {
-		return Click{}, false
+func (b *Clickable) Clicked(gtx layout.Context) (Click, bool) {
+	if len(b.clicks) > 0 {
+		c := b.clicks[0]
+		b.clicks = b.clicks[1:]
+		return c, true
 	}
-	click := b.clicks[0]
-	n := copy(b.clicks, b.clicks[1:])
-	b.clicks = b.clicks[:n]
-	if b.prevClicks > 0 {
-		b.prevClicks--
+
+	b.clicks = b.Update(gtx)
+
+	if len(b.clicks) > 0 {
+		c := b.clicks[0]
+		b.clicks = b.clicks[1:]
+		return c, true
 	}
-	return click, true
+	return Click{}, false
 }
 
 // Hovered reports whether a pointer is over the element.
@@ -173,19 +182,11 @@ func (b *Clickable) Pressed(btn pointer.Buttons) bool {
 	return b.click.Pressed(btn)
 }
 
-// Clicks returns and clear the clicks since the last call to Clicks.
-func (b *Clickable) Clicks() []Click {
-	clicks := b.clicks
-	b.clicks = nil
-	b.prevClicks = 0
-	return clicks
-}
-
-// Layout and update the button state
+// Layout and update the button state.
 func (b *Clickable) Layout(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "widget.Clickable.Layout").End()
 
-	b.update(gtx)
+	b.Update(gtx)
 	m := op.Record(gtx.Ops)
 	dims := w(gtx)
 	c := m.Stop()
@@ -197,21 +198,17 @@ func (b *Clickable) Layout(gtx layout.Context, w layout.Widget) layout.Dimension
 	return dims
 }
 
-// update the button state by processing events.
-func (b *Clickable) update(gtx layout.Context) {
-	// Flush clicks from before the last update.
-	n := copy(b.clicks, b.clicks[b.prevClicks:])
-	b.clicks = b.clicks[:n]
-	b.prevClicks = n
-
-	if gtx.Queue == nil {
-		return
-	}
+// Update the button state by processing events, and return the resulting
+// clicks, if any.
+func (b *Clickable) Update(gtx layout.Context) []Click {
+	var clicks []Click
+	clicks = append(clicks, b.requestedClicks...)
+	b.requestedClicks = b.requestedClicks[:0]
 
 	for _, e := range b.click.Events(gtx.Queue) {
 		switch e.Kind {
 		case gesture.KindClick:
-			b.clicks = append(b.clicks, Click{
+			clicks = append(clicks, Click{
 				Button:    e.Button,
 				Modifiers: e.Modifiers,
 				NumClicks: e.NumClicks,
@@ -220,6 +217,8 @@ func (b *Clickable) update(gtx layout.Context) {
 		case gesture.KindPress:
 		}
 	}
+
+	return clicks
 }
 
 // PrimaryActivatable is like Activatable but ignores all press and click events for buttons other than the primary one.
@@ -227,9 +226,9 @@ type PrimaryActivatable struct {
 	Activatable
 }
 
-func (b *PrimaryActivatable) Clicked() bool {
+func (b *PrimaryActivatable) Clicked(gtx layout.Context) bool {
 	for {
-		clk, ok := b.Clickable.Clicked()
+		clk, ok := b.Clickable.Clicked(gtx)
 		if !ok {
 			return false
 		}
@@ -237,18 +236,6 @@ func (b *PrimaryActivatable) Clicked() bool {
 			return true
 		}
 	}
-}
-
-func (b *PrimaryActivatable) Clicks() []Click {
-	clicks := b.Clickable.Clicks()
-	out := clicks[:0]
-	for _, click := range clicks {
-		if click.Button != pointer.ButtonPrimary {
-			continue
-		}
-		out = append(out, click)
-	}
-	return out
 }
 
 func (b *PrimaryActivatable) Click()        { b.Activatable.Click(pointer.ButtonPrimary) }
@@ -266,9 +253,9 @@ type PrimaryClickable struct {
 	Clickable
 }
 
-func (b *PrimaryClickable) Clicked() bool {
+func (b *PrimaryClickable) Clicked(gtx layout.Context) bool {
 	for {
-		clk, ok := b.Clickable.Clicked()
+		clk, ok := b.Clickable.Clicked(gtx)
 		if !ok {
 			return false
 		}
@@ -276,18 +263,6 @@ func (b *PrimaryClickable) Clicked() bool {
 			return true
 		}
 	}
-}
-
-func (b *PrimaryClickable) Clicks() []Click {
-	clicks := b.Clickable.Clicks()
-	out := clicks[:0]
-	for _, click := range clicks {
-		if click.Button != pointer.ButtonPrimary {
-			continue
-		}
-		out = append(out, click)
-	}
-	return out
 }
 
 func (b *PrimaryClickable) Click()        { b.Clickable.Click(pointer.ButtonPrimary) }

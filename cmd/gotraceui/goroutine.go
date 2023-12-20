@@ -1208,7 +1208,7 @@ func (*GoroutinesComponent) Title() string {
 func (*GoroutinesComponent) Transition(state theme.ComponentState) {}
 
 // WantsTransition implements theme.Component.
-func (*GoroutinesComponent) WantsTransition() theme.ComponentState {
+func (*GoroutinesComponent) WantsTransition(gtx layout.Context) theme.ComponentState {
 	return theme.ComponentStateNone
 }
 

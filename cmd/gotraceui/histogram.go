@@ -64,7 +64,7 @@ func (hist *InteractiveHistogram) Layout(win *theme.Window, gtx layout.Context) 
 		}
 
 		for {
-			click, ok := hist.click.Clicked()
+			click, ok := hist.click.Clicked(gtx)
 			if !ok {
 				break
 			}
@@ -244,10 +244,10 @@ func (hs HistogramSettingsStyle) Layout(win *theme.Window, gtx layout.Context) l
 		},
 	)
 
-	for hs.State.save.Clicked() {
+	for hs.State.save.Clicked(gtx) {
 		hs.State.saved = true
 	}
-	for hs.State.cancel.Clicked() {
+	for hs.State.cancel.Clicked(gtx) {
 		hs.State.cancelled = true
 	}
 

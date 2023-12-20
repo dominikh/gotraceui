@@ -70,6 +70,14 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		m.Menu.cancelled = false
 	}
 
+	for i := range m.Menu.Groups {
+		g := &m.Menu.Groups[i]
+		for g.click.Clicked(gtx) {
+			m.Menu.open = !m.Menu.open
+			m.Menu.lastOpen.g = nil
+		}
+	}
+
 	return Background{Color: m.Background}.Layout(win, gtx, func(win *Window, gtx layout.Context) layout.Dimensions {
 		var h, b, off int
 
@@ -100,11 +108,6 @@ func (m MenuStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 			func() {
 				g := &m.Menu.Groups[i]
 				defer op.Offset(image.Pt(off, 0)).Push(gtx.Ops).Pop()
-
-				for g.click.Clicked() {
-					m.Menu.open = !m.Menu.open
-					m.Menu.lastOpen.g = nil
-				}
 
 				if m.Menu.open && g.click.Hovered() {
 					m.Menu.lastOpen.off = off
@@ -259,11 +262,11 @@ func (item MenuItemStyle) Layout(win *Window, gtx layout.Context) layout.Dimensi
 	return dims
 }
 
-func (item *MenuItem) Clicked() bool {
+func (item *MenuItem) Clicked(gtx layout.Context) bool {
 	if item.Disabled != nil && item.Disabled() {
 		return false
 	}
-	return item.click.Clicked()
+	return item.click.Clicked(gtx)
 }
 
 type MenuDividerStyle struct {

@@ -200,7 +200,7 @@ func (w *ListWindow) Layout(win *Window, gtx layout.Context) layout.Dimensions {
 		}
 	}
 	for i, idx := range w.filtered {
-		if w.items[idx].click.Clicked() {
+		if w.items[idx].click.Clicked(gtx) {
 			w.index = i
 			w.done = true
 		}

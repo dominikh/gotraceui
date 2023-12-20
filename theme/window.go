@@ -206,8 +206,8 @@ func (win *Window) CommandProviders() []CommandProvider {
 	return win.prevCommandProviders
 }
 
-func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
-	defer rtrace.StartRegion(context.Background(), "theme.Window.Render").End()
+func (win *Window) Update(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context)) {
+	defer rtrace.StartRegion(context.Background(), "theme.Window.Update").End()
 
 	win.Frame++
 	gtx := layout.NewContext(ops, ev)
@@ -258,18 +258,28 @@ func (win *Window) Render(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 		}
 	}
 
-	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-	// Handle all keyboard input that wasn't handled by the window contents
-	key.InputOp{Tag: win}.Add(gtx.Ops)
-	pointer.InputOp{Tag: win, Types: 0xFF}.Add(gtx.Ops)
-
 	for _, item := range win.contextMenu {
-		if item.Clicked() {
+		if item.Clicked(gtx) {
 			win.CloseModal()
 			win.EmitAction(item.Action())
 			win.contextMenu = nil
 		}
 	}
+
+	w(win, gtx)
+}
+
+func (win *Window) Layout(ops *op.Ops, ev system.FrameEvent, w func(win *Window, gtx layout.Context) layout.Dimensions) {
+	defer rtrace.StartRegion(context.Background(), "theme.Window.Layout").End()
+
+	gtx := layout.NewContext(ops, ev)
+	gtx.Metric.PxPerDp *= win.scale
+	gtx.Metric.PxPerSp *= win.scale
+
+	stack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+	// Handle all keyboard input that wasn't handled by the window contents
+	key.InputOp{Tag: win}.Add(gtx.Ops)
+	pointer.InputOp{Tag: win, Types: 0xFF}.Add(gtx.Ops)
 
 	if win.Menu != nil {
 		dims := NewMenuStyle(win.Theme, win.Menu).Layout(win, gtx)

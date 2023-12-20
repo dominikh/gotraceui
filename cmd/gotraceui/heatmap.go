@@ -328,7 +328,7 @@ func (hmc *HeatmapComponent) Title() string {
 func (hmc *HeatmapComponent) Transition(theme.ComponentState) {
 }
 
-func (hmc *HeatmapComponent) WantsTransition() theme.ComponentState {
+func (hmc *HeatmapComponent) WantsTransition(gtx layout.Context) theme.ComponentState {
 	return theme.ComponentStateNone
 }
 

@@ -206,8 +206,8 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			pwin.mu.RLock()
 			pwin.prevHoveredLink = pwin.hoveredLink
 			pwin.mu.RUnlock()
-			tWin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				for _, l := range win.Actions() {
+			tWin.Update(&ops, ev, func(twin *theme.Window, gtx layout.Context) {
+				for _, l := range twin.Actions() {
 					switch l := l.(type) {
 					case MainWindowAction:
 						pwin.MainWindow.EmitAction(l)
@@ -218,30 +218,32 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 					}
 				}
 
-				theme.Fill(win, gtx.Ops, tWin.Theme.Palette.Background)
-				return pwin.Panel.Layout(win, gtx)
+				switch state := pwin.Panel.WantsTransition(gtx); state {
+				case theme.ComponentStateClosed:
+					win.Perform(system.ActionClose)
+				case theme.ComponentStatePanel:
+					pwin.MainWindow.EmitAction(&OpenPanelAction{pwin.Panel})
+					win.Perform(system.ActionClose)
+					dead = true
+				case theme.ComponentStateWindow, theme.ComponentStateNone:
+					// Nothing to do
+				default:
+					panic(fmt.Sprintf("unsupported state transition to %q", state))
+				}
 			})
 
-			l := pwin.Panel.HoveredLink()
-			pwin.mu.Lock()
-			pwin.hoveredLink = l
-			pwin.mu.Unlock()
-			if l != pwin.prevHoveredLink {
-				pwin.MainWindow.AppWindow.Invalidate()
-			}
+			tWin.Layout(&ops, ev, func(twin *theme.Window, gtx layout.Context) layout.Dimensions {
+				l := pwin.Panel.HoveredLink()
+				pwin.mu.Lock()
+				pwin.hoveredLink = l
+				pwin.mu.Unlock()
+				if l != pwin.prevHoveredLink {
+					pwin.MainWindow.AppWindow.Invalidate()
+				}
 
-			switch state := pwin.Panel.WantsTransition(); state {
-			case theme.ComponentStateClosed:
-				win.Perform(system.ActionClose)
-			case theme.ComponentStatePanel:
-				pwin.MainWindow.EmitAction(&OpenPanelAction{pwin.Panel})
-				win.Perform(system.ActionClose)
-				dead = true
-			case theme.ComponentStateWindow, theme.ComponentStateNone:
-				// Nothing to do
-			default:
-				panic(fmt.Sprintf("unsupported state transition to %q", state))
-			}
+				theme.Fill(twin, gtx.Ops, tWin.Theme.Palette.Background)
+				return pwin.Panel.Layout(twin, gtx)
+			})
 
 			ev.Frame(&ops)
 		}
@@ -619,7 +621,7 @@ func (tlc *TimelinesComponent) Title() string {
 func (tlc *TimelinesComponent) Transition(theme.ComponentState) {
 }
 
-func (tlc *TimelinesComponent) WantsTransition() theme.ComponentState {
+func (tlc *TimelinesComponent) WantsTransition(gtx layout.Context) theme.ComponentState {
 	return theme.ComponentStateNone
 }
 
@@ -656,10 +658,7 @@ func (mwin *MainWindow) Run() error {
 				}
 			}
 
-			mwin.twin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-				gtx.Constraints.Min = image.Point{}
-
+			mwin.twin.Update(&ops, ev, func(win *theme.Window, gtx layout.Context) {
 				for _, l := range win.Actions() {
 					mwin.openLink(gtx, l)
 				}
@@ -667,7 +666,118 @@ func (mwin *MainWindow) Run() error {
 				for _, ev := range gtx.Events(&mwin.pointerAt) {
 					mwin.pointerAt = ev.(pointer.Event).Position
 				}
-				pointer.InputOp{Tag: &mwin.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+
+				if mwin.mainMenu.Display.UndoNavigation.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.UndoNavigation(gtx)
+				}
+				if mwin.mainMenu.Display.ScrollToTop.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.ScrollToTop(gtx)
+				}
+				if mwin.mainMenu.Display.ZoomToFit.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.ZoomToFitCurrentView(gtx)
+				}
+				if mwin.mainMenu.Display.JumpToBeginning.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.JumpToBeginning(gtx)
+				}
+				if mwin.mainMenu.Display.HighlightSpans.Clicked(gtx) {
+					win.Menu.Close()
+					displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
+				}
+				if mwin.mainMenu.Display.ToggleCompactDisplay.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.ToggleCompactDisplay()
+				}
+				if mwin.mainMenu.Display.ToggleTimelineLabels.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.ToggleTimelineLabels()
+				}
+				if mwin.mainMenu.Display.ToggleStackTracks.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.ToggleStackTracks()
+				}
+				if mwin.mainMenu.Analyze.OpenHeatmap.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.openHeatmap()
+				}
+				if mwin.mainMenu.Analyze.OpenFlameGraph.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.openFlameGraph(nil)
+				}
+				if mwin.mainMenu.Debug.Cpuprofile.Clicked(gtx) {
+					win.Menu.Close()
+					if mwin.cpuProfile != nil {
+						pprof.StopCPUProfile()
+						if err := mwin.cpuProfile.Close(); err == nil {
+							win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
+						} else {
+							win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
+						}
+						mwin.cpuProfile = nil
+					} else {
+						f, path, err := func() (*os.File, string, error) {
+							path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
+							f, err := os.Create(path)
+							if err != nil {
+								return nil, "", err
+							}
+							if err := pprof.StartCPUProfile(f); err != nil {
+								f.Close()
+								return nil, "", err
+							}
+							return f, path, nil
+						}()
+						if err == nil {
+							win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
+						} else {
+							win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
+						}
+						mwin.cpuProfile = f
+					}
+				}
+				if mwin.mainMenu.Debug.Memprofile.Clicked(gtx) {
+					win.Menu.Close()
+					path, err := func() (string, error) {
+						runtime.GC()
+						path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
+						f, err := os.Create(path)
+						if err != nil {
+							return "", err
+						}
+						if err := pprof.WriteHeapProfile(f); err != nil {
+							return "", err
+						}
+						return path, f.Close()
+					}()
+					if err == nil {
+						win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
+					} else {
+						win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
+					}
+				}
+				if mwin.mainMenu.Debug.GC.Clicked(gtx) {
+					win.Menu.Close()
+					start := time.Now()
+					runtime.GC()
+					d := time.Since(start)
+					win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
+				}
+				if mwin.mainMenu.Debug.FreeOSMemory.Clicked(gtx) {
+					win.Menu.Close()
+					rdebug.FreeOSMemory()
+					win.ShowNotification(gtx, "Returned unused memory to OS")
+				}
+				if mwin.mainMenu.File.Quit.Clicked(gtx) {
+					win.Menu.Close()
+					os.Exit(0)
+				}
+				if mwin.mainMenu.File.OpenTrace.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.showFileOpenDialog()
+				}
 
 				for _, ev := range gtx.Events(profileTag) {
 					// Yup, profile.Event only contains a string. No structured access to data.
@@ -686,20 +796,39 @@ func (mwin *MainWindow) Run() error {
 						mwin.debugWindow.frametimes.addValue(gtx.Now, float64(d)/float64(time.Millisecond))
 					}
 				}
+
+				closedAny := false
+				for _, click := range mwin.tabbedState.Update(gtx) {
+					if click.Click.Button == pointer.ButtonTertiary {
+						tab := &mwin.tabs[click.Index]
+						if tab.Unclosable {
+							continue
+						}
+						*tab = Tab{}
+						closedAny = true
+					}
+				}
+				if closedAny {
+					compacted := mwin.tabs[:0]
+					for _, tab := range mwin.tabs {
+						if tab != (Tab{}) {
+							compacted = append(compacted, tab)
+						}
+					}
+					mwin.tabs = compacted
+				}
+			})
+
+			mwin.twin.Layout(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				gtx.Constraints.Min = image.Point{}
+
+				pointer.InputOp{Tag: &mwin.pointerAt, Types: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
+
 				profile.Op{Tag: profileTag}.Add(gtx.Ops)
 
 				// Fill background
 				theme.Fill(win, gtx.Ops, mwin.twin.Theme.Palette.Background)
-
-				if mwin.mainMenu.File.Quit.Clicked() {
-					win.Menu.Close()
-					os.Exit(0)
-				}
-
-				if mwin.mainMenu.File.OpenTrace.Clicked() {
-					win.Menu.Close()
-					mwin.showFileOpenDialog()
-				}
 
 				switch mwin.state {
 				case "empty":
@@ -731,7 +860,7 @@ func (mwin *MainWindow) Run() error {
 func (mwin *MainWindow) renderStartScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	gtx.Constraints.Min = gtx.Constraints.Max
 
-	for mwin.openTraceButton.Clicked() {
+	for mwin.openTraceButton.Clicked(gtx) {
 		mwin.showFileOpenDialog()
 	}
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -824,110 +953,6 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 		}
 	}
 
-	if mwin.mainMenu.Display.UndoNavigation.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.UndoNavigation(gtx)
-	}
-	if mwin.mainMenu.Display.ScrollToTop.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.ScrollToTop(gtx)
-	}
-	if mwin.mainMenu.Display.ZoomToFit.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.ZoomToFitCurrentView(gtx)
-	}
-	if mwin.mainMenu.Display.JumpToBeginning.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.JumpToBeginning(gtx)
-	}
-	if mwin.mainMenu.Display.HighlightSpans.Clicked() {
-		win.Menu.Close()
-		displayHighlightSpansDialog(win, &mwin.canvas.timeline.filter)
-	}
-	if mwin.mainMenu.Display.ToggleCompactDisplay.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.ToggleCompactDisplay()
-	}
-	if mwin.mainMenu.Display.ToggleTimelineLabels.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.ToggleTimelineLabels()
-	}
-	if mwin.mainMenu.Display.ToggleStackTracks.Clicked() {
-		win.Menu.Close()
-		mwin.canvas.ToggleStackTracks()
-	}
-	if mwin.mainMenu.Analyze.OpenHeatmap.Clicked() {
-		win.Menu.Close()
-		mwin.openHeatmap()
-	}
-	if mwin.mainMenu.Analyze.OpenFlameGraph.Clicked() {
-		win.Menu.Close()
-		mwin.openFlameGraph(nil)
-	}
-	if mwin.mainMenu.Debug.Cpuprofile.Clicked() {
-		win.Menu.Close()
-		if mwin.cpuProfile != nil {
-			pprof.StopCPUProfile()
-			if err := mwin.cpuProfile.Close(); err == nil {
-				win.ShowNotification(gtx, fmt.Sprintf("Wrote CPU profile to %s", mwin.cpuProfile.Name()))
-			} else {
-				win.ShowNotification(gtx, fmt.Sprintf("Couldn't write CPU profile: %s", err))
-			}
-			mwin.cpuProfile = nil
-		} else {
-			f, path, err := func() (*os.File, string, error) {
-				path := fmt.Sprintf("cpu-%d.pprof", time.Now().Unix())
-				f, err := os.Create(path)
-				if err != nil {
-					return nil, "", err
-				}
-				if err := pprof.StartCPUProfile(f); err != nil {
-					f.Close()
-					return nil, "", err
-				}
-				return f, path, nil
-			}()
-			if err == nil {
-				win.ShowNotification(gtx, fmt.Sprintf("Writing CPU profile to %s…", path))
-			} else {
-				win.ShowNotification(gtx, fmt.Sprintf("Couldn't start CPU profile: %s", err))
-			}
-			mwin.cpuProfile = f
-		}
-	}
-	if mwin.mainMenu.Debug.Memprofile.Clicked() {
-		win.Menu.Close()
-		path, err := func() (string, error) {
-			runtime.GC()
-			path := fmt.Sprintf("mem-%d.pprof", time.Now().Unix())
-			f, err := os.Create(path)
-			if err != nil {
-				return "", err
-			}
-			if err := pprof.WriteHeapProfile(f); err != nil {
-				return "", err
-			}
-			return path, f.Close()
-		}()
-		if err == nil {
-			win.ShowNotification(gtx, fmt.Sprintf("Wrote memory profile to %s", path))
-		} else {
-			win.ShowNotification(gtx, fmt.Sprintf("Couldn't write memory profile: %s", err))
-		}
-	}
-	if mwin.mainMenu.Debug.GC.Clicked() {
-		win.Menu.Close()
-		start := time.Now()
-		runtime.GC()
-		d := time.Since(start)
-		win.ShowNotification(gtx, fmt.Sprintf("Ran garbage collection in %s", d))
-	}
-	if mwin.mainMenu.Debug.FreeOSMemory.Clicked() {
-		win.Menu.Close()
-		rdebug.FreeOSMemory()
-		win.ShowNotification(gtx, "Returned unused memory to OS")
-	}
-
 	mwin.canvas.indicateTimestamp = container.None[trace.Timestamp]()
 	if mwin.panel != nil {
 		if l := mwin.panel.HoveredLink(); l != nil {
@@ -937,7 +962,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 			}
 		}
 
-		switch state := mwin.panel.WantsTransition(); state {
+		switch state := mwin.panel.WantsTransition(gtx); state {
 		case theme.ComponentStateClosed:
 			mwin.prevPanel()
 		case theme.ComponentStateWindow:
@@ -1039,26 +1064,6 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	}
 	for _, clicked := range mwin.canvas.clickedSpans {
 		mwin.openSpan(clicked)
-	}
-	closedAny := false
-	for _, click := range mwin.tabbedState.Clicked() {
-		if click.Click.Button == pointer.ButtonTertiary {
-			tab := &mwin.tabs[click.Index]
-			if tab.Unclosable {
-				continue
-			}
-			*tab = Tab{}
-			closedAny = true
-		}
-	}
-	if closedAny {
-		compacted := mwin.tabs[:0]
-		for _, tab := range mwin.tabs {
-			if tab != (Tab{}) {
-				compacted = append(compacted, tab)
-			}
-		}
-		mwin.tabs = compacted
 	}
 
 	return dims

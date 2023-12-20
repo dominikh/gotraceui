@@ -323,6 +323,84 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	gtx.Constraints.Min = gtx.Constraints.Min.Sub(image.Pt(2*5, 2*5))
 	gtx.Constraints.Max = gtx.Constraints.Max.Sub(image.Pt(2*5, 2*5))
 	gtx.Constraints = layout.Normalize(gtx.Constraints)
+	spans, haveSpans := si.spans.Result()
+
+	for si.buttons.copyAsCSV.Clicked(gtx) {
+		if stats, ok := si.statistics.Result(); ok {
+			win.AppWindow.WriteClipboard(statisticsToCSV(stats.stats.Items))
+		}
+	}
+
+	for _, ev := range si.descriptionText.Events() {
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
+	}
+	for _, ev := range si.eventList.Clicked() {
+		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
+	}
+
+	firstNonNil := func(els ...ObjectLink) ObjectLink {
+		for _, el := range els {
+			if el != nil {
+				return el
+			}
+		}
+		return nil
+	}
+	si.hoveredLink = firstNonNil(
+		si.descriptionText.HoveredLink(),
+		si.eventList.HoveredLink(),
+		si.spanList.HoveredLink(),
+	)
+
+	for si.buttons.scrollAndPanToSpans.Clicked(gtx) {
+		si.scrollAndPanToSpans(win)
+	}
+	for si.buttons.zoomToSpans.Clicked(gtx) {
+		si.zoomToSpans(win)
+	}
+	for si.ComponentButtons.Backed(gtx) {
+		si.mwin.EmitAction(&PrevPanelAction{})
+	}
+	for si.buttons.selectUserRegion.Clicked(gtx) {
+		needle := si.trace.Strings[si.trace.Event(spans.AtPtr(0).Event).Args[2]]
+		ft := theme.NewFuture[Items[ptrace.Span]](win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
+			var bases []Items[ptrace.Span]
+			for _, tl := range si.allTimelines {
+				select {
+				case <-cancelled:
+					return nil
+				default:
+				}
+				for _, track := range tl.tracks {
+					if track.kind != TrackKindUserRegions {
+						continue
+					}
+					filtered := FilterItems(track.Spans(win).Wait(), func(span *ptrace.Span) bool {
+						label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
+						return label == needle
+					})
+
+					if filtered.Len() > 0 {
+						bases = append(bases, filtered)
+					}
+				}
+			}
+
+			return MergeItems(bases, func(a, b *ptrace.Span) bool {
+				return a.Start < b.Start
+			})
+		})
+		cfg := SpansInfoConfig{
+			Title:         fmt.Sprintf("All %q user regions", needle),
+			Label:         fmt.Sprintf("All %q user regions", needle),
+			ShowHistogram: true,
+		}
+		si.mwin.EmitAction(&OpenPanelAction{NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines)})
+	}
+
+	if si.hist.Changed() {
+		si.computeHistogram(win, &si.hist.Config)
+	}
 
 	if gtx.Constraints.Max.X <= 5 || gtx.Constraints.Max.Y <= 5 {
 		return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -334,7 +412,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 	}
 
 	var dims layout.Dimensions
-	spans, haveSpans := si.spans.Result()
 	if haveSpans {
 		if !si.initialized {
 			si.init(win)
@@ -484,83 +561,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 				return theme.Label(win.Theme, l).Layout(win, gtx)
 			},
 		)
-	}
-
-	for si.buttons.copyAsCSV.Clicked() {
-		if stats, ok := si.statistics.Result(); ok {
-			win.AppWindow.WriteClipboard(statisticsToCSV(stats.stats.Items))
-		}
-	}
-
-	for _, ev := range si.descriptionText.Events() {
-		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
-	}
-	for _, ev := range si.eventList.Clicked() {
-		handleLinkClick(win, ev.Event, ev.Span.ObjectLink)
-	}
-
-	firstNonNil := func(els ...ObjectLink) ObjectLink {
-		for _, el := range els {
-			if el != nil {
-				return el
-			}
-		}
-		return nil
-	}
-	si.hoveredLink = firstNonNil(
-		si.descriptionText.HoveredLink(),
-		si.eventList.HoveredLink(),
-		si.spanList.HoveredLink(),
-	)
-
-	for si.buttons.scrollAndPanToSpans.Clicked() {
-		si.scrollAndPanToSpans(win)
-	}
-	for si.buttons.zoomToSpans.Clicked() {
-		si.zoomToSpans(win)
-	}
-	for si.ComponentButtons.Backed() {
-		si.mwin.EmitAction(&PrevPanelAction{})
-	}
-	for si.buttons.selectUserRegion.Clicked() {
-		needle := si.trace.Strings[si.trace.Event(spans.AtPtr(0).Event).Args[2]]
-		ft := theme.NewFuture[Items[ptrace.Span]](win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
-			var bases []Items[ptrace.Span]
-			for _, tl := range si.allTimelines {
-				select {
-				case <-cancelled:
-					return nil
-				default:
-				}
-				for _, track := range tl.tracks {
-					if track.kind != TrackKindUserRegions {
-						continue
-					}
-					filtered := FilterItems(track.Spans(win).Wait(), func(span *ptrace.Span) bool {
-						label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
-						return label == needle
-					})
-
-					if filtered.Len() > 0 {
-						bases = append(bases, filtered)
-					}
-				}
-			}
-
-			return MergeItems(bases, func(a, b *ptrace.Span) bool {
-				return a.Start < b.Start
-			})
-		})
-		cfg := SpansInfoConfig{
-			Title:         fmt.Sprintf("All %q user regions", needle),
-			Label:         fmt.Sprintf("All %q user regions", needle),
-			ShowHistogram: true,
-		}
-		si.mwin.EmitAction(&OpenPanelAction{NewSpansInfo(cfg, si.trace, si.mwin, ft, si.allTimelines)})
-	}
-
-	if si.hist.Changed() {
-		si.computeHistogram(win, &si.hist.Config)
 	}
 
 	return dims

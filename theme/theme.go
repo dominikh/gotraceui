@@ -275,7 +275,7 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 		chk := &checkboxes[i]
 
 		var b int
-		if chk.Checkbox.Get() {
+		if chk.Checkbox.Update(gtx) {
 			b = 1
 		}
 		state = sm[state][b]
@@ -286,6 +286,24 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 
 	if state == noneThenSome {
 		state = none
+	}
+
+	for {
+		click, ok := chkgrp.Clickable.Clicked(gtx)
+		if !ok {
+			break
+		}
+		if click.Button != pointer.ButtonPrimary {
+			continue
+		}
+		for i := range checkboxes {
+			checkboxes[i].Checkbox.Set(state == none || state == some)
+		}
+		if state == none || state == some {
+			state = all
+		} else {
+			state = none
+		}
 	}
 
 	sizeDp := gtx.Metric.SpToDp(chkgrp.TextSize)
@@ -358,19 +376,6 @@ func (chkgrp CheckBoxGroupStyle) Layout(win *Window, gtx layout.Context, checkbo
 			})
 		},
 	)
-
-	for {
-		click, ok := chkgrp.Clickable.Clicked()
-		if !ok {
-			break
-		}
-		if click.Button != pointer.ButtonPrimary {
-			continue
-		}
-		for i := range checkboxes {
-			checkboxes[i].Checkbox.Set(state == none || state == some)
-		}
-	}
 
 	return dims
 }
@@ -870,7 +875,6 @@ type TabbedState struct {
 	Current    int
 	clickables []widget.Clickable
 	list       layout.List
-	clicked    []TabClick
 }
 
 type TabClick struct {
@@ -890,22 +894,35 @@ func Tabbed(state *TabbedState, tabs []string) TabbedStyle {
 	}
 }
 
-func (ts TabbedState) Clicked() []TabClick {
-	return ts.clicked
+func (ts *TabbedState) Update(gtx layout.Context) []TabClick {
+	var clicked []TabClick
+	for i := range ts.clickables {
+		for {
+			click, ok := ts.clickables[i].Clicked(gtx)
+			if !ok {
+				break
+			}
+			if click.Modifiers == 0 && click.Button == pointer.ButtonPrimary {
+				ts.Current = i
+			} else {
+				clicked = append(clicked, TabClick{i, click})
+			}
+		}
+	}
+
+	return clicked
 }
 
 func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "theme.TabbedStyle.Layout").End()
 
-	ts.State.clicked = ts.State.clicked[:0]
-
+	ts.State.Update(gtx)
 	if ts.State.Current >= len(ts.Tabs) {
 		ts.State.Current = len(ts.Tabs) - 1
 	}
 	if len(ts.State.clickables) < len(ts.Tabs) {
 		ts.State.clickables = slices.Grow(ts.State.clickables, len(ts.Tabs))[:len(ts.Tabs)]
 	}
-
 	const padding = 5
 	const lineThickness = 1
 	const activeLineThickness = 3
@@ -953,20 +970,6 @@ func (ts TabbedStyle) Layout(win *Window, gtx layout.Context, w Widget) layout.D
 			},
 		)
 	})
-
-	for i := range ts.State.clickables {
-		for {
-			click, ok := ts.State.clickables[i].Clicked()
-			if !ok {
-				break
-			}
-			if click.Modifiers == 0 && click.Button == pointer.ButtonPrimary {
-				ts.State.Current = i
-			} else {
-				ts.State.clicked = append(ts.State.clicked, TabClick{i, click})
-			}
-		}
-	}
 
 	return dims
 }

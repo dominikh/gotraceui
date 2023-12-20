@@ -215,7 +215,7 @@ func (dwin *DebugWindow) Run(win *app.Window) error {
 		case system.DestroyEvent:
 			return ev.Err
 		case system.FrameEvent:
-			twin.Render(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			twin.Layout(&ops, ev, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				themeWidget := func(fn func(win *theme.Window, gtx layout.Context) layout.Dimensions) layout.Widget {
 					return func(gtx layout.Context) layout.Dimensions { return fn(twin, gtx) }
 				}

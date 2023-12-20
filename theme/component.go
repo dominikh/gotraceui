@@ -42,7 +42,7 @@ type Component interface {
 	// transition.
 	//
 	// This method is not thread-safe.
-	WantsTransition() ComponentState
+	WantsTransition(gtx layout.Context) ComponentState
 	// Transition notifies the component of its new state. This is called at least once before drawing the
 	// component for the first time. There may or may not be a transition to the closed state.
 	Transition(state ComponentState)
