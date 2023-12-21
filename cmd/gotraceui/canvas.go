@@ -113,8 +113,7 @@ type Canvas struct {
 
 	// Imagine we're drawing all timelines onto an infinitely long canvas. Canvas.y specifies the y of that infinite
 	// canvas that the timeline section's y == 0 is displaying.
-	y            normalizedY
-	cachedHeight int
+	y normalizedY
 
 	// Scratch space used by ActivityWidgetTrack.Layout
 	trackSpanLabels []string
@@ -186,6 +185,13 @@ type Canvas struct {
 		hoveredSpans       Items[ptrace.Span]
 		width              int
 		filter             Filter
+	}
+
+	cachedCanvasHeight struct {
+		compact            bool
+		displayStackTracks bool
+		metric             unit.Metric
+		height             int
 	}
 
 	// timelineEnds[i] describes the absolute Y pixel offset where timeline i ends. It is computed by
@@ -539,18 +545,23 @@ func (cv *Canvas) VisibleWidth(win *theme.Window, gtx layout.Context) int {
 
 // height returns the sum of the heights of all visible timelines.
 func (cv *Canvas) height(gtx layout.Context) int {
-	if cv.prevFrame.compact == cv.timeline.compact &&
-		cv.prevFrame.displayStackTracks == cv.timeline.displayStackTracks &&
-		cv.prevFrame.metric == gtx.Metric &&
-		cv.cachedHeight != 0 {
-		return cv.cachedHeight
+	cch := &cv.cachedCanvasHeight
+	if cch.compact == cv.timeline.compact &&
+		cch.displayStackTracks == cv.timeline.displayStackTracks &&
+		cch.metric == gtx.Metric &&
+		cch.height != 0 {
+		return cch.height
 	}
 
 	var total int
 	for _, tl := range cv.timelines {
 		total += tl.Height(gtx, cv)
 	}
-	cv.cachedHeight = total
+
+	cch.compact = cv.timeline.compact
+	cch.displayStackTracks = cv.timeline.displayStackTracks
+	cch.metric = gtx.Metric
+	cch.height = total
 	return total
 }
 
