@@ -29,14 +29,6 @@ func lastPtr[E any, S ~[]E](s S) *E {
 	return &s[len(s)-1]
 }
 
-func ifelse[T any](b bool, x, y T) T {
-	if b {
-		return x
-	} else {
-		return y
-	}
-}
-
 type CellFormatter struct {
 	Clicks   mem.BucketSlice[Link]
 	nfTs     *NumberFormatter[trace.Timestamp]

@@ -741,9 +741,10 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	for _, ev := range cv.drag.drag.Update(gtx.Metric, gtx, gesture.Both) {
 		switch ev.Kind {
 		case pointer.Press:
-			if ev.Modifiers == 0 {
+			switch ev.Modifiers {
+			case 0:
 				cv.drag.ready = true
-			} else if ev.Modifiers == key.ModShortcut {
+			case key.ModShortcut:
 				cv.zoomSelection.ready = true
 			}
 		case pointer.Drag:

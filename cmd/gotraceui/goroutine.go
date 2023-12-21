@@ -573,14 +573,6 @@ type stackSpanMeta struct {
 	num int
 }
 
-func ensureLen[S ~[]E, E any](s S, n int) S {
-	if len(s) >= n {
-		return s[:n]
-	} else {
-		return append(s, make([]E, n-len(s))...)
-	}
-}
-
 func ensureAtLeastLen[S ~[]E, E any](s S, n int) S {
 	if len(s) >= n {
 		return s

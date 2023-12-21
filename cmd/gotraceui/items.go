@@ -162,7 +162,7 @@ func (items *MergedItems[T]) sort(less func(a, b *T) bool) {
 
 	for i := 0; i < n; i++ {
 		var (
-			minBaseIdx int = -1
+			minBaseIdx = -1
 			minItem    *T
 		)
 		for j, b := range items.bases {

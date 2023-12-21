@@ -296,12 +296,10 @@ type TrackWidget struct {
 	lowQualityRender bool
 
 	// op lists get reused between frames to avoid generating garbage
-	ops                             [colorStateLast * 2]op.Ops
-	outlinesOps                     mem.ReusableOps
-	highlightedPrimaryOutlinesOps   mem.ReusableOps
-	highlightedSecondaryOutlinesOps mem.ReusableOps
-	eventsOps                       mem.ReusableOps
-	labelsOps                       mem.ReusableOps
+	ops         [colorStateLast * 2]op.Ops
+	outlinesOps mem.ReusableOps
+	eventsOps   mem.ReusableOps
+	labelsOps   mem.ReusableOps
 
 	hover gesture.Hover
 	click gesture.Click
@@ -431,9 +429,10 @@ func (tl *Timeline) Layout(
 	for _, click := range tl.widget.labelClick.Update(gtx) {
 		switch click.Button {
 		case pointer.ButtonPrimary:
-			if click.Modifiers == 0 {
+			switch click.Modifiers {
+			case 0:
 				tl.widget.labelClicks++
-			} else if click.Modifiers == key.ModShortcut {
+			case key.ModShortcut:
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
 				tl.widget.navigatedSpans = tl.tracks[0].Spans(win).Wait()
@@ -1074,9 +1073,9 @@ func (track *Track) Layout(
 	if track.kind == TrackKindUnspecified {
 		// Indicate parts of time where a goroutine or processor wasn't yet alive and where it no longer exists.
 		var (
-			visWidthPx    float32 = float32(gtx.Constraints.Max.X)
+			visWidthPx    = float32(gtx.Constraints.Max.X)
+			deadFromPx    = visWidthPx
 			unbornUntilPx float32
-			deadFromPx    float32 = visWidthPx
 		)
 		if track.Len == 0 {
 			// A track with no spans is similar to a track that's always dead

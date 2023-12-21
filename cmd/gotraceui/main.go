@@ -1245,10 +1245,6 @@ func span(win *theme.Window, text string) styledtext.SpanStyle {
 	}
 }
 
-func spanWith(win *theme.Window, text string, fn func(styledtext.SpanStyle) styledtext.SpanStyle) styledtext.SpanStyle {
-	return fn(span(win, text))
-}
-
 var local = message.NewPrinter(message.MatchLanguage("en"))
 
 // OPT(dh): find all calls of this function with a nil NumberFormatter and fix them
