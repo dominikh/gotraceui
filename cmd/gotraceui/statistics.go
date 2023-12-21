@@ -279,6 +279,7 @@ func (gs *SpansStats) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		gs.table.SortedBy = 0
 	}
 
+	gs.table.Update(gtx)
 	if _, ok := gs.table.SortByClickedColumn(); ok {
 		gs.sort()
 	}

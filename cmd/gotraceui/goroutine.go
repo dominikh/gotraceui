@@ -1104,6 +1104,7 @@ func (gs *GoroutineList) initTable(win *theme.Window, gtx layout.Context) {
 }
 
 func (gs *GoroutineList) Update(gtx layout.Context) {
+	gs.table.Update(gtx)
 	if _, ok := gs.table.SortByClickedColumn(); ok {
 		// Trigger resorting.
 		gs.setGoroutines(gtx, gs.Goroutines.Items)

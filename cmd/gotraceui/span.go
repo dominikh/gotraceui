@@ -645,6 +645,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		spans.table.SortOrder = theme.SortAscending
 	}
 
+	spans.table.Update(gtx)
 	if _, ok := spans.table.SortByClickedColumn(); ok {
 		spans.sort()
 	}
