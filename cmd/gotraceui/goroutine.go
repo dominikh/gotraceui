@@ -541,9 +541,8 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 }
 
 var spanStateLabels = [...][]string{
-	ptrace.StateInactive: {"inactive"},
-	// StateActive isn't needed, those spans have custom labels
-	ptrace.StateActive:                  {},
+	ptrace.StateInactive:                {"inactive"},
+	ptrace.StateActive:                  {"active"},
 	ptrace.StateGCIdle:                  {"GC (idle)", "I"},
 	ptrace.StateGCDedicated:             {"GC (dedicated)", "D"},
 	ptrace.StateGCFractional:            {"GC (fractional)", "F"},
