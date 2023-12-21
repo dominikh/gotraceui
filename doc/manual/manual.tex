@@ -196,13 +196,19 @@ The authors hope that execution traces will become a standard debugging tool for
 \section*{NixOS, nixpkgs}
 
 Gotraceui can be installed from Nixpkgs.
-The stable channel \code{23.05} contains version 0.2.0,
+The stable channel \code{23.11} contains version 0.3.0,
 while the unstable channel contains the latest released version
 (within reason, as it takes some time to update Nixpkgs after a new release of Gotraceui.)
 
+\section*{Flatpak}
+
+An unofficial, third-party Flatpak exists at \url{https://github.com/hdonnay/co.honnef.Gotraceui}.
+We're not in control of it and you'd be installing it at your own risk.
+The last time we looked at it (at commit \code{ecf252fd56ce02071c7eb829de81726a0df98d51}), it seemed safe.
+
 \section*{Linux}
 
-Gotraceui hasn't yet been packaged by any Linux distributions.
+Gotraceui hasn't yet been packaged by most Linux distributions.
 You can build it yourself, as long as you have the following development dependencies installed:
 
 \begin{itemize}
