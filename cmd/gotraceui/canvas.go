@@ -553,9 +553,17 @@ func (cv *Canvas) height(gtx layout.Context) int {
 		return cch.height
 	}
 
+	// OPT(dh): reuse slice
+	totals, _ := mysync.Map(cv.timelines, 0, nil, func(subitems []*Timeline) (int, error) {
+		total := 0
+		for _, tl := range subitems {
+			total += tl.Height(gtx, cv)
+		}
+		return total, nil
+	})
 	var total int
-	for _, tl := range cv.timelines {
-		total += tl.Height(gtx, cv)
+	for _, t := range totals {
+		total += t
 	}
 
 	cch.compact = cv.timeline.compact

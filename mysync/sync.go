@@ -2,10 +2,34 @@ package mysync
 
 import (
 	"runtime"
+	"slices"
 	"sync"
 )
 
-func Distribute[T any](items []T, limit int, fn func(group int, step int, subitems []T) error) error {
+func Map[S ~[]E, E, R any](items S, limit int, out []R, fn func(subitems S) (R, error)) ([]R, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = runtime.GOMAXPROCS(0)
+	}
+
+	if limit > len(items) {
+		limit = len(items)
+	}
+
+	out = slices.Grow(out, limit)[:len(out)+limit]
+	err := Distribute(items, limit, func(group int, step int, subitems S) error {
+		res, err := fn(subitems)
+		out[group] = res
+		return err
+	})
+
+	return out, err
+}
+
+func Distribute[S ~[]E, E any](items S, limit int, fn func(group int, step int, subitems S) error) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -27,7 +51,7 @@ func Distribute[T any](items []T, limit int, fn func(group int, step int, subite
 		g := g
 		go func() {
 			defer wg.Done()
-			var subset []T
+			var subset S
 			if g < limit-1 {
 				subset = items[g*step : (g+1)*step]
 			} else {
