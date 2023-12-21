@@ -423,6 +423,10 @@ func (tl *Timeline) Layout(
 		*tl.widget = TimelineWidget{}
 	}
 
+	tl.widget.clickedSpans = NoItems[ptrace.Span]{}
+	tl.widget.navigatedSpans = NoItems[ptrace.Span]{}
+	tl.widget.hoveredSpans = NoItems[ptrace.Span]{}
+
 	tl.widget.labelClicks = 0
 	for _, click := range tl.widget.labelClick.Update(gtx) {
 		switch click.Button {
@@ -453,10 +457,6 @@ func (tl *Timeline) Layout(
 	timelineLabelHeight := gtx.Dp(timelineLabelHeightDp)
 
 	tl.displayed = true
-
-	tl.widget.clickedSpans = NoItems[ptrace.Span]{}
-	tl.widget.navigatedSpans = NoItems[ptrace.Span]{}
-	tl.widget.hoveredSpans = NoItems[ptrace.Span]{}
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineHeight)}.Push(gtx.Ops).Pop()
 	tl.widget.hover.Add(gtx.Ops)
