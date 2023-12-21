@@ -626,6 +626,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		cv.nsPerPx = (float64(end) + 2*slack) / float64(cv.width)
 	}
 
+	cv.timeline.hover.Update(gtx.Queue)
+
 	if cv.hover.Update(gtx.Queue) {
 		cv.pointerAt = cv.hover.Pointer()
 	}
