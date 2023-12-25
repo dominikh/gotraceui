@@ -1,29 +1,15 @@
 package main
 
 import (
-	"honnef.co/go/gotraceui/trace"
+	exptrace "honnef.co/go/gotraceui/exptrace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
-type reason uint8
-
-const (
-	reasonNone reason = iota
-	reasonNewlyCreated
-	reasonGosched
-	reasonTimeSleep
-	reasonPreempted
-)
-
-var reasonByEventType = [256]reason{
-	trace.EvGoCreate:  reasonNewlyCreated,
-	trace.EvGoSched:   reasonGosched,
-	trace.EvGoSleep:   reasonTimeSleep,
-	trace.EvGoPreempt: reasonPreempted,
-}
-
 type Trace struct {
 	*ptrace.Trace
+
+	// The offset to apply to all timestamps from the trace.
+	TimeOffset exptrace.Time
 
 	GOROOT string
 	GOPATH string
@@ -32,15 +18,21 @@ type Trace struct {
 	allProcessorSpanLabels [][]string
 }
 
+// AdjustedTime represents a timestamp with the time offset already applied.
+type AdjustedTime exptrace.Time
+
+func (t *Trace) AdjustedTime(ts exptrace.Time) AdjustedTime {
+	return AdjustedTime(ts + t.TimeOffset)
+}
+
+func (t *Trace) UnadjustedTime(ts AdjustedTime) exptrace.Time {
+	return exptrace.Time(ts) - t.TimeOffset
+}
+
 func (t *Trace) goroutineSpanLabels(g *ptrace.Goroutine) []string {
 	return t.allGoroutineSpanLabels[g.SeqID]
 }
 
 func (t *Trace) processorSpanLabels(p *ptrace.Processor) []string {
 	return t.allProcessorSpanLabels[p.SeqID]
-}
-
-//gcassert:inline
-func (t *Trace) Reason(evID ptrace.EventID) reason {
-	return reasonByEventType[t.Events[evID].Type]
 }

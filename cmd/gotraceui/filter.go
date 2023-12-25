@@ -106,11 +106,11 @@ func (f Filter) couldMatchProcessor(spans ptrace.Spans, container ItemContainer)
 func (f Filter) couldMatchState(spans ptrace.Spans, container ItemContainer) bool {
 	switch item := container.Timeline.item.(type) {
 	case *ptrace.Processor:
-		return f.HasState(ptrace.StateRunningG)
+		return f.HasState(ptrace.StateProcRunningG)
 	case *ptrace.Goroutine:
 		switch container.Track.kind {
 		case TrackKindUnspecified:
-			if item.Function.Fn == "runtime.bgsweep" {
+			if item.Function.Func == "runtime.bgsweep" {
 				// bgsweep, especially in Go <1.21, can be responsible for millions of spans, but they can only ever be of
 				// two states.
 

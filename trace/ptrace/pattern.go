@@ -1,7 +1,5 @@
 package ptrace
 
-import "honnef.co/go/gotraceui/trace"
-
 type SpanTags uint8
 
 const (
@@ -33,6 +31,7 @@ type pattern struct {
 // TODO(dh): implement a pattern language similar to that used in Staticcheck so that we can express ANDs and ORs
 // without having to write a bunch of Go.
 var patterns = [256][]pattern{
+	// XXX add a pattern for "GC incremental sweep" range, to skip some amount of frames
 	StateBlocked: {
 		{
 			state: StateBlocked,
@@ -213,12 +212,12 @@ var patterns = [256][]pattern{
 	},
 }
 
-func applyPatterns(s Span, pcs map[uint64]trace.Frame, stack []uint64) Span {
+func applyPatterns(tr *Trace, s Span, pcs []uint64) Span {
 	// OPT(dh): be better than O(n)
 
 patternLoop:
 	for _, p := range patterns[s.State] {
-		if len(stack) < len(p.fns) {
+		if len(pcs) < len(p.fns) {
 			continue
 		}
 
@@ -226,7 +225,7 @@ patternLoop:
 			if fn == "" {
 				continue
 			}
-			if pcs[stack[i]].Fn != fn {
+			if tr.PCs[pcs[i]].Func != fn {
 				continue patternLoop
 			}
 		}
@@ -236,8 +235,8 @@ patternLoop:
 
 			// OPT(dh): be better than O(n²)
 		offsetLoop:
-			for start := range stack {
-				if len(stack[start:]) < len(relFns) {
+			for start := 0; start < len(pcs); start++ {
+				if len(pcs)-start < len(relFns) {
 					break
 				}
 
@@ -245,7 +244,7 @@ patternLoop:
 					if fn == "" {
 						continue
 					}
-					if pcs[stack[start:][i]].Fn != fn {
+					if tr.PCs[pcs[i+start]].Func != fn {
 						continue offsetLoop
 					}
 				}
@@ -259,12 +258,12 @@ patternLoop:
 			}
 		}
 
-		if p.at != 0 && int(p.at) >= len(stack) {
+		if p.at != 0 && int(p.at) >= len(pcs) {
 			continue
 		}
 
 		if p.at != 0 {
-			if int(p.at) < len(stack) {
+			if int(p.at) < len(pcs) {
 				s.At = p.at
 			} else {
 				continue

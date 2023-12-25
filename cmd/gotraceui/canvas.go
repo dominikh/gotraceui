@@ -17,7 +17,6 @@ import (
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
@@ -29,6 +28,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/x/component"
+	exptrace "honnef.co/go/gotraceui/exptrace"
 )
 
 type showTooltips uint8
@@ -75,13 +75,13 @@ const animateLength = 250 * time.Millisecond
 const maxLocationHistoryEntries = 1024
 
 type LocationHistoryEntry struct {
-	start   trace.Timestamp
+	start   exptrace.Time
 	nsPerPx float64
 	y       normalizedY
 }
 
 type canvasAnimation struct {
-	start   trace.Timestamp
+	start   exptrace.Time
 	nsPerPx float64
 	y       normalizedY
 }
@@ -95,6 +95,7 @@ func (ca canvasAnimation) Lerp(end canvasAnimation, r float64) canvasAnimation {
 }
 
 type Canvas struct {
+	// TODO(dh): remove trace field and make Canvas agnostic of Go traces
 	trace *Trace
 
 	debugWindow *DebugWindow
@@ -104,7 +105,7 @@ type Canvas struct {
 	clickedSpans          []Items[ptrace.Span]
 
 	// The start of the timeline
-	start   trace.Timestamp
+	start   exptrace.Time
 	nsPerPx float64
 
 	// The width of the canvas, in pixels, updated on each frame
@@ -120,7 +121,7 @@ type Canvas struct {
 	scratchTexs  []TextureStack
 	scratchDones []chan struct{}
 
-	indicateTimestamp container.Option[trace.Timestamp]
+	indicateTimestamp container.Option[exptrace.Time]
 
 	animate theme.Animation[canvasAnimation]
 
@@ -139,8 +140,8 @@ type Canvas struct {
 		ready   bool
 		clickAt f32.Point
 		active  bool
-		start   trace.Timestamp
-		end     trace.Timestamp
+		start   exptrace.Time
+		end     exptrace.Time
 		startY  normalizedY
 	}
 
@@ -175,7 +176,7 @@ type Canvas struct {
 	// prevFrame records the canvas's state in the previous state. It allows reusing the computed displayed spans
 	// between frames if the canvas hasn't changed.
 	prevFrame struct {
-		start              trace.Timestamp
+		start              exptrace.Time
 		y                  normalizedY
 		metric             unit.Metric
 		nsPerPx            float64
@@ -233,8 +234,8 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	}
 }
 
-func (cv *Canvas) End() trace.Timestamp {
-	return cv.start + trace.Timestamp(float64(cv.width)*cv.nsPerPx)
+func (cv *Canvas) End() exptrace.Time {
+	return cv.start + exptrace.Time(float64(cv.width)*cv.nsPerPx)
 }
 
 func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
@@ -301,7 +302,7 @@ func (cv *Canvas) rememberLocation() {
 	cv.locationHistory.push(e)
 }
 
-func (cv *Canvas) navigateToChecks(start trace.Timestamp, nsPerPx float64, y normalizedY) bool {
+func (cv *Canvas) navigateToChecks(start exptrace.Time, nsPerPx float64, y normalizedY) bool {
 	if start == cv.start && nsPerPx == cv.nsPerPx && y == cv.y {
 		// We're already there, do nothing. In particular, don't push to the location history.
 		return false
@@ -320,7 +321,7 @@ func (cv *Canvas) cancelNavigation() {
 
 // navigateTo modifes the canvas's start, end and y values, recording the new location in the undo stack.
 // navigateTo rejects invalid operations, like setting start = end.
-func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
+func (cv *Canvas) navigateTo(gtx layout.Context, start exptrace.Time, nsPerPx float64, y normalizedY) {
 	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
@@ -333,12 +334,12 @@ func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx 
 	})
 }
 
-func (cv *Canvas) navigateToStartAndEnd(gtx layout.Context, start, end trace.Timestamp, y normalizedY) {
+func (cv *Canvas) navigateToStartAndEnd(gtx layout.Context, start, end exptrace.Time, y normalizedY) {
 	nsPerPx := float64(end-start) / float64(cv.width)
 	cv.navigateTo(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
+func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start exptrace.Time, nsPerPx float64, y normalizedY) {
 	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
@@ -346,7 +347,7 @@ func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp,
 	cv.navigateToImpl(gtx, start, nsPerPx, y)
 }
 
-func (cv *Canvas) navigateToImpl(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
+func (cv *Canvas) navigateToImpl(gtx layout.Context, start exptrace.Time, nsPerPx float64, y normalizedY) {
 	cv.animate.Start(gtx, canvasAnimation{cv.start, cv.nsPerPx, cv.y}, canvasAnimation{start, nsPerPx, y}, animateLength, nil)
 }
 
@@ -415,7 +416,7 @@ func (cv *Canvas) endDrag() {
 
 func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
 	td := time.Duration(math.Round(cv.nsPerPx * float64(cv.drag.clickAt.X-pos.X)))
-	cv.start = cv.drag.start + trace.Timestamp(td)
+	cv.start = cv.drag.start + exptrace.Time(td)
 
 	yd := int(round32(cv.drag.clickAt.Y - pos.Y))
 	cv.y = cv.drag.startY + cv.normalizeY(gtx, yd)
@@ -432,8 +433,8 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	if ticks < 0 {
 		// Scrolling up, into the screen, zooming in
 		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
-		ds := trace.Timestamp(cv.nsPerPx * 100 * ratio)
-		de := trace.Timestamp(cv.nsPerPx * 100 * (1 - ratio))
+		ds := exptrace.Time(cv.nsPerPx * 100 * ratio)
+		de := exptrace.Time(cv.nsPerPx * 100 * (1 - ratio))
 
 		start := cv.start + ds
 		end := cv.End() - de
@@ -446,8 +447,8 @@ func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
 	} else if ticks > 0 {
 		// Scrolling down, out of the screen, zooming out
 		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
-		ds := trace.Timestamp(cv.nsPerPx * 100 * ratio)
-		de := trace.Timestamp(cv.nsPerPx * 100 * (1 - ratio))
+		ds := exptrace.Time(cv.nsPerPx * 100 * ratio)
+		de := exptrace.Time(cv.nsPerPx * 100 * (1 - ratio))
 
 		// Make sure the user can always zoom out
 		if ds < 1 {
@@ -485,17 +486,17 @@ func (cv *Canvas) visibleSpans(spans Items[ptrace.Span]) Items[ptrace.Span] {
 }
 
 //gcassert:inline
-func (cv *Canvas) tsToPx(t trace.Timestamp) float32 {
+func (cv *Canvas) tsToPx(t exptrace.Time) float32 {
 	return float32(float64(t-cv.start) / float64(cv.nsPerPx))
 }
 
 //gcassert:inline
-func (cv *Canvas) pxToTs(px float32) trace.Timestamp {
-	return trace.Timestamp(math.Round(float64(px)*float64(cv.nsPerPx) + float64(cv.start)))
+func (cv *Canvas) pxToTs(px float32) exptrace.Time {
+	return exptrace.Time(math.Round(float64(px)*float64(cv.nsPerPx) + float64(cv.start)))
 }
 
 func (cv *Canvas) ZoomToFitCurrentView(gtx layout.Context) {
-	var first, last trace.Timestamp = -1, -1
+	var first, last exptrace.Time = -1, -1
 	start, end := cv.visibleTimelines(gtx)
 	for _, tl := range cv.timelines[start:end] {
 		for _, track := range tl.tracks {
@@ -611,7 +612,7 @@ func (cv *Canvas) ScrollToTop(gtx layout.Context) {
 }
 
 func (cv *Canvas) JumpToBeginning(gtx layout.Context) {
-	cv.navigateTo(gtx, 0, cv.nsPerPx, cv.y)
+	cv.navigateTo(gtx, -cv.trace.TimeOffset, cv.nsPerPx, cv.y)
 }
 
 func (cv *Canvas) ToggleCompactDisplay() {
@@ -631,7 +632,7 @@ func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 	}
 	// XXX don't allow dragging cv.y beyond end
 
-	cv.start += trace.Timestamp(math.Round(float64(dx) * cv.nsPerPx))
+	cv.start += exptrace.Time(math.Round(float64(dx) * cv.nsPerPx))
 }
 
 func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
@@ -653,8 +654,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 	if cv.nsPerPx == 0 {
 		end := cv.trace.End()
-		slack := float64(end) * 0.05
-		cv.nsPerPx = (float64(end) + 2*slack) / float64(cv.width)
+		slack := exptrace.Time(float64(end - -cv.trace.TimeOffset) * 0.05)
+		cv.start = -cv.trace.TimeOffset - slack
+		cv.nsPerPx = float64((end - -cv.trace.TimeOffset)+2*slack) / float64(cv.width)
 		cv.rememberLocation()
 	}
 
@@ -1251,7 +1253,7 @@ type Axis struct {
 		ops    mem.ReusableOps
 		call   op.CallOp
 		dims   layout.Dimensions
-		origin trace.Timestamp
+		origin AdjustedTime
 	}
 }
 
@@ -1336,12 +1338,13 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, int(tickHeight))}
 	}
 
-	min := axis.cv.start
-	max := axis.cv.End()
-	var origin trace.Timestamp
+	min := axis.cv.trace.AdjustedTime(axis.cv.start)
+	max := axis.cv.trace.AdjustedTime(axis.cv.End())
+
+	var origin AdjustedTime
 	switch axis.anchor {
 	case AxisAnchorNone:
-		origin = axis.cv.pxToTs(axis.position)
+		origin = axis.cv.trace.AdjustedTime(axis.cv.pxToTs(axis.position))
 		if origin < min {
 			origin = min
 		}
@@ -1380,8 +1383,9 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	var originLabelExtents image.Rectangle
 	var prevLabelEnd float32
 
-	drawTick := func(t trace.Timestamp, label string, forward bool) {
-		add := func(a, b trace.Timestamp) trace.Timestamp {
+	drawTick := func(at AdjustedTime, label string, forward bool) {
+		t := axis.cv.trace.UnadjustedTime(at)
+		add := func(a, b exptrace.Time) exptrace.Time {
 			if forward {
 				return a + b
 			} else {
@@ -1421,8 +1425,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		rect.IntoPath(&ticksPath)
 
 		for j := 1; j <= 9; j++ {
-			smallStart := axis.cv.tsToPx(add(t, trace.Timestamp(tickInterval/10)*trace.Timestamp(j))) - tickWidth/2
-			smallEnd := axis.cv.tsToPx(add(t, trace.Timestamp(tickInterval/10)*trace.Timestamp(j))) + tickWidth/2
+			smallStart := axis.cv.tsToPx(add(t, exptrace.Time(tickInterval/10)*exptrace.Time(j))) - tickWidth/2
+			smallEnd := axis.cv.tsToPx(add(t, exptrace.Time(tickInterval/10)*exptrace.Time(j))) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 {
 				smallTickHeight = tickHeight / 2
@@ -1452,7 +1456,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	}
 
 	// drawOrigin draws the origin tick and label, as well as minor ticks on both sides.
-	drawOrigin := func(t trace.Timestamp) {
+	drawOrigin := func(at AdjustedTime) {
+		t := axis.cv.trace.UnadjustedTime(at)
 		start := axis.cv.tsToPx(t) - tickWidth/2
 		end := axis.cv.tsToPx(t) + tickWidth/2
 		rect := clip.FRect{
@@ -1462,8 +1467,8 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		rect.IntoPath(&ticksPath)
 
 		for j := -9; j <= 9; j++ {
-			smallStart := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) - tickWidth/2
-			smallEnd := axis.cv.tsToPx(t+trace.Timestamp(tickInterval/10)*trace.Timestamp(j)) + tickWidth/2
+			smallStart := axis.cv.tsToPx(t+exptrace.Time(tickInterval/10)*exptrace.Time(j)) - tickWidth/2
+			smallEnd := axis.cv.tsToPx(t+exptrace.Time(tickInterval/10)*exptrace.Time(j)) + tickWidth/2
 			smallTickHeight := tickHeight / 3
 			if j == 5 || j == -5 {
 				smallTickHeight = tickHeight / 2
@@ -1476,7 +1481,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 		}
 
 		rec := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			label := formatTimestamp(nil, t)
+			label := formatTimestamp(nil, at)
 			ls := theme.LineLabel(win.Theme, label)
 			ls.Font = font.Font{Weight: font.Bold}
 			return ls.Layout(win, gtx)
@@ -1501,13 +1506,13 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 	drawOrigin(origin)
 
 	prevLabelEnd = float32(originLabelExtents.Max.X)
-	for t := origin + trace.Timestamp(tickInterval); t < max; t += trace.Timestamp(tickInterval) {
+	for t := origin + AdjustedTime(tickInterval); t < max; t += AdjustedTime(tickInterval) {
 		label := fmt.Sprintf("+%s", time.Duration(t-origin))
 		drawTick(t, label, true)
 	}
 
 	prevLabelEnd = float32(originLabelExtents.Min.X)
-	for t := origin - trace.Timestamp(tickInterval); t >= min; t -= trace.Timestamp(tickInterval) {
+	for t := origin - AdjustedTime(tickInterval); t >= min; t -= AdjustedTime(tickInterval) {
 		label := fmt.Sprintf("-%s", time.Duration(origin-t))
 		drawTick(t, label, false)
 	}

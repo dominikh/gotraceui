@@ -83,7 +83,6 @@ import (
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	myunsafe "honnef.co/go/gotraceui/unsafe"
 
@@ -92,6 +91,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/paint"
 	"github.com/golang/snappy"
+	exptrace "honnef.co/go/gotraceui/exptrace"
 )
 
 const (
@@ -211,7 +211,7 @@ type texture struct {
 	// sampling tracks get niled out when the widget scrolls out of view. We don't want to handle nil spans and
 	// not-yet-ready spans and risk restarting futures in several places.
 	spans Items[ptrace.Span]
-	start trace.Timestamp
+	start exptrace.Time
 	// The texture's effective nsPerPx. When rendering a texture for a given nsPerPx, its XScale should be nsPerPx /
 	// texture.nsPerPx.
 	nsPerPx float64
@@ -257,8 +257,8 @@ func (tex *texture) ready() bool {
 	return TryRecv(tex.computed.done) && tex.computed.uniform != nil
 }
 
-func (tex *texture) End() trace.Timestamp {
-	return tex.start + trace.Timestamp(texWidth*tex.nsPerPx)
+func (tex *texture) End() exptrace.Time {
+	return tex.start + exptrace.Time(texWidth*tex.nsPerPx)
 }
 
 type Renderer struct {
@@ -330,7 +330,7 @@ func (r *Renderer) planTextures(
 	win *theme.Window,
 	track *Track,
 	spans Items[ptrace.Span],
-	start trace.Timestamp,
+	start exptrace.Time,
 	nsPerPx float64,
 	out []*texture,
 ) []*texture {
@@ -345,7 +345,7 @@ func (r *Renderer) planTextures(
 	}
 
 	// The texture covers the time range [start, end]
-	end := trace.Timestamp(math.Ceil(float64(start) + nsPerPx*texWidth))
+	end := exptrace.Time(math.Ceil(float64(start) + nsPerPx*texWidth))
 	// The effective end of the texture is limited to the track's end. This is important in two places. 1, when
 	// returning a uniform placeholder span, because it shouldn't be longer than the track. 2, when looking for an
 	// existing, higher resolution texture that covers the entire range. It doesn't have to cover the larger void
@@ -526,7 +526,7 @@ func computeTexture(tex *texture) textureImage {
 	}
 
 	// The texture covers the time range [start, end]
-	end := trace.Timestamp(math.Ceil(float64(start) + nsPerPx*texWidth))
+	end := exptrace.Time(math.Ceil(float64(start) + nsPerPx*texWidth))
 
 	if nsPerPx == 0 {
 		panic("got zero nsPerPx")
@@ -654,8 +654,8 @@ func (r *Renderer) Render(
 	track *Track,
 	spans Items[ptrace.Span],
 	nsPerPx float64,
-	start trace.Timestamp,
-	end trace.Timestamp,
+	start exptrace.Time,
+	end exptrace.Time,
 	textureStacks []TextureStack,
 	textures []Texture,
 ) ([]TextureStack, []Texture) {
@@ -719,7 +719,7 @@ func (r *Renderer) Render(
 	nsPerPx = math.Pow(2, math.Floor(math.Log2(nsPerPx)))
 	m := texWidth * nsPerPx
 	// Shift start point to the left to align with a multiple of texWidth * nsPerPx...
-	start = trace.Timestamp(m * math.Floor(float64(start)/m))
+	start = exptrace.Time(m * math.Floor(float64(start)/m))
 	// ... but don't set start point to before the track's start.
 	start = max(start, spans.AtPtr(0).Start)
 	// Don't set end beyond track's end. This doesn't have any effect on the computed texture, but limits how many
@@ -735,7 +735,7 @@ func (r *Renderer) Render(
 	}
 
 	// texWidth is an integer pixel amount, and nsPerPx is rounded to a power of 2, ergo also integer.
-	step := trace.Timestamp(texWidth * nsPerPx)
+	step := exptrace.Time(texWidth * nsPerPx)
 	if step == 0 {
 		// For a texWidth, if the user zooms to log2(pxPerNs) < -log2(texWidth), step will truncate to zero. As long as
 		// texWidth >= 8192, this should be impossible, because Gio doesn't support clip areas larger than 8192, and
@@ -790,8 +790,8 @@ func (tm *TextureManager) Render(
 	track *Track,
 	spans Items[ptrace.Span],
 	nsPerPx float64,
-	start trace.Timestamp,
-	end trace.Timestamp,
+	start exptrace.Time,
+	end exptrace.Time,
 	textureStacks []TextureStack,
 	textures []Texture,
 ) ([]TextureStack, []Texture) {

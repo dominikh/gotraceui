@@ -5,26 +5,33 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/exp/slices"
 	"honnef.co/go/gotraceui/container"
-	"honnef.co/go/gotraceui/trace"
+	"honnef.co/go/gotraceui/mem"
+
+	"golang.org/x/exp/slices"
+	exptrace "honnef.co/go/gotraceui/exptrace"
 )
 
-// This boolean guards all code involving displaying machine timelines. That feature is currently broken, because the
-// trace parser only produces an event ordering that is consistent for goroutines, but not for machines. For example, it
-// may try to start a P on an M that is currently blocked on a syscall.
-const supportMachineTimelines = false
+type Point struct {
+	When  exptrace.Time
+	Value uint64
+}
 
 type SchedulingState uint8
 
 const (
 	StateNone SchedulingState = iota
+
+	StateUndetermined
 
 	// Goroutine states
 	StateInactive
@@ -43,6 +50,7 @@ const (
 	StateBlockedNet
 	StateBlockedGC
 	StateBlockedSyscall
+	StateWaitingPreempted
 	StateStuck
 	StateReady
 	StateCreated
@@ -56,48 +64,102 @@ const (
 	StateCPUSample
 
 	// Processor states
-	StateRunningG
-
-	// Machine states
-	StateRunningP
+	// The proc is running but doesn't have a G
+	StateProcRunningNoG
+	// The proc is running and has a G
+	StateProcRunningG
+	// The proc is running and has a G, but the G is blocked
+	StateProcRunningBlocked
 
 	StateLast
 )
 
-type Point struct {
-	When  trace.Timestamp
-	Value uint64
-}
-
 type Trace struct {
 	// OPT(dh): can we get rid of all these pointers?
-	Goroutines []*Goroutine
-	Processors []*Processor
-	Machines   []*Machine
-	Functions  map[string]*Function
-	GC         []Span
-	STW        []Span
-	Tasks      []*Task
-	HeapSize   []Point
-	HeapGoal   []Point
-	// Mapping from Goroutine ID to list of CPU sample events
-	CPUSamples map[uint64][]EventID
+	Goroutines    []*Goroutine
+	Processors    []*Processor
+	Machines      []*Machine
+	Functions     map[string]*Function
+	GC            []Span
+	STW           []Span
+	Tasks         []*Task
+	Metrics       map[string][]Point
+	CPUSamples    []EventID
+	CPUSamplesByG map[exptrace.GoID][]EventID
+	CPUSamplesByP map[exptrace.ProcID][]EventID
+	Events        mem.LargeBucketSlice[exptrace.Event]
+	PCs           map[uint64]exptrace.StackFrame
+	Stacks        map[exptrace.Stack][]uint64
 
-	gsByID map[uint64]*Goroutine
+	gsByID map[exptrace.GoID]*Goroutine
 	// psByID and msById will be unset after parsing finishes
-	psByID        map[int32]*Processor
-	msByID        map[int32]*Machine
-	HasCPUSamples bool
-
-	trace.Trace
+	psByID map[exptrace.ProcID]*Processor
+	msByID map[exptrace.ThreadID]*Machine
 }
 
-func (t *Trace) End() trace.Timestamp {
-	if len(t.Events) == 0 {
+func (t *Trace) addStack(stk exptrace.Stack) {
+	if stk == exptrace.NoStack {
+		return
+	}
+
+	if _, ok := t.Stacks[stk]; ok {
+		return
+	}
+
+	type dataTable struct {
+		present []uint8
+		dense   [][]uint64
+		sparse  map[uint64][]uint64
+	}
+
+	get := func(d *dataTable, id uint64) ([]uint64, bool) {
+		if id == 0 {
+			return nil, true
+		}
+		if uint64(id) < uint64(len(d.dense)) {
+			if d.present[id/8]&(uint8(1)<<(id%8)) != 0 {
+				return d.dense[id], true
+			}
+		} else if d.sparse != nil {
+			if data, ok := d.sparse[id]; ok {
+				return data, true
+			}
+		}
+		return nil, false
+	}
+
+	// Get PC slices directly from exptrace, instead of copying them.
+	table := reflect.ValueOf(stk).FieldByName("table")
+	stacks := (*dataTable)(table.Elem().FieldByName("stacks").Addr().UnsafePointer())
+	pcs, _ := get(stacks, reflect.ValueOf(stk).FieldByName("id").Uint())
+	t.Stacks[stk] = pcs
+
+	stk.Frames(func(f exptrace.StackFrame) bool {
+		t.PCs[f.PC] = f
+		return true
+	})
+}
+
+// Start returns the time of the first event in the trace.
+func (t *Trace) Start() exptrace.Time {
+	if t.Events.Len() == 0 {
+		return 0
+	}
+	return t.Events.Ptr(0).Time()
+}
+
+// End returns the time of the last event in the trace.
+func (t *Trace) End() exptrace.Time {
+	if t.Events.Len() == 0 {
 		return 0
 	}
 
-	return t.Events[len(t.Events)-1].Ts
+	return t.Events.Ptr(t.Events.Len() - 1).Time()
+}
+
+// Duration returns the time from the first to the last event in the trace.
+func (t *Trace) Duration() time.Duration {
+	return time.Duration(t.End() - t.Start())
 }
 
 type Statistics [StateLast]Statistic
@@ -142,32 +204,33 @@ type Statistic struct {
 }
 
 type Function struct {
-	trace.Frame
+	exptrace.StackFrame
 	// Sequential ID of function in the trace
 	SeqID      int
 	Goroutines []*Goroutine
 }
 
 func (fn Function) String() string {
-	return fn.Fn
+	return fn.Func
 }
 
 type Goroutine struct {
-	ID     uint64
-	Parent uint64
+	ID     exptrace.GoID
+	Parent exptrace.GoID
 	// Sequential ID of goroutine in the trace
 	SeqID    int
 	Function *Function
 	Spans    []Span
+	Ranges   map[string][]Span
 	// The actual Start and end times of the goroutine. While spans are bounded to 0 and the end of the trace, the
 	// actual Start and end of the goroutine might be unknown.
-	Start       container.Option[trace.Timestamp]
-	End         container.Option[trace.Timestamp]
+	Start       container.Option[exptrace.Time]
+	End         container.Option[exptrace.Time]
 	UserRegions [][]Span
 	Events      []EventID
 }
 
-func (g *Goroutine) EffectiveStart() trace.Timestamp {
+func (g *Goroutine) EffectiveStart() exptrace.Time {
 	if ts, ok := g.Start.Get(); ok {
 		return ts
 	} else {
@@ -179,7 +242,7 @@ func (g *Goroutine) EffectiveStart() trace.Timestamp {
 	}
 }
 
-func (g *Goroutine) EffectiveEnd() trace.Timestamp {
+func (g *Goroutine) EffectiveEnd() exptrace.Time {
 	if ts, ok := g.End.Get(); ok {
 		return ts
 	} else {
@@ -192,7 +255,7 @@ func (g *Goroutine) EffectiveEnd() trace.Timestamp {
 }
 
 type Machine struct {
-	ID int32
+	ID exptrace.ThreadID
 	// Sequential ID of machine in the trace
 	SeqID int
 	// OPT(dh): using Span for Ms is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
@@ -203,13 +266,11 @@ type Machine struct {
 }
 
 type Processor struct {
-	ID int32
+	ID exptrace.ProcID
 	// Sequential ID of processor in the trace
-	SeqID int
-	// OPT(dh): using Span for Ps is wasteful. We don't need tags, stacktrace offsets etc. We only care about what
-	// goroutine is running at what time. The only benefit of reusing Span is that we can use the same code for
-	// rendering Gs and Ps, but that doesn't seem worth the added cost.
-	Spans []Span
+	SeqID  int
+	Spans  []Span
+	Ranges map[string][]Span
 
 	// Labels used for spans representing this processor
 	// spanLabels []string
@@ -220,7 +281,8 @@ type Processor struct {
 type Task struct {
 	// OPT(dh): Technically we only need the EventID field, everything else can be extracted from the event on demand.
 	// But there are probably not enough tasks to make that worth it.
-	ID uint64
+	ID     exptrace.TaskID
+	Parent exptrace.TaskID
 	// Sequential ID of task in the trace
 	SeqID int
 	Name  string
@@ -231,15 +293,47 @@ func (t *Task) Stub() bool {
 	return t.Event == 0
 }
 
+func (s *Span) StartedBeforeTrace(tr *Trace) bool {
+	if s.State == StateUndetermined {
+		return true
+	}
+	if s.StartEvent != NoEvent {
+		ev := tr.Event(s.StartEvent)
+		if ev.Kind() == exptrace.EventStateTransition {
+			trans := ev.StateTransition()
+			switch trans.Resource.Kind {
+			case exptrace.ResourceNone:
+			case exptrace.ResourceThread:
+			case exptrace.ResourceProc:
+				from, _ := trans.Proc()
+				if from == exptrace.ProcUndetermined {
+					return true
+				}
+			case exptrace.ResourceGoroutine:
+				from, _ := trans.Goroutine()
+				if from == exptrace.GoUndetermined {
+					return true
+				}
+			default:
+				panic(fmt.Sprintf("unhandled kind %s", trans.Resource.Kind))
+			}
+		}
+	}
+	return false
+}
+
 type Span struct {
 	// The Span type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
 	// collector won't have to scan any memory of our millions of events.
 	//
 	// Instead of pointers, fields like PC and Event are indices into slices.
 
-	Start trace.Timestamp
-	End   trace.Timestamp
-	Event EventID
+	Start exptrace.Time
+	End   exptrace.Time
+	// The event that started the span.
+	StartEvent EventID
+	// The event that ended the span. Usually this is the start event of the next span.
+	EndEvent EventID
 	// At is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	At uint8
 	// We track the scheduling State explicitly, instead of mapping from trace.Event.Type, because we apply pattern
@@ -247,20 +341,37 @@ type Span struct {
 	// stateBlockedSyncOnce from the stack trace, and we would otherwise use stateBlockedSync.
 	State SchedulingState
 	Tags  SpanTags
+	// The kind of span. This primarily affects the kinds of events you can find in StartEvent and EndEvent.
+	Kind SpanKind
 }
 
+type SpanKind uint8
+
+const (
+	SpanKindNone SpanKind = iota
+	// The span encompasses a state transition into and a state transition out of the span.
+	SpanKindStateTransition
+	SpanKindCustom
+)
+
+// The ID of an event. The zero ID indicates the lack of an event.
 type EventID int32
 
-func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
+const NoEvent EventID = -1
+
+func Parse(r *exptrace.Reader, progress func(float64)) (*Trace, error) {
 	tr := &Trace{
-		Trace:      res,
-		Functions:  map[string]*Function{},
-		gsByID:     map[uint64]*Goroutine{},
-		psByID:     map[int32]*Processor{},
-		msByID:     map[int32]*Machine{},
-		CPUSamples: map[uint64][]EventID{},
-		GC:         make(spansSlice, 0),
-		STW:        make(spansSlice, 0),
+		Functions:     map[string]*Function{},
+		gsByID:        map[exptrace.GoID]*Goroutine{},
+		psByID:        map[exptrace.ProcID]*Processor{},
+		msByID:        map[exptrace.ThreadID]*Machine{},
+		CPUSamplesByG: map[exptrace.GoID][]EventID{},
+		CPUSamplesByP: map[exptrace.ProcID][]EventID{},
+		Metrics:       map[string][]Point{},
+		GC:            make(spansSlice, 0),
+		STW:           make(spansSlice, 0),
+		PCs:           make(map[uint64]exptrace.StackFrame),
+		Stacks:        make(map[exptrace.Stack][]uint64),
 	}
 
 	makeProgresser := func(stage int, numStages int) func(float64) {
@@ -272,13 +383,12 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 		}
 	}
 
-	if err := processEvents(res, tr, makeProgresser(1, 4)); err != nil {
+	if err := processEvents(r, tr, makeProgresser(1, 4)); err != nil {
 		return nil, err
 	}
 
 	populateObjects(tr, makeProgresser(2, 4))
 	postProcessSpans(tr, makeProgresser(3, 4))
-	removeBogusCreatedSpans(tr)
 
 	tr.psByID = nil
 	tr.msByID = nil
@@ -286,540 +396,478 @@ func Parse(res trace.Trace, progress func(float64)) (*Trace, error) {
 	return tr, nil
 }
 
-func processEvents(res trace.Trace, tr *Trace, progress func(float64)) error {
-	var evTypeToState = [...]SchedulingState{
-		trace.EvGoBlockSend:   StateBlockedSend,
-		trace.EvGoBlockRecv:   StateBlockedRecv,
-		trace.EvGoBlockSelect: StateBlockedSelect,
-		trace.EvGoBlockSync:   StateBlockedSync,
-		trace.EvGoBlockCond:   StateBlockedCond,
-		trace.EvGoBlockNet:    StateBlockedNet,
-		trace.EvGoBlockGC:     StateBlockedGC,
-		trace.EvGoBlock:       StateBlocked,
+type rangeScope uint8
+
+const (
+	rangeScopeUnknown = iota
+	rangeScopeSTW
+	rangeScopeGC
+	rangeScopeGlobal
+	rangeScopeThread
+	rangeScopeProc
+	rangeScopeGoroutine
+)
+
+func rangeActualScope(r exptrace.Range) rangeScope {
+	if strings.HasPrefix(r.Name, "stop-the-world") {
+		return rangeScopeSTW
+	}
+	switch r.Name {
+	case "GC mark assist":
+		// User goroutines may be asked to assist the GC's mark phase. This happens when the goroutine allocates
+		// memory and some condition is true. When that happens, the tracer starts a "GC mark assist" range for that
+		// goroutine.
+		return rangeScopeGoroutine
+	case "GC concurrent mark phase":
+		return rangeScopeGC
+	case "GC incremental sweep":
+		// XXX
 	}
 
-	getG := func(gid uint64) *Goroutine {
+	switch r.Scope.Kind {
+	case exptrace.ResourceGoroutine:
+		return rangeScopeGoroutine
+	case exptrace.ResourceProc:
+		return rangeScopeProc
+	case exptrace.ResourceThread:
+		return rangeScopeThread
+	case exptrace.ResourceNone:
+		return rangeScopeGlobal
+	default:
+		return rangeScopeUnknown
+	}
+}
+
+func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error {
+	// OPT(dh): evaluate reading all events in one pass, then preallocating []Span slices based on the number
+	// of events we saw for Ps and Gs.
+	getG := func(gid exptrace.GoID) *Goroutine {
 		g, ok := tr.gsByID[gid]
 		if ok {
 			return g
 		}
-		g = &Goroutine{ID: gid}
+		g = &Goroutine{
+			ID: gid,
+			// XXX only allocate map once we have a range to store
+			Ranges: map[string][]Span{},
+		}
 		tr.gsByID[gid] = g
 		return g
 	}
-	getP := func(pid int32) *Processor {
+	getP := func(pid exptrace.ProcID) *Processor {
 		p, ok := tr.psByID[pid]
 		if ok {
 			return p
 		}
 		p = &Processor{
 			ID: pid,
+			// XXX only allocate map once we have a range to store
+			Ranges: map[string][]Span{},
 			// spanLabels: []string{local.Sprintf("p%d", pid)},
 		}
 		tr.psByID[pid] = p
 		return p
 	}
-	getM := func(mid int32) *Machine {
-		if !supportMachineTimelines {
-			panic("getM was called despite supportmachineActivities == false")
-		}
-		m, ok := tr.msByID[mid]
-		if ok {
-			return m
-		}
-		m = &Machine{ID: mid}
-		tr.msByID[mid] = m
-		return m
-	}
-
-	// map from gid to stack ID
-	lastSyscall := map[uint64]uint32{}
-	// map from P to last M it ran on
-	lastMPerP := map[int32]int32{}
-	// set of gids currently in mark assist
-	inMarkAssist := map[uint64]struct{}{}
-	blockingSyscallPerP := map[int32]EventID{}
-	blockingSyscallMPerG := map[uint64]int32{}
-
-	// FIXME(dh): rename function. or remove it outright
-	addEventToCurrentSpan := func(gid uint64, ev EventID) {
-		if gid == 0 {
-			// Events such as the netpoller unblocking a goroutine will happen on g0.
-			return
-		}
+	addEventToCurrentSpan := func(gid exptrace.GoID, ev EventID) {
 		g := getG(gid)
 		g.Events = append(g.Events, ev)
 	}
 
-	// Count the number of events per goroutine to get an estimate of spans per goroutine, to preallocate slices.
-	eventsPerG := map[uint64]int{}
-	eventsPerP := map[int32]int{}
-	eventsPerM := map[int32]int{}
-	for evID := range res.Events {
-		ev := &res.Events[evID]
-		var gid uint64
-		switch ev.Type {
-		case trace.EvGoCreate, trace.EvGoUnblock:
-			gid = ev.Args[0]
-		case trace.EvGoStart, trace.EvGoStartLabel:
-			eventsPerP[ev.P]++
-			gid = ev.G
-		case trace.EvProcStart:
-			if supportMachineTimelines {
-				eventsPerM[int32(ev.Args[0])]++
+	synced := false
+	userRegionDepths := map[exptrace.GoID]int{}
+	var traceStart exptrace.Time
+	for {
+		ev, err := r.ReadEvent()
+		if err != nil {
+			if err == io.EOF {
+				break
 			}
-			continue
-		case trace.EvHeapAlloc:
-			tr.HeapSize = append(tr.HeapSize, Point{
-				ev.Ts,
-				ev.Args[trace.ArgHeapAllocMem],
-			})
-		case trace.EvHeapGoal:
-			tr.HeapGoal = append(tr.HeapGoal, Point{
-				ev.Ts,
-				ev.Args[trace.ArgHeapGoalMem],
-			})
-		case trace.EvGCStart, trace.EvSTWStart, trace.EvGCDone, trace.EvSTWDone,
-			trace.EvGomaxprocs, trace.EvUserTaskCreate,
-			trace.EvUserTaskEnd, trace.EvUserRegion, trace.EvUserLog, trace.EvCPUSample,
-			trace.EvProcStop, trace.EvGoSysCall:
-			continue
-		default:
-			gid = ev.G
+			return err
 		}
-		eventsPerG[gid]++
-	}
-	for gid, n := range eventsPerG {
-		getG(gid).Spans = make([]Span, 0, n)
-	}
-	for pid, n := range eventsPerP {
-		getP(pid).Spans = make([]Span, 0, n)
-	}
-	if supportMachineTimelines {
-		for mid, n := range eventsPerM {
-			getM(mid).Spans = make([]Span, 0, n)
+		// fmt.Println(ev)
+
+		// TODO(dh): call progress
+
+		if tr.Events.Len() == 0 {
+			traceStart = ev.Time()
 		}
-	}
 
-	userRegionDepths := map[uint64]int{}
-	for evID := range res.Events {
-		ev := &res.Events[evID]
-		if (evID+1)%10_000 == 0 {
-			progress(float64(evID) / float64(len(res.Events)))
+		evID := EventID(tr.Events.Len())
+		tr.Events.Append(ev)
+
+		// Cache all stacks
+		tr.addStack(ev.Stack())
+		if ev.Kind() == exptrace.EventStateTransition {
+			tr.addStack(ev.StateTransition().Stack)
 		}
-		var gid uint64
-		var state SchedulingState
-		var pState int
 
-		const (
-			pNone = iota
-			pRunG
-			pStopG
-		)
-
-		switch ev.Type {
-		case trace.EvGoCreate:
-			// ev.G creates ev.Args[0]
-			if ev.G != 0 {
-				addEventToCurrentSpan(ev.G, EventID(evID))
-			}
-			gid = ev.Args[trace.ArgGoCreateG]
-			g := getG(gid)
-			g.Start = container.Some(ev.Ts)
-			g.Parent = ev.G
-			if stkID := ev.Args[trace.ArgGoCreateStack]; stkID != 0 {
-				stack := res.Stacks[uint32(stkID)]
-				if len(stack) != 0 {
-					f := tr.function(res.PCs[stack[0]])
-					f.Goroutines = append(f.Goroutines, g)
-					g.Function = f
+		switch ev.Kind() {
+		case exptrace.EventSync:
+			synced = true
+		case exptrace.EventLabel:
+			l := ev.Label()
+			switch l.Resource.Kind {
+			case exptrace.ResourceGoroutine:
+				g := getG(l.Resource.Goroutine())
+				if len(g.Spans) == 0 {
+					return fmt.Errorf("got label for goroutine %d but it has no spans", g.ID)
 				}
+				span := &g.Spans[len(g.Spans)-1]
+				if tr.Events.Ptr(int(span.StartEvent)).Kind() != exptrace.EventStateTransition {
+					return fmt.Errorf("got label for goroutine %d but last span isn't a state transition", g.ID)
+				}
+				switch l.Label {
+				case "GC (dedicated)":
+					span.State = StateGCDedicated
+				case "GC (idle)":
+					span.State = StateGCIdle
+				case "GC (fractional)":
+					span.State = StateGCFractional
+				default:
+					log.Printf("unhandled label %q", l.Label)
+				}
+			default:
+				panic(fmt.Sprintf("unhandled kind %s", l.Resource.Kind))
 			}
-			// FIXME(dh): when tracing starts after goroutines have already been created then we receive an EvGoCreate
-			// for them. But those goroutines may not necessarily be in a non-running state. We do receive EvGoWaiting
-			// and EvGoInSyscall for goroutines that are blocked or in a syscall when tracing starts; does that mean
-			// that any goroutine that doesn't receive this event is currently running? If so we'd have to detect which
-			// goroutines receive neither EvGoWaiting or EvGoInSyscall, and which were already running.
-			//
-			// EvGoWaiting is emitted when we're in _Gwaiting, and EvGoInSyscall when we're in _Gsyscall. Critically
-			// this doesn't cover _Gidle and _Grunnable, which means we don't know if it's running or waiting to run. If
-			// there's another event then we can deduce it (we can't go from _Grunnable to _Gblocked, for example), but
-			// if there are no more events, then we cannot tell if the goroutine was always running or always runnable.
-			state = StateCreated
-		case trace.EvGoStart:
-			// ev.G starts running
-			gid = ev.G
-			pState = pRunG
-
-			if _, ok := inMarkAssist[gid]; ok {
-				state = StateGCMarkAssist
+		case exptrace.EventLog:
+			addEventToCurrentSpan(ev.Goroutine(), evID)
+		case exptrace.EventMetric:
+			m := ev.Metric()
+			tr.Metrics[m.Name] = append(tr.Metrics[m.Name], Point{ev.Time(), m.Value.Uint64()})
+		case exptrace.EventRangeActive:
+			if synced {
+				// We're being told about a range we must've already seen a RangeBegin for
+				continue
+			}
+			fallthrough
+		case exptrace.EventRangeBegin:
+			r := ev.Range()
+			var s Span
+			if ev.Kind() == exptrace.EventRangeActive {
+				s = Span{StartEvent: evID, Start: tr.Events.Ptr(0).Time(), EndEvent: -1}
 			} else {
-				state = StateActive
-			}
-		case trace.EvGoStartLabel:
-			// ev.G starts running
-			gid = ev.G
-			pState = pRunG
-			state = StateActive
-
-			switch label := res.Strings[ev.Args[trace.ArgGoStartLabelLabelID]]; label {
-			case "GC (dedicated)":
-				state = StateGCDedicated
-			case "GC (idle)":
-				state = StateGCIdle
-			case "GC (fractional)":
-				state = StateGCFractional
-			}
-		case trace.EvGoStop:
-			// ev.G is stopping
-			gid = ev.G
-			pState = pStopG
-			state = StateStuck
-		case trace.EvGoEnd:
-			// ev.G is ending
-			gid = ev.G
-			pState = pStopG
-			state = StateDone
-		case trace.EvGoSched:
-			// ev.G calls Gosched
-			gid = ev.G
-			pState = pStopG
-			state = StateInactive
-		case trace.EvGoSleep:
-			// ev.G calls Sleep
-			gid = ev.G
-			pState = pStopG
-			state = StateInactive
-		case trace.EvGoPreempt:
-			// ev.G got preempted
-			gid = ev.G
-			pState = pStopG
-			state = StateReady
-		case trace.EvGoBlockSend, trace.EvGoBlockRecv, trace.EvGoBlockSelect,
-			trace.EvGoBlockSync, trace.EvGoBlockCond, trace.EvGoBlockNet,
-			trace.EvGoBlockGC:
-			// ev.G is blocking
-			gid = ev.G
-			pState = pStopG
-			state = evTypeToState[ev.Type]
-		case trace.EvGoBlock:
-			// ev.G is blocking
-			gid = ev.G
-			pState = pStopG
-			state = evTypeToState[ev.Type]
-
-			if ev.Type == trace.EvGoBlock {
-				if blockedIsInactive(tr.gsByID[gid].Function.Fn) {
-					state = StateInactive
-				}
-			}
-		case trace.EvGoWaiting:
-			// ev.G is blocked when tracing starts
-			gid = ev.G
-			state = StateBlocked
-			if blockedIsInactive(tr.gsByID[gid].Function.Fn) {
-				state = StateInactive
-			}
-		case trace.EvGoUnblock:
-			// ev.G is unblocking ev.Args[0]
-			addEventToCurrentSpan(ev.G, EventID(evID))
-			gid = ev.Args[trace.ArgGoUnblockG]
-			state = StateReady
-		case trace.EvGoSysCall:
-			// From the runtime's documentation:
-			//
-			// Syscall tracing:
-			// At the start of a syscall we emit traceGoSysCall to capture the stack trace.
-			// If the syscall does not block, that is it, we do not emit any other events.
-			// If the syscall blocks (that is, P is retaken), retaker emits traceGoSysBlock;
-			// when syscall returns we emit traceGoSysExit and when the goroutine starts running
-			// (potentially instantly, if exitsyscallfast returns true) we emit traceGoStart.
-
-			// XXX guard against malformed trace
-			lastSyscall[ev.G] = ev.StkID
-			addEventToCurrentSpan(ev.G, EventID(evID))
-			continue
-		case trace.EvGoSysBlock:
-			gid = ev.G
-			pState = pStopG
-			state = StateBlockedSyscall
-
-			// EvGoSysblock will be followed by ProcStop. Leave a note for ProcStop to start a new span for the blocking
-			// syscall. Also record enough data for EvGoSysExit to finish that span.
-			blockingSyscallPerP[ev.P] = EventID(evID)
-			blockingSyscallMPerG[ev.G] = lastMPerP[ev.P]
-
-		case trace.EvGoInSyscall:
-			gid = ev.G
-			state = StateBlockedSyscall
-		case trace.EvGoSysExit:
-			gid = ev.G
-			state = StateReady
-
-			if supportMachineTimelines {
-				if mid, ok := blockingSyscallMPerG[ev.G]; ok {
-					delete(blockingSyscallMPerG, ev.G)
-					m := getM(mid)
-					span := &m.Spans[len(m.Spans)-1]
-					switch span.State {
-					case StateBlockedSyscall:
-						// We didn't see an EvProcStart for this M
-						span.End = ev.Ts
-					case StateRunningP:
-						// We saw a EvProcStart for this M before we saw the EvGoSysExit. The blocking syscall span will be
-						// the second last span, and we'll have to slightly adjust its end time to not exceed the next
-						// span's start time.
-
-						// XXX guard against malformed traces
-						pspan := &m.Spans[len(m.Spans)-2]
-						if pspan.State != StateBlockedSyscall {
-							return errors.New("malformed trace: EvGoSysExit was preceeded by more than one EvProcStart or other events")
-						}
-						pspan.End = span.Start
-					default:
-						panic(fmt.Sprintf("unexpected state %d", span.State))
-					}
-				}
+				s = Span{Start: ev.Time(), StartEvent: evID, EndEvent: -1}
 			}
 
-		case trace.EvProcStart:
-			if supportMachineTimelines {
-				mid := ev.Args[0]
-				m := getM(int32(mid))
-				m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateRunningP, Event: EventID(evID)})
-				lastMPerP[ev.P] = m.ID
+			switch scope := rangeActualScope(r); scope {
+			case rangeScopeUnknown:
+			case rangeScopeGC:
+				tr.GC = append(tr.GC, s)
+			case rangeScopeSTW:
+				tr.STW = append(tr.STW, s)
+			case rangeScopeGoroutine:
+				g := getG(r.Scope.Goroutine())
+				g.Ranges[r.Name] = append(g.Ranges[r.Name], s)
+			case rangeScopeProc:
+				p := getP(r.Scope.Proc())
+				p.Ranges[r.Name] = append(p.Ranges[r.Name], s)
+			case rangeScopeThread:
+				// XXX implement
+			case rangeScopeGlobal:
+				// XXX implement
+			default:
+				panic(fmt.Sprintf("unhandled range scope %d for range %q", scope, r.Name))
 			}
-			continue
-		case trace.EvProcStop:
-			if supportMachineTimelines {
-				m := getM(lastMPerP[ev.P])
-				span := &m.Spans[len(m.Spans)-1]
-				span.End = ev.Ts
-
-				if sevID, ok := blockingSyscallPerP[ev.P]; ok {
-					delete(blockingSyscallPerP, ev.P)
-					m.Spans = append(m.Spans, Span{Start: ev.Ts, End: -1, State: StateBlockedSyscall, Event: sevID})
-				}
-			}
-
-			continue
-
-		case trace.EvGCMarkAssistStart:
-			// User goroutines may be asked to assist the GC's mark phase. This happens when the goroutine allocates
-			// memory and some condition is true. When that happens, the tracer emits EvGCMarkAssistStart for that
-			// goroutine.
-			//
-			// Note that this event is not preceeded by an EvGoBlock or similar. Similarly, EvGCMarkAssistDone is not
-			// succeeded by an EvGoStart or similar. The mark assist events are laid over the normal goroutine
-			// scheduling events.
-			//
-			// We instead turn these into proper goroutine states and split the current span in two to make room for
-			// mark assist. This needs special care because mark assist can be preempted, so we might GoStart into mark
-			// assist.
-
-			gid = ev.G
-			state = StateGCMarkAssist
-			inMarkAssist[gid] = struct{}{}
-		case trace.EvGCMarkAssistDone:
-			// The counterpart to EvGCMarkAssistStop.
-
-			gid = ev.G
-			state = StateActive
-			delete(inMarkAssist, gid)
-		case trace.EvGCSweepStart:
-			// This is similar to mark assist, but for sweeping spans. When a goroutine would need to allocate a new
-			// span, it first sweeps other spans of the same size to find a free one.
-			//
-			// Unlike mark assist, sweeping cannot be preempted, simplifying our state tracking.
-
-			if ev.G == 0 {
-				// Sweeping can also happen on the system stack, for example when the allocator needs to allocate a new
-				// span. We don't have a way to display this properly at the moment, so hide the information.
+		case exptrace.EventRangeEnd:
+			r := ev.Range()
+			var prev *Span
+			switch scope := rangeActualScope(r); scope {
+			case rangeScopeUnknown:
 				continue
+			case rangeScopeGC:
+				prev = &tr.GC[len(tr.GC)-1]
+			case rangeScopeSTW:
+				prev = &tr.STW[len(tr.STW)-1]
+			case rangeScopeGoroutine:
+				g := getG(r.Scope.Goroutine())
+				prev = &g.Ranges[r.Name][len(g.Ranges[r.Name])-1]
+			case rangeScopeProc:
+				p := getP(r.Scope.Proc())
+				prev = &p.Ranges[r.Name][len(p.Ranges[r.Name])-1]
+			case rangeScopeThread:
+				// XXX implement
+			case rangeScopeGlobal:
+				// XXX implement
+			default:
+				panic(fmt.Sprintf("unhandled range scope %d", scope))
 			}
-
-			gid = ev.G
-			state = StateGCSweep
-		case trace.EvGCSweepDone:
-			// The counterpart to EvGcSweepStart.
-
-			if ev.G == 0 {
-				// See EvGCSweepStart for why.
-				continue
+			prev.End = ev.Time()
+			prev.EndEvent = evID
+		case exptrace.EventRegionBegin:
+			s := Span{
+				Start:      ev.Time(),
+				StartEvent: evID,
+				State:      StateUserRegion,
+				EndEvent:   -1,
 			}
-
-			gid = ev.G
-			state = StateActive
-
-		case trace.EvGCStart:
-			tr.GC = append(tr.GC, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
-			continue
-
-		case trace.EvSTWStart:
-			tr.STW = append(tr.STW, Span{Start: ev.Ts, State: StateActive, Event: EventID(evID)})
-			continue
-
-		case trace.EvGCDone:
-			// XXX verify that index isn't out of bounds
-			tr.GC[len(tr.GC)-1].End = ev.Ts
-			continue
-
-		case trace.EvSTWDone:
-			// Even though STW happens as part of GC, we can see EvGCSTWDone after EvGCDone.
-			// XXX verify that index isn't out of bounds
-			tr.STW[len(tr.STW)-1].End = ev.Ts
-			continue
-
-		case trace.EvHeapAlloc:
-			// Instant measurement of currently allocated memory
-			continue
-		case trace.EvHeapGoal:
-			// Instant measurement of new heap goal
-
-			// TODO(dh): implement
-			continue
-
-		case trace.EvGomaxprocs:
-			// TODO(dh): graph GOMAXPROCS
-			continue
-
-		case trace.EvUserTaskCreate:
-			t := &Task{
-				ID:    ev.Args[trace.ArgUserTaskCreateTaskID],
-				Name:  res.Strings[ev.Args[trace.ArgUserTaskCreateTypeID]],
-				Event: EventID(evID),
-			}
-			tr.Tasks = append(tr.Tasks, t)
-			continue
-		case trace.EvUserTaskEnd:
-			continue
-
-		case trace.EvUserRegion:
-			const regionStart = 0
-			gid := ev.G
-			if mode := ev.Args[trace.ArgUserRegionMode]; mode == regionStart {
-				var end trace.Timestamp
-				if ev.Link != -1 {
-					end = res.Events[ev.Link].Ts
+			gid := ev.Goroutine()
+			g := getG(gid)
+			depth := userRegionDepths[gid]
+			if depth >= len(g.UserRegions) {
+				if depth < cap(g.UserRegions) {
+					g.UserRegions = g.UserRegions[:depth+1]
 				} else {
-					end = -1
+					s := make([][]Span, depth+1)
+					copy(s, g.UserRegions)
+					g.UserRegions = s
 				}
+			}
+			if g.UserRegions[depth] == nil {
+				g.UserRegions[depth] = make([]Span, 0)
+			}
+			g.UserRegions[depth] = append(g.UserRegions[depth], s)
+			userRegionDepths[gid]++
+
+			r := ev.Region()
+			// XXX add a default background task with ID 0
+			if r.Task != 0 && r.Task != exptrace.NoTask {
+				idx, ok := tr.task(r.Task)
+				if !ok {
+					// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
+					// was created before tracing began.
+					task := &Task{
+						ID:    r.Task,
+						Event: evID,
+					}
+					tr.Tasks = slices.Insert(tr.Tasks, idx, task)
+				}
+			}
+			continue
+		case exptrace.EventRegionEnd:
+			gid := ev.Goroutine()
+			g := getG(gid)
+			// XXX can we see a region end without seeing the start? Right now we can't because that crashes
+			// exptrace.
+			d := userRegionDepths[gid] - 1
+			ss := g.UserRegions[d]
+			ss[len(ss)-1].EndEvent = evID
+			ss[len(ss)-1].End = ev.Time()
+			if d > 0 {
+				userRegionDepths[gid] = d
+			} else {
+				delete(userRegionDepths, gid)
+			}
+		case exptrace.EventStackSample:
+			tr.CPUSamples = append(tr.CPUSamples, evID)
+			if gid := ev.Goroutine(); gid != exptrace.NoGoroutine {
+				tr.CPUSamplesByG[gid] = append(tr.CPUSamplesByG[gid], evID)
+			}
+			if pid := ev.Proc(); pid != exptrace.NoProc {
+				tr.CPUSamplesByP[pid] = append(tr.CPUSamplesByP[pid], evID)
+			}
+		case exptrace.EventStateTransition:
+			trans := ev.StateTransition()
+			res := trans.Resource
+			switch res.Kind {
+			case exptrace.ResourceThread:
+				// TODO(dh): support threads
+			case exptrace.ResourceProc:
+				from, to := trans.Proc()
+				if from == to {
+					// Enumeration during a generation
+					continue
+				}
+				p := getP(trans.Resource.Proc())
 				s := Span{
-					Start: ev.Ts,
-					Event: EventID(evID),
-					State: StateUserRegion,
-					End:   end,
+					Start:      ev.Time(),
+					StartEvent: evID,
+					Kind:       SpanKindStateTransition,
+					EndEvent:   -1,
 				}
-				g := getG(ev.G)
-				depth := userRegionDepths[gid]
-				if depth >= len(g.UserRegions) {
-					if depth < cap(g.UserRegions) {
-						g.UserRegions = g.UserRegions[:depth+1]
-					} else {
-						s := make([][]Span, depth+1)
-						copy(s, g.UserRegions)
-						g.UserRegions = s
-					}
-				}
-				if g.UserRegions[depth] == nil {
-					g.UserRegions[depth] = make([]Span, 0)
-				}
-				g.UserRegions[depth] = append(g.UserRegions[depth], s)
-				userRegionDepths[gid]++
 
-				if taskID := ev.Args[trace.ArgUserRegionTaskID]; taskID != 0 {
-					idx, ok := tr.task(taskID)
-					if !ok {
-						// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
-						// was created before tracing began.
-						task := &Task{
-							ID: taskID,
+				if from == exptrace.ProcUndetermined {
+					s.Start = traceStart
+				}
+
+				if from != exptrace.ProcUndetermined && from != exptrace.ProcNotExist && from != exptrace.ProcIdle {
+					prevSpan := &p.Spans[len(p.Spans)-1]
+					prevSpan.End = ev.Time()
+					prevSpan.EndEvent = evID
+				}
+				switch to {
+				case exptrace.ProcRunning:
+					s.State = StateProcRunningNoG
+				case exptrace.ProcIdle:
+					continue
+				default:
+					panic(fmt.Sprintf("unhandled state %s", to))
+				}
+				p.Spans = append(p.Spans, s)
+			case exptrace.ResourceGoroutine:
+				from, to := trans.Goroutine()
+				if from == to {
+					// Enumeration during a generation
+					continue
+				}
+				g := getG(trans.Resource.Goroutine())
+				s := Span{
+					Start:      ev.Time(),
+					StartEvent: evID,
+					Kind:       SpanKindStateTransition,
+					EndEvent:   -1,
+				}
+
+				if from == exptrace.GoUndetermined {
+					s.Start = traceStart
+				}
+
+				// XXX actually, for from == exptrace.GoUndetermined, we still need to do omst of the work to update P
+				// spans. a proc may start, followed by a goroutine going from undetermined->running on that proc, and
+				// we need to update the "running without G" span in the P.
+				if from != exptrace.GoUndetermined && from != exptrace.GoNotExist {
+					prevSpan := &g.Spans[len(g.Spans)-1]
+					prevSpan.End = ev.Time()
+					prevSpan.EndEvent = evID
+
+					if ev.Proc() != exptrace.NoProc {
+						switch to {
+						case exptrace.GoNotExist:
+							p := getP(ev.Proc())
+							if len(p.Spans) == 0 {
+								return errors.New("transitioning to GoNotExist but don't have existing span")
+							}
+							last := &p.Spans[len(p.Spans)-1]
+							last.End = ev.Time()
+							s := Span{
+								Start:      ev.Time(),
+								StartEvent: evID,
+								State:      StateProcRunningNoG,
+								EndEvent:   -1,
+							}
+							p.Spans = append(p.Spans, s)
+						case exptrace.GoSyscall, exptrace.GoWaiting:
+							p := getP(ev.Proc())
+							last := &p.Spans[len(p.Spans)-1]
+							last.End = ev.Time()
+							s := Span{
+								Start:      ev.Time(),
+								StartEvent: evID,
+								State:      StateProcRunningBlocked,
+								EndEvent:   -1,
+							}
+							p.Spans = append(p.Spans, s)
+						case exptrace.GoRunning:
+							p := getP(ev.Proc())
+							last := &p.Spans[len(p.Spans)-1]
+							last.End = ev.Time()
+							s := Span{
+								Start:      ev.Time(),
+								StartEvent: evID,
+								State:      StateProcRunningG,
+								EndEvent:   -1,
+							}
+							p.Spans = append(p.Spans, s)
+						case exptrace.GoRunnable:
+							// Nothing to do
+						default:
+							panic(fmt.Sprintf("unhandled state %s", to))
 						}
-						tr.Tasks = slices.Insert(tr.Tasks, idx, task)
 					}
 				}
-			} else {
-				d := userRegionDepths[gid] - 1
-				if d > 0 {
-					userRegionDepths[gid] = d
-				} else {
-					delete(userRegionDepths, gid)
+				switch to {
+				case exptrace.GoNotExist:
+					g.End = container.Some(ev.Time())
+					continue
+				case exptrace.GoRunnable:
+					if from == exptrace.GoNotExist {
+						// Goroutine creation
+						s.State = StateCreated
+						g.Start = container.Some(ev.Time())
+						g.Parent = ev.Goroutine()
+						// ev.Goroutine is the goroutine that's creating us, versus g, which is the
+						// created goroutine.
+						addEventToCurrentSpan(ev.Goroutine(), evID)
+					} else {
+						if trans.Reason == "runtime.GoSched" || trans.Reason == "runtime.Gosched" {
+							s.State = StateInactive
+						} else {
+							s.State = StateReady
+						}
+						if from == exptrace.GoWaiting {
+							// ev.Goroutine is the goroutine that's unblocking us, versus g, which is the
+							// unblocked goroutine.
+							if ev.Goroutine() != exptrace.NoGoroutine {
+								addEventToCurrentSpan(ev.Goroutine(), evID)
+							}
+						}
+					}
+				case exptrace.GoRunning:
+					s.State = StateActive
+				case exptrace.GoSyscall:
+					s.State = StateBlockedSyscall
+				case exptrace.GoWaiting:
+					switch trans.Reason {
+					case "chan send":
+						s.State = StateBlockedSend
+					case "chan receive":
+						s.State = StateBlockedRecv
+					case "network":
+						s.State = StateBlockedNet
+					case "runtime.GoSched", "runtime.Gosched":
+						s.State = StateInactive
+					case "select":
+						s.State = StateBlockedSelect
+					case "sleep":
+						s.State = StateInactive
+					case "sync":
+						s.State = StateBlockedSync
+					case "sync.(*Cond).Wait":
+						s.State = StateBlockedCond
+					case "system goroutine wait":
+						s.State = StateInactive
+					case "GC mark assist wait for work":
+						s.State = StateInactive
+					case "GC background sweeper wait":
+						s.State = StateInactive
+					case "preempted":
+						s.State = StateWaitingPreempted
+					case "forever":
+						s.State = StateStuck
+					case "wait for debug call":
+						s.State = StateBlocked
+					case "wait until GC ends":
+						s.State = StateBlockedGC
+					case "":
+						s.State = StateBlocked
+					default:
+						log.Printf("unhandled reason %q", trans.Reason)
+					}
+				default:
+					panic(fmt.Sprintf("unhandled state %s", to))
 				}
+				g.Spans = append(g.Spans, s)
+			default:
+				return fmt.Errorf("invalid resource kind %s", res.Kind)
 			}
-			continue
-
-		case trace.EvUserLog:
-			// TODO(dh): incorporate logs in per-goroutine timeline
-			addEventToCurrentSpan(ev.G, EventID(evID))
-			continue
-
-		case trace.EvCPUSample:
-			tr.CPUSamples[ev.G] = append(tr.CPUSamples[ev.G], EventID(evID))
-			tr.HasCPUSamples = true
-			continue
-
+		case exptrace.EventTaskBegin:
+			t := ev.Task()
+			tr.Tasks = append(tr.Tasks, &Task{
+				ID:     t.ID,
+				Parent: t.Parent,
+				Event:  evID,
+				Name:   t.Type,
+			})
+		case exptrace.EventTaskEnd:
+			// Nothing to do
 		default:
-			return fmt.Errorf("unsupported trace event %d", ev.Type)
+			panic(fmt.Sprintf("unhandled kind %s", ev.Kind()))
 		}
+	}
 
-		if debug {
-			if s := getG(gid).Spans; len(s) > 0 {
-				if len(s) == 1 && ev.Type == trace.EvGoWaiting && s[0].State == StateInactive {
-					// The execution trace emits GoCreate + GoWaiting for goroutines that already exist at the start of
-					// tracing if they're in a blocked state. This causes a transition from inactive to blocked, which we
-					// wouldn't normally permit.
-				} else {
-					prevState := s[len(s)-1].State
-					if !legalStateTransitions[prevState][state] {
-						panic(fmt.Sprintf("illegal state transition %d -> %d for goroutine %d, time %d", prevState, state, gid, ev.Ts))
+	// TODO(dh): try harder to figure out goroutines' functions
+	for _, g := range tr.gsByID {
+		for i := range g.Spans {
+			s := &g.Spans[i]
+			if s.StartEvent != 0 {
+				if stk := tr.Event(s.StartEvent).StateTransition().Stack; stk != exptrace.NoStack {
+					pcs := tr.Stacks[stk]
+					if len(pcs) > 0 {
+						f := tr.function(pcs[len(pcs)-1])
+						g.Function = f
+						f.Goroutines = append(f.Goroutines, g)
+						break
 					}
 				}
-			}
-		}
-
-		s := Span{Start: ev.Ts, State: state, Event: EventID(evID)}
-		if ev.Type == trace.EvGoSysBlock {
-			if debug && res.Events[s.Event].StkID != 0 {
-				panic("expected zero stack ID")
-			}
-			res.Events[s.Event].StkID = lastSyscall[ev.G]
-
-			// EvGoSysBlock arrives some time after EvGoSysCall (once sysmon has figured out that the syscall is
-			// blocking). Shrink the previous running span and backdate this span to when the syscall actually started.
-			g := getG(gid)
-			if len(g.Events) > 0 {
-				sysEvID := g.Events[len(g.Events)-1]
-				if sysEv := tr.Events[sysEvID]; sysEv.Type == trace.EvGoSysCall {
-					g.Spans[len(g.Spans)-1].End = sysEv.Ts
-					s.Start = sysEv.Ts
-				}
-			}
-
-		}
-
-		g := getG(gid)
-		g.Spans = append(g.Spans, s)
-
-		switch pState {
-		case pRunG:
-			p := getP(ev.P)
-			p.Spans = append(p.Spans, Span{Start: ev.Ts, State: StateRunningG, Event: EventID(evID)})
-			if supportMachineTimelines {
-				mid := lastMPerP[p.ID]
-				m := getM(mid)
-				m.Goroutines = append(m.Goroutines, Span{Start: ev.Ts, Event: EventID(evID), State: StateRunningG})
-			}
-		case pStopG:
-			// XXX guard against malformed traces
-			p := getP(ev.P)
-			p.Spans[len(p.Spans)-1].End = ev.Ts
-			if supportMachineTimelines {
-				mid := lastMPerP[p.ID]
-				m := getM(mid)
-				if len(m.Goroutines) == 0 {
-					return fmt.Errorf("malformed trace: g%d ran on m%d but M has no goroutine spans", ev.G, mid)
-				}
-				m.Goroutines[len(m.Goroutines)-1].End = ev.Ts
 			}
 		}
 	}
@@ -832,15 +880,11 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 	doG := func(g *Goroutine) {
 		for i := 0; i < len(g.Spans); i++ {
 			s := g.Spans[i]
-			if i != len(g.Spans)-1 {
-				s.End = g.Spans[i+1].Start
-			}
-
-			stack := tr.Stacks[tr.Events[s.Event].StkID]
-			s = applyPatterns(s, tr.PCs, stack)
+			pcs := tr.Stacks[tr.Events.Ptr(int(s.StartEvent)).Stack()]
+			s = applyPatterns(tr, s, pcs)
 
 			// move s.At out of the runtime
-			for int(s.At+1) < len(stack) && s.At < 255 && strings.HasPrefix(tr.PCs[stack[s.At]].Fn, "runtime.") {
+			for int(s.At+1) < len(pcs) && s.At < 255 && strings.HasPrefix(tr.PCs[pcs[s.At]].Func, "runtime.") {
 				s.At++
 			}
 
@@ -854,8 +898,6 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 				s := &g.Spans[len(g.Spans)-1]
 				g.Spans = g.Spans[:len(g.Spans)-1]
 				g.End = container.Some(s.Start)
-			} else {
-				g.Spans[len(g.Spans)-1].End = tr.Events[len(tr.Events)-1].Ts
 			}
 		}
 
@@ -880,6 +922,16 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 					}
 				}
 			}
+		}
+	}
+
+	fixEnds := func(spans []Span) {
+		if len(spans) == 0 {
+			return
+		}
+		s := &spans[len(spans)-1]
+		if s.End == 0 {
+			s.End = tr.Events.Ptr(tr.Events.Len() - 1).Time()
 		}
 	}
 
@@ -911,33 +963,25 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 		}()
 	}
 
-	wg.Wait()
-}
-
-func removeBogusCreatedSpans(tr *Trace) {
-evLoop:
-	for _, ev := range tr.Events {
-		switch ev.Type {
-		case trace.EvGoCreate:
-			// This goroutine already existed at the beginning of the trace. Merge the first two spans, of which the
-			// first span is a GoCreate span that's not true, as the goroutine had already existed.
-			g := tr.G(ev.Args[0])
-			if len(g.Spans) > 1 {
-				if g.Spans[0].State != StateCreated {
-					panic(fmt.Sprintf("unexpected state %v", g.Spans[0].State))
-				}
-				// We set the second span's start time to 0, instead of the first span's start time, because the
-				// timestamp of the GoCreate event for existing goroutines doesn't matter, it's only non-zero because
-				// the tracer can't emit the state for all existing goroutines at once.
-				g.Spans[1].Start = 0
-				g.Spans = g.Spans[1:len(g.Spans)]
-				g.Start = container.None[trace.Timestamp]()
-			}
-		case trace.EvProcStart, trace.EvHeapAlloc, trace.EvGomaxprocs:
-			// These are the events we know to occur at the end of the STW phase of starting a trace.
-			break evLoop
+	for _, g := range tr.Goroutines {
+		fixEnds(g.Spans)
+		for _, ranges := range g.Ranges {
+			fixEnds(ranges)
+		}
+		for _, u := range g.UserRegions {
+			fixEnds(u)
 		}
 	}
+	for _, p := range tr.Processors {
+		fixEnds(p.Spans)
+		for _, ranges := range p.Ranges {
+			fixEnds(ranges)
+		}
+	}
+	fixEnds(tr.GC)
+	fixEnds(tr.STW)
+
+	wg.Wait()
 }
 
 func populateObjects(tr *Trace, progress func(float64)) {
@@ -952,7 +996,9 @@ func populateObjects(tr *Trace, progress func(float64)) {
 
 	for _, p := range tr.psByID {
 		// OPT(dh): preallocate ps
-		tr.Processors = append(tr.Processors, p)
+		if len(p.Spans) != 0 {
+			tr.Processors = append(tr.Processors, p)
+		}
 	}
 	progress(2.0 / 5.0)
 
@@ -961,7 +1007,7 @@ func populateObjects(tr *Trace, progress func(float64)) {
 		tr.Machines = append(tr.Machines, m)
 		if len(m.Spans) > 0 {
 			if last := &m.Spans[len(m.Spans)-1]; last.End == -1 {
-				last.End = tr.Events[len(tr.Events)-1].Ts
+				last.End = tr.Events.Ptr(tr.Events.Len() - 1).Time()
 			}
 		}
 	}
@@ -991,25 +1037,26 @@ func populateObjects(tr *Trace, progress func(float64)) {
 	progress(1)
 }
 
-func (t *Trace) function(frame trace.Frame) *Function {
-	f, ok := t.Functions[frame.Fn]
+func (t *Trace) function(pc uint64) *Function {
+	frame := t.PCs[pc]
+	f, ok := t.Functions[frame.Func]
 	if ok {
 		return f
 	}
 	f = &Function{
-		Frame: frame,
-		SeqID: len(t.Functions),
+		StackFrame: frame,
+		SeqID:      len(t.Functions),
 	}
-	t.Functions[frame.Fn] = f
+	t.Functions[frame.Func] = f
 	return f
 }
 
 //gcassert:inline
-func (t *Trace) Event(ev EventID) *trace.Event {
-	return &t.Events[ev]
+func (t *Trace) Event(ev EventID) *exptrace.Event {
+	return t.Events.Ptr(int(ev))
 }
 
-func (t *Trace) Task(id uint64) *Task {
+func (t *Trace) Task(id exptrace.TaskID) *Task {
 	idx, ok := t.task(id)
 	if !ok {
 		panic("couldn't find task")
@@ -1017,7 +1064,7 @@ func (t *Trace) Task(id uint64) *Task {
 	return t.Tasks[idx]
 }
 
-func (t *Trace) task(id uint64) (int, bool) {
+func (t *Trace) task(id exptrace.TaskID) (int, bool) {
 	return sort.Find(len(t.Tasks), func(i int) int {
 		oid := t.Tasks[i].ID
 		if id == oid {
@@ -1030,7 +1077,7 @@ func (t *Trace) task(id uint64) (int, bool) {
 	})
 }
 
-func (tr *Trace) G(gid uint64) *Goroutine {
+func (tr *Trace) G(gid exptrace.GoID) *Goroutine {
 	// In a previous version we used binary search over Trace.gs. This didn't scale for traces with a lot of goroutines
 	// because of how often getG has to be called during rendering. For example, for Sean's trace from hell, switching
 	// from binary search to map lookups reduced frame times by 33%.
@@ -1042,7 +1089,7 @@ func (tr *Trace) G(gid uint64) *Goroutine {
 	return g
 }
 
-func (tr *Trace) P(pid int32) *Processor {
+func (tr *Trace) P(pid exptrace.ProcID) *Processor {
 	// Unlike getG, getP doesn't get called every frame, and using binary search is fast enough.
 
 	idx, found := sort.Find(len(tr.Processors), func(idx int) int {
@@ -1071,35 +1118,36 @@ func (s *Span) Events(all []EventID, tr *Trace) []EventID {
 		return nil
 	}
 
-	// The all argument contains all events in the span's container (a goroutine), sorted by timestamp, as indices into the
-	// global list of events. Find the first and last event that overlaps with the span, and that is the set of events
-	// belonging to this span.
+	// The all argument contains all events in the span's container (e.g. a goroutine), sorted by timestamp,
+	// as indices into the global list of events. Find the first and last event that overlaps with the span,
+	// and that is the set of events belonging to this span.
 
 	end := sort.Search(len(all), func(i int) bool {
 		ev := all[i]
-		return tr.Event(ev).Ts >= s.End
+		return tr.Event(ev).Time() >= s.End
 	})
 
 	sTs := s.Start
 	start := sort.Search(len(all[:end]), func(i int) bool {
 		ev := all[i]
-		return tr.Event(ev).Ts >= sTs
+		return tr.Event(ev).Time() >= sTs
 	})
 
 	return all[start:end]
 }
 
-// Several background goroutines in the runtime go into a blocked state when they have no work to do. In all cases, this
-// is more similar to a goroutine calling runtime.Gosched than to a goroutine really wishing it had work to do. Because
-// of that we put those into the inactive state.
-func blockedIsInactive(fn string) bool {
-	if fn == "" {
+func IsGoroutineCreation(trans *exptrace.StateTransition) bool {
+	if trans.Resource.Kind != exptrace.ResourceGoroutine {
 		return false
 	}
-	switch fn {
-	case "runtime.gcBgMarkWorker", "runtime.forcegchelper", "runtime.bgsweep", "runtime.bgscavenge", "runtime.runfinq":
-		return true
-	default:
+	from, to := trans.Goroutine()
+	return from == exptrace.GoNotExist && to == exptrace.GoRunnable
+}
+
+func IsGoroutineUnblock(trans *exptrace.StateTransition) bool {
+	if trans.Resource.Kind != exptrace.ResourceGoroutine {
 		return false
 	}
+	from, to := trans.Goroutine()
+	return from == exptrace.GoWaiting && to == exptrace.GoRunnable
 }

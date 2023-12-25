@@ -10,13 +10,13 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/op/clip"
 	"gioui.org/text"
 	"gioui.org/x/outlay"
+	exptrace "honnef.co/go/gotraceui/exptrace"
 )
 
 type EventList struct {
@@ -33,7 +33,7 @@ type EventList struct {
 	table       theme.Table
 	scrollState theme.YScrollableListState
 
-	timestampObjects mem.BucketSlice[trace.Timestamp]
+	timestampObjects mem.BucketSlice[exptrace.Time]
 	texts            mem.BucketSlice[Text]
 	prevSpans        []TextSpan
 }
@@ -55,18 +55,25 @@ func (evs *EventList) UpdateFilter() {
 		evs.filteredEvents = NewSortedItems(NoItems[ptrace.EventID]{})
 	} else {
 		// OPT(dh): multiple calls to FilterItems should be able to reuse memory
-		evs.filteredEvents = NewSortedItems(FilterItems[ptrace.EventID](evs.Events, func(ev *ptrace.EventID) bool {
-			switch evs.Trace.Event(*ev).Type {
-			case trace.EvGoCreate:
-				return evs.Filter.ShowGoCreate.Value
-			case trace.EvGoUnblock:
-				return evs.Filter.ShowGoUnblock.Value
-			case trace.EvGoSysCall:
-				return evs.Filter.ShowGoSysCall.Value
-			case trace.EvUserLog:
+		evs.filteredEvents = NewSortedItems(FilterItems[ptrace.EventID](evs.Events, func(evID *ptrace.EventID) bool {
+			ev := evs.Trace.Event(*evID)
+			switch ev.Kind() {
+			case exptrace.EventStateTransition:
+				trans := ev.StateTransition()
+				from, to := ev.StateTransition().Goroutine()
+				if ptrace.IsGoroutineCreation(&trans) {
+					return evs.Filter.ShowGoCreate.Value
+				} else if ptrace.IsGoroutineUnblock(&trans) {
+					return evs.Filter.ShowGoUnblock.Value
+				} else if to == exptrace.GoSyscall {
+					return evs.Filter.ShowGoSysCall.Value
+				} else {
+					panic(fmt.Sprintf("unexpected state transition %s -> %s", from, to))
+				}
+			case exptrace.EventLog:
 				return evs.Filter.ShowUserLog.Value
 			default:
-				panic(fmt.Sprintf("unexpected type %v", evs.Trace.Event(*ev).Type))
+				panic(fmt.Sprintf("unexpected kind %s", ev.Kind()))
 			}
 		}))
 	}
@@ -96,30 +103,35 @@ func (evs *EventList) HoveredLink() ObjectLink {
 	return nil
 }
 
-func (evs *EventList) eventMessage(ev *trace.Event) []string {
-	switch ev.Type {
-	case trace.EvGoCreate:
-		return []string{"Created goroutine ", local.Sprintf("%d", ev.Args[trace.ArgGoCreateG])}
-	case trace.EvGoUnblock:
-		return []string{"Unblocked goroutine ", local.Sprintf("%d", ev.Args[trace.ArgGoUnblockG])}
-	case trace.EvGoSysCall:
-		if ev.StkID != 0 {
-			frames := evs.Trace.Stacks[ev.StkID]
-			fn := evs.Trace.PCs[frames[0]].Fn
-			return []string{"Syscall ()", fn}
+func (evs *EventList) eventMessage(ev *exptrace.Event) []string {
+	switch ev.Kind() {
+	case exptrace.EventStateTransition:
+		trans := ev.StateTransition()
+		from, to := trans.Goroutine()
+		if from == exptrace.GoNotExist && to == exptrace.GoRunnable {
+			return []string{"Created goroutine ", local.Sprintf("%d", trans.Resource.Goroutine())}
+		} else if from == exptrace.GoWaiting && to == exptrace.GoRunnable {
+			return []string{"Unblocked goroutine ", local.Sprintf("%d", trans.Resource.Goroutine())}
+		} else if to == exptrace.GoSyscall {
+			stk := ev.Stack()
+			if stk != exptrace.NoStack {
+				frame := evs.Trace.PCs[evs.Trace.Stacks[stk][0]]
+				return []string{"Syscall ()", frame.Func}
+			} else {
+				return []string{"Syscall"}
+			}
 		} else {
-			return []string{"Syscall"}
+			panic(fmt.Sprintf("unexpected state transition %s -> %s", from, to))
 		}
-	case trace.EvUserLog:
-		cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
-		msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
-		if cat != "" {
-			return []string{"<> ", cat, msg}
+	case exptrace.EventLog:
+		l := ev.Log()
+		if l.Category != "" {
+			return []string{"<> ", l.Category, l.Message}
 		} else {
-			return []string{msg}
+			return []string{l.Message}
 		}
 	default:
-		panic(fmt.Sprintf("unhandled type %v", ev.Type))
+		panic(fmt.Sprintf("unhandled kind %v", ev.Kind))
 	}
 }
 
@@ -131,36 +143,39 @@ func (evs *EventList) sort() {
 		case 0: // Time
 			ea := evs.Trace.Event(a)
 			eb := evs.Trace.Event(b)
-			return cmp(ea.Ts, eb.Ts, evs.table.SortOrder == theme.SortDescending)
+			return cmp(ea.Time(), eb.Time(), evs.table.SortOrder == theme.SortDescending)
 		case 1: // Message
+			// XXX this code looks an awful lot like EventList.eventMessage
 			cellFn := func(evID ptrace.EventID) string {
 				ev := evs.Trace.Event(evID)
-
-				switch ev.Type {
-				case trace.EvGoCreate:
-					gid := ev.Args[trace.ArgGoCreateG]
-					return local.Sprintf("Created goroutine %d", gid)
-				case trace.EvGoUnblock:
-					gid := ev.Args[trace.ArgGoUnblockG]
-					return local.Sprintf("Unblocked goroutine %d", gid)
-				case trace.EvGoSysCall:
-					if ev.StkID != 0 {
-						frames := evs.Trace.Stacks[ev.StkID]
-						fn := evs.Trace.PCs[frames[0]].Fn
-						return fmt.Sprintf("Syscall (%s)", fn)
+				switch ev.Kind() {
+				case exptrace.EventStateTransition:
+					trans := ev.StateTransition()
+					from, to := trans.Goroutine()
+					if from == exptrace.GoNotExist && to == exptrace.GoRunnable {
+						return local.Sprintf("Created goroutine %d", trans.Resource.Goroutine())
+					} else if from == exptrace.GoWaiting && to == exptrace.GoRunnable {
+						return local.Sprintf("Unblocked goroutine %d", trans.Resource.Goroutine())
+					} else if to == exptrace.GoSyscall {
+						stk := trans.Stack
+						if stk != exptrace.NoStack {
+							frame := evs.Trace.PCs[evs.Trace.Stacks[stk][0]]
+							return fmt.Sprintf("Syscall (%s)", frame.Func)
+						} else {
+							return "Syscall"
+						}
 					} else {
-						return "Syscall"
+						panic(fmt.Sprintf("unexpected state transition %s -> %s", from, to))
 					}
-				case trace.EvUserLog:
-					cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
-					msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
-					if cat != "" {
-						return fmt.Sprintf("<%s> %s", cat, msg)
+				case exptrace.EventLog:
+					l := ev.Log()
+					if l.Category != "" {
+						return fmt.Sprintf("<%s> %s", l.Category, l.Message)
 					} else {
-						return msg
+						return l.Message
 					}
 				default:
-					panic(fmt.Sprintf("unhandled type %v", ev.Type))
+					panic(fmt.Sprintf("unhandled kind %v", ev.Kind))
 				}
 			}
 
@@ -229,49 +244,54 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 		ev := evs.Trace.Event(evs.filteredEvents.At(row))
 		// XXX styledtext wraps our spans if the window is too small
 
-		addSpanG := func(gid uint64) {
+		addSpanG := func(gid exptrace.GoID) {
 			tb.DefaultLink(local.Sprintf("goroutine %d", gid), "", evs.Trace.G(gid))
 		}
 
-		addSpanTs := func(ts trace.Timestamp) {
-			tb.DefaultLink(formatTimestamp(nil, ts), "", evs.timestampObjects.Append(ts))
+		addSpanTs := func(ts exptrace.Time) {
+			tb.DefaultLink(formatTimestamp(nil, evs.Trace.AdjustedTime(ts)), "", evs.timestampObjects.Append(ts))
 		}
 
 		switch col {
 		case 0:
-			addSpanTs(ev.Ts)
+			addSpanTs(ev.Time())
 			txt.Alignment = text.End
 		case 1:
-			switch ev.Type {
-			case trace.EvGoCreate:
-				tb.Span("Created ")
-				addSpanG(ev.Args[trace.ArgGoCreateG])
-			case trace.EvGoUnblock:
-				tb.Span("Unblocked ")
-				addSpanG(ev.Args[trace.ArgGoUnblockG])
-			case trace.EvGoSysCall:
-				if ev.StkID != 0 {
-					frames := evs.Trace.Stacks[ev.StkID]
-					fn := evs.Trace.PCs[frames[0]].Fn
-					tb.Span("Syscall (")
-					tb.Span(fn)
-					tb.Span(")")
+			switch ev.Kind() {
+			case exptrace.EventStateTransition:
+				trans := ev.StateTransition()
+				from, to := trans.Goroutine()
+				if from == exptrace.GoNotExist && to == exptrace.GoRunnable {
+					tb.Span("Created ")
+					addSpanG(trans.Resource.Goroutine())
+				} else if from == exptrace.GoWaiting && to == exptrace.GoRunnable {
+					tb.Span("Unblocked ")
+					addSpanG(trans.Resource.Goroutine())
+				} else if to == exptrace.GoSyscall {
+					stk := ev.Stack()
+					if stk != exptrace.NoStack {
+						frame := evs.Trace.PCs[evs.Trace.Stacks[stk][0]]
+						tb.Span("Syscall (")
+						tb.Span(frame.Func)
+						tb.Span(")")
+					} else {
+						tb.Span("Syscall")
+					}
 				} else {
-					tb.Span("Syscall")
+					panic(fmt.Sprintf("unexpected state transition %s -> %s", from, to))
 				}
-			case trace.EvUserLog:
-				cat := evs.Trace.Strings[ev.Args[trace.ArgUserLogKeyID]]
-				msg := evs.Trace.Strings[ev.Args[trace.ArgUserLogMessage]]
-				if cat != "" {
+			case exptrace.EventLog:
+				l := ev.Log()
+				if l.Message != "" {
 					tb.Span("<")
-					tb.Span(cat)
+					tb.Span(l.Category)
 					tb.Span("> ")
-					tb.Span(msg)
+					tb.Span(l.Message)
 				} else {
-					tb.Span(msg)
+					tb.Span(l.Message)
 				}
 			default:
-				panic(fmt.Sprintf("unhandled type %v", ev.Type))
+				panic(fmt.Sprintf("unhandled kind %v", ev.Kind))
 			}
 		default:
 			panic("unreachable")
@@ -349,11 +369,11 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		}
 
 		eEnd := sort.Search(len(allEvents), func(i int) bool {
-			return tr.Event(allEvents[i]).Ts >= sEnd
+			return tr.Event(allEvents[i]).Time() >= sEnd
 		})
 
 		eStart := sort.Search(eEnd, func(i int) bool {
-			return tr.Event(allEvents[i]).Ts >= sStart
+			return tr.Event(allEvents[i]).Time() >= sStart
 		})
 
 		if eStart == eEnd {
@@ -375,7 +395,7 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 				events = append(events, Events(base, tr))
 			}
 			return MergeItems[ptrace.EventID](events, func(a, b *ptrace.EventID) bool {
-				return tr.Event(*a).Ts < tr.Event(*b).Ts
+				return tr.Event(*a).Time() < tr.Event(*b).Time()
 			})
 		}
 
@@ -386,16 +406,16 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 			events = append(events, Events(spans.Slice(i, i+1), tr))
 		}
 		return MergeItems[ptrace.EventID](events, func(a, b *ptrace.EventID) bool {
-			return tr.Event(*a).Ts < tr.Event(*b).Ts
+			return tr.Event(*a).Time() < tr.Event(*b).Time()
 		})
 	}
 }
 
-func EventsRange(events Items[trace.Event]) TimeSpan {
+func EventsRange(events Items[exptrace.Event]) TimeSpan {
 	return TimeSpan{
 		// Offset by 1 so that the events don't fall on screen borders. This also gives a 3ns range for single
 		// events.
-		Start: events.AtPtr(0).Ts - 1,
-		End:   LastItemPtr(events).Ts + 1,
+		Start: events.AtPtr(0).Time() - 1,
+		End:   LastItemPtr(events).Time() + 1,
 	}
 }

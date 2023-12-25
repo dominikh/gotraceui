@@ -59,7 +59,7 @@ func (fi *FunctionInfo) buildDescription(win *theme.Window, gtx layout.Context) 
 
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Function",
-		Value: *tb.Span(fi.fn.Fn),
+		Value: *tb.Span(fi.fn.Func),
 	})
 
 	// TODO(dh): make file link clickable
@@ -120,7 +120,7 @@ func (fi *FunctionInfo) init(win *theme.Window) {
 }
 
 func (fi *FunctionInfo) Title() string {
-	return fi.fn.Fn
+	return fi.fn.Func
 }
 
 func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {

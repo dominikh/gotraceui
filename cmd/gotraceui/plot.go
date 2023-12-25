@@ -15,7 +15,6 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 
 	"gioui.org/f32"
@@ -23,6 +22,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	exptrace "honnef.co/go/gotraceui/exptrace"
 )
 
 type PlotStyle uint8
@@ -68,7 +68,7 @@ type Plot struct {
 		ops         mem.ReusableOps
 		call        op.CallOp
 
-		start, end trace.Timestamp
+		start, end exptrace.Time
 		// bitmap of disabled series
 		disabledSeries uint64
 	}
@@ -92,7 +92,7 @@ func (pl *Plot) AddSeries(series ...PlotSeries) {
 	pl.max = max
 }
 
-func (pl *Plot) computeExtents(start, end trace.Timestamp) (min, max uint64) {
+func (pl *Plot) computeExtents(start, end exptrace.Time) (min, max uint64) {
 	min = math.MaxUint64
 	max = 0
 
@@ -370,7 +370,7 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 		return
 	}
 
-	eventsPerNs := (float64(len(s.Points)) / float64(cv.trace.End()))
+	eventsPerNs := (float64(len(s.Points)) / float64(cv.trace.End()-cv.trace.Start()))
 	// eventsPerPx holds how many events we would attempt to display per pixel if we didn't decimate the
 	// original set of points. If this number is >1, we scale the total number of points by 1 / eventsPerPx
 	// and use that as the desired number of decimated points. That way, the visible portion of the plot will

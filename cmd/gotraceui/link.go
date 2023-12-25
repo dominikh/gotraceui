@@ -10,12 +10,12 @@ import (
 	rtrace "runtime/trace"
 	"time"
 
+	exptrace "honnef.co/go/gotraceui/exptrace"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 
 	"gioui.org/io/key"
@@ -68,7 +68,7 @@ type OpenGoroutineFlameGraphAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
-type ScrollToTimestampAction trace.Timestamp
+type ScrollToTimestampAction exptrace.Time
 type OpenFunctionAction struct {
 	Function   *ptrace.Function
 	Provenance string
@@ -125,7 +125,7 @@ type ProcessorObjectLink struct {
 	Provenance string
 }
 type TimestampObjectLink struct {
-	Timestamp  trace.Timestamp
+	Timestamp  exptrace.Time
 	Provenance string
 }
 type FunctionObjectLink struct {
@@ -183,9 +183,9 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 		return &GoroutineObjectLink{obj, provenance}
 	case *ptrace.Processor:
 		return &ProcessorObjectLink{obj, provenance}
-	case *trace.Timestamp:
+	case *exptrace.Time:
 		return &TimestampObjectLink{*obj, provenance}
-	case trace.Timestamp:
+	case exptrace.Time:
 		return &TimestampObjectLink{obj, provenance}
 	case *ptrace.Function:
 		return &FunctionObjectLink{obj, provenance}
@@ -518,7 +518,7 @@ func (l *OpenGoroutineFlameGraphAction) Open(gtx layout.Context, mwin *MainWindo
 
 func (l ScrollToTimestampAction) Open(gtx layout.Context, mwin *MainWindow) {
 	d := mwin.canvas.End() - mwin.canvas.start
-	var off trace.Timestamp
+	var off exptrace.Time
 	switch mwin.canvas.axis.anchor {
 	case AxisAnchorNone:
 		off = mwin.canvas.pxToTs(mwin.canvas.axis.position) - mwin.canvas.start
@@ -529,7 +529,7 @@ func (l ScrollToTimestampAction) Open(gtx layout.Context, mwin *MainWindow) {
 	case AxisAnchorEnd:
 		off = d
 	}
-	mwin.canvas.navigateTo(gtx, trace.Timestamp(l)-off, mwin.canvas.nsPerPx, mwin.canvas.y)
+	mwin.canvas.navigateTo(gtx, exptrace.Time(l)-off, mwin.canvas.nsPerPx, mwin.canvas.y)
 }
 
 func (l *OpenFunctionAction) Open(_ layout.Context, mwin *MainWindow) {
@@ -546,7 +546,7 @@ func (l *ScrollAndPanToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	y := mwin.canvas.timelineY(gtx, c.Timeline)
 	d := mwin.canvas.End() - mwin.canvas.start
 	tsp := SpansTimeSpan(l.Spans)
-	ts := tsp.Start + trace.Timestamp(tsp.End/2)
+	ts := tsp.Start + exptrace.Time(tsp.End/2)
 	mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, y)
 }
 

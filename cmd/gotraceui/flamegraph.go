@@ -37,7 +37,7 @@ func (tlc *FlameGraphComponent) WantsTransition(gtx layout.Context) theme.Compon
 	return theme.ComponentStateNone
 }
 
-func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Goroutine) *FlameGraphComponent {
+func NewFlameGraphComponent(win *theme.Window, tr *ptrace.Trace, g *ptrace.Goroutine) *FlameGraphComponent {
 	return &FlameGraphComponent{
 		g: g,
 		fg: theme.NewFuture(win, func(cancelled <-chan struct{}) *widget.FlameGraph {
@@ -54,26 +54,23 @@ func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Go
 			// graphs for individual goroutines.
 			var (
 				totalDuration  time.Duration
-				totalSamples   uint64
 				sampleDuration time.Duration
 			)
-			for _, p := range trace.Processors {
+			for _, p := range tr.Processors {
 				for _, s := range p.Spans {
 					totalDuration += s.Duration()
 				}
 			}
-			for _, samples := range trace.CPUSamples {
-				totalSamples += uint64(len(samples))
-			}
+			totalSamples := len(tr.CPUSamples)
 			sampleDuration = time.Duration(math.Round(float64(totalDuration) / float64(totalSamples)))
 
 			var fg widget.FlameGraph
 			do := func(samples []ptrace.EventID) {
 				for _, sample := range samples {
-					stack := trace.Stacks[trace.Event(sample).StkID]
+					pcs := tr.Stacks[tr.Event(sample).Stack()]
 					var frames widget.FlamegraphSample
-					for i := len(stack) - 1; i >= 0; i-- {
-						fn := trace.PCs[stack[i]].Fn
+					for i := len(pcs) - 1; i >= 0; i-- {
+						fn := tr.PCs[pcs[i]].Func
 						frames = append(frames, widget.FlamegraphFrame{
 							Name:     fn,
 							Duration: sampleDuration,
@@ -84,11 +81,11 @@ func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Go
 				}
 			}
 			if g == nil {
-				for _, samples := range trace.CPUSamples {
+				for _, samples := range tr.CPUSamplesByP {
 					do(samples)
 				}
 			} else {
-				do(trace.CPUSamples[g.ID])
+				do(tr.CPUSamplesByG[g.ID])
 
 				for _, span := range g.Spans {
 					var root string
@@ -133,9 +130,9 @@ func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Go
 					if root != "" {
 						var frames widget.FlamegraphSample
 						if root != "ready" {
-							stack := trace.Stacks[trace.Event(span.Event).StkID]
-							for i := len(stack) - 1; i >= 0; i-- {
-								fn := trace.PCs[stack[i]].Fn
+							pcs := tr.Stacks[tr.Event(span.StartEvent).Stack()]
+							for i := len(pcs) - 1; i >= 0; i-- {
+								fn := tr.PCs[pcs[i]].Func
 								frames = append(frames, widget.FlamegraphFrame{
 									Name:     fn,
 									Duration: span.Duration(),
