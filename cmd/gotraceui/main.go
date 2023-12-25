@@ -32,7 +32,6 @@ import (
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/tinylfu"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
@@ -49,6 +48,7 @@ import (
 	"gioui.org/x/explorer"
 	"gioui.org/x/styledtext"
 	"golang.org/x/exp/constraints"
+	exptrace "golang.org/x/exp/trace"
 	"golang.org/x/text/message"
 )
 
@@ -100,11 +100,6 @@ func debugCaching(win *theme.Window, gtx layout.Context) {
 //   GoWaiting event. The GoCreate event will be caused by starting the trace, and the stack of the event will be that
 //   leading up to starting the trace. It will in no way reflect the code that actually, historically, started the
 //   goroutine. To avoid confusion, we should remove those stacks altogether.
-
-// This boolean guards all code involving displaying machine timelines. That feature is currently broken, because the
-// trace parser only produces an event ordering that is consistent for goroutines, but not for machines. For example, it
-// may try to start a P on an M that is currently blocked on a syscall.
-const supportMachineTimelines = false
 
 var (
 	softDebug          bool
@@ -974,12 +969,12 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context, s
 		}
 	}
 
-	mwin.canvas.indicateTimestamp = container.None[trace.Timestamp]()
+	mwin.canvas.indicateTimestamp = container.None[exptrace.Time]()
 	if mwin.panel != nil {
 		if l := mwin.panel.HoveredLink(); l != nil {
 			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
-				mwin.canvas.indicateTimestamp = container.Some(trace.Timestamp(a))
+				mwin.canvas.indicateTimestamp = container.Some(exptrace.Time(a))
 			}
 		}
 
@@ -1006,7 +1001,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context, s
 			// TODO(dh): factor out into own function, remove duplication from here and earlier
 			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
-				mwin.canvas.indicateTimestamp = container.Some(trace.Timestamp(a))
+				mwin.canvas.indicateTimestamp = container.Some(exptrace.Time(a))
 			}
 
 			// Only one link can be hovered at a time
@@ -1118,7 +1113,6 @@ func (mwin *MainWindow) showFileOpenDialog() {
 
 func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	NewCanvasInto(&mwin.canvas, mwin.debugWindow, res.trace)
-	mwin.canvas.start = res.start
 	mwin.canvas.memoryGraph = res.plot
 	mwin.canvas.timelines = append(mwin.canvas.timelines, res.timelines...)
 
@@ -1133,7 +1127,7 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.tabs = mwin.tabs[:1]
 	mwin.tabbedState.Current = 0
 	mwin.openTabBg(Tab{
-		Component:  NewGoroutinesComponent(mwin.trace.Goroutines),
+		Component:  NewGoroutinesComponent(mwin.trace.Goroutines, res.trace),
 		Unclosable: true,
 	})
 }
@@ -1271,7 +1265,7 @@ func span(win *theme.Window, text string) styledtext.SpanStyle {
 var local = message.NewPrinter(message.MatchLanguage("en"))
 
 // OPT(dh): find all calls of this function with a nil NumberFormatter and fix them
-func formatTimestamp(nf *NumberFormatter[trace.Timestamp], ts trace.Timestamp) string {
+func formatTimestamp(nf *NumberFormatter[AdjustedTime], ts AdjustedTime) string {
 	if nf != nil {
 		return nf.Format("%d ns", ts)
 	} else {
@@ -1445,10 +1439,9 @@ func main() {
 }
 
 type loadTraceResult struct {
-	trace      *Trace
-	plot       Plot
-	start, end trace.Timestamp
-	timelines  []*Timeline
+	trace     *Trace
+	plot      Plot
+	timelines []*Timeline
 }
 
 type progresser interface {
@@ -1472,7 +1465,14 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStages(names)
 
 	p.SetProgressStage(0)
-	t, err := trace.Parse(f, p.SetProgress)
+	r, err := exptrace.NewReader(f)
+	if err != nil {
+
+		return loadTraceResult{}, err
+	}
+
+	p.SetProgressStage(1)
+	pt, err := ptrace.Parse(r, p.SetProgress)
 	if err != nil {
 		return loadTraceResult{}, err
 	}
@@ -1480,21 +1480,23 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		return loadTraceResult{}, errExitAfterParsing
 	}
 
-	p.SetProgressStage(1)
-	pt, err := ptrace.Parse(t, p.SetProgress)
-	if err != nil {
-		return loadTraceResult{}, err
-	}
-
 	p.SetProgressStage(2)
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
 	for i, proc := range pt.Processors {
 		for j := 0; j < len(proc.Spans); j++ {
-			fn := pt.G(pt.Events[proc.Spans[j].Event].G).Function
+			trans := pt.Events.Ptr(int(proc.Spans[j].StartEvent)).StateTransition()
+			if trans.Resource.Kind != exptrace.ResourceGoroutine {
+				continue
+			}
+			gid := trans.Resource.Goroutine()
+			if gid == exptrace.NoGoroutine {
+				continue
+			}
+			fn := pt.G(gid).Function
 			if fn == nil {
 				continue
 			}
-			switch fn.Fn {
+			switch fn.Func {
 			case "runtime.bgscavenge", "runtime.bgsweep", "runtime.gcBgMarkWorker":
 				proc.Spans[j].Tags |= ptrace.SpanTagGC
 			}
@@ -1512,15 +1514,13 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 			localPrefixedID := local.Sprintf("g%d", g.ID)
 
 			var spanLabels []string
-			if g.Function.Fn != "" {
-				short := shortenFunctionName(g.Function.Fn)
-				spanLabels = append(spanLabels, localPrefixedID+": "+g.Function.Fn)
-				if short != g.Function.Fn {
+			if g.Function != nil {
+				short := shortenFunctionName(g.Function.Func)
+				spanLabels = append(spanLabels, localPrefixedID+": "+g.Function.Func)
+				if short != g.Function.Func {
 					spanLabels = append(spanLabels, localPrefixedID+": ."+short)
-				} else {
-					// This branch is probably impossible; all functions should be fully qualified.
-					spanLabels = append(spanLabels, localPrefixedID)
 				}
+				spanLabels = append(spanLabels, localPrefixedID)
 			} else {
 				spanLabels = append(spanLabels, localPrefixedID)
 			}
@@ -1545,12 +1545,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	var timelines []*Timeline
 
 	p.SetProgressStage(5)
-	if supportMachineTimelines {
-		for i, m := range tr.Machines {
-			timelines = append(timelines, NewMachineTimeline(tr, cv, m))
-			p.SetProgress(float64(i+1) / float64(len(tr.Machines)))
-		}
-	}
 
 	p.SetProgressStage(6)
 	for i, proc := range tr.Processors {
@@ -1571,14 +1565,6 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		return nil
 	})
 
-	end := tr.End()
-
-	// Zoom out slightly beyond the end of the trace, so that the user can immediately tell that they're looking at the
-	// entire trace.
-	slack := float64(end) * 0.05
-	start := trace.Timestamp(-slack)
-	end = trace.Timestamp(float64(end) + slack)
-
 	mg := Plot{
 		Name: "Memory usage",
 		Unit: "bytes",
@@ -1586,13 +1572,13 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	mg.AddSeries(
 		PlotSeries{
 			Name:   "Heap size",
-			Points: pt.HeapSize,
+			Points: pt.Metrics["/memory/classes/heap/objects:bytes"],
 			Style:  PlotFilled,
 			Color:  oklch(70.59, 0.102, 139.64),
 		},
 		PlotSeries{
 			Name:   "Heap goal",
-			Points: pt.HeapGoal,
+			Points: pt.Metrics["/gc/heap/goal:bytes"],
 			Style:  PlotStaircase,
 			Color:  colors[colorStateBlockedGC],
 		},
@@ -1600,7 +1586,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 
 	var goroot, gopath string
 	for _, fn := range tr.Functions {
-		if strings.HasPrefix(fn.Fn, "runtime.") && strings.Count(fn.Fn, ".") == 1 && strings.Contains(fn.File, filepath.Join("go", "src", "runtime")) && !strings.ContainsRune(fn.Fn, os.PathSeparator) {
+		if strings.HasPrefix(fn.Func, "runtime.") && strings.Count(fn.Func, ".") == 1 && strings.Contains(fn.File, filepath.Join("go", "src", "runtime")) && !strings.ContainsRune(fn.Func, os.PathSeparator) {
 			idx := strings.LastIndex(fn.File, filepath.Join("go", "src", "runtime"))
 			goroot = fn.File[0 : idx+len("go")]
 			break
@@ -1612,9 +1598,9 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		// We detect GOROOT and GOPATH separately because we make use of GOROOT to reliably detect GOPATH.
 		candidates := map[string]int{}
 		for _, fn := range tr.Functions {
-			if !strings.HasPrefix(fn.File, goroot) && strings.ContainsRune(fn.Fn, os.PathSeparator) {
+			if !strings.HasPrefix(fn.File, goroot) && strings.ContainsRune(fn.Func, os.PathSeparator) {
 				// TODO(dh): support Windows paths
-				dir, pkgAndFn, _ := strings.Cut(fn.Fn, string(os.PathSeparator))
+				dir, pkgAndFn, _ := strings.Cut(fn.Func, string(os.PathSeparator))
 				pkg, _, _ := strings.Cut(pkgAndFn, ".")
 				idx := strings.LastIndex(fn.File, filepath.Join("src", dir, pkg))
 				if idx == -1 {
@@ -1640,11 +1626,11 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	tr.GOROOT = goroot
 	tr.GOPATH = gopath
 
+	tr.TimeOffset = -tr.Start()
+
 	return loadTraceResult{
 		trace:     tr,
 		plot:      mg,
-		start:     start,
-		end:       end,
 		timelines: timelines,
 	}, nil
 }
@@ -1679,7 +1665,7 @@ type ScrollToTimelineCommand struct {
 func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context, current bool) layout.Dimensions {
 	var (
 		numSpans   int
-		start, end trace.Timestamp
+		start, end exptrace.Time
 	)
 
 	// TODO(dh): instead of this switch we should have a method on the interface for returning the spans
@@ -1728,7 +1714,7 @@ func (cmd ScrollToTimelineCommand) Filter(input string) bool {
 					id := strings.ReplaceAll(f[len("g"):], ",", "")
 					if n, err := strconv.ParseUint(id, 10, 64); err == nil {
 						if g, ok := cmd.Timeline.item.(*ptrace.Goroutine); ok {
-							if g.ID == n {
+							if g.ID == exptrace.GoID(n) {
 								return true
 							}
 						}
@@ -1746,7 +1732,7 @@ func (cmd ScrollToTimelineCommand) Filter(input string) bool {
 					if n, err := strconv.ParseUint(id, 10, 64); err == nil {
 						if p, ok := cmd.Timeline.item.(*ptrace.Processor); ok {
 							if n <= math.MaxInt32 {
-								if p.ID == int32(n) {
+								if p.ID == exptrace.ProcID(n) {
 									return true
 								}
 							}

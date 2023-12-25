@@ -11,6 +11,9 @@
 - Reduce memory required to load traces by 20-30%
 - Reduce time required to load traces by 10-30%
 - Implement redo for navigations
+- Add support for traces produced by Go 1.22
+- Processor timelines more accurately represent processor states
+
 
 # v0.4.0 (2024-01-09)
 

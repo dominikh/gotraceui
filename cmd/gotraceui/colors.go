@@ -13,12 +13,18 @@ const (
 )
 
 var colors = [colorLast]color.Oklch{
-	colorStateActive:    oklch(colorsLightBase, colorsChromaBase, 143.74), // Manually chosen
-	colorStateStack:     oklchDelta(oklch(colorsLightBase, colorsChromaBase, 143.74), colorLightStep1, -0.01, 0),
-	colorStateCPUSample: oklchDelta(oklchDelta(oklch(colorsLightBase, colorsChromaBase, 143.74), colorLightStep1, -0.01, 0), colorLightStep2, -0.01, 0),
+	colorStateUndetermined: oklch(colorsLightBase+colorLightStep1, colorsChromaBase, 70.54), // Manually chosen
 
-	colorStateReady:    oklch(colorsLightBase, colorsChromaBase, 206.35), // Manually chosen
-	colorStateInactive: oklch(colorsLightBase, 0, 0),
+	colorStateActive:             oklch(colorsLightBase, colorsChromaBase, 143.74),  // Manually chosen
+	colorStateProcRunningNoG:     oklch(colorsLightBase, colorsChromaBase, 206.35),  // Manually chosen, same as colorStateReady
+	colorStateProcRunningBlocked: oklch(colorsLightBase-5, colorsChromaBase, 23.89), // Manually chosen, same as colorStateBlocked
+	colorStateProcRunningG:       oklch(colorsLightBase, colorsChromaBase, 143.74),  // Manually chosen, same as colorStateActive
+	colorStateStack:              oklchDelta(oklch(colorsLightBase, colorsChromaBase, 143.74), colorLightStep1, -0.01, 0),
+	colorStateCPUSample:          oklchDelta(oklchDelta(oklch(colorsLightBase, colorsChromaBase, 143.74), colorLightStep1, -0.01, 0), colorLightStep2, -0.01, 0),
+
+	colorStateReady:            oklch(colorsLightBase, colorsChromaBase, 206.35), // Manually chosen
+	colorStateWaitingPreempted: oklch(colorsLightBase, colorsChromaBase, 206.35), // Manually chosen
+	colorStateInactive:         oklch(colorsLightBase, 0, 0),
 
 	colorStateUserRegion: oklch(colorsLightBase+colorLightStep1+colorLightStep2, colorsChromaBase, 331.18), // Manually chosen
 
@@ -64,6 +70,8 @@ type colorIndex uint8
 const (
 	colorStateUnknown colorIndex = iota
 
+	colorStateUndetermined
+
 	colorStateInactive
 	colorStateActive
 
@@ -76,6 +84,7 @@ const (
 	colorStateSTW
 
 	colorStateReady
+	colorStateWaitingPreempted
 	colorStateStuck
 	colorStateMerged
 	colorStateUserRegion
@@ -83,6 +92,10 @@ const (
 	colorStateCPUSample
 	colorStateDone
 	colorStatePlaceholderStackSpan
+
+	colorStateProcRunningG
+	colorStateProcRunningNoG
+	colorStateProcRunningBlocked
 
 	colorStateLast
 
@@ -99,6 +112,8 @@ const (
 )
 
 var stateColors = [256]colorIndex{
+	ptrace.StateUndetermined: colorStateUndetermined,
+
 	// per-G states
 	ptrace.StateInactive:                colorStateInactive,
 	ptrace.StateActive:                  colorStateActive,
@@ -113,6 +128,7 @@ var stateColors = [256]colorIndex{
 	ptrace.StateBlockedSyscall:          colorStateBlockedSyscall,
 	ptrace.StateStuck:                   colorStateStuck,
 	ptrace.StateReady:                   colorStateReady,
+	ptrace.StateWaitingPreempted:        colorStateWaitingPreempted,
 	ptrace.StateCreated:                 colorStateReady,
 	ptrace.StateGCMarkAssist:            colorStateGC,
 	ptrace.StateGCSweep:                 colorStateGC,
@@ -126,10 +142,9 @@ var stateColors = [256]colorIndex{
 	ptrace.StateCPUSample:               colorStateCPUSample,
 
 	// per-P states
-	ptrace.StateRunningG: colorStateActive,
-
-	// per-M states
-	ptrace.StateRunningP: colorStateActive,
+	ptrace.StateProcRunningNoG:     colorStateProcRunningNoG,
+	ptrace.StateProcRunningG:       colorStateProcRunningG,
+	ptrace.StateProcRunningBlocked: colorStateProcRunningBlocked,
 }
 
 // oklch specifies a color in Oklch.

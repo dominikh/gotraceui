@@ -7,12 +7,12 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
 	"gioui.org/text"
+	exptrace "golang.org/x/exp/trace"
 )
 
 func scale[T float32 | float64](oldStart, oldEnd, newStart, newEnd, v T) T {
@@ -31,7 +31,7 @@ func lastPtr[E any, S ~[]E](s S) *E {
 
 type CellFormatter struct {
 	Clicks   mem.BucketSlice[Link]
-	nfTs     *NumberFormatter[trace.Timestamp]
+	nfTs     *NumberFormatter[AdjustedTime]
 	nfUint64 *NumberFormatter[uint64]
 	nfInt    *NumberFormatter[int]
 }
@@ -39,7 +39,7 @@ type CellFormatter struct {
 func (cf *CellFormatter) Reset() {
 	cf.Clicks.Reset()
 	if cf.nfTs == nil {
-		cf.nfTs = NewNumberFormatter[trace.Timestamp](local)
+		cf.nfTs = NewNumberFormatter[AdjustedTime](local)
 		cf.nfUint64 = NewNumberFormatter[uint64](local)
 		cf.nfInt = NewNumberFormatter[int](local)
 	}
@@ -60,13 +60,13 @@ func (cl *CellFormatter) HoveredLink() ObjectLink {
 	return nil
 }
 
-func (cf *CellFormatter) Timestamp(win *theme.Window, gtx layout.Context, ts trace.Timestamp, label string) layout.Dimensions {
+func (cf *CellFormatter) Timestamp(win *theme.Window, gtx layout.Context, tr *Trace, ts exptrace.Time, label string) layout.Dimensions {
 	return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
 		link := cf.Clicks.Grow()
 		link.Link = &TimestampObjectLink{Timestamp: ts}
 		return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			if label == "" {
-				label = formatTimestamp(cf.nfTs, ts)
+				label = formatTimestamp(cf.nfTs, tr.AdjustedTime(ts))
 			}
 			return widget.Label{
 				MaxLines:  1,
@@ -82,7 +82,7 @@ func (cf *CellFormatter) Goroutine(win *theme.Window, gtx layout.Context, g *ptr
 		link.Link = &GoroutineObjectLink{Goroutine: g}
 		return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			if label == "" {
-				label = cf.nfUint64.Format("%d", g.ID)
+				label = cf.nfUint64.Format("%d", uint64(g.ID))
 			}
 			return widget.Label{
 				MaxLines:  1,
@@ -116,7 +116,7 @@ func (cf *CellFormatter) Function(win *theme.Window, gtx layout.Context, fn *ptr
 	link := cf.Clicks.Grow()
 	link.Link = &FunctionObjectLink{Function: fn}
 	return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		label := fn.Fn
+		label := fn.Func
 		return widget.Label{
 			MaxLines:  1,
 			Alignment: text.Start,

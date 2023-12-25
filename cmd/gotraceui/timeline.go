@@ -16,7 +16,6 @@ import (
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	myunsafe "honnef.co/go/gotraceui/unsafe"
 	"honnef.co/go/gotraceui/widget"
@@ -30,6 +29,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/text"
 	"gioui.org/unit"
+	exptrace "golang.org/x/exp/trace"
 )
 
 const (
@@ -102,8 +102,8 @@ type Track struct {
 
 	stackLevel int
 
-	Start trace.Timestamp
-	End   trace.Timestamp
+	Start exptrace.Time
+	End   exptrace.Time
 
 	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
 	spanColor       func(span *ptrace.Span, tr *Trace) colorIndex
@@ -488,7 +488,7 @@ func (it *renderedSpansIterator[T, PT]) next(gtx layout.Context) (spansOut Items
 				// find.
 				limit := min(noffset+1, spans.Len())
 				noffset = sort.Search(limit, func(i int) bool {
-					return PT(spans.AtPtr(i)).Start() > start-trace.Timestamp(minSpanWidthD)
+					return PT(spans.AtPtr(i)).Start() > start-exptrace.Time(minSpanWidthD)
 				})
 				assert(noffset != limit, "should've found ourselves")
 				if noffset == 0 {
@@ -528,7 +528,7 @@ func (it *renderedSpansIterator[T, PT]) next(gtx layout.Context) (spansOut Items
 			// current span. Use binary search to find that span. This also finds gaps, because for a gap to be big
 			// enough, it cannot occur between spans that would be too small according to this search.
 			offset = sort.Search(spans.Len(), func(i int) bool {
-				return PT(spans.AtPtr(i)).End() >= end+trace.Timestamp(minSpanWidthD)
+				return PT(spans.AtPtr(i)).End() >= end+exptrace.Time(minSpanWidthD)
 			})
 
 			if offset == spans.Len() {
@@ -1093,28 +1093,59 @@ var (
 		tooltip: func(win *theme.Window, events Items[eventWithGetters], track *Track) theme.Widget {
 			tr := track.parent.cv.trace
 
+			const (
+				tSyscall = iota
+				tGoCreate
+				tGoUnblock
+				tUserLog
+			)
+			eventType := func(ev exptrace.Event) uint8 {
+				switch ev.Kind() {
+				case exptrace.EventStateTransition:
+					trans := ev.StateTransition()
+					from, to := trans.Goroutine()
+					if from == exptrace.GoNotExist && to == exptrace.GoRunnable {
+						return tGoCreate
+					} else if from == exptrace.GoWaiting && to == exptrace.GoRunnable {
+						return tGoUnblock
+					} else if to == exptrace.GoSyscall {
+						return tSyscall
+					} else {
+						panic(fmt.Sprintf("unexpected state transition %s -> %s", from, to))
+					}
+				case exptrace.EventLog:
+					return tUserLog
+				default:
+					return 255
+				}
+			}
+
 			var label string
 			if events.Len() == 1 {
 				ev := events.At(0)
-				switch ev.Type {
-				case trace.EvGoSysCall:
-					stk := tr.Stacks[events.At(0).StkID]
-					if len(stk) != 0 {
-						frame := tr.PCs[stk[0]]
-						label = "Syscall: " + frame.Fn
+				switch ev.Kind() {
+				case exptrace.EventStateTransition:
+					trans := ev.StateTransition()
+					from, to := trans.Goroutine()
+					if from == exptrace.GoNotExist && to == exptrace.GoRunnable {
+						label = fmt.Sprintf("Created goroutine %s", GoroutineLabel(tr.G(trans.Resource.Goroutine())))
+					} else if from == exptrace.GoWaiting && to == exptrace.GoRunnable {
+						label = fmt.Sprintf("Unblocked goroutine %s", GoroutineLabel(tr.G(trans.Resource.Goroutine())))
+					} else if to == exptrace.GoSyscall {
+						stk := ev.Stack()
+						if stk != exptrace.NoStack {
+							frame := tr.PCs[tr.Stacks[stk][0]]
+							label = "Syscall: " + frame.Func
+						} else {
+							label = "Syscall"
+						}
 					} else {
-						label = "Syscall"
+						panic(fmt.Sprintf("unexpected state trans ition %s -> %s", from, to))
 					}
-				case trace.EvGoCreate:
-					g := tr.G(ev.Args[trace.ArgGoCreateG])
-					label = fmt.Sprintf("Created goroutine %s", GoroutineLabel(g))
-				case trace.EvGoUnblock:
-					g := tr.G(ev.Args[trace.ArgGoUnblockG])
-					label = fmt.Sprintf("Unblocked goroutine %s", GoroutineLabel(g))
-				case trace.EvUserLog:
-					ev := events.AtPtr(0)
-					cat := tr.Strings[ev.Args[trace.ArgUserLogKeyID]]
-					msg := tr.Strings[ev.Args[trace.ArgUserLogMessage]]
+				case exptrace.EventLog:
+					l := ev.Log()
+					cat := l.Category
+					msg := l.Message
 					if cat != "" {
 						label = fmt.Sprintf("Log: <%s> %s", cat, msg)
 					} else {
@@ -1124,35 +1155,35 @@ var (
 					label = "1 event"
 				}
 			} else {
-				kind := events.At(0).Type
+				kind := eventType(events.At(0).Event)
 				for i := 1; i < events.Len(); i++ {
 					ev := events.At(i)
-					if ev.Type != kind {
+					if eventType(ev.Event) != kind {
 						kind = 255
 						break
 					}
 				}
 				var noun string
 				switch kind {
-				case trace.EvGoSysCall:
+				case tSyscall:
 					noun = "syscalls"
-				case trace.EvGoCreate:
+				case tGoCreate:
 					noun = "goroutine creations"
-				case trace.EvGoUnblock:
+				case tGoUnblock:
 					noun = "goroutine unblocks"
-				case trace.EvUserLog:
+				case tUserLog:
 					noun = "log messages"
 				default:
 					noun = "events"
 				}
 				label = local.Sprintf("%d %s\n", events.Len(), noun)
-				label += fmt.Sprintf("Time span: %s\n", roundDuration(time.Duration(LastItemPtr(events).Ts-events.AtPtr(0).Ts)))
+				label += fmt.Sprintf("Time span: %s\n", roundDuration(time.Duration(LastItemPtr(events).Time()-events.AtPtr(0).Time())))
 			}
 
 			return theme.Tooltip(win.Theme, label).Layout
 		},
 		timeSpan: func(items Items[eventWithGetters]) TimeSpan {
-			return EventsRange(myunsafe.Cast[Items[trace.Event]](items))
+			return EventsRange(myunsafe.Cast[Items[exptrace.Event]](items))
 		},
 		color: func(items Items[eventWithGetters], _ *Track) colorIndex {
 			if items.Len() < 2 {
@@ -1307,15 +1338,15 @@ type eventsFromIDs struct {
 	items Items[ptrace.EventID]
 }
 
-func (evs eventsFromIDs) At(idx int) trace.Event {
+func (evs eventsFromIDs) At(idx int) exptrace.Event {
 	return *evs.tr.Event(evs.items.At(idx))
 }
 
-func (evs eventsFromIDs) AtPtr(idx int) *trace.Event {
+func (evs eventsFromIDs) AtPtr(idx int) *exptrace.Event {
 	return evs.tr.Event(evs.items.At(idx))
 }
 
-func (evs eventsFromIDs) Slice(start, end int) Items[trace.Event] {
+func (evs eventsFromIDs) Slice(start, end int) Items[exptrace.Event] {
 	return eventsFromIDs{
 		tr:    evs.tr,
 		items: evs.items.Slice(start, end),
@@ -1330,18 +1361,18 @@ func (evs eventsFromIDs) ContainerAt(idx int) ItemContainer { return evs.items.C
 func (evs eventsFromIDs) MetadataAtPtr(index int) any       { return evs.items.MetadataAtPtr(index) }
 
 type eventWithGetters struct {
-	trace.Event
+	exptrace.Event
 }
 
-func (ev *eventWithGetters) Start() trace.Timestamp { return ev.Event.Ts }
-func (ev *eventWithGetters) End() trace.Timestamp   { return ev.Event.Ts }
+func (ev *eventWithGetters) Start() exptrace.Time { return ev.Time() }
+func (ev *eventWithGetters) End() exptrace.Time   { return ev.Time() }
 
 // Must only be called after layoutMain.
 func (track *Track) layoutEvents(win *theme.Window, gtx layout.Context, cv *Canvas) {
 	track.widget.eventsMt.Layout(win, gtx, track, cv, func(yield func(el Items[eventWithGetters]) bool) {
 		for _, dspSpans := range track.widget.prevFrame.dspSpans {
 			eventIDs := Events(dspSpans.dspSpans, cv.trace)
-			items := myunsafe.Cast[Items[eventWithGetters]](Items[trace.Event](eventsFromIDs{
+			items := myunsafe.Cast[Items[eventWithGetters]](Items[exptrace.Event](eventsFromIDs{
 				tr:    cv.trace.Trace,
 				items: eventIDs,
 			}))
@@ -1421,16 +1452,14 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.tracks[0].spanLabel = func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
-		kindID := tr.Events[spans.AtPtr(0).Event].Args[trace.ArgSTWStartKind]
-		return append(out, stwSpanLabels[tr.STWReason(kindID)])
+		return append(out, tr.Event(spans.AtPtr(0).StartEvent).Range().Name)
 	}
 	tl.tracks[0].spanColor = singleSpanColor(colorStateSTW)
 	tl.tracks[0].spanTooltip = func(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
 		if spans.Len() > 1 {
 			return defaultSpanTooltip(win, gtx, tr, spans)
 		}
-		kindID := tr.Events[spans.AtPtr(0).Event].Args[trace.ArgSTWStartKind]
-		label := stwSpanLabels[tr.STWReason(kindID)] + "\n"
+		label := tr.Event(spans.AtPtr(0).StartEvent).Range().Name + "\n"
 		if d, ok := SpansDuration(spans); ok {
 			label += fmt.Sprintf("Duration: %s\n", roundDuration(d))
 		}
@@ -1440,14 +1469,6 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	tl.item = &STW{ss}
 
 	return tl
-}
-
-var stwSpanLabels = [trace.NumSTWReasons]string{}
-
-func init() {
-	for i := 0; i < trace.NumSTWReasons; i++ {
-		stwSpanLabels[i] = fmt.Sprintf("STW (%s)", trace.STWReason(i).String())
-	}
 }
 
 type GC struct {

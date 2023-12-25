@@ -82,6 +82,72 @@ func (l *BucketSlice[T]) Truncate(n int) {
 	l.n = n
 }
 
+const largeAllocatorBucketSize = 524288
+
+type LargeBucketSlice[T any] struct {
+	n       int
+	buckets [][]T
+}
+
+func (l *LargeBucketSlice[T]) Grow() *T {
+	a, b := l.index(l.n)
+	if a >= len(l.buckets) {
+		l.buckets = append(l.buckets, make([]T, allocatorBucketSize))
+	}
+	ptr := &l.buckets[a][b]
+	l.n++
+	return ptr
+}
+
+func (l *LargeBucketSlice[T]) GrowN(n int) {
+	for i := 0; i < n; i++ {
+		l.Grow()
+	}
+}
+
+// Append appends v to the slice and returns a pointer to the new element.
+func (l *LargeBucketSlice[T]) Append(v T) *T {
+	ptr := l.Grow()
+	*ptr = v
+	return ptr
+}
+
+func (l *LargeBucketSlice[T]) index(i int) (int, int) {
+	// Doing the division on uint instead of int compiles this function to a shift and an AND (for power of 2
+	// bucket sizes), versus a whole bunch of instructions for int.
+	return int(uint(i) / allocatorBucketSize), int(uint(i) % allocatorBucketSize)
+}
+
+func (l *LargeBucketSlice[T]) Ptr(i int) *T {
+	a, b := l.index(i)
+	return &l.buckets[a][b]
+}
+
+func (l *LargeBucketSlice[T]) Get(i int) T {
+	a, b := l.index(i)
+	return l.buckets[a][b]
+}
+
+func (l *LargeBucketSlice[T]) Set(i int, v T) {
+	a, b := l.index(i)
+	l.buckets[a][b] = v
+}
+
+func (l *LargeBucketSlice[T]) Len() int { return l.n }
+func (l *LargeBucketSlice[T]) Reset()   { l.n = 0 }
+
+func (l *LargeBucketSlice[T]) Truncate(n int) {
+	if n >= l.n {
+		return
+	}
+	a, b := l.index(n)
+	clear(l.buckets[a][b:])
+	for i := a + 1; i < len(l.buckets); i++ {
+		clear(l.buckets[i])
+	}
+	l.n = n
+}
+
 type ReusableOps struct {
 	ops op.Ops
 }

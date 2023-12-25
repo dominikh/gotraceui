@@ -11,13 +11,13 @@ import (
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
 	"gioui.org/op"
 	"gioui.org/text"
+	exptrace "golang.org/x/exp/trace"
 )
 
 func LastItemPtr[E any, T Items[E]](sel T) *E {
@@ -145,13 +145,13 @@ func (si *SpansInfo) init(win *theme.Window) {
 	}
 
 	if si.cfg.Stacktrace == "" && haveContainer && spans.Len() == 1 {
-		ev := si.trace.Events[spans.AtPtr(0).Event]
-		stk := si.trace.Stacks[ev.StkID]
+		ev := si.trace.Event(spans.AtPtr(0).StartEvent)
+		stk := ev.Stack()
 		sb := strings.Builder{}
-		for _, f := range stk {
-			frame := si.trace.PCs[f]
-			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Fn, frame.File, frame.Line)
-		}
+		stk.Frames(func(frame exptrace.StackFrame) bool {
+			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Func, frame.File, frame.Line)
+			return true
+		})
 		stacktrace := sb.String()
 		if len(stacktrace) > 0 && stacktrace[len(stacktrace)-1] == '\n' {
 			stacktrace = stacktrace[:len(stacktrace)-1]
@@ -253,13 +253,13 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 
 	firstSpan := spans.AtPtr(0)
 	lastSpan := LastItemPtr(spans)
-	link := *tb.DefaultLink(formatTimestamp(nil, firstSpan.Start), "Start of current spans", firstSpan.Start)
+	link := *tb.DefaultLink(formatTimestamp(nil, si.trace.AdjustedTime(firstSpan.Start)), "Start of current spans", firstSpan.Start)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
 		Value: link,
 	})
 
-	link = *tb.DefaultLink(formatTimestamp(nil, lastSpan.End), "End of current spans", lastSpan.End)
+	link = *tb.DefaultLink(formatTimestamp(nil, si.trace.AdjustedTime(lastSpan.End)), "End of current spans", lastSpan.End)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "End",
 		Value: link,
@@ -386,7 +386,8 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 		si.mwin.EmitAction(&PrevPanelAction{})
 	}
 	for si.buttons.selectUserRegion.Clicked(gtx) {
-		needle := si.trace.Strings[si.trace.Event(spans.AtPtr(0).Event).Args[2]]
+		r := si.trace.Event(spans.AtPtr(0).StartEvent).Region()
+		needle := r.Type
 		ft := theme.NewFuture[Items[ptrace.Span]](win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
 			var bases []Items[ptrace.Span]
 			for _, tl := range si.allTimelines {
@@ -400,7 +401,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						continue
 					}
 					filtered := FilterItems(track.Spans(win).Wait(), func(span *ptrace.Span) bool {
-						label := si.trace.Strings[si.trace.Event(span.Event).Args[2]]
+						label := si.trace.Event(span.StartEvent).Region().Type
 						return label == needle
 					})
 
@@ -552,7 +553,7 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 						)
 
 					case "Spans":
-						return si.spanList.Layout(win, gtx)
+						return si.spanList.Layout(win, gtx, si.trace)
 
 					case "Events":
 						return si.eventList.Layout(win, gtx)
@@ -651,7 +652,7 @@ func (spans *SpanList) sort() {
 	}
 }
 
-func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
+func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context, tr *Trace) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.SpanList.Layout").End()
 
 	spans.cellFormatter.Update(win, gtx)
@@ -681,7 +682,7 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 		case 0:
 			return spans.cellFormatter.Spans(win, gtx, spans.Spans.Slice(row, row+1))
 		case 1: // Time
-			return spans.cellFormatter.Timestamp(win, gtx, span.Start, "")
+			return spans.cellFormatter.Timestamp(win, gtx, tr, span.Start, "")
 		case 2: // Duration
 			return spans.cellFormatter.Duration(win, gtx, span.Duration(), false)
 		case 3: // State
@@ -701,21 +702,21 @@ func (spans *SpanList) HoveredLink() ObjectLink {
 }
 
 type TimeSpan struct {
-	Start trace.Timestamp
-	End   trace.Timestamp
+	Start exptrace.Time
+	End   exptrace.Time
 }
 
 type TimeSpanner interface {
-	Start() trace.Timestamp
-	End() trace.Timestamp
+	Start() exptrace.Time
+	End() exptrace.Time
 }
 
 type spanWithGetters struct {
 	ptrace.Span
 }
 
-func (s *spanWithGetters) Start() trace.Timestamp { return s.Span.Start }
-func (s *spanWithGetters) End() trace.Timestamp   { return s.Span.End }
+func (s *spanWithGetters) Start() exptrace.Time { return s.Span.Start }
+func (s *spanWithGetters) End() exptrace.Time   { return s.Span.End }
 
 func SpansTimeSpan(spans Items[ptrace.Span]) TimeSpan {
 	return TimeSpan{

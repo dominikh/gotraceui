@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	rtrace "runtime/trace"
 	"time"
 
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 )
 
@@ -31,15 +29,18 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 		s := &tt.p.Spans[i]
 		d := s.Duration()
 
-		ev := tr.Events[s.Event]
-		switch ev.Type {
-		case trace.EvGoStart:
-			userD += d
-		case trace.EvGoStartLabel:
-			gcD += d
-		default:
-			panic(fmt.Sprintf("unexepcted event type %d", ev.Type))
-		}
+		_ = d
+
+		ev := tr.Event(s.StartEvent)
+		_ = ev
+		// switch ev.Type {
+		// case trace.EvGoStart:
+		// 	userD += d
+		// case trace.EvGoStartLabel:
+		// 	gcD += d
+		// default:
+		// 	panic(fmt.Sprintf("unexepcted event type %d", ev.Type))
+		// }
 	}
 
 	userPct := float32(userD) / float32(d) * 100
@@ -67,12 +68,14 @@ func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace,
 	var label string
 	if spans.Len() == 1 {
 		s := spans.AtPtr(0)
-		ev := tr.Event(s.Event)
-		if s.State != ptrace.StateRunningG {
-			panic(fmt.Sprintf("unexpected state %d", s.State))
+		ev := tr.Event(s.StartEvent)
+		label = tooltipStateLabels[s.State] + "\n"
+		switch s.State {
+		case ptrace.StateProcRunningG, ptrace.StateProcRunningBlocked:
+			g := ev.StateTransition().Resource.Goroutine()
+			// OPT(dh): cache these strings
+			label += local.Sprintf("Goroutine %d: %s\n", g, tr.G(g).Function)
 		}
-		g := tr.G(ev.G)
-		label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.Function)
 	} else {
 		label = local.Sprintf("%d spans\n", spans.Len())
 	}
@@ -84,13 +87,21 @@ func processorTrackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) 
 	if spans.Len() != 1 {
 		return out
 	}
-	g := tr.G(tr.Event(spans.AtPtr(0).Event).G)
-	labels := tr.goroutineSpanLabels(g)
-	return append(out, labels...)
+	var labels []string
+	s := spans.AtPtr(0)
+	switch s.State {
+	case ptrace.StateProcRunningG, ptrace.StateProcRunningBlocked:
+		g := tr.G(tr.Event(spans.AtPtr(0).StartEvent).StateTransition().Resource.Goroutine())
+		labels = tr.goroutineSpanLabels(g)
+	default:
+		labels = spanStateLabels[s.State]
+	}
+	out = append(out, labels...)
+	return out
 }
 
 func processorTrackSpanColor(span *ptrace.Span, tr *Trace) (out colorIndex) {
-	if span.Tags&ptrace.SpanTagGC != 0 {
+	if span.Tags&ptrace.SpanTagGC != 0 && span.State == ptrace.StateProcRunningG {
 		return colorStateGC
 	} else {
 		// TODO(dh): support goroutines that are currently doing GC assist work. this would require splitting spans, however.
@@ -105,7 +116,7 @@ func processorTrackSpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*them
 	}
 
 	if spans.Len() == 1 {
-		gid := cv.trace.Event(spans.AtPtr(0).Event).G
+		gid := cv.trace.Event(spans.AtPtr(0).StartEvent).StateTransition().Resource.Goroutine()
 		items = append(items, &theme.MenuItem{
 			Label: PlainLabel(local.Sprintf("Scroll to goroutine %d", gid)),
 			Action: func() theme.Action {
@@ -148,6 +159,8 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 	tl.tracks[0].spanColor = processorTrackSpanColor
 	tl.tracks[0].spanTooltip = processorTrackSpanTooltip
 	tl.tracks[0].spanContextMenu = processorTrackSpanContextMenu
+
+	addStackTracks(tl, p, tr)
 
 	return tl
 }
