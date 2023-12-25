@@ -1057,6 +1057,8 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	for _, tl := range mwin.canvas.clickedTimelines {
 		if g, ok := tl.item.(*ptrace.Goroutine); ok {
 			mwin.openGoroutine(g)
+			// FIXME(dh): canvas does event handling _after_ layout, so we need a second frame
+			op.InvalidateOp{}.Add(gtx.Ops)
 		}
 	}
 	for _, tl := range mwin.canvas.rightClickedTimelines {
@@ -1066,6 +1068,8 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) l
 	}
 	for _, clicked := range mwin.canvas.clickedSpans {
 		mwin.openSpan(clicked)
+		// FIXME(dh): canvas does event handling _after_ layout, so we need a second frame
+		op.InvalidateOp{}.Add(gtx.Ops)
 	}
 
 	return dims

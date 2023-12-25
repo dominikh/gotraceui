@@ -790,15 +790,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 	}
 
-	for _, tl := range cv.prevFrame.displayedTls {
-		if spans := tl.widget.NavigatedSpans(); spans.Len() > 0 {
-			start := spans.AtPtr(0).Start
-			end := LastSpanPtr(spans).End
-			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
-			break
-		}
-	}
-
 	cv.computeTimelinePositions(gtx)
 
 	func(gtx layout.Context) {
@@ -1072,6 +1063,17 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.timeline.hoveredSpans = spans
 			}
 
+			break
+		}
+	}
+
+	for _, tl := range cv.prevFrame.displayedTls {
+		if spans := tl.widget.NavigatedSpans(); spans.Len() > 0 {
+			start := spans.AtPtr(0).Start
+			end := LastSpanPtr(spans).End
+			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
+			// FIXME(dh): canvas does event handling _after_ layout, so we need a second frame
+			op.InvalidateOp{}.Add(gtx.Ops)
 			break
 		}
 	}
