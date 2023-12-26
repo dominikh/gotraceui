@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/color"
-	"honnef.co/go/gotraceui/trace"
 )
 
 var (
@@ -40,18 +39,6 @@ type DebugWindow struct {
 	animationProgress debugGraph
 	animationRatio    debugGraph
 	frametimes        debugGraph
-}
-
-// For debugging.
-//
-//lint:ignore U1000 debug aid we sometimes use.
-func dumpFrames(frames []*trace.Frame) {
-	if len(frames) == 0 {
-		fmt.Println("no frames")
-	}
-	for _, f := range frames {
-		fmt.Println(f)
-	}
 }
 
 func writeMemprofile(s string) {
