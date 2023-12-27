@@ -185,11 +185,12 @@ func (evs *EventList) Update(gtx layout.Context) []TextEvent {
 		evs.UpdateFilter()
 	}
 
+	var out []TextEvent
 	for i := 0; i < evs.texts.Len(); i++ {
-		evs.texts.Ptr(i).Update(gtx, evs.prevSpans)
+		out = append(out, evs.texts.Ptr(i).Update(gtx, evs.prevSpans)...)
 	}
 
-	return nil
+	return out
 }
 
 func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
