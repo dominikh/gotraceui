@@ -41,7 +41,9 @@ func (l *BucketSlice[T]) Append(v T) *T {
 }
 
 func (l *BucketSlice[T]) index(i int) (int, int) {
-	return i / allocatorBucketSize, i % allocatorBucketSize
+	// Doing the division on uint instead of int compiles this function to a shift and an AND (for power of 2
+	// bucket sizes), versus a whole bunch of instructions for int.
+	return int(uint(i) / allocatorBucketSize), int(uint(i) % allocatorBucketSize)
 }
 
 func (l *BucketSlice[T]) Ptr(i int) *T {
