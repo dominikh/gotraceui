@@ -1,7 +1,10 @@
 package mem
 
 import (
+	"math"
+
 	"gioui.org/op"
+	"golang.org/x/exp/constraints"
 )
 
 const allocatorBucketSize = 64
@@ -186,4 +189,58 @@ func EnsureLen[S ~[]E, E any](s S, n int) S {
 		return s
 	}
 	return GrowLen(s, n-len(s))
+}
+
+type DenseMap[K constraints.Integer, V any] struct {
+	offset uint64
+	values []V
+	sparse map[K]V
+}
+
+func MakeDenseMap[K constraints.Integer, V any](m map[K]V) DenseMap[K, V] {
+	if len(m) == 0 {
+		return DenseMap[K, V]{sparse: m}
+	}
+
+	min := uint64(math.MaxUint64)
+	max := uint64(0)
+
+	for k := range m {
+		if k < 0 {
+			panic("negative keys are not permitted")
+		}
+		if uint64(k) < min {
+			min = uint64(k)
+		}
+		if uint64(k) > max {
+			max = uint64(k)
+		}
+	}
+
+	if max-min == math.MaxUint64 || max-min+1 > math.MaxInt {
+		return DenseMap[K, V]{sparse: m}
+	}
+
+	size := int(max - min + 1)
+	limit := 4 * len(m)
+	if limit/4 != len(m) || size > limit {
+		return DenseMap[K, V]{sparse: m}
+	}
+
+	values := make([]V, size)
+	for k, v := range m {
+		values[uint64(k)-min] = v
+	}
+
+	return DenseMap[K, V]{
+		offset: uint64(min),
+		values: values,
+	}
+}
+
+func (dm *DenseMap[K, V]) At(idx K) V {
+	if dm.sparse != nil {
+		return dm.sparse[K(idx)]
+	}
+	return dm.values[uint64(idx)-dm.offset]
 }
