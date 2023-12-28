@@ -16,12 +16,11 @@ type BucketSlice[T any] struct {
 
 // Grow grows the slice by one and returns a pointer to the new element, without overwriting it.
 func (l *BucketSlice[T]) Grow() *T {
-	a, _ := l.index(l.n)
+	a, b := l.index(l.n)
 	if a >= len(l.buckets) {
-		l.buckets = append(l.buckets, make([]T, 0, allocatorBucketSize))
+		l.buckets = append(l.buckets, make([]T, allocatorBucketSize))
 	}
-	l.buckets[a] = l.buckets[a][:len(l.buckets[a])+1]
-	ptr := &l.buckets[a][len(l.buckets[a])-1]
+	ptr := &l.buckets[a][b]
 	l.n++
 	return ptr
 }
@@ -66,9 +65,6 @@ func (l *BucketSlice[T]) Len() int {
 }
 
 func (l *BucketSlice[T]) Reset() {
-	for i := range l.buckets {
-		l.buckets[i] = l.buckets[i][:0]
-	}
 	l.n = 0
 }
 
@@ -77,9 +73,9 @@ func (l *BucketSlice[T]) Truncate(n int) {
 		return
 	}
 	a, b := l.index(n)
-	l.buckets[a] = l.buckets[a][:b]
+	clear(l.buckets[a][b:])
 	for i := a + 1; i < len(l.buckets); i++ {
-		l.buckets[i] = l.buckets[i][:0]
+		clear(l.buckets[i])
 	}
 	l.n = n
 }
