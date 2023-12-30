@@ -802,6 +802,11 @@ func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (ima
 func (tm *TextureManager) uncompute(texs []*texture) {
 	var sz int
 	for _, tex := range texs {
+		if tex.computed.done != nil && !CanRecv(tex.realized.done) {
+			// Don't uncompute if the texture isn't fully computed yet. There's still a goroutine computing
+			// it, and it would race with us uncomputing it.
+			continue
+		}
 		sz += len(tex.computed.compressed)
 		tex.computed = textureComputed{}
 	}
@@ -814,6 +819,11 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 	s, unlock := tm.realizedRGBAs.Lock()
 	defer unlock.Unlock()
 	for _, tex := range texs {
+		if tex.realized.done != nil && !CanRecv(tex.realized.done) {
+			// Don't unrealize if the texture isn't fully realized yet. There's still a goroutine realizing
+			// it, and it would race with us unrealizing it.
+			continue
+		}
 		if img, ok := tex.realized.image.(*image.RGBA); ok {
 			//lint:ignore SA6002 We don't control the type of img.Pix, we don't want to track the slice
 			// separately, and this is still replacing a texWidth*4 large allocation with a 24 bytes large
