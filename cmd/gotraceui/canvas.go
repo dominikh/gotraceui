@@ -917,6 +917,21 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 								cv.drag.drag.Add(gtx.Ops)
 
 								cv.timeline.hover.Add(gtx.Ops)
+								// OPT(dh): reuse slice
+								var texs []TextureStack
+								texs = cv.planTimelines(win, gtx, texs)
+								bestReady := true
+								for _, tex := range texs {
+									if !tex.Realize(&cv.textures, cv.trace) {
+										bestReady = false
+									}
+								}
+								if !bestReady && time.Since(gtx.Now) <= 5*time.Millisecond {
+									// The best texture isn't ready yet, but we have time to spare, so let's
+									// wait a bit. This avoids rendering a placeholder for one frame in most
+									// cases.
+									time.Sleep(time.Millisecond)
+								}
 								dims, tws := cv.layoutTimelines(win, gtx)
 								cv.prevFrame.displayedTls = tws
 								return dims
@@ -1098,6 +1113,23 @@ func (cv *Canvas) visibleTimelines(gtx layout.Context) (start, end int) {
 		return start-cvy >= gtx.Constraints.Max.Y
 	})
 	return start, end
+}
+
+func (cv *Canvas) planTimelines(win *theme.Window, gtx layout.Context, texs []TextureStack) []TextureStack {
+	start, end := cv.visibleTimelines(gtx)
+
+	cvy := cv.denormalizeY(gtx, cv.y)
+	y := -cvy
+	if start < len(cv.timelines) && start > 0 {
+		y = cv.timelineEnds[start-1] - cvy
+	}
+
+	for i := start; i < end; i++ {
+		tl := cv.timelines[i]
+		texs = tl.Plan(win, texs)
+		y += tl.Height(gtx, cv)
+	}
+	return texs
 }
 
 func (cv *Canvas) layoutTimelines(win *theme.Window, gtx layout.Context) (layout.Dimensions, []*Timeline) {

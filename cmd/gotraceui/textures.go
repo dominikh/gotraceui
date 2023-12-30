@@ -157,6 +157,19 @@ type TextureStack struct {
 	texs []Texture
 }
 
+func (tex TextureStack) Realize(tm *TextureManager, tr *Trace) (bestReady bool) {
+	for i, t := range tex.texs {
+		if tm.Realize(t.tex, tr) {
+			if i == 0 {
+				return true
+			} else {
+				break
+			}
+		}
+	}
+	return false
+}
+
 func (tex TextureStack) Add(win *theme.Window, gtx layout.Context, tm *TextureManager, tr *Trace, ops *op.Ops, fudge float32) (best bool) {
 	trackHeight := float32(gtx.Dp(timelineTrackHeightDp))
 	for i, t := range tex.texs {
@@ -788,9 +801,7 @@ func (tm *TextureManager) Render(
 func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (image.Image, paint.ImageOp, bool) {
 	defer rtrace.StartRegion(context.Background(), "main.TextureManager.Image").End()
 	tex.lastUse = win.Frame
-	if tex.realized.done == nil {
-		tm.realize(tex, tr)
-	}
+	tm.Realize(tex, tr)
 
 	if CanRecv(tex.realized.done) {
 		return tex.realized.image, tex.realized.op, true
@@ -836,8 +847,12 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 	tm.Stats.RealizedRGBAs.Add(uint64(-len(texs)))
 }
 
-func (tm *TextureManager) realize(tex *texture, tr *Trace) {
+func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
 	defer rtrace.StartRegion(context.Background(), "main.TextureManager.realize").End()
+	if tex.realized.done != nil {
+		return false
+	}
+
 	tex.realized.done = make(chan struct{})
 	rtrace.Logf(context.Background(), "texture renderer", "realizing texture at %d ns @ %f ns/px for track in %q", tex.start, tex.nsPerPx, tex.track.parent.shortName)
 
@@ -882,7 +897,7 @@ func (tm *TextureManager) realize(tex *texture, tr *Trace) {
 		rtrace.Logf(context.Background(), "texture renderer", "computation already ready")
 		do()
 		close(tex.realized.done)
-		return
+		return true
 	}
 
 	go func() {
@@ -891,6 +906,8 @@ func (tm *TextureManager) realize(tex *texture, tr *Trace) {
 		<-tex.computed.done
 		do()
 	}()
+
+	return false
 }
 
 func (tm *TextureManager) compute(tex *texture, tr *Trace) {

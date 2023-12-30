@@ -404,6 +404,18 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 	tl.widget = nil
 }
 
+func (tl *Timeline) Plan(win *theme.Window, texs []TextureStack) []TextureStack {
+	defer rtrace.StartRegion(context.Background(), "main.TimelineWidget.Plan").End()
+
+	for _, track := range tl.tracks {
+		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
+			continue
+		}
+		texs = track.Plan(win, texs)
+	}
+	return texs
+}
+
 func (tl *Timeline) Layout(
 	win *theme.Window,
 	gtx layout.Context,
@@ -685,6 +697,30 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 	startPx = float32(start-cvStart) / nsPerPx
 	endPx = float32(end-cvStart) / nsPerPx
 	return it.spans.Slice(startOffset, offset), startPx, endPx, true
+}
+
+func (track *Track) Plan(win *theme.Window, texs []TextureStack) []TextureStack {
+	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Plan").End()
+
+	spans, haveSpans := track.Spans(win).ResultNoWait()
+	if !haveSpans {
+		spans = SimpleItems[ptrace.Span, any]{
+			items: []ptrace.Span{
+				{
+					Start: track.Start,
+					End:   track.End,
+					State: statePlaceholder,
+				},
+			},
+			container:  ItemContainer{Timeline: track.parent, Track: track},
+			contiguous: false,
+			subslice:   true,
+		}
+	}
+
+	// OPT(dh): reuse slice between frames
+	cv := track.parent.cv
+	return track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs)
 }
 
 func (track *Track) Layout(
