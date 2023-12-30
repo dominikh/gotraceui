@@ -79,7 +79,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/golang/snappy"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/container"
@@ -87,11 +86,13 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	myunsafe "honnef.co/go/gotraceui/unsafe"
 
 	"gioui.org/f32"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/paint"
+	"github.com/golang/snappy"
 )
 
 const (
@@ -121,20 +122,12 @@ const (
 	maxRGBAMemoryUsage = maxTextureMemoryUsage - maxCompressedMemoryUsage
 )
 
-// Statically check that texWidth * 4 is a multiple of 8
-const _ = -uint((texWidth * 4) % 8)
-
-var pixelsPool = &sync.Pool{
-	New: func() any {
-		s := make([]pixel, texWidth)
-		return &s
-	},
-}
+// Statically check that 4 * texWidth is a multiple of 8
+const _ = -uint((4 * texWidth) % 8)
 
 var pixPool = &sync.Pool{
 	New: func() any {
-		s := make([]byte, texWidth*4)
-		return s
+		return new([texWidth]stdcolor.RGBA)
 	},
 }
 
@@ -506,27 +499,29 @@ type pixel struct {
 func computeTexture(tex *texture) image.Image {
 	defer rtrace.StartRegion(context.Background(), "main.computeTexture").End()
 
-	rtrace.Logf(context.Background(), "texture renderer", "Computing texture at %d ns @ %f ns/px", tex.start, tex.nsPerPx)
+	nsPerPx := tex.nsPerPx
+	start := tex.start
+	spans := tex.spans
+	track := tex.track
+	tr := track.parent.cv.trace
+
+	rtrace.Logf(context.Background(), "texture renderer", "Computing texture at %d ns @ %f ns/px", start, nsPerPx)
 
 	// The texture covers the time range [start, end]
-	end := trace.Timestamp(math.Ceil(float64(tex.start) + tex.nsPerPx*texWidth))
+	end := trace.Timestamp(math.Ceil(float64(start) + nsPerPx*texWidth))
 
-	if tex.nsPerPx == 0 {
+	if nsPerPx == 0 {
 		panic("got zero nsPerPx")
 	}
 
-	first := sort.Search(tex.spans.Len(), func(i int) bool {
-		return tex.spans.AtPtr(i).End >= tex.start
+	first := sort.Search(spans.Len(), func(i int) bool {
+		return spans.AtPtr(i).End >= start
 	})
-	last := sort.Search(tex.spans.Len(), func(i int) bool {
-		return tex.spans.AtPtr(i).Start >= end
+	last := sort.Search(spans.Len(), func(i int) bool {
+		return spans.AtPtr(i).Start >= end
 	})
 
-	pixelsPtr := pixelsPool.Get().(*[]pixel)
-	pixels := *pixelsPtr
-	clear(*pixelsPtr)
-	defer pixelsPool.Put(pixelsPtr)
-
+	var pixels [texWidth]pixel
 	addSample := func(bin int, w float64, v color.LinearSRGB) {
 		if w == 0 {
 			return
@@ -538,13 +533,6 @@ func computeTexture(tex *texture) image.Image {
 			return
 		}
 
-		if w == 1 {
-			pixels[bin] = pixel{
-				sum:       v,
-				sumWeight: 1,
-			}
-			return
-		}
 		px := &pixels[bin]
 		if px.sumWeight+w > 1 {
 			// Adjust for rounding errors
@@ -557,10 +545,10 @@ func computeTexture(tex *texture) image.Image {
 	}
 
 	for i := first; i < last; i++ {
-		span := tex.spans.AtPtr(i)
+		span := spans.AtPtr(i)
 
-		firstBucket := float64(span.Start-tex.start) / tex.nsPerPx
-		lastBucket := float64(span.End-tex.start) / tex.nsPerPx
+		firstBucket := float64(span.Start-start) / nsPerPx
+		lastBucket := float64(span.End-start) / nsPerPx
 
 		if firstBucket >= texWidth {
 			break
@@ -572,12 +560,12 @@ func computeTexture(tex *texture) image.Image {
 		firstBucket = max(firstBucket, 0)
 		lastBucket = min(lastBucket, texWidth)
 
-		colorIdx := tex.track.SpanColor(tex.spans.AtPtr(i), tex.track.parent.cv.trace)
+		colorIdx := track.SpanColor(span, tr)
 		c := mappedColors[colorIdx]
 
 		if int(firstBucket) == int(lastBucket) {
 			// falls into a single bucket
-			w := float64(span.Duration()) / tex.nsPerPx
+			w := float64(span.Duration()) / nsPerPx
 			addSample(int(firstBucket), w, c)
 		} else {
 			// falls into at least two buckets
@@ -593,20 +581,14 @@ func computeTexture(tex *texture) image.Image {
 
 		for i := int(firstBucket) + 1; i < int(lastBucket); i++ {
 			// All the full buckets between the first and last one
-			addSample(i, 1, c)
+			pixels[i] = pixel{
+				sum:       c,
+				sumWeight: 1,
+			}
 		}
 	}
 
-	img := &image.RGBA{
-		Pix:    pixPool.Get().([]byte),
-		Stride: 4 * texWidth,
-		Rect:   image.Rect(0, 0, texWidth, 1),
-	}
-	// Cache the conversion of the final pixel colors to sRGB.
-	srgbCache := map[color.LinearSRGB]stdcolor.RGBA{}
-	firstSet := false
-	allSame := true
-	var firstColor stdcolor.RGBA
+	pix := pixPool.Get().(*[texWidth]stdcolor.RGBA)
 	for x := range pixels {
 		px := &pixels[x]
 		px.sum.A = 1
@@ -619,25 +601,16 @@ func computeTexture(tex *texture) image.Image {
 			px.sumWeight = 1
 		}
 
-		srgb, ok := srgbCache[px.sum]
-		if !ok {
-			srgb = stdcolor.RGBAModel.Convert(px.sum.SRGB()).(stdcolor.RGBA)
-			srgbCache[px.sum] = srgb
+		linearToSRGB(&px.sum, &pix[x])
+	}
+
+	firstColor := pix[0]
+	allSame := true
+	for _, p := range pix[1:] {
+		if p != firstColor {
+			allSame = false
+			break
 		}
-		i := img.PixOffset(x, 0)
-		s := img.Pix[i : i+4 : i+4] // Small cap improves performance, see https://golang.org/issue/27857
-		if firstSet {
-			if firstColor != srgb {
-				allSame = false
-			}
-		} else {
-			firstSet = true
-			firstColor = srgb
-		}
-		s[0] = srgb.R
-		s[1] = srgb.G
-		s[2] = srgb.B
-		s[3] = srgb.A
 	}
 
 	// Turn single-color textures into uniforms. That's a compression ratio of texWidth.
@@ -645,11 +618,14 @@ func computeTexture(tex *texture) image.Image {
 		//lint:ignore SA6002 We don't control the type of img.Pix, we don't want to track the slice
 		// separately, and this is still replacing a texWidth*4 large allocation with a 24 bytes large
 		// one.
-		pixPool.Put(img.Pix)
+		pixPool.Put(pix)
 		return image.NewUniform(firstColor)
 	}
-
-	return img
+	return &image.RGBA{
+		Pix:    (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:],
+		Stride: 4 * texWidth,
+		Rect:   image.Rect(0, 0, texWidth, 1),
+	}
 }
 
 // Render returns a series of textures that when placed next to each other will display spans for the time range [start,
@@ -836,10 +812,7 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 			continue
 		}
 		if img, ok := tex.realized.image.(*image.RGBA); ok {
-			//lint:ignore SA6002 We don't control the type of img.Pix, we don't want to track the slice
-			// separately, and this is still replacing a texWidth*4 large allocation with a 24 bytes large
-			// one.
-			pixPool.Put(img.Pix)
+			pixPool.Put((*[texWidth]stdcolor.RGBA)(unsafe.Pointer(&img.Pix[0])))
 		}
 		tex.realized = textureRealized{}
 		s.Delete(tex)
@@ -866,10 +839,11 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
 		} else {
 			// The image may have already been realized for us by compute.
 			if tex.realized.image == nil {
-				pix := pixPool.Get().([]byte)
-				decompressTexture(pix, tex.computed.compressed)
+				pix := pixPool.Get().(*[texWidth]stdcolor.RGBA)
+				pixb := (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:]
+				decompressTexture(pixb, tex.computed.compressed)
 				tex.realized.image = &image.RGBA{
-					Pix:    pix,
+					Pix:    pixb,
 					Stride: 4,
 					Rect:   image.Rect(0, 0, texWidth, 1),
 				}
@@ -1023,6 +997,7 @@ func decompressTexture(out, data []byte) []byte {
 		return nil
 	}
 
+	// OPT(dh): textures have a fixed width.
 	sz := binary.LittleEndian.Uint32(data)
 	if cap(out) < int(sz) {
 		out = make([]byte, sz)
@@ -1095,7 +1070,7 @@ func (tm *TextureManager) Compact() {
 	// uniforms, that would only account for 4 MB.
 	var (
 		numRGBAs       = tm.Stats.RealizedRGBAs.Load()
-		sizeRGBAs      = uint64(numRGBAs) * texWidth * 4
+		sizeRGBAs      = uint64(numRGBAs) * 4 * texWidth
 		sizeCompressed = tm.Stats.CompressedSize.Load()
 
 		// The following variables are used for debug logging
@@ -1111,7 +1086,7 @@ func (tm *TextureManager) Compact() {
 	}
 
 	if sizeRGBAs > maxRGBAMemoryUsage {
-		todo := int((sizeRGBAs - (maxRGBAMemoryUsage / 2)) / (texWidth * 4))
+		todo := int((sizeRGBAs - (maxRGBAMemoryUsage / 2)) / (4 * texWidth))
 		if debugTextureCompaction {
 			fmt.Println("Need to collect", todo, "textures")
 		}
@@ -1177,4 +1152,52 @@ func (tm *TextureManager) Compact() {
 		fmt.Printf("Compacted %d textures in %s\n", deletedRGBANum, d)
 		fmt.Printf("Deleted %d (%f MiB) compressed\n", deletedCompressedNum, float64(deletedCompressedSize)/1024/1024)
 	}
+}
+
+var toSrgb8Table = [104]uint32{
+	0x0073000d, 0x007a000d, 0x0080000d, 0x0087000d, 0x008d000d, 0x0094000d, 0x009a000d, 0x00a1000d,
+	0x00a7001a, 0x00b4001a, 0x00c1001a, 0x00ce001a, 0x00da001a, 0x00e7001a, 0x00f4001a, 0x0101001a,
+	0x010e0033, 0x01280033, 0x01410033, 0x015b0033, 0x01750033, 0x018f0033, 0x01a80033, 0x01c20033,
+	0x01dc0067, 0x020f0067, 0x02430067, 0x02760067, 0x02aa0067, 0x02dd0067, 0x03110067, 0x03440067,
+	0x037800ce, 0x03df00ce, 0x044600ce, 0x04ad00ce, 0x051400ce, 0x057b00c5, 0x05dd00bc, 0x063b00b5,
+	0x06970158, 0x07420142, 0x07e30130, 0x087b0120, 0x090b0112, 0x09940106, 0x0a1700fc, 0x0a9500f2,
+	0x0b0f01cb, 0x0bf401ae, 0x0ccb0195, 0x0d950180, 0x0e56016e, 0x0f0d015e, 0x0fbc0150, 0x10630143,
+	0x11070264, 0x1238023e, 0x1357021d, 0x14660201, 0x156601e9, 0x165a01d3, 0x174401c0, 0x182401af,
+	0x18fe0331, 0x1a9602fe, 0x1c1502d2, 0x1d7e02ad, 0x1ed4028d, 0x201a0270, 0x21520256, 0x227d0240,
+	0x239f0443, 0x25c003fe, 0x27bf03c4, 0x29a10392, 0x2b6a0367, 0x2d1d0341, 0x2ebe031f, 0x304d0300,
+	0x31d105b0, 0x34a80555, 0x37520507, 0x39d504c5, 0x3c37048b, 0x3e7c0458, 0x40a8042a, 0x42bd0401,
+	0x44c20798, 0x488e071e, 0x4c1c06b6, 0x4f76065d, 0x52a50610, 0x55ac05cc, 0x5892058f, 0x5b590559,
+	0x5e0c0a23, 0x631c0980, 0x67db08f6, 0x6c55087f, 0x70940818, 0x74a007bd, 0x787d076c, 0x7c330723,
+}
+
+func linearToSRGB(c *color.LinearSRGB, out *stdcolor.RGBA) {
+	uc := (*[3]float32)(unsafe.Pointer(c))
+	uout := (*[3]uint8)(unsafe.Pointer(out))
+
+	minv := math.Float32frombits(0x39000000)
+	maxv := math.Float32frombits(0x3f7fffff)
+	alpha := c.A
+	out.A = 255
+	for i := 0; i < 3; i++ {
+		f := uc[i] * alpha
+
+		if !(f > minv) {
+			uout[i] = 0
+			continue
+		}
+		if f > maxv {
+			uout[i] = 255
+			continue
+		}
+		fu := math.Float32bits(f)
+		j := (fu - 0x39000000) >> 20
+		entry := *myunsafe.Index(toSrgb8Table[:], j)
+		bias := (entry >> 16) << 9
+		scale := entry & 0xFFFF
+
+		t := (fu >> 12) & 0xFF
+		res := (bias + scale*t) >> 16
+		uout[i] = uint8(res)
+	}
+
 }
