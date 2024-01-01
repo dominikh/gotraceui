@@ -74,7 +74,6 @@ import (
 	rtrace "runtime/trace"
 	"slices"
 	"sort"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -125,11 +124,9 @@ const (
 // Statically check that 4 * texWidth is a multiple of 8
 const _ = -uint((4 * texWidth) % 8)
 
-var pixPool = &sync.Pool{
-	New: func() any {
-		return new([texWidth]stdcolor.RGBA)
-	},
-}
+var pixPool = mysync.NewPool(func() *[texWidth]stdcolor.RGBA {
+	return new([texWidth]stdcolor.RGBA)
+})
 
 var closedDoneChannel = makeClosedChan[struct{}]()
 
@@ -243,7 +240,7 @@ type textureComputed struct {
 
 type textureRealized struct {
 	done  chan struct{}
-	image image.Image
+	image textureImage
 	op    paint.ImageOp
 }
 
@@ -495,8 +492,13 @@ type pixel struct {
 	sumWeight float64
 }
 
+type textureImage struct {
+	pix *[texWidth]stdcolor.RGBA
+	img image.Image
+}
+
 // computeTexture computes a texture for the time range [start, start + texWidth * nsPerPx].
-func computeTexture(tex *texture) image.Image {
+func computeTexture(tex *texture) textureImage {
 	defer rtrace.StartRegion(context.Background(), "main.computeTexture").End()
 
 	nsPerPx := tex.nsPerPx
@@ -588,7 +590,7 @@ func computeTexture(tex *texture) image.Image {
 		}
 	}
 
-	pix := pixPool.Get().(*[texWidth]stdcolor.RGBA)
+	pix := pixPool.Get()
 	for x := range pixels {
 		px := &pixels[x]
 		px.sum.A = 1
@@ -615,16 +617,16 @@ func computeTexture(tex *texture) image.Image {
 
 	// Turn single-color textures into uniforms. That's a compression ratio of texWidth.
 	if allSame {
-		//lint:ignore SA6002 We don't control the type of img.Pix, we don't want to track the slice
-		// separately, and this is still replacing a texWidth*4 large allocation with a 24 bytes large
-		// one.
 		pixPool.Put(pix)
-		return image.NewUniform(firstColor)
+		return textureImage{img: image.NewUniform(firstColor)}
 	}
-	return &image.RGBA{
-		Pix:    (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:],
-		Stride: 4 * texWidth,
-		Rect:   image.Rect(0, 0, texWidth, 1),
+	return textureImage{
+		pix: pix,
+		img: &image.RGBA{
+			Pix:    (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:],
+			Stride: 4 * texWidth,
+			Rect:   image.Rect(0, 0, texWidth, 1),
+		},
 	}
 }
 
@@ -780,7 +782,7 @@ func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (ima
 	tm.Realize(tex, tr)
 
 	if CanRecv(tex.realized.done) {
-		return tex.realized.image, tex.realized.op, true
+		return tex.realized.image.img, tex.realized.op, true
 	} else {
 		return nil, paint.ImageOp{}, false
 	}
@@ -811,8 +813,8 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 			// it, and it would race with us unrealizing it.
 			continue
 		}
-		if img, ok := tex.realized.image.(*image.RGBA); ok {
-			pixPool.Put((*[texWidth]stdcolor.RGBA)(unsafe.Pointer(&img.Pix[0])))
+		if tex.realized.image.pix != nil {
+			pixPool.Put(tex.realized.image.pix)
 		}
 		tex.realized = textureRealized{}
 		s.Delete(tex)
@@ -831,23 +833,26 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
 
 	do := func() {
 		if tex.computed.uniform != nil {
-			tex.realized.image = tex.computed.uniform
+			tex.realized.image.img = tex.computed.uniform
 			tex.realized.op = paint.NewImageOp(tex.computed.uniform)
 			if !tex.ephemeral {
 				tm.Stats.RealizedUniforms.Add(1)
 			}
 		} else {
 			// The image may have already been realized for us by compute.
-			if tex.realized.image == nil {
-				pix := pixPool.Get().(*[texWidth]stdcolor.RGBA)
+			if tex.realized.image.img == nil {
+				pix := pixPool.Get()
 				pixb := (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:]
-				decompressTexture(pixb, tex.computed.compressed)
-				tex.realized.image = &image.RGBA{
-					Pix:    pixb,
-					Stride: 4,
-					Rect:   image.Rect(0, 0, texWidth, 1),
+				decompressTexture(pix, tex.computed.compressed)
+				tex.realized.image = textureImage{
+					pix: pix,
+					img: &image.RGBA{
+						Pix:    pixb,
+						Stride: 4,
+						Rect:   image.Rect(0, 0, texWidth, 1),
+					},
 				}
-				tex.realized.op = paint.NewImageOp(tex.realized.image)
+				tex.realized.op = paint.NewImageOp(tex.realized.image.img)
 				tm.Stats.RealizedRGBAs.Add(1)
 				s, unlock := tm.realizedRGBAs.Lock()
 				defer unlock.Unlock()
@@ -898,16 +903,16 @@ func (tm *TextureManager) compute(tex *texture, tr *Trace) {
 		t := time.Now()
 		img := computeTexture(tex)
 		tex.computed.computedIn = time.Since(t)
-		switch img := img.(type) {
+		switch iimg := img.img.(type) {
 		case *image.Uniform:
-			tex.computed.uniform = img
+			tex.computed.uniform = iimg
 		case *image.RGBA:
-			tex.computed.compressed = compressTexture(img.Pix)
+			tex.computed.compressed = compressTexture(img.pix)
 			// Textures get computed to be realized, so don't throw away the image and realize it right away.
 			// Don't touch tex.realized.done, however, as this is managed by the realize method, which may
 			// have called compute.
 			tex.realized.image = img
-			tex.realized.op = paint.NewImageOp(img)
+			tex.realized.op = paint.NewImageOp(img.img)
 			s, unlock := tm.realizedRGBAs.Lock()
 			defer unlock.Unlock()
 			s.Add(tex)
@@ -922,8 +927,10 @@ func (tm *TextureManager) compute(tex *texture, tr *Trace) {
 }
 
 // OPT(dh): reuse output slice
-func compressTexture(data []byte) []byte {
+func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 	var prefix, suffix uint
+
+	data := (*[4 * texWidth]uint8)(unsafe.Pointer(pix))[:]
 
 	first := binary.LittleEndian.Uint64(data)
 	last := binary.LittleEndian.Uint64(data[len(data)-8:])
@@ -940,8 +947,7 @@ func compressTexture(data []byte) []byte {
 		suffix += 8
 	}
 
-	out := make([]byte, 4)
-	binary.LittleEndian.PutUint32(out, uint32(len(data)))
+	var out []byte
 
 	if prefix == uint(len(data)) {
 		suffix = 0
@@ -992,21 +998,13 @@ func compressTexture(data []byte) []byte {
 	return out
 }
 
-func decompressTexture(out, data []byte) []byte {
+func decompressTexture(pix *[texWidth]stdcolor.RGBA, data []byte) {
 	if len(data) < 4 {
-		return nil
+		clear(pix[:])
+		return
 	}
 
-	// OPT(dh): textures have a fixed width.
-	sz := binary.LittleEndian.Uint32(data)
-	if cap(out) < int(sz) {
-		out = make([]byte, sz)
-	} else {
-		out = out[:sz]
-	}
-	origOut := out
-
-	data = data[4:]
+	out := myunsafe.Cast[*[4 * texWidth]byte](pix)[:]
 
 	for len(data) >= 3 {
 		switch data[0] {
@@ -1043,8 +1041,6 @@ func decompressTexture(out, data []byte) []byte {
 			panic(fmt.Sprintf("%q", data[0]))
 		}
 	}
-
-	return origOut
 }
 
 func instantUniform(tex *texture, uniform *image.Uniform, op paint.ImageOp) *texture {
@@ -1053,9 +1049,11 @@ func instantUniform(tex *texture, uniform *image.Uniform, op paint.ImageOp) *tex
 		done:    closedDoneChannel,
 	}
 	tex.realized = textureRealized{
-		image: uniform,
-		op:    op,
-		done:  closedDoneChannel,
+		image: textureImage{
+			img: uniform,
+		},
+		op:   op,
+		done: closedDoneChannel,
 	}
 	return tex
 }
