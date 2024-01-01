@@ -147,17 +147,18 @@ type TextureStack struct {
 	texs []Texture
 }
 
-func (tex TextureStack) Realize(tm *TextureManager, tr *Trace) (bestReady bool) {
-	for i, t := range tex.texs {
-		if tm.Realize(t.tex, tr) {
-			if i == 0 {
-				return true
-			} else {
-				break
-			}
+func (tex TextureStack) Realize(tm *TextureManager, tr *Trace) (bestReady chan struct{}) {
+	firstDone := tm.Realize(tex.texs[0].tex, tr)
+	if TryRecv(firstDone) {
+		return closedDoneChannel
+	}
+	for _, t := range tex.texs[1:] {
+		done := tm.Realize(t.tex, tr)
+		if TryRecv(done) {
+			break
 		}
 	}
-	return false
+	return firstDone
 }
 
 func (tex TextureStack) Add(win *theme.Window, gtx layout.Context, tm *TextureManager, tr *Trace, ops *op.Ops, fudge float32) (best bool) {
@@ -822,10 +823,10 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 	tm.Stats.RealizedRGBAs.Add(uint64(-len(texs)))
 }
 
-func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
+func (tm *TextureManager) Realize(tex *texture, tr *Trace) (done chan struct{}) {
 	defer rtrace.StartRegion(context.Background(), "main.TextureManager.realize").End()
 	if tex.realized.done != nil {
-		return false
+		return tex.realized.done
 	}
 
 	tex.realized.done = make(chan struct{})
@@ -876,7 +877,7 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
 		rtrace.Logf(context.Background(), "texture renderer", "computation already ready")
 		do()
 		close(tex.realized.done)
-		return true
+		return closedDoneChannel
 	}
 
 	go func() {
@@ -886,7 +887,7 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
 		do()
 	}()
 
-	return false
+	return tex.realized.done
 }
 
 func (tm *TextureManager) compute(tex *texture, tr *Trace) {

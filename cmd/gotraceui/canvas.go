@@ -920,17 +920,27 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 								// OPT(dh): reuse slice
 								var texs []TextureStack
 								texs = cv.planTimelines(win, gtx, texs)
-								bestReady := true
-								for _, tex := range texs {
-									if !tex.Realize(&cv.textures, cv.trace) {
-										bestReady = false
+								if time.Since(gtx.Now) <= 5*time.Millisecond {
+									// Start computing textures in the background and wait up to 1ms for all textures to
+									// finish. This avoids showing single frames of placeholders. We only do this if we
+									// have enough time to spare to hit our rough goal of 144 fps.
+
+									// OPT(dh): reuse slice
+									dones := make([]chan struct{}, len(texs))
+									for i, tex := range texs {
+										dones[i] = tex.Realize(&cv.textures, cv.trace)
 									}
-								}
-								if !bestReady && time.Since(gtx.Now) <= 5*time.Millisecond {
-									// The best texture isn't ready yet, but we have time to spare, so let's
-									// wait a bit. This avoids rendering a placeholder for one frame in most
-									// cases.
-									time.Sleep(time.Millisecond)
+									timeout := time.NewTimer(time.Millisecond)
+									defer timeout.Stop()
+								doneLoop:
+									for len(dones) > 0 {
+										select {
+										case <-dones[0]:
+											dones = dones[1:]
+										case <-timeout.C:
+											break doneLoop
+										}
+									}
 								}
 								dims, tws := cv.layoutTimelines(win, gtx)
 								cv.prevFrame.displayedTls = tws
