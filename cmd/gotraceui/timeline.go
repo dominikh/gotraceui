@@ -161,7 +161,8 @@ func (tr *Track) Spans(win *theme.Window) *theme.Future[Items[ptrace.Span]] {
 			if len(bits) == 0 {
 				return nil
 			}
-			bytes := unsafe.Slice((*byte)(unsafe.Pointer(&bits[0])), len(bits)*8)
+
+			bytes := myunsafe.SliceCast[[]byte](bits)
 			out := boolSliceCache.Get(len(bytes) * 8)[:len(bytes)*8]
 			for i, v := range bytes {
 				bitunpackByte(v, myunsafe.Cast[*uint64](&out[i*8]))

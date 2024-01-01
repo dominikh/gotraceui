@@ -76,7 +76,6 @@ import (
 	"sort"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/color"
@@ -624,7 +623,7 @@ func computeTexture(tex *texture) textureImage {
 	return textureImage{
 		pix: pix,
 		img: &image.RGBA{
-			Pix:    (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:],
+			Pix:    myunsafe.SliceCast[[]uint8](pix[:]),
 			Stride: 4 * texWidth,
 			Rect:   image.Rect(0, 0, texWidth, 1),
 		},
@@ -843,12 +842,12 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (done chan struct{}) 
 			// The image may have already been realized for us by compute.
 			if tex.realized.image.img == nil {
 				pix := pixPool.Get()
-				pixb := (*[4 * texWidth]byte)(unsafe.Pointer(pix))[:]
 				decompressTexture(pix, tex.computed.compressed)
 				tex.realized.image = textureImage{
 					pix: pix,
 					img: &image.RGBA{
-						Pix:    pixb,
+						Pix: myunsafe.SliceCast[[]uint8](pix[:]),
+						// XXX shouldn't the stride be 4 * texWidth?
 						Stride: 4,
 						Rect:   image.Rect(0, 0, texWidth, 1),
 					},
@@ -931,21 +930,21 @@ func (tm *TextureManager) compute(tex *texture, tr *Trace) {
 func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 	var prefix, suffix uint
 
-	data := (*[4 * texWidth]uint8)(unsafe.Pointer(pix))[:]
+	data := myunsafe.SliceCast[[]uint64](pix[:])
 
-	first := binary.LittleEndian.Uint64(data)
-	last := binary.LittleEndian.Uint64(data[len(data)-8:])
-	for i := 0; i < len(data); i += 8 {
-		if first != binary.LittleEndian.Uint64(data[i:]) {
+	first := data[0]
+	last := data[len(data)-1]
+	for _, p := range data {
+		if p != first {
 			break
 		}
-		prefix += 8
+		prefix++
 	}
-	for i := len(data) - 8; i >= 0; i -= 8 {
-		if last != binary.LittleEndian.Uint64(data[i:]) {
+	for i := len(data) - 1; i >= 0; i-- {
+		if data[i] != last {
 			break
 		}
-		suffix += 8
+		suffix++
 	}
 
 	var out []byte
@@ -954,22 +953,22 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 		suffix = 0
 	}
 
-	if prefix > 11 {
+	if prefix > 1 {
 		n := len(out)
 		out = slices.Grow(out, 11)[:n+11]
 		out[n+0] = 'r'
-		binary.LittleEndian.PutUint16(out[n+1:], uint16(prefix/8))
+		binary.LittleEndian.PutUint16(out[n+1:], uint16(prefix))
 		binary.LittleEndian.PutUint64(out[n+3:], first)
 	} else {
 		prefix = 0
 	}
 
-	if suffix <= 11 {
+	if suffix == 1 {
 		suffix = 0
 	}
 
 	if rem := uint(len(data)) - prefix - suffix; rem > 0 {
-		remData := data[prefix : len(data)-int(suffix)]
+		remData := myunsafe.SliceCast[[]byte](data[prefix : len(data)-int(suffix)])
 		// OPT(dh): reuse slice
 		z := snappy.Encode(nil, remData)
 
@@ -977,7 +976,7 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 			n := len(out)
 			out = slices.Grow(out, len(z)+3)[:n+3+len(remData)]
 			out[n] = 'd'
-			binary.LittleEndian.PutUint16(out[n+1:], uint16(rem))
+			binary.LittleEndian.PutUint16(out[n+1:], uint16(len(remData)))
 			copy(out[n+3:], remData)
 		} else {
 			n := len(out)
@@ -988,11 +987,11 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 		}
 	}
 
-	if suffix > 11 {
+	if suffix > 1 {
 		n := len(out)
 		out = slices.Grow(out, 11)[:n+11]
 		out[n+0] = 'r'
-		binary.LittleEndian.PutUint16(out[n+1:], uint16(suffix/8))
+		binary.LittleEndian.PutUint16(out[n+1:], uint16(suffix))
 		binary.LittleEndian.PutUint64(out[n+3:], last)
 	}
 
@@ -1005,7 +1004,7 @@ func decompressTexture(pix *[texWidth]stdcolor.RGBA, data []byte) {
 		return
 	}
 
-	out := myunsafe.Cast[*[4 * texWidth]byte](pix)[:]
+	out := myunsafe.SliceCast[[]byte](pix[:])
 
 	for len(data) >= 3 {
 		switch data[0] {
@@ -1015,7 +1014,7 @@ func decompressTexture(pix *[texWidth]stdcolor.RGBA, data []byte) {
 			seq := binary.LittleEndian.Uint64(data[3:])
 			data = data[11:]
 
-			ptr := unsafe.Slice((*uint64)(unsafe.Pointer(&out[0])), n)
+			ptr := myunsafe.SliceCast[[]uint64](out)[:n]
 			for i := range ptr {
 				ptr[i] = seq
 			}
@@ -1170,8 +1169,8 @@ var toSrgb8Table = [104]uint32{
 }
 
 func linearToSRGB(c *color.LinearSRGB, out *stdcolor.RGBA) {
-	uc := (*[3]float32)(unsafe.Pointer(c))
-	uout := (*[3]uint8)(unsafe.Pointer(out))
+	uc := myunsafe.Cast[*[3]float32](c)
+	uout := myunsafe.Cast[*[3]uint8](out)
 
 	minv := math.Float32frombits(0x39000000)
 	maxv := math.Float32frombits(0x3f7fffff)
