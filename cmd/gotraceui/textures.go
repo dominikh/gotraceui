@@ -246,9 +246,9 @@ type textureRealized struct {
 
 func (tex *texture) ready() bool {
 	if tex.realized.done != nil {
-		return CanRecv(tex.realized.done)
+		return TryRecv(tex.realized.done)
 	}
-	return CanRecv(tex.computed.done) && tex.computed.uniform != nil
+	return TryRecv(tex.computed.done) && tex.computed.uniform != nil
 }
 
 func (tex *texture) End() trace.Timestamp {
@@ -781,7 +781,7 @@ func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (ima
 	tex.lastUse = win.Frame
 	tm.Realize(tex, tr)
 
-	if CanRecv(tex.realized.done) {
+	if TryRecv(tex.realized.done) {
 		return tex.realized.image.img, tex.realized.op, true
 	} else {
 		return nil, paint.ImageOp{}, false
@@ -791,7 +791,7 @@ func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (ima
 func (tm *TextureManager) uncompute(texs []*texture) {
 	var sz int
 	for _, tex := range texs {
-		if tex.computed.done != nil && !CanRecv(tex.realized.done) {
+		if tex.computed.done != nil && !TryRecv(tex.realized.done) {
 			// Don't uncompute if the texture isn't fully computed yet. There's still a goroutine computing
 			// it, and it would race with us uncomputing it.
 			continue
@@ -808,7 +808,7 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 	s, unlock := tm.realizedRGBAs.Lock()
 	defer unlock.Unlock()
 	for _, tex := range texs {
-		if tex.realized.done != nil && !CanRecv(tex.realized.done) {
+		if tex.realized.done != nil && !TryRecv(tex.realized.done) {
 			// Don't unrealize if the texture isn't fully realized yet. There's still a goroutine realizing
 			// it, and it would race with us unrealizing it.
 			continue
@@ -872,7 +872,7 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (immediate bool) {
 	}
 
 	// Avoid spawning a goroutine if the computation is already done
-	if CanRecv(tex.computed.done) {
+	if TryRecv(tex.computed.done) {
 		rtrace.Logf(context.Background(), "texture renderer", "computation already ready")
 		do()
 		close(tex.realized.done)
@@ -1125,7 +1125,7 @@ func (tm *TextureManager) Compact() {
 				return false
 			}
 			lookedAt++
-			if !CanRecv(tex.computed.done) {
+			if !TryRecv(tex.computed.done) {
 				// The compressed data has already been deleted, and is either still gone, or in the
 				// process of being recomputed.
 				return true

@@ -1888,7 +1888,7 @@ func cmp[T constraints.Ordered](a, b T, negate bool) int {
 	return ret
 }
 
-func CanRecv[T any](ch <-chan T) bool {
+func TryRecv[T any](ch <-chan T) bool {
 	select {
 	case <-ch:
 		return true
