@@ -2,7 +2,8 @@ package mem
 
 import (
 	"math/bits"
-	"sync"
+
+	"honnef.co/go/gotraceui/mysync"
 
 	"gioui.org/op"
 )
@@ -131,31 +132,23 @@ var poolSizes = [...]int{
 // ConcurrentSliceCache caches slices, grouped by capacities. When requesting a slice, the requested capacity
 // is rounded up to the next group and then fetched from a sync.Pool dedicated to that group.
 type ConcurrentSliceCache[E any, T ~[]E] struct {
-	pools [len(poolSizes)]*sync.Pool
+	pools [len(poolSizes)]*mysync.Pool[T]
 }
 
 func NewConcurrentSliceCache[E any, T ~[]E]() *ConcurrentSliceCache[E, T] {
-	var pools [len(poolSizes)]*sync.Pool
+	var pools [len(poolSizes)]*mysync.Pool[T]
 	for i, v := range poolSizes {
 		i := i
 		v := v
 		if i == 0 {
-			pools[i] = &sync.Pool{
-				New: func() any {
-					return make(T, 0, 1)
-				},
-			}
+			pools[i] = mysync.NewPool(func() T { return make(T, 0, 1) })
 			continue
 		}
 
 		if v == poolSizes[i-1] {
 			pools[i] = pools[i-1]
 		} else {
-			pools[i] = &sync.Pool{
-				New: func() any {
-					return make(T, 0, v)
-				},
-			}
+			pools[i] = mysync.NewPool(func() T { return make(T, 0, v) })
 		}
 	}
 
@@ -187,7 +180,7 @@ func (c *ConcurrentSliceCache[E, T]) Get(minCap int) T {
 		return make(T, 0, minCap)
 	}
 
-	return c.pools[log2].Get().(T)[:0]
+	return c.pools[log2].Get()[:0]
 }
 
 // AllocationCache is a trivial cache of allocations. Put appends a value to a slice and Get pops a value from the
