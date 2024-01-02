@@ -1060,7 +1060,6 @@ func (track *Track) Layout(
 		first = false
 	}
 
-	allDspSpans := track.widget.prevFrame.dspSpans[:0]
 	texs := track.widget.scratchTexs[:0]
 	texs = track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs)
 	track.widget.scratchTexs = texs[:0]
@@ -1092,6 +1091,7 @@ func (track *Track) Layout(
 			spans: spans,
 		}
 
+		allDspSpans := track.widget.prevFrame.dspSpans[:0]
 		for {
 			dspSpans, startPx, endPx, ok := it.next(gtx)
 			if !ok {
