@@ -1541,7 +1541,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 
 	p.SetProgressStage(7)
 	baseTimeline := len(timelines)
-	timelines = slices.Grow(timelines, len(tr.Goroutines))[:len(timelines)+len(tr.Goroutines)]
+	timelines = mem.GrowLen(timelines, len(tr.Goroutines))
 	var progress atomic.Uint64
 	mysync.Distribute(tr.Goroutines, 0, func(group int, step int, subitems []*ptrace.Goroutine) error {
 		for j, g := range subitems {

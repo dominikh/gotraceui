@@ -202,3 +202,8 @@ func (c *AllocationCache[T]) Get() *T {
 		return item
 	}
 }
+
+// GrowLen increases the slice's length by n elements.
+func GrowLen[S ~[]E, E any](s S, n int) S {
+	return append(s, make([]E, n)...)
+}

@@ -29,7 +29,6 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/x/component"
-	"golang.org/x/exp/slices"
 )
 
 type showTooltips uint8
@@ -243,7 +242,7 @@ func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
 		return
 	}
 
-	cv.timelineEnds = slices.Grow(cv.timelineEnds[:0], len(cv.timelines))[:len(cv.timelines)]
+	cv.timelineEnds = mem.GrowLen(cv.timelineEnds[:0], len(cv.timelines))
 	accEnds := 0
 	for i, tl := range cv.timelines {
 		accEnds += tl.Height(gtx, cv)

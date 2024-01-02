@@ -80,6 +80,7 @@ import (
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/container"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
@@ -955,7 +956,7 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 
 	if prefix > 1 {
 		n := len(out)
-		out = slices.Grow(out, 11)[:n+11]
+		out = mem.GrowLen(out, 11)
 		out[n+0] = 'r'
 		binary.LittleEndian.PutUint16(out[n+1:], uint16(prefix))
 		binary.LittleEndian.PutUint64(out[n+3:], first)
@@ -974,13 +975,13 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 
 		if len(z) > len(remData) {
 			n := len(out)
-			out = slices.Grow(out, 3+len(remData))[:n+3+len(remData)]
+			out = mem.GrowLen(out, 3+len(remData))
 			out[n] = 'd'
 			binary.LittleEndian.PutUint16(out[n+1:], uint16(len(remData)))
 			copy(out[n+3:], remData)
 		} else {
 			n := len(out)
-			out = slices.Grow(out, 3+len(z))[:n+3+len(z)]
+			out = mem.GrowLen(out, 3+len(z))
 			out[n] = 'z'
 			binary.LittleEndian.PutUint16(out[n+1:], uint16(len(z)))
 			copy(out[n+3:], z)
@@ -989,7 +990,7 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 
 	if suffix > 1 {
 		n := len(out)
-		out = slices.Grow(out, 11)[:n+11]
+		out = mem.GrowLen(out, 11)
 		out[n+0] = 'r'
 		binary.LittleEndian.PutUint16(out[n+1:], uint16(suffix))
 		binary.LittleEndian.PutUint64(out[n+3:], last)

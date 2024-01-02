@@ -4,9 +4,8 @@ import (
 	"math/bits"
 	"unsafe"
 
+	"honnef.co/go/gotraceui/mem"
 	myunsafe "honnef.co/go/gotraceui/unsafe"
-
-	"golang.org/x/exp/slices"
 )
 
 type compressedStackSpans struct {
@@ -144,7 +143,7 @@ func Decode(v []uint64, out []uint64) []uint64 {
 	for _, e := range v {
 		n += sizes[e&0b1111]
 	}
-	out = slices.Grow(out[:0], n)[:n]
+	out = mem.GrowLen(out[:0], n)
 	DecodeUnsafe(v, &out[0])
 	return out
 }
