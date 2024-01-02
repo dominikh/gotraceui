@@ -189,12 +189,17 @@ func (tex TextureStack) Add(win *theme.Window, gtx layout.Context, tm *TextureMa
 		}
 
 		// The offset only affects the clip, while the scale affects both the clip and the image.
-		defer op.Affine(f32.Affine2D{}.Offset(f32.Pt(t.XOffset+fudge, 0))).Push(ops).Pop()
+		stack1 := op.Affine(f32.Affine2D{}.Offset(f32.Pt(t.XOffset+fudge, 0))).Push(ops)
 		// TODO(dh): is there a way we can fill the current clip, without having to specify its height?
-		defer op.Affine(f32.Affine2D{}.Scale(f32.Pt(0, 0), f32.Pt(t.XScale, trackHeight))).Push(ops).Pop()
-		defer clip.Rect(image.Rect(0, 0, texWidth, 1)).Push(ops).Pop()
+		stack2 := op.Affine(f32.Affine2D{}.Scale(f32.Pt(0, 0), f32.Pt(t.XScale, trackHeight))).Push(ops)
+		stack3 := clip.Rect(image.Rect(0, 0, texWidth, 1)).Push(ops)
 
 		paint.PaintOp{}.Add(ops)
+
+		// We aren't using defer because it would allocate here.
+		stack3.Pop()
+		stack2.Pop()
+		stack1.Pop()
 		return i == 0
 	}
 	panic("unreachable")
@@ -744,9 +749,9 @@ func (r *Renderer) Render(
 	for start := start; start < end; start += step {
 		texs = r.planTextures(win, track, spans, start, nsPerPx, texs[:0])
 
-		var texs2 []Texture
-		for _, tex := range texs {
-			texs2 = append(texs2, Texture{
+		texs2 := make([]Texture, len(texs))
+		for i, tex := range texs {
+			texs2[i] = Texture{
 				tex: tex,
 				// The texture has been rendered at a different scale than requested. At a minimum because we rounded it
 				// down to a power of 2, but also because uniform colors modify the scale to limit the width they draw
@@ -756,7 +761,7 @@ func (r *Renderer) Render(
 				// tex.start (with tex.start <= start <= origStart). Instruct the user to offset the texture to align
 				// things.
 				XOffset: float32(float64(tex.start-origStart) / origNsPerPx),
-			})
+			}
 		}
 		out = append(out, TextureStack{texs: texs2})
 	}
@@ -986,8 +991,11 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 
 	if rem := uint(len(data)) - prefix - suffix; rem > 0 {
 		remData := myunsafe.SliceCast[[]byte](data[prefix : len(data)-int(suffix)])
-		// OPT(dh): reuse slice
-		z := snappy.Encode(nil, remData)
+		// The result of snappy.MaxEncodedLen for our texture width. Will fail to compile if it exceeds the maximum
+		// size snappy accepts.
+		const maxCompressedTextureSize uint32 = 32 + texWidth*4 + (texWidth*4)/6
+		var zbuf [maxCompressedTextureSize]byte
+		z := snappy.Encode(zbuf[:], remData)
 
 		if len(z) > len(remData) {
 			n := len(out)

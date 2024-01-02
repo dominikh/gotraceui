@@ -306,6 +306,7 @@ type TrackWidget struct {
 	click gesture.Click
 
 	scratchHighlighted []clip.FRect
+	scratchTexs        []TextureStack
 
 	// cached state
 	prevFrame struct {
@@ -1060,9 +1061,9 @@ func (track *Track) Layout(
 	}
 
 	allDspSpans := track.widget.prevFrame.dspSpans[:0]
-	// OPT(dh): reuse slice between frames
-	var texs []TextureStack
+	texs := track.widget.scratchTexs[:0]
 	texs = track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs)
+	track.widget.scratchTexs = texs[:0]
 	for i, tex := range texs {
 		var fudge float32
 		if i == 1 {

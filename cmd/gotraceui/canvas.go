@@ -116,6 +116,9 @@ type Canvas struct {
 
 	// Scratch space used by ActivityWidgetTrack.Layout
 	trackSpanLabels []string
+	// Scratch space used for planning textures
+	scratchTexs  []TextureStack
+	scratchDones []chan struct{}
 
 	indicateTimestamp container.Option[trace.Timestamp]
 
@@ -917,29 +920,46 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 								cv.timeline.hover.Add(gtx.Ops)
 								// OPT(dh): reuse slice
-								var texs []TextureStack
+								texs := cv.scratchTexs[:0]
 								texs = cv.planTimelines(win, gtx, texs)
+								cv.scratchTexs = texs[:0]
 								if time.Since(gtx.Now) <= 5*time.Millisecond {
 									// Start computing textures in the background and wait up to 1ms for all textures to
 									// finish. This avoids showing single frames of placeholders. We only do this if we
 									// have enough time to spare to hit our rough goal of 144 fps.
 
-									// OPT(dh): reuse slice
-									dones := make([]chan struct{}, len(texs))
+									dones := cv.scratchDones
+									if cap(dones) >= len(texs) {
+										dones = dones[:len(texs)]
+									} else {
+										dones = make([]chan struct{}, len(texs))
+										cv.scratchDones = dones
+									}
+
 									for i, tex := range texs {
 										dones[i] = tex.Realize(&cv.textures, cv.trace)
 									}
-									timeout := time.NewTimer(time.Millisecond)
-									defer timeout.Stop()
-								doneLoop:
-									for len(dones) > 0 {
-										select {
-										case <-dones[0]:
-											dones = dones[1:]
-										case <-timeout.C:
-											break doneLoop
+
+									notReady := false
+									for _, ch := range dones {
+										if !TryRecv(ch) {
+											notReady = true
+											break
 										}
 									}
+									if notReady {
+										timeout := time.NewTimer(time.Millisecond)
+										defer timeout.Stop()
+									doneLoop:
+										for n := 0; n < len(dones); n++ {
+											select {
+											case <-dones[n]:
+											case <-timeout.C:
+												break doneLoop
+											}
+										}
+									}
+									clear(dones)
 								}
 								dims, tws := cv.layoutTimelines(win, gtx)
 								cv.prevFrame.displayedTls = tws
