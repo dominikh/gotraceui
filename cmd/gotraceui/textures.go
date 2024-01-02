@@ -330,7 +330,9 @@ func (r *Renderer) planTextures(
 	out []*texture,
 ) []*texture {
 	defer rtrace.StartRegion(context.Background(), "main.Renderer.planTextures").End()
-	rtrace.Logf(context.Background(), "texture renderer", "planning texture at %d ns @ %f ns/px for track in %q", start, nsPerPx, track.parent.shortName)
+	if rtrace.IsEnabled() {
+		rtrace.Logf(context.Background(), "texture renderer", "planning texture at %d ns @ %f ns/px for track in %q", start, nsPerPx, track.parent.shortName)
+	}
 
 	if spans.Len() == 0 {
 		rtrace.Logf(context.Background(), "texture renderer", "no spans to plan")
@@ -345,7 +347,9 @@ func (r *Renderer) planTextures(
 	// produced by zooming out beyond the size of the track. It only has to cover up to the actual track end.
 	end = min(end, spans.AtPtr(spans.Len()-1).End)
 
-	rtrace.Logf(context.Background(), "texture renderer", "effective end is %d", end)
+	if rtrace.IsEnabled() {
+		rtrace.Logf(context.Background(), "texture renderer", "effective end is %d", end)
+	}
 
 	if nsPerPx == 0 {
 		panic("got zero nsPerPx")
@@ -410,7 +414,9 @@ func (r *Renderer) planTextures(
 		}
 	}
 
-	rtrace.Logf(context.Background(), "texture renderer", "found %d higher resolution textures", foundHigher)
+	if rtrace.IsEnabled() {
+		rtrace.Logf(context.Background(), "texture renderer", "found %d higher resolution textures", foundHigher)
+	}
 
 	if higherReady {
 		// A higher resolution texture is already ready. There is no point in looking for lower resolution ones, or
@@ -445,7 +451,9 @@ func (r *Renderer) planTextures(
 		}
 	}
 
-	rtrace.Logf(context.Background(), "texture renderer", "found %d lower resolution textures", foundLower)
+	if rtrace.IsEnabled() {
+		rtrace.Logf(context.Background(), "texture renderer", "found %d lower resolution textures", foundLower)
+	}
 
 	{
 		// OPT(dh): avoiding this allocation would be nice
@@ -508,7 +516,9 @@ func computeTexture(tex *texture) textureImage {
 	track := tex.track
 	tr := track.parent.cv.trace
 
-	rtrace.Logf(context.Background(), "texture renderer", "Computing texture at %d ns @ %f ns/px", start, nsPerPx)
+	if rtrace.IsEnabled() {
+		rtrace.Logf(context.Background(), "texture renderer", "Computing texture at %d ns @ %f ns/px", start, nsPerPx)
+	}
 
 	// The texture covers the time range [start, end]
 	end := trace.Timestamp(math.Ceil(float64(start) + nsPerPx*texWidth))
@@ -644,10 +654,12 @@ func (r *Renderer) Render(
 	out []TextureStack,
 ) []TextureStack {
 	defer rtrace.StartRegion(context.Background(), "main.Renderer.Render").End()
-	if c, ok := spans.Container(); ok {
-		rtrace.Logf(context.Background(), "texture renderer", "Requesting texture for [%d ns, %d ns] @ %f ns/px in a track in timeline %q", start, end, nsPerPx, c.Timeline.shortName)
-	} else {
-		rtrace.Logf(context.Background(), "texture renderer", "Requesting texture for [%d ns, %d ns] @ %f ns/px", start, end, nsPerPx)
+	if rtrace.IsEnabled() {
+		if c, ok := spans.Container(); ok {
+			rtrace.Logf(context.Background(), "texture renderer", "Requesting texture for [%d ns, %d ns] @ %f ns/px in a track in timeline %q", start, end, nsPerPx, c.Timeline.shortName)
+		} else {
+			rtrace.Logf(context.Background(), "texture renderer", "Requesting texture for [%d ns, %d ns] @ %f ns/px", start, end, nsPerPx)
+		}
 	}
 
 	if nsPerPx == 0 {
@@ -710,7 +722,9 @@ func (r *Renderer) Render(
 
 	if start >= end {
 		// We don't need a texture for an empty time interval
-		rtrace.Logf(context.Background(), "texture renderer", "not returning textures for empty time interval [%d, %d]", start, end)
+		if rtrace.IsEnabled() {
+			rtrace.Logf(context.Background(), "texture renderer", "not returning textures for empty time interval [%d, %d]", start, end)
+		}
 		return out
 	}
 
@@ -830,7 +844,9 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (done chan struct{}) 
 	}
 
 	tex.realized.done = make(chan struct{})
-	rtrace.Logf(context.Background(), "texture renderer", "realizing texture at %d ns @ %f ns/px for track in %q", tex.start, tex.nsPerPx, tex.track.parent.shortName)
+	if rtrace.IsEnabled() {
+		rtrace.Logf(context.Background(), "texture renderer", "realizing texture at %d ns @ %f ns/px for track in %q", tex.start, tex.nsPerPx, tex.track.parent.shortName)
+	}
 
 	do := func() {
 		if tex.computed.uniform != nil {
