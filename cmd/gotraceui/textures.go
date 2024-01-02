@@ -974,13 +974,13 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 
 		if len(z) > len(remData) {
 			n := len(out)
-			out = slices.Grow(out, len(z)+3)[:n+3+len(remData)]
+			out = slices.Grow(out, 3+len(remData))[:n+3+len(remData)]
 			out[n] = 'd'
 			binary.LittleEndian.PutUint16(out[n+1:], uint16(len(remData)))
 			copy(out[n+3:], remData)
 		} else {
 			n := len(out)
-			out = slices.Grow(out, len(z)+3)[:n+3+len(z)]
+			out = slices.Grow(out, 3+len(z))[:n+3+len(z)]
 			out[n] = 'z'
 			binary.LittleEndian.PutUint16(out[n+1:], uint16(len(z)))
 			copy(out[n+3:], z)
