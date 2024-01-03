@@ -118,6 +118,23 @@ type Track struct {
 	widget *TrackWidget
 }
 
+func (tl *Timeline) ensureTrackWidgets() {
+	if len(tl.tracks) == 0 || tl.tracks[0].widget != nil {
+		return
+	}
+
+	// If the first track doesn't have a widget then none of them do. Initialize them.
+	// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
+	// timelines.
+	for i := range tl.tracks {
+		tl.tracks[i].widget = tl.cv.trackWidgetsCache.Get()
+		*tl.tracks[i].widget = TrackWidget{}
+	}
+	if tl.buildTrackWidgets != nil {
+		tl.buildTrackWidgets(tl.tracks)
+	}
+}
+
 func (track *Track) SpanColor(span *ptrace.Span, tr *Trace) colorIndex {
 	if track.spanColor != nil {
 		return track.spanColor(span, tr)
@@ -305,8 +322,9 @@ type TrackWidget struct {
 	hover gesture.Hover
 	click gesture.Click
 
-	scratchHighlighted []clip.FRect
-	scratchTexs        []TextureStack
+	scratchHighlighted   []clip.FRect
+	scratchTextureStacks []TextureStack
+	scratchTextures      []Texture
 
 	// cached state
 	prevFrame struct {
@@ -409,6 +427,7 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 func (tl *Timeline) Plan(win *theme.Window, texs []TextureStack) []TextureStack {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidget.Plan").End()
 
+	tl.ensureTrackWidgets()
 	for _, track := range tl.tracks {
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
@@ -505,18 +524,7 @@ func (tl *Timeline) Layout(
 	}
 
 	stack := op.TransformOp{}.Push(gtx.Ops)
-	if len(tl.tracks) > 0 && tl.tracks[0].widget == nil {
-		// If the first track doesn't have a widget then none of them do. Initialize them.
-		// OPT(dh): avoid this allocation by using a pool of slices; we need at most as many as there are visible
-		// timelines.
-		for i := range tl.tracks {
-			tl.tracks[i].widget = cv.trackWidgetsCache.Get()
-			*tl.tracks[i].widget = TrackWidget{}
-		}
-		if tl.buildTrackWidgets != nil {
-			tl.buildTrackWidgets(tl.tracks)
-		}
-	}
+	tl.ensureTrackWidgets()
 
 	suboptimal := false
 	for _, track := range tl.tracks {
@@ -720,9 +728,11 @@ func (track *Track) Plan(win *theme.Window, texs []TextureStack) []TextureStack 
 		}
 	}
 
-	// OPT(dh): reuse slice between frames
 	cv := track.parent.cv
-	return track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs)
+	textures := track.widget.scratchTextures[:0]
+	texs, textures = track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs, textures)
+	track.widget.scratchTextures = textures[:0]
+	return texs
 }
 
 func (track *Track) Layout(
@@ -733,6 +743,9 @@ func (track *Track) Layout(
 	labelsOut *[]string,
 ) (dims layout.Dimensions) {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
+
+	// OPT(dh): both Track.Plan and Track.Layout call Renderer.Render to figure out which textures to display. However,
+	// Render is currently so fast that deduplicating that work isn't worth it.
 
 	cv := tl.cv
 	tr := cv.trace
@@ -1060,10 +1073,12 @@ func (track *Track) Layout(
 		first = false
 	}
 
-	texs := track.widget.scratchTexs[:0]
-	texs = track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), texs)
-	track.widget.scratchTexs = texs[:0]
-	for i, tex := range texs {
+	textureStacks := track.widget.scratchTextureStacks[:0]
+	textures := track.widget.scratchTextures[:0]
+	textureStacks, textures = track.rnd.Render(win, track, spans, cv.nsPerPx, cv.start, cv.End(), textureStacks, textures)
+	track.widget.scratchTextureStacks = textureStacks[:0]
+	track.widget.scratchTextures = textures[:0]
+	for i, tex := range textureStacks {
 		var fudge float32
 		if i == 1 {
 			// This is an ugly hack to make sure neighboring textures don't have a tiny gap due to rounding

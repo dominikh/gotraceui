@@ -656,8 +656,9 @@ func (r *Renderer) Render(
 	nsPerPx float64,
 	start trace.Timestamp,
 	end trace.Timestamp,
-	out []TextureStack,
-) []TextureStack {
+	textureStacks []TextureStack,
+	textures []Texture,
+) ([]TextureStack, []Texture) {
 	defer rtrace.StartRegion(context.Background(), "main.Renderer.Render").End()
 	if rtrace.IsEnabled() {
 		if c, ok := spans.Container(); ok {
@@ -672,7 +673,7 @@ func (r *Renderer) Render(
 	}
 
 	if spans.Len() == 0 {
-		return out
+		return textureStacks, textures
 	}
 
 	if spans.AtPtr(0).State == statePlaceholder {
@@ -684,7 +685,7 @@ func (r *Renderer) Render(
 		newStart := max(start, spans.AtPtr(0).Start)
 		newEnd := min(end, spans.AtPtr(0).End)
 		if newStart >= end || newEnd <= start {
-			return nil
+			return textureStacks, textures
 		}
 		// OPT(dh): avoiding this allocation would be nice
 		tex := instantUniform(&texture{
@@ -695,7 +696,7 @@ func (r *Renderer) Render(
 			level:     uint8(math.Log2(nsPerPx)),
 			ephemeral: true,
 		}, stackPlaceholderUniform, stackPlaceholderOp)
-		out = append(out, TextureStack{
+		textureStacks = append(textureStacks, TextureStack{
 			texs: []Texture{
 				{
 					tex:     tex,
@@ -704,7 +705,7 @@ func (r *Renderer) Render(
 				},
 			},
 		})
-		return out
+		return textureStacks, textures
 	}
 
 	origStart := start
@@ -730,7 +731,7 @@ func (r *Renderer) Render(
 		if rtrace.IsEnabled() {
 			rtrace.Logf(context.Background(), "texture renderer", "not returning textures for empty time interval [%d, %d]", start, end)
 		}
-		return out
+		return textureStacks, textures
 	}
 
 	// texWidth is an integer pixel amount, and nsPerPx is rounded to a power of 2, ergo also integer.
@@ -749,9 +750,9 @@ func (r *Renderer) Render(
 	for start := start; start < end; start += step {
 		texs = r.planTextures(win, track, spans, start, nsPerPx, texs[:0])
 
-		texs2 := make([]Texture, len(texs))
-		for i, tex := range texs {
-			texs2[i] = Texture{
+		textures = slices.Grow(textures, len(texs))
+		for _, tex := range texs {
+			textures = append(textures, Texture{
 				tex: tex,
 				// The texture has been rendered at a different scale than requested. At a minimum because we rounded it
 				// down to a power of 2, but also because uniform colors modify the scale to limit the width they draw
@@ -761,14 +762,14 @@ func (r *Renderer) Render(
 				// tex.start (with tex.start <= start <= origStart). Instruct the user to offset the texture to align
 				// things.
 				XOffset: float32(float64(tex.start-origStart) / origNsPerPx),
-			}
+			})
 		}
-		out = append(out, TextureStack{texs: texs2})
+		textureStacks = append(textureStacks, TextureStack{texs: textures[len(textures)-len(texs):]})
 	}
 	clear(texs)
 	r.texsOut = texs[:0]
 
-	return out
+	return textureStacks, textures
 }
 
 type TextureManager struct {
@@ -791,9 +792,10 @@ func (tm *TextureManager) Render(
 	nsPerPx float64,
 	start trace.Timestamp,
 	end trace.Timestamp,
-	out []TextureStack,
-) []TextureStack {
-	return track.rnd.Render(win, track, spans, nsPerPx, start, end, out)
+	textureStacks []TextureStack,
+	textures []Texture,
+) ([]TextureStack, []Texture) {
+	return track.rnd.Render(win, track, spans, nsPerPx, start, end, textureStacks, textures)
 }
 
 func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (image.Image, paint.ImageOp, bool) {
