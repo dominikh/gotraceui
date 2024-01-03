@@ -827,7 +827,11 @@ func (mwin *MainWindow) Run() error {
 
 				pointer.InputOp{Tag: &mwin.pointerAt, Kinds: pointer.Move | pointer.Drag | pointer.Enter}.Add(gtx.Ops)
 
-				profile.Op{Tag: profileTag}.Add(gtx.Ops)
+				if debug {
+					// Profiling uses fmt.Sprintf, which allocates. We'll never see the results outside of a debug
+					// build.
+					profile.Op{Tag: profileTag}.Add(gtx.Ops)
+				}
 
 				// Fill background
 				theme.Fill(win, gtx.Ops, mwin.twin.Theme.Palette.Background)
