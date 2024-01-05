@@ -907,11 +907,13 @@ func (track *Track) Layout(
 			outlinesPath.Close()
 
 			// Cut a hole
-			outlinesPath.MoveTo(minP.Add(f32.Pt(leftOff, off)))
-			outlinesPath.LineTo(f32.Point{X: minP.X + leftOff, Y: maxP.Y - off})
-			outlinesPath.LineTo(maxP.Add(f32.Pt(rightOff, -off)))
-			outlinesPath.LineTo(f32.Point{X: maxP.X + rightOff, Y: minP.Y + off})
-			outlinesPath.Close()
+			if maxP.X-minP.X-leftOff-rightOff > 0 {
+				outlinesPath.MoveTo(minP.Add(f32.Pt(leftOff, off)))
+				outlinesPath.LineTo(f32.Point{X: minP.X + leftOff, Y: maxP.Y - off})
+				outlinesPath.LineTo(maxP.Add(f32.Pt(rightOff, -off)))
+				outlinesPath.LineTo(f32.Point{X: maxP.X + rightOff, Y: minP.Y + off})
+				outlinesPath.Close()
+			}
 
 			if hovered {
 				hoveredSpan = clip.FRect{Min: minP, Max: maxP}
