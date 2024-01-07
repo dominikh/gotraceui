@@ -24,6 +24,7 @@
 - Merged spans no longer stop at the screen boundaries
 - Lowered peak memory usage
 - "active" spans in goroutine timelines now have a label
+- Improved rendering of graphs with many points
 
 
 # v0.3.0 (2023-08-07)

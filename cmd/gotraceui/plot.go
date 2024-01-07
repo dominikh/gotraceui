@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"math/bits"
 	rtrace "runtime/trace"
 	"sort"
 	"strings"
@@ -22,17 +23,23 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"golang.org/x/exp/constraints"
-	"golang.org/x/exp/slices"
+)
+
+type PlotStyle uint8
+
+const (
+	PlotFilled = 1 << iota
+	PlotStaircase
 )
 
 type PlotSeries struct {
 	Name   string
 	Points []ptrace.Point
-	Filled bool
+	Style  PlotStyle
 	Color  color.Oklch
 
-	disabled bool
+	decimated [plotLevels][]ptrace.Point
+	disabled  bool
 }
 
 type Plot struct {
@@ -46,7 +53,7 @@ type Plot struct {
 	click gesture.Click
 	hover gesture.Hover
 
-	scratchPoints  []f32.Point
+	visScratch     visvalingamScratch
 	scratchStrings []string
 	hideLegends    bool
 	autoScale      bool
@@ -74,6 +81,12 @@ const (
 )
 
 func (pl *Plot) AddSeries(series ...PlotSeries) {
+	for i := range series {
+		s := &series[i]
+		res, _ := decimate(s.Points)
+		s.decimated = res
+	}
+
 	pl.series = append(pl.series, series...)
 	_, max := pl.computeExtents(0, math.MaxInt64)
 	pl.min = 0
@@ -288,9 +301,6 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 
 	if pl.click.Hovered() {
 		r := rtrace.StartRegion(context.Background(), "hovered")
-		// When drawing the plot, multiple points can fall on the same pixel, in which case we pick the last value for a
-		// given pixel.
-		//
 		// When hovering, we want to get the most recent point for the hovered pixel. We do this by searching for the
 		// first point whose timestamp would fall on a later pixel, and then use the point immediately before that.
 
@@ -325,38 +335,16 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
-func (pl *Plot) start(gtx layout.Context, cv *Canvas) int {
-	// XXX check for rounding error
-	// XXX this can probably overflow
-	start := 0
-	if v := cv.tsToPx(0); int(v) > start {
-		start = int(v)
-	}
-	return start
-}
-
-// end returns the width (in pixels) of the canvas, capped to the actual length of the trace.
-func (pl *Plot) end(gtx layout.Context, cv *Canvas) int {
-	// XXX check for rounding error
-	// XXX this can probably overflow
-
-	timelineEnd := gtx.Constraints.Max.X
-	traceEnd := cv.trace.End()
-	if end := cv.tsToPx(traceEnd); int(end) < timelineEnd {
-		timelineEnd = int(end)
-	}
-	if timelineEnd < 0 {
-		return 0
-	}
-	return timelineEnd
-}
-
 func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s PlotSeries) {
+	if len(s.Points) == 0 {
+		return
+	}
+
 	defer rtrace.StartRegion(context.Background(), "draw points").End()
 	const lineWidth = 2
 
 	var drawLine func(p *clip.Path, pt f32.Point, width float32)
-	if s.Filled {
+	if s.Style&PlotFilled != 0 {
 		drawLine = func(p *clip.Path, pt f32.Point, width float32) {
 			// the width doesn't matter for filled series, we will later fill the entire area
 			p.LineTo(pt)
@@ -373,85 +361,151 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 		return y
 	}
 
-	canvasStart := pl.start(gtx, cv)
-	canvasEnd := pl.end(gtx, cv)
-	if canvasEnd == 0 || canvasStart >= canvasEnd {
-		// No points to display
+	// We cannot use cv.End because that respects the scrollbar, which isn't visible for the plot.
+	visibleStartTs := max(0, cv.start)
+	visibleEndTs := min(cv.trace.End(), cv.pxToTs(float32(gtx.Constraints.Max.X)))
+	if visibleStartTs >= visibleEndTs {
+		return
+	}
+	if visibleEndTs < 0 {
 		return
 	}
 
-	var points []f32.Point
-	if cap(pl.scratchPoints) >= canvasEnd {
-		points = pl.scratchPoints[canvasStart:canvasEnd]
-		for i := range points {
-			points[i] = f32.Point{}
-		}
+	eventsPerNs := (float64(len(s.Points)) / float64(cv.trace.End()))
+	// eventsPerPx holds how many events we would attempt to display per pixel if we didn't decimate the
+	// original set of points. If this number is >1, we scale the total number of points by 1 / eventsPerPx
+	// and use that as the desired number of decimated points. That way, the visible portion of the plot will
+	// end up with 1 point per pixel (assuming even spacing of points.) This means that as we zoom further
+	// into the plot, we will use more and more points to maintain an event / pixel density of 1.
+	//
+	// This assumes that events are evenly distributed, which isn't quite true, but works in practice.
+	//
+	// If the number is <1 then we effectively do nothing and use all available points, to achieve the closest
+	// to 1 point / pixel we can.
+	eventsPerPx := float64(cv.End()-cv.start) * eventsPerNs / float64(gtx.Constraints.Max.X)
+	wanted := float64(len(s.Points))
+	if eventsPerPx > 1 {
+		wanted /= eventsPerPx
+	}
+	wanted = max(2, wanted)
+
+	var points []ptrace.Point
+	// We have plotLevels buckets of decimation, with 2**(i+1) number of points per bucket. Choose the lowest
+	// bucket that contains at least as many points as we want.
+	level := int(math.Ceil(math.Log2(wanted))) - 1
+	if level < 0 {
+		level = 0
+	}
+	if level >= plotLevels {
+		// We may have requested more points than we decimated to. Use the highest bucket instead of the
+		// undecimated data, because that's plenty of resolution already.
+		level = plotLevels - 1
+	}
+
+	if len(s.decimated[level]) == 0 {
+		// The chosen bucket is empty, which means we didn't have enough points to decimate down to it.
+		// Use all points, which is the next highest resolution we can use.
+		points = s.Points
 	} else {
-		pl.scratchPoints = make([]f32.Point, gtx.Constraints.Max.X)
-		points = pl.scratchPoints[canvasStart:canvasEnd]
+		points = s.decimated[level]
 	}
 
-	values := s.Points
-	for i := range points {
-		ts := cv.pxToTs(float32(i + canvasStart + 1))
-		idx, _ := slices.BinarySearchFunc(values, ptrace.Point{When: ts}, func(p1, p2 ptrace.Point) int {
-			return compare(p1.When, p2.When)
-		})
+	first := sort.Search(len(points), func(i int) bool {
+		return points[i].When >= cv.start
+	})
 
-		if idx == 0 {
-			continue
-		}
-		points[i] = f32.Pt(float32(i+canvasStart), scaleValue(values[idx-1].Value))
-	}
-
-	var first f32.Point
-	var start int
-	for i, pt := range points {
-		if pt != (f32.Point{}) {
-			first = pt
-			start = i + 1
-			break
-		}
-	}
-
-	if first == (f32.Point{}) {
-		// We don't have any points to draw
+	if first == 0 && points[0].When >= visibleEndTs {
+		// The first point happens later in the trace. There's nothing to do for us yet. In particular, there are no
+		// off-screen points to connect, because no points have existed yet.
 		return
 	}
 
 	var path clip.Path
 	path.Begin(gtx.Ops)
-	path.MoveTo(first)
-	for _, pt := range points[start:] {
-		if pt == (f32.Point{}) {
-			continue
+	var start f32.Point
+	if first > 0 {
+		pt := f32.Pt(cv.tsToPx(points[first-1].When), scaleValue(points[first-1].Value))
+		start = pt
+		path.MoveTo(pt)
+	} else {
+		pt := f32.Pt(cv.tsToPx(points[0].When), scaleValue(points[0].Value))
+		start = pt
+		path.MoveTo(pt)
+		first++
+	}
+
+	var p ptrace.Point
+	var cnt int
+	for cnt, p = range points[first:] {
+		if p.When >= visibleEndTs {
+			break
 		}
-		drawLine(&path, f32.Pt(pt.X, path.Pos().Y), lineWidth)
-		drawLine(&path, pt, lineWidth)
+	}
+	if first+cnt < len(points) {
+		// Include the next point so that we continue to it from the last visible point.
+		cnt++
 	}
 
-	// Continue the last point
-	if start != 0 {
-		drawLine(&path, f32.Pt(float32(canvasEnd), path.Pos().Y), lineWidth)
+	points = points[first : first+cnt]
+
+	// Our events per ns is an average over the whole trace and assumes a uniform distribution of events. This
+	// can lead to us having more points than we can draw for the visible portion of the plot. When that
+	// happens we apply another decimation. This isn't strictly necessary, but reduces the amount of points
+	// Gio has to deal with, and can result in cleaner output if we have many more points than pixels.
+	//
+	// Instead of only decimating to the target number, we also discard all points with an insignificant area.
+	// This will often bring us below the target number, resulting in further simplification of the path, at
+	// no visual cost.
+	//
+	// This second decimation differs from the initial decimation in that it is sensitive to the scale of the
+	// plot and can compute the actual pixel area of triangles, instead of the abstract area that the first
+	// decimation has to use. This is why discarding insignificant points is only possible in this step.
+	//
+	// This decimation can still be quite expensive, costing around 1ms, so only do it if we have a significant excess
+	// of points.
+	if cnt > gtx.Constraints.Max.X*4 {
+		areaFn := func(a, b, c ptrace.Point) float64 {
+			xa := float64(cv.tsToPx(a.When))
+			xb := float64(cv.tsToPx(b.When))
+			xc := float64(cv.tsToPx(c.When))
+			ya := float64(scaleValue(a.Value))
+			yb := float64(scaleValue(b.Value))
+			yc := float64(scaleValue(c.Value))
+			return math.Abs(xa*yb + xb*yc + xc*ya - xa*yc - xb*ya - xc*yb)
+		}
+		vis, ok := newVisvalingam(points, areaFn, &pl.visScratch, gtx.Constraints.Max.X)
+		if ok {
+			vis.compress()
+			points = vis.decimate(gtx.Constraints.Max.X)
+		}
 	}
 
-	if s.Filled {
-		drawLine(&path, f32.Pt(float32(canvasEnd), float32(gtx.Constraints.Max.Y)), lineWidth)
-		drawLine(&path, f32.Pt(first.X, float32(gtx.Constraints.Max.Y)), lineWidth)
-		drawLine(&path, first, lineWidth)
+	for _, p := range points {
+		pt := f32.Pt(cv.tsToPx(p.When), scaleValue(p.Value))
+		if s.Style&PlotStaircase != 0 {
+			drawLine(&path, f32.Pt(pt.X, path.Pos().Y), lineWidth)
+			drawLine(&path, pt, lineWidth)
+		} else {
+			drawLine(&path, pt, lineWidth)
+		}
+	}
+
+	if len(points) == 0 || points[len(points)-1].When < visibleEndTs {
+		// The last point isn't off-screen, which means it is the last point in the trace, and we should continue that
+		// point until the end of the trace.
+		end := min(cv.tsToPx(cv.trace.End()), float32(gtx.Constraints.Max.X))
+		drawLine(&path, f32.Pt(end, path.Pos().Y), lineWidth)
+	}
+
+	if s.Style&PlotFilled != 0 {
+		// Close the area and fill it
+		drawLine(&path, f32.Pt(path.Pos().X, float32(gtx.Constraints.Max.Y)), lineWidth)
+		drawLine(&path, f32.Pt(start.X, float32(gtx.Constraints.Max.Y)), lineWidth)
+		path.Close()
 		theme.FillShape(win, gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
 	} else {
+		// Stroke the path
 		theme.FillShape(win, gtx.Ops, s.Color, clip.Outline{Path: path.End()}.Op())
-	}
-}
-
-func compare[T constraints.Ordered](a, b T) int {
-	if a < b {
-		return -1
-	} else if a == b {
-		return 0
-	} else {
-		return 1
 	}
 }
 
@@ -500,5 +554,326 @@ func (pl *Plot) drawOrthogonalLine(p *clip.Path, pt f32.Point, width float32) {
 		pl.prevDirection = plotDirectionHorizontal
 	} else {
 		panic(fmt.Sprintf("non-orthogonal line %s–%s", p.Pos(), pt))
+	}
+}
+
+type (
+	pointIndex uint32
+	itemIndex  uint32
+	heapIndex  uint32
+	pointItem  struct {
+		point pointIndex
+		area  float64
+		prev  itemIndex
+		next  itemIndex
+
+		index heapIndex
+	}
+)
+
+// 2**19 events allow for a resolution of 1 event per 10 ms for traces that are 1.5 hours long, or more
+// realistically, 8 events per ms for 1 minute long traces.
+const plotLevels = 19
+
+type visvalingam struct {
+	heap   minHeap
+	items  []pointItem
+	points []ptrace.Point
+	area   func(a, b, c ptrace.Point) float64
+}
+
+type visvalingamScratch struct {
+	items []pointItem
+	heap  minHeap
+}
+
+// newVisvalingam prepares decimation using the Visvalingam algorithm. The max parameter indicates the largest
+// number of points we'll try to decimate down to.
+func newVisvalingam(
+	points []ptrace.Point,
+	area func(a, b, c ptrace.Point) float64,
+	scratch *visvalingamScratch,
+	max int,
+) (*visvalingam, bool) {
+	if len(points) < 3 {
+		return nil, false
+	}
+
+	if len(points) > math.MaxUint32 {
+		return nil, false
+	}
+
+	var items []pointItem
+	if scratch != nil && cap(scratch.items) >= len(points) {
+		items = scratch.items[:len(points)]
+	} else {
+		items = make([]pointItem, len(points))
+		if scratch != nil {
+			scratch.items = items
+		}
+	}
+
+	items[0] = pointItem{
+		point: 0,
+		area:  math.MaxFloat64,
+		prev:  math.MaxUint32,
+		next:  1,
+	}
+
+	for i := 1; i < len(points)-1; i++ {
+		a := points[i-1]
+		b := points[i]
+		c := points[i+1]
+
+		items[i] = pointItem{
+			point: pointIndex(i),
+			area:  area(a, b, c),
+			prev:  itemIndex(i - 1),
+			next:  itemIndex(i + 1),
+		}
+	}
+
+	items[len(items)-1] = pointItem{
+		point: pointIndex(len(points) - 1),
+		area:  math.MaxFloat64,
+		prev:  itemIndex(len(items) - 2),
+		next:  math.MaxUint32,
+	}
+
+	var heap minHeap
+	if scratch != nil && cap(scratch.heap) >= len(items) {
+		heap = scratch.heap[:len(items)]
+	} else {
+		heap = make(minHeap, len(items))
+		if scratch != nil {
+			scratch.heap = heap
+		}
+	}
+	for i := range items {
+		heap[i] = &items[i]
+		heap[i].index = heapIndex(i)
+	}
+	heap.Init()
+
+	return &visvalingam{
+		heap:   heap,
+		items:  items,
+		points: points,
+		area:   area,
+	}, true
+}
+
+// compress decimates all points that don't contribute to the shape of the plot, i.e. those that have a zero
+// visible area.
+func (vis *visvalingam) compress() {
+	for len(vis.heap) > 0 && vis.heap[0].area <= 0.1 {
+		vis.pop()
+	}
+}
+
+func (vis *visvalingam) pop() {
+	heap := &vis.heap
+	items := vis.items
+	points := vis.points
+
+	cur := heap.Pop()
+	next := &items[cur.next]
+	prev := &items[cur.prev]
+
+	prev.next = cur.next
+	next.prev = cur.prev
+
+	if prev.prev != math.MaxUint32 {
+		area := vis.area(
+			points[items[prev.prev].point],
+			points[prev.point],
+			points[next.point],
+		)
+
+		area = math.Max(area, cur.area)
+		heap.Update(prev, area)
+	}
+
+	if next.next != math.MaxUint32 {
+		area := vis.area(
+			points[prev.point],
+			points[next.point],
+			points[items[next.next].point],
+		)
+
+		area = math.Max(area, cur.area)
+		heap.Update(next, area)
+	}
+}
+
+// decimate decimates points until only limit points are left. It is valid and efficient to call decimate
+// multiple times with decreasing values of limit.
+func (vis *visvalingam) decimate(limit int) []ptrace.Point {
+	heap := &vis.heap
+	points := vis.points
+
+	for len(*heap) > limit {
+		vis.pop()
+	}
+
+	out := make([]ptrace.Point, 0, min(len(*heap), limit))
+	p := vis.items[0]
+	for {
+		out = append(out, points[p.point])
+		if p.next == math.MaxUint32 {
+			break
+		}
+		p = vis.items[p.next]
+	}
+
+	return out
+}
+
+func visArea(a, b, c ptrace.Point) float64 {
+	xa := float64(a.When)
+	xb := float64(b.When)
+	xc := float64(c.When)
+	ya := float64(a.Value)
+	yb := float64(b.Value)
+	yc := float64(c.Value)
+	return math.Abs(xa*yb + xb*yc + xc*ya - xa*yc - xb*ya - xc*yb)
+}
+
+// decimate repeatedly decimates points to produce plotLevels levels of detail.
+func decimate(points []ptrace.Point) ([plotLevels][]ptrace.Point, bool) {
+	if len(points) <= 2 {
+		return [plotLevels][]ptrace.Point{0: points}, true
+	}
+
+	level := 63 - bits.LeadingZeros64(uint64(len(points)))
+	level = min(level, plotLevels)
+	vis, ok := newVisvalingam(points, visArea, nil, 1<<level)
+	if !ok {
+		return [plotLevels][]ptrace.Point{}, false
+	}
+
+	var out [plotLevels][]ptrace.Point
+	for len(vis.heap) >= 2 && level >= 1 {
+		out[level-1] = vis.decimate(1 << level)
+		level--
+	}
+
+	return out, true
+}
+
+type minHeap []*pointItem
+
+func (h *minHeap) Init() {
+	n := len(*h)
+	for i := n/2 - 1; i >= 0; i-- {
+		h.down(heapIndex(i))
+	}
+}
+
+func (h *minHeap) Push(item *pointItem) {
+	item.index = heapIndex(len(*h))
+	*h = append(*h, item)
+	h.up(item.index)
+}
+
+func (h *minHeap) Pop() *pointItem {
+	removed := (*h)[0]
+	lastItem := (*h)[len(*h)-1]
+	*h = (*h)[:len(*h)-1]
+
+	if len(*h) > 0 {
+		lastItem.index = 0
+		(*h)[0] = lastItem
+		h.down(0)
+	}
+
+	return removed
+}
+
+func (h minHeap) Update(item *pointItem, area float64) {
+	if item.area > area {
+		// area got smaller
+		item.area = area
+		h.up(item.index)
+	} else {
+		// area got larger
+		item.area = area
+		h.down(item.index)
+	}
+}
+
+func (h *minHeap) Remove(item *pointItem) {
+	i := item.index
+
+	lastItem := (*h)[len(*h)-1]
+	*h = (*h)[:len(*h)-1]
+
+	if i != heapIndex(len(*h)) {
+		lastItem.index = i
+		(*h)[i] = lastItem
+
+		if lastItem.area < item.area {
+			h.up(i)
+		} else {
+			h.down(i)
+		}
+	}
+}
+
+func (h minHeap) up(i heapIndex) {
+	item := h[i]
+	for i > 0 {
+		up := ((i + 1) >> 1) - 1
+		parent := h[up]
+
+		if parent.area <= item.area {
+			// parent is smaller so we're done fixing up the heap.
+			break
+		}
+
+		// swap nodes
+		parent.index = i
+		h[i] = parent
+
+		item.index = up
+		h[up] = item
+
+		i = up
+	}
+}
+
+func (h minHeap) down(i heapIndex) {
+	item := h[i]
+	for {
+		right := (i + 1) << 1
+		left := right - 1
+
+		down := i
+		child := h[down]
+
+		// swap with smallest child
+		if left < heapIndex(len(h)) && h[left].area < child.area {
+			down = left
+			child = h[down]
+		}
+
+		if right < heapIndex(len(h)) && h[right].area < child.area {
+			down = right
+			child = h[down]
+		}
+
+		// non smaller, so quit
+		if down == i {
+			break
+		}
+
+		// swap the nodes
+		child.index = i
+		h[child.index] = child
+
+		item.index = down
+		h[down] = item
+
+		i = down
 	}
 }

@@ -1572,13 +1572,13 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		PlotSeries{
 			Name:   "Heap size",
 			Points: pt.HeapSize,
-			Filled: true,
+			Style:  PlotFilled,
 			Color:  oklch(70.59, 0.102, 139.64),
 		},
 		PlotSeries{
 			Name:   "Heap goal",
 			Points: pt.HeapGoal,
-			Filled: false,
+			Style:  PlotStaircase,
 			Color:  colors[colorStateBlockedGC],
 		},
 	)
