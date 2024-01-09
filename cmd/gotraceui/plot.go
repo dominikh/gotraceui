@@ -38,7 +38,7 @@ type PlotSeries struct {
 	Style  PlotStyle
 	Color  color.Oklch
 
-	decimated [plotLevels][]ptrace.Point
+	decimated [][]ptrace.Point
 	disabled  bool
 }
 
@@ -83,8 +83,7 @@ const (
 func (pl *Plot) AddSeries(series ...PlotSeries) {
 	for i := range series {
 		s := &series[i]
-		res, _ := decimate(s.Points)
-		s.decimated = res
+		s.decimated = decimate(s.Points)
 	}
 
 	pl.series = append(pl.series, series...)
@@ -336,7 +335,7 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 }
 
 func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s PlotSeries) {
-	if len(s.Points) == 0 {
+	if len(s.Points) < 2 {
 		return
 	}
 
@@ -383,32 +382,16 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 	// If the number is <1 then we effectively do nothing and use all available points, to achieve the closest
 	// to 1 point / pixel we can.
 	eventsPerPx := float64(cv.End()-cv.start) * eventsPerNs / float64(gtx.Constraints.Max.X)
-	wanted := float64(len(s.Points))
+	wanted := uint64(len(s.Points))
 	if eventsPerPx > 1 {
-		wanted /= eventsPerPx
+		wanted = max(2, uint64(math.Ceil(float64(wanted)/eventsPerPx)))
 	}
-	wanted = max(2, wanted)
 
 	var points []ptrace.Point
-	// We have plotLevels buckets of decimation, with 2**(i+1) number of points per bucket. Choose the lowest
-	// bucket that contains at least as many points as we want.
-	level := int(math.Ceil(math.Log2(wanted))) - 1
-	if level < 0 {
-		level = 0
-	}
-	if level >= plotLevels {
-		// We may have requested more points than we decimated to. Use the highest bucket instead of the
-		// undecimated data, because that's plenty of resolution already.
-		level = plotLevels - 1
-	}
-
-	if len(s.decimated[level]) == 0 {
-		// The chosen bucket is empty, which means we didn't have enough points to decimate down to it.
-		// Use all points, which is the next highest resolution we can use.
-		points = s.Points
-	} else {
-		points = s.decimated[level]
-	}
+	// Every level of decimation contains 2**(i+1) points. Choose the lowest bucket that contains at least as many
+	// points as we want.
+	level := uint64Log2RoundUp(wanted)
+	points = s.decimated[level-1]
 
 	first := sort.Search(len(points), func(i int) bool {
 		return points[i].When >= cv.start
@@ -570,10 +553,6 @@ type (
 		index heapIndex
 	}
 )
-
-// 2**19 events allow for a resolution of 1 event per 10 ms for traces that are 1.5 hours long, or more
-// realistically, 8 events per ms for 1 minute long traces.
-const plotLevels = 19
 
 type visvalingam struct {
 	heap   minHeap
@@ -739,26 +718,36 @@ func visArea(a, b, c ptrace.Point) float64 {
 	return math.Abs(xa*yb + xb*yc + xc*ya - xa*yc - xb*ya - xc*yb)
 }
 
+func uint64Log2RoundUp(x uint64) uint {
+	log2 := uint(bits.Len64(x) - 1)
+	if x&(x-1) != 0 {
+		log2++
+	}
+	return log2
+}
+
 // decimate repeatedly decimates points to produce plotLevels levels of detail.
-func decimate(points []ptrace.Point) ([plotLevels][]ptrace.Point, bool) {
+func decimate(points []ptrace.Point) [][]ptrace.Point {
 	if len(points) <= 2 {
-		return [plotLevels][]ptrace.Point{0: points}, true
+		return [][]ptrace.Point{points}
 	}
 
-	level := 63 - bits.LeadingZeros64(uint64(len(points)))
-	level = min(level, plotLevels)
+	level := uint64Log2RoundUp(uint64(len(points)))
+	out := make([][]ptrace.Point, level)
 	vis, ok := newVisvalingam(points, visArea, nil, 1<<level)
 	if !ok {
-		return [plotLevels][]ptrace.Point{}, false
+		for i := range out {
+			out[i] = points
+		}
+		return out
 	}
 
-	var out [plotLevels][]ptrace.Point
 	for len(vis.heap) >= 2 && level >= 1 {
 		out[level-1] = vis.decimate(1 << level)
 		level--
 	}
 
-	return out, true
+	return out
 }
 
 type minHeap []*pointItem
