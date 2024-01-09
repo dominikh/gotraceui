@@ -249,8 +249,6 @@ func (pwin *PanelWindow) Run(win *app.Window) error {
 			ev.Frame(&ops)
 		}
 	}
-
-	return nil
 }
 
 func (mwin *MainWindow) openPanelWindow(p Panel) {
@@ -859,8 +857,6 @@ func (mwin *MainWindow) Run() error {
 			ev.Frame(&ops)
 		}
 	}
-
-	return nil
 }
 
 func (mwin *MainWindow) renderStartScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
