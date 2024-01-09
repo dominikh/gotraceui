@@ -4,7 +4,7 @@ Gotraceui is a tool for visualizing and analyzing Go execution traces. It is mea
 more powerful alternative to `go tool trace`. Unlike `go tool trace`, Gotraceui doesn’t use deprecated browser APIs (or a
 browser at all), and its UI is tuned specifically to the unique characteristics of Go traces.
 
-![Screenshot](https://user-images.githubusercontent.com/39825/228830850-d0f324dd-10bc-47e9-99d4-0936cbb79492.png)
+![Screenshot](https://github.com/dominikh/gotraceui/assets/39825/794d4b51-7c73-4ab7-b652-12b57ef38130)
 
 ## Installation
 
