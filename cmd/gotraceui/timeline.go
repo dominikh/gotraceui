@@ -313,8 +313,6 @@ type TrackWidget struct {
 	hoveredSpans     Items[ptrace.Span]
 	lowQualityRender bool
 
-	// op lists get reused between frames to avoid generating garbage
-	ops         [colorStateLast * 2]op.Ops
 	outlinesOps mem.ReusableOps
 	eventsOps   mem.ReusableOps
 	labelsOps   mem.ReusableOps
@@ -828,15 +826,6 @@ func (track *Track) Layout(
 		track.widget.prevFrame.dims = dims
 		track.widget.prevFrame.lowQualityRender = track.widget.lowQualityRender
 	}()
-
-	// Draw timeline lifetimes
-	//
-	// We batch draw operations by color to avoid making thousands of draw calls. See
-	// https://lists.sr.ht/~eliasnaur/gio/%3C871qvbdx5r.fsf%40honnef.co%3E#%3C87v8smctsd.fsf@honnef.co%3E
-	//
-	for i := range track.widget.ops {
-		track.widget.ops[i].Reset()
-	}
 
 	var hoveredSpan clip.FRect
 	highlightedSpans := track.widget.scratchHighlighted[:0]
