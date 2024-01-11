@@ -42,8 +42,10 @@ var colors = [colorLast]color.Oklch{
 
 	colorStateMerged: oklch(colorsLightBase+colorLightStep1, colorsChromaBase, 109.91), // Manually chosen, made brighter so it stands out in gradients
 
-	colorStateStuck: oklch(0, 0, 0),
-	colorStateDone:  oklch(0, 0, 0),
+	colorStateStuck:   oklch(0, 0, 0),
+	colorStateDone:    oklch(0, 0, 0),
+	colorEvent:        oklch(colorsLightBase, colorsChromaBase, 0),
+	colorMergedEvents: oklch(colorsLightBase+colorLightStep1, colorsChromaBase, 284.44),
 
 	colorStateUnknown:              oklch(96.8, 0.211, 109.77),
 	colorStatePlaceholderStackSpan: oklch(92.59, 0.025, 106.88),
@@ -89,6 +91,9 @@ const (
 
 	colorSpanHighlightedPrimaryOutline
 	colorSpanHighlightedSecondaryOutline
+
+	colorEvent
+	colorMergedEvents
 
 	colorLast
 )

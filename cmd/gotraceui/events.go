@@ -390,3 +390,12 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		})
 	}
 }
+
+func EventsRange(events Items[trace.Event]) TimeSpan {
+	return TimeSpan{
+		// Offset by 1 so that the events don't fall on screen borders. This also gives a 3ns range for single
+		// events.
+		Start: events.AtPtr(0).Ts - 1,
+		End:   LastItemPtr(events).Ts + 1,
+	}
+}

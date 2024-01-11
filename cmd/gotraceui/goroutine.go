@@ -167,29 +167,29 @@ func stackSpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) []string 
 	}
 }
 
-func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
-	return func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
+	return func(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
 		var label string
-		if state.spans.Len() == 1 {
-			if state.spans.AtPtr(0).State != statePlaceholder {
-				meta := state.spans.MetadataAtPtr(0).(*stackSpanMeta)
+		if spans.Len() == 1 {
+			if spans.AtPtr(0).State != statePlaceholder {
+				meta := spans.MetadataAtPtr(0).(*stackSpanMeta)
 				pc := meta.pc
 				f := tr.PCs[pc]
 				label = local.Sprintf("Function: %s\n", f.Fn)
 				// TODO(dh): for truncated stacks we should display a relative depth instead
 				label += local.Sprintf("Call depth: %d\n", level)
-				if state.spans.AtPtr(0).State == ptrace.StateCPUSample {
+				if spans.AtPtr(0).State == ptrace.StateCPUSample {
 					label += local.Sprintf("Samples: %d\n", meta.num)
 				}
 			}
 		} else {
-			label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
+			label = local.Sprintf("mixed (%d spans)\n", spans.Len())
 		}
 		// We round the duration, in addition to saying "up to", to make it more obvious that the
 		// duration is a guess
 		//
 		// TODO(dh): don't do this for the stacks of blocking events, we know their exact duration
-		label += fmt.Sprintf("Duration: up to %s", roundDuration(SpansDuration(state.spans)))
+		label += fmt.Sprintf("Duration: up to %s", roundDuration(SpansDuration(spans)))
 		return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 	}
 }
@@ -356,16 +356,16 @@ func unblockedByGoroutine(tr *Trace, s *ptrace.Span) (uint64, bool) {
 	return 0, false
 }
 
-func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
 	var label string
 	if debug {
-		label += local.Sprintf("Event ID: %d\n", state.spans.AtPtr(0).Event)
-		label += fmt.Sprintf("Event type: %d\n", tr.Event(state.spans.AtPtr(0).Event).Type)
+		label += local.Sprintf("Event ID: %d\n", spans.AtPtr(0).Event)
+		label += fmt.Sprintf("Event type: %d\n", tr.Event(spans.AtPtr(0).Event).Type)
 	}
 	label += "State: "
 	var at string
-	if state.spans.Len() == 1 {
-		s := state.spans.AtPtr(0)
+	if spans.Len() == 1 {
+		s := spans.AtPtr(0)
 		ev := tr.Event(s.Event)
 		if at == "" && ev.StkID > 0 {
 			at = tr.PCs[tr.Stacks[ev.StkID][s.At]].Fn
@@ -433,12 +433,12 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += local.Sprintf("\nUnblocked by goroutine %d (%s)", g, tr.G(g).Function)
 		}
 	} else {
-		label += local.Sprintf("mixed (%d spans)", state.spans.Len())
+		label += local.Sprintf("mixed (%d spans)", spans.Len())
 	}
 	label += "\n"
 
-	if state.spans.Len() == 1 {
-		if reason := reasonLabels[tr.Reason(state.spans.AtPtr(0).Event)]; reason != "" {
+	if spans.Len() == 1 {
+		if reason := reasonLabels[tr.Reason(spans.AtPtr(0).Event)]; reason != "" {
 			label += "Reason: " + reason + "\n"
 		}
 	}
@@ -448,55 +448,15 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		// state. We try to pattern match away the runtime when it makes sense.
 		label += fmt.Sprintf("In: %s\n", at)
 	}
-	if state.spans.Len() == 1 {
-		switch state.spans.AtPtr(0).State {
+	if spans.Len() == 1 {
+		switch spans.AtPtr(0).State {
 		case ptrace.StateActive, ptrace.StateGCIdle, ptrace.StateGCDedicated, ptrace.StateGCMarkAssist, ptrace.StateGCSweep:
-			pid := tr.Event(state.spans.AtPtr(0).Event).P
+			pid := tr.Event(spans.AtPtr(0).Event).P
 			label += local.Sprintf("On: processor %d\n", pid)
 		}
 	}
 
-	label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spans)))
-
-	if state.events.Len() > 0 {
-		label += local.Sprintf("Events in span: %d\n", state.events.Len())
-	}
-
-	if state.eventsUnderCursor.Len() > 0 {
-		kind := tr.Event(state.eventsUnderCursor.At(0)).Type
-		for i := 1; i < state.eventsUnderCursor.Len(); i++ {
-			ev := state.eventsUnderCursor.At(i)
-			if tr.Event(ev).Type != kind {
-				kind = 255
-				break
-			}
-		}
-		if kind != 255 {
-			var noun string
-			switch kind {
-			case trace.EvGoSysCall:
-				noun = "syscalls"
-				if state.eventsUnderCursor.Len() == 1 {
-					stk := tr.Stacks[tr.Event(state.eventsUnderCursor.At(0)).StkID]
-					if len(stk) != 0 {
-						frame := tr.PCs[stk[0]]
-						noun += fmt.Sprintf(" (%s)", frame.Fn)
-					}
-				}
-			case trace.EvGoCreate:
-				noun = "goroutine creations"
-			case trace.EvGoUnblock:
-				noun = "goroutine unblocks"
-			default:
-				if debug {
-					panic(fmt.Sprintf("unhandled kind %d", kind))
-				}
-			}
-			label += local.Sprintf("Events under cursor: %d %s\n", state.eventsUnderCursor.Len(), noun)
-		} else {
-			label += local.Sprintf("Events under cursor: %d\n", state.eventsUnderCursor.Len())
-		}
-	}
+	label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(spans)))
 
 	if n := len(label) - 1; label[n] == '\n' {
 		label = label[:n]
@@ -505,10 +465,10 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
-func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
 	var label string
-	if state.spans.Len() == 1 {
-		s := state.spans.AtPtr(0)
+	if spans.Len() == 1 {
+		s := spans.AtPtr(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateUserRegion {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -527,9 +487,9 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, sta
 				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]])
 		}
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
+		label = local.Sprintf("mixed (%d spans)\n", spans.Len())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spans)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 
@@ -1204,4 +1164,14 @@ func (*GoroutinesComponent) WantsTransition(gtx layout.Context) theme.ComponentS
 // Layout implements theme.Component.
 func (gc *GoroutinesComponent) Layout(win *theme.Window, gtx layout.Context) layout.Dimensions {
 	return gc.list.Layout(win, gtx)
+}
+
+// GoroutineLabel returns a label describing the goroutine, of the form "<gid>[ (<function name>)]".
+func GoroutineLabel(g *ptrace.Goroutine) string {
+	// TODO(dh): use this function everywhere
+	if g.Function != nil && g.Function.Fn != "" {
+		return local.Sprintf("%d (%s)", g.ID, g.Function.Fn)
+	} else {
+		return local.Sprintf("%d", g.ID)
+	}
 }

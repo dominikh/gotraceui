@@ -1,3 +1,8 @@
+# v0.5.0 (unreleased)
+
+- Introduce thin strips above tracks that indicate tiny spans, merged spans, and events. This moves events out
+  of the main track.
+
 # v0.4.0 (2024-01-09)
 
 - Require Go 1.21 for building Gotraceui

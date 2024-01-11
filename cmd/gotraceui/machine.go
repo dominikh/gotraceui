@@ -29,10 +29,10 @@ func machineTrack0SpanLabel(spans Items[ptrace.Span], tr *Trace, out []string) [
 	}
 }
 
-func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
 	var label string
-	if state.spans.Len() == 1 {
-		s := state.spans.AtPtr(0)
+	if spans.Len() == 1 {
+		s := spans.AtPtr(0)
 		ev := tr.Event(s.Event)
 		switch s.State {
 		case ptrace.StateRunningP:
@@ -43,9 +43,9 @@ func machineTrack0SpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, 
 			panic(fmt.Sprintf("unexpected state %d", s.State))
 		}
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
+		label = local.Sprintf("mixed (%d spans)\n", spans.Len())
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spans)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 

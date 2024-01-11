@@ -63,10 +63,10 @@ func (tt ProcessorTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	return theme.Tooltip(win.Theme, l).Layout(win, gtx)
 }
 
-func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions {
+func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
 	var label string
-	if state.spans.Len() == 1 {
-		s := state.spans.AtPtr(0)
+	if spans.Len() == 1 {
+		s := spans.AtPtr(0)
 		ev := tr.Event(s.Event)
 		if s.State != ptrace.StateRunningG {
 			panic(fmt.Sprintf("unexpected state %d", s.State))
@@ -74,10 +74,9 @@ func processorTrackSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace,
 		g := tr.G(ev.G)
 		label = local.Sprintf("Goroutine %d: %s\n", ev.G, g.Function)
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", state.spans.Len())
+		label = local.Sprintf("mixed (%d spans)\n", spans.Len())
 	}
-	// OPT(dh): don't materialize all spans just to compute the duration
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(state.spans)))
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }
 

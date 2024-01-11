@@ -553,7 +553,7 @@ func (l *ZoomToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	c, ok := l.Spans.Container()
 	assert(ok, "expected container")
 	y := mwin.canvas.timelineY(gtx, c.Timeline)
-	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.AtPtr(0).Start, LastSpanPtr(l.Spans).End, y)
+	mwin.canvas.navigateToStartAndEnd(gtx, l.Spans.AtPtr(0).Start, LastItemPtr(l.Spans).End, y)
 }
 
 func handleLinkClick(win *theme.Window, ev gesture.ClickEvent, link ObjectLink) {

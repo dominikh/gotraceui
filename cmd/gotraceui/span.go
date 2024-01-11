@@ -20,7 +20,7 @@ import (
 	"gioui.org/text"
 )
 
-func LastSpanPtr(sel ptrace.Spans) *ptrace.Span {
+func LastItemPtr[E any, T Items[E]](sel T) *E {
 	return sel.AtPtr(sel.Len() - 1)
 }
 
@@ -29,7 +29,7 @@ func SpansDuration(sel Items[ptrace.Span]) time.Duration {
 		return 0
 	}
 	if sel.Contiguous() {
-		return time.Duration(LastSpanPtr(sel).End - sel.AtPtr(0).Start)
+		return time.Duration(LastItemPtr(sel).End - sel.AtPtr(0).Start)
 	} else {
 		var total time.Duration
 		for i := 0; i < sel.Len(); i++ {
@@ -122,7 +122,7 @@ func (si *SpansInfo) init(win *theme.Window) {
 	c, haveContainer := spans.Container()
 	if si.cfg.Title == "" {
 		firstStart := spans.AtPtr(0).Start
-		lastEnd := LastSpanPtr(spans).End
+		lastEnd := LastItemPtr(spans).End
 		if haveContainer {
 			si.cfg.Title = local.Sprintf("%d ns–%d ns @ %s", firstStart, lastEnd, c.Timeline.shortName)
 		} else {
@@ -238,7 +238,7 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	spans := si.spans.MustResult()
 
 	firstSpan := spans.AtPtr(0)
-	lastSpan := LastSpanPtr(spans)
+	lastSpan := LastItemPtr(spans)
 	link := *tb.DefaultLink(formatTimestamp(nil, firstSpan.Start), "Start of current spans", firstSpan.Start)
 	attrs = append(attrs, DescriptionAttribute{
 		Key:   "Start",
@@ -683,9 +683,21 @@ type TimeSpan struct {
 	End   trace.Timestamp
 }
 
+type TimeSpanner interface {
+	Start() trace.Timestamp
+	End() trace.Timestamp
+}
+
+type spanWithGetters struct {
+	ptrace.Span
+}
+
+func (s *spanWithGetters) Start() trace.Timestamp { return s.Span.Start }
+func (s *spanWithGetters) End() trace.Timestamp   { return s.Span.End }
+
 func SpansRange(spans Items[ptrace.Span]) TimeSpan {
 	return TimeSpan{
 		Start: spans.AtPtr(0).Start,
-		End:   LastSpanPtr(spans).End,
+		End:   LastItemPtr(spans).End,
 	}
 }

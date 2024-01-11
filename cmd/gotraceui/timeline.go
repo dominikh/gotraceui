@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
+	stdcolor "image/color"
 	"math"
 	rtrace "runtime/trace"
 	"sort"
@@ -34,10 +34,12 @@ import (
 
 const (
 	// XXX the label height depends on the font used
-	timelineLabelHeightDp unit.Dp = 20
-	timelineTrackHeightDp unit.Dp = 16
-	timelineGapDp         unit.Dp = 5
-	timelineTrackGapDp    unit.Dp = 2
+	timelineLabelHeightDp     unit.Dp = 17.5
+	timelineMinitrackHeightDp unit.Dp = 5
+	timelineMinitrackGapDp    unit.Dp = 1
+	timelineTrackHeightDp     unit.Dp = 16
+	timelineGapDp             unit.Dp = 5 - timelineMinitrackGapDp
+	timelineTrackGapDp        unit.Dp = timelineMinitrackHeightDp
 )
 
 const statePlaceholder = ptrace.StateLast + 1
@@ -90,12 +92,6 @@ func (tw *TimelineWidget) Hovered(gtx layout.Context) bool {
 	return tw.hover.Update(gtx.Queue)
 }
 
-type SpanTooltipState struct {
-	spans             Items[ptrace.Span]
-	events            Items[ptrace.EventID]
-	eventsUnderCursor Items[ptrace.EventID]
-}
-
 type Track struct {
 	parent           *Timeline
 	kind             TrackKind
@@ -110,7 +106,7 @@ type Track struct {
 
 	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
 	spanColor       func(span *ptrace.Span, tr *Trace) colorIndex
-	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, state SpanTooltipState) layout.Dimensions
+	spanTooltip     func(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions
 	spanContextMenu func(spans Items[ptrace.Span], cv *Canvas) []*theme.MenuItem
 
 	rnd    Renderer
@@ -283,7 +279,7 @@ func newZoomMenuItem(cv *Canvas, spans Items[ptrace.Span]) *theme.MenuItem {
 		Action: func() theme.Action {
 			return theme.ExecuteAction(func(gtx layout.Context) {
 				start := spans.AtPtr(0).Start
-				end := LastSpanPtr(spans).End
+				end := LastItemPtr(spans).End
 				cv.navigateToStartAndEnd(gtx, start, end, cv.y)
 			})
 		},
@@ -312,15 +308,24 @@ type TrackWidget struct {
 	lowQualityRender  bool
 
 	outlinesOps mem.ReusableOps
-	eventsOps   mem.ReusableOps
 	labelsOps   mem.ReusableOps
 
 	hover gesture.Hover
 	click gesture.Click
 
+	eventsHover gesture.Hover
+	eventsClick gesture.Click
+	tinyHover   gesture.Hover
+	tinyClick   gesture.Click
+
 	scratchHighlighted   []clip.FRect
 	scratchTextureStacks []TextureStack
 	scratchTextures      []Texture
+
+	tinyOps         mem.ReusableOps
+	mergedOps       mem.ReusableOps
+	eventsOps       mem.ReusableOps
+	mergedEventsOps mem.ReusableOps
 
 	// cached state
 	prevFrame struct {
@@ -374,18 +379,20 @@ func (tw *TimelineWidget) LabelRightClicked() bool {
 }
 
 func (tl *Timeline) Height(gtx layout.Context, cv *Canvas) int {
-	timelineGap := gtx.Dp(timelineGapDp)
+	var height int
 	enabledTracks := 0
 	for _, track := range tl.tracks {
 		if track.kind != TrackKindStack || cv.timeline.displayStackTracks {
+			h := track.Height(gtx)
+			height += h
 			enabledTracks++
 		}
 	}
-	if cv.timeline.compact {
-		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + timelineGap
-	} else {
-		return (gtx.Dp(timelineTrackHeightDp)+gtx.Dp(timelineTrackGapDp))*enabledTracks + gtx.Dp(timelineLabelHeightDp) + timelineGap
+	height += (enabledTracks-1)*gtx.Dp(timelineTrackGapDp) + gtx.Dp(timelineGapDp)
+	if !cv.timeline.compact {
+		height += gtx.Dp(timelineLabelHeightDp)
 	}
+	return height
 }
 
 // notifyHidden informs the widget that it is no longer visible.
@@ -474,6 +481,7 @@ func (tl *Timeline) Layout(
 	// both cases we don't want to lay out every widget to figure out its size.
 	timelineHeight := tl.Height(gtx, tl.cv)
 	timelineLabelHeight := gtx.Dp(timelineLabelHeightDp)
+	timelineTrackGap := gtx.Dp(timelineTrackGapDp)
 
 	tl.displayed = true
 
@@ -518,7 +526,7 @@ func (tl *Timeline) Layout(
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
+		dims := track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
 		if ts, ok := track.widget.NavigatedTimeSpan().Get(); ok {
 			tl.widget.navigatedTimeSpan = container.Some(ts)
 		}
@@ -528,13 +536,16 @@ func (tl *Timeline) Layout(
 		if track.widget.lowQualityRender {
 			suboptimal = true
 		}
+
+		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
 	}
+	stack.Pop()
+
 	if !suboptimal {
 		tl.widget.usedSuboptimalTexture = time.Time{}
 	} else if tl.widget.usedSuboptimalTexture.IsZero() {
 		tl.widget.usedSuboptimalTexture = gtx.Now
 	}
-	stack.Pop()
 
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, timelineHeight)}
 }
@@ -543,20 +554,23 @@ func defaultSpanColor(span *ptrace.Span, tr *Trace) colorIndex {
 	return stateColors[span.State]
 }
 
-type renderedSpansIterator struct {
+type renderedSpansIterator[T any, PT interface {
+	TimeSpanner
+	*T
+}] struct {
 	offset      int
 	cv          *Canvas
-	spans       Items[ptrace.Span]
+	spans       Items[T]
 	initialized bool
 }
 
-func (it *renderedSpansIterator) findFirstVisible() {
+func (it *renderedSpansIterator[T, PT]) findFirstVisible() {
 	it.offset = sort.Search(it.spans.Len(), func(i int) bool {
-		return it.spans.AtPtr(i).End > it.cv.start
+		return PT(it.spans.AtPtr(i)).End() > it.cv.start
 	})
 }
 
-func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace.Span], startPx, endPx float32, ok bool) {
+func (it *renderedSpansIterator[T, PT]) next(gtx layout.Context) (spansOut Items[T], startPx, endPx float32, ok bool) {
 	if !it.initialized {
 		it.findFirstVisible()
 	}
@@ -576,12 +590,12 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 	s := spans.AtPtr(offset)
 	offset++
 
-	if s.Start >= it.cv.End() {
+	if PT(s).Start() >= it.cv.End() {
 		return nil, 0, 0, false
 	}
 
-	start := s.Start
-	end := s.End
+	start := PT(s).Start()
+	end := PT(s).End()
 
 	if time.Duration(end-start) < minSpanWidthD {
 		// Only the first span we iterate over can have off-screen spans to the left.
@@ -594,12 +608,12 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 				// find.
 				limit := min(noffset+1, spans.Len())
 				noffset = sort.Search(limit, func(i int) bool {
-					return spans.AtPtr(i).Start > start-trace.Timestamp(minSpanWidthD)
+					return PT(spans.AtPtr(i)).Start() > start-trace.Timestamp(minSpanWidthD)
 				})
 				assert(noffset != limit, "should've found ourselves")
 				if noffset == 0 {
 					// Even the first span isn't far enough away. Merge all spans.
-					start = spans.AtPtr(0).Start
+					start = PT(spans.AtPtr(0)).Start()
 					startOffset = 0
 					break
 				}
@@ -609,13 +623,13 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 				candidateSpan := spans.AtPtr(noffset)
 				nextSpan := spans.AtPtr(noffset + 1)
 
-				cStart := candidateSpan.Start
-				cEnd := candidateSpan.End
-				nextStart := nextSpan.Start
+				cStart := PT(candidateSpan).Start()
+				cEnd := PT(candidateSpan).End()
+				nextStart := PT(nextSpan).Start()
 
 				if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(nextStart-cEnd) >= minSpanWidthD {
 					// The found span is either large, or far away. Stop merging at the span that follows it.
-					start = nextSpan.Start
+					start = PT(nextSpan).Start()
 					startOffset = noffset + 1
 					break
 				} else {
@@ -634,25 +648,25 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			// current span. Use binary search to find that span. This also finds gaps, because for a gap to be big
 			// enough, it cannot occur between spans that would be too small according to this search.
 			offset = sort.Search(spans.Len(), func(i int) bool {
-				return spans.AtPtr(i).End >= end+trace.Timestamp(minSpanWidthD)
+				return PT(spans.AtPtr(i)).End() >= end+trace.Timestamp(minSpanWidthD)
 			})
 
 			if offset == spans.Len() {
 				// We couldn't find a span -> merge all remaining spans, except for the optional "goroutine returned"
 				// span
 				offset = spans.Len()
-				end = spans.AtPtr(offset - 1).End
+				end = PT(spans.AtPtr(offset - 1)).End()
 				break
 			}
 
 			candidateSpan := spans.AtPtr(offset)
 			prevSpan := spans.AtPtr(offset - 1)
 
-			cStart := candidateSpan.Start
-			cEnd := candidateSpan.End
-			prevEnd := prevSpan.End
+			cStart := PT(candidateSpan).Start()
+			cEnd := PT(candidateSpan).End()
+			prevEnd := PT(prevSpan).End()
 			if time.Duration(cEnd-cStart) >= minSpanWidthD || time.Duration(cStart-prevEnd) >= minSpanWidthD {
-				end = prevSpan.End
+				end = prevEnd
 				break
 			} else {
 				end = cEnd
@@ -666,6 +680,17 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 	startPx = float32(start-cvStart) / nsPerPx
 	endPx = float32(end-cvStart) / nsPerPx
 	return it.spans.Slice(startOffset, offset), startPx, endPx, true
+}
+
+func (track *Track) Height(gtx layout.Context) int {
+	height := gtx.Dp(timelineTrackHeightDp)
+	// Tiny spans mini track
+	height += gtx.Dp(timelineMinitrackHeightDp) + gtx.Dp(timelineMinitrackGapDp)
+	// Events mini track
+	if !track.hideEventMarkers && len(track.events) != 0 {
+		height += gtx.Dp(timelineMinitrackHeightDp) + gtx.Dp(timelineMinitrackGapDp)
+	}
+	return height
 }
 
 func (track *Track) Plan(win *theme.Window, texs []TextureStack) []TextureStack {
@@ -700,20 +725,47 @@ func (track *Track) Layout(
 	tl *Timeline,
 	filter Filter,
 	labelsOut *[]string,
-) (dims layout.Dimensions) {
+) layout.Dimensions {
 	defer rtrace.StartRegion(context.Background(), "main.TimelineWidgetTrack.Layout").End()
 
 	// OPT(dh): both Track.Plan and Track.Layout call Renderer.Render to figure out which textures to display. However,
 	// Render is currently so fast that deduplicating that work isn't worth it.
+	totalTrackHeight := track.Height(gtx)
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, totalTrackHeight)}.Push(gtx.Ops).Pop()
 
+	// OPT(dh): reuse slice
+	main := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		return track.layoutMain(win, gtx, tl, filter, labelsOut)
+	})
+	tiny := track.layoutTiny(win, gtx, tl.cv)
+
+	if !track.hideEventMarkers && len(track.events) != 0 {
+		defer op.Offset(image.Pt(0, tiny.Size.Y+gtx.Dp(timelineMinitrackGapDp))).Push(gtx.Ops).Pop()
+		track.layoutEvents(win, gtx, tl.cv)
+	}
+
+	defer op.Offset(image.Pt(0, tiny.Size.Y+gtx.Dp(timelineMinitrackGapDp))).Push(gtx.Ops).Pop()
+	main.Layout(win, gtx)
+
+	return layout.Dimensions{
+		Size: image.Pt(gtx.Constraints.Max.X, totalTrackHeight),
+	}
+}
+
+func (track *Track) layoutMain(
+	win *theme.Window,
+	gtx layout.Context,
+	tl *Timeline,
+	filter Filter,
+	labelsOut *[]string,
+) (dims layout.Dimensions) {
 	cv := tl.cv
 	tr := cv.trace
-	trackHeight := gtx.Dp(timelineTrackHeightDp)
+	mainTrackHeight := gtx.Dp(timelineTrackHeightDp)
 	spanBorderWidth := gtx.Dp(spanBorderWidthDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, trackHeight)}.Push(gtx.Ops).Pop()
-	pointer.InputOp{Tag: track, Kinds: pointer.Enter | pointer.Leave | pointer.Move | pointer.Cancel | pointer.Press}.Add(gtx.Ops)
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, mainTrackHeight)}.Push(gtx.Ops).Pop()
 	track.widget.click.Add(gtx.Ops)
 	track.widget.hover.Add(gtx.Ops)
 
@@ -790,9 +842,7 @@ func (track *Track) Layout(
 	highlightedSpans := track.widget.scratchHighlighted[:0]
 
 	var outlinesPath clip.Path
-	var eventsPath clip.Path
 	outlinesPath.Begin(track.widget.outlinesOps.Get())
-	eventsPath.Begin(track.widget.eventsOps.Get())
 	labelsOps := track.widget.labelsOps.Get()
 	labelsMacro := op.Record(labelsOps)
 
@@ -828,7 +878,7 @@ func (track *Track) Layout(
 		var minP f32.Point
 		var maxP f32.Point
 		minP = f32.Pt(max(startPx, 0), 0)
-		maxP = f32.Pt(min(endPx, float32(gtx.Constraints.Max.X)), float32(trackHeight))
+		maxP = f32.Pt(min(endPx, float32(gtx.Constraints.Max.X)), float32(mainTrackHeight))
 
 		if filter.Match(dspSpans, ItemContainer{Timeline: tl, Track: track}) {
 			highlightedSpans = append(highlightedSpans, clip.FRect{Min: minP, Max: maxP})
@@ -866,94 +916,11 @@ func (track *Track) Layout(
 			}
 		}
 
-		var spanTooltipState SpanTooltipState
-		spanTooltipState.events = NoItems[ptrace.EventID]{}
-		spanTooltipState.eventsUnderCursor = NoItems[ptrace.EventID]{}
-		if cv.timeline.showTooltips < showTooltipsNone && hovered {
-			spanTooltipState.spans = dspSpans
-			if !track.hideEventMarkers {
-				spanTooltipState.events = Events(dspSpans, tr)
-			}
-		}
-
-		dotRadiusX := float32(gtx.Dp(4))
-		dotRadiusY := float32(gtx.Dp(3))
-		if !track.hideEventMarkers && maxP.X-minP.X > dotRadiusX*2 {
-			events := Events(dspSpans, tr)
-
-			dotGap := float32(gtx.Dp(1))
-			centerY := float32(trackHeight) / 2
-
-			for i, n := 0, events.Len(); i < n; i++ {
-				ev := events.At(i)
-				px := cv.tsToPx(tr.Event(ev).Ts)
-
-				if px+dotRadiusX < minP.X {
-					continue
-				}
-				if px-dotRadiusX > maxP.X {
-					break
-				}
-
-				start := px
-				end := px
-				oldi := i
-				// Merge events that are too close together
-				for {
-					delta := dotRadiusX*2 + dotGap
-					needle := end + delta
-					j := sort.Search(n, func(j int) bool {
-						ev := events.At(j)
-						return cv.tsToPx(tr.Event(ev).Ts) >= needle
-					})
-					if j == n {
-						// We couldn't find an event -> merge all remaining events
-						i = j - 1
-						end = cv.tsToPx(tr.Event(events.At(i)).Ts)
-						break
-					}
-					candidate := tr.Event(events.At(j))
-					prev := tr.Event(events.At(j - 1))
-					prevPx := cv.tsToPx(prev.Ts)
-					candidatePx := cv.tsToPx(candidate.Ts)
-					if candidatePx > prevPx+delta {
-						i = j - 1
-						end = prevPx
-						break
-					} else {
-						end = candidatePx
-					}
-				}
-
-				if minP.X != 0 && start-dotRadiusX < minP.X {
-					start = minP.X + dotRadiusX
-				}
-				if maxP.X != float32(gtx.Constraints.Max.X) && end+dotRadiusX > maxP.X {
-					end = maxP.X - dotRadiusX
-				}
-
-				minX := start - dotRadiusX
-				minY := centerY - dotRadiusY
-				maxX := end + dotRadiusX
-				maxY := centerY + dotRadiusY
-
-				eventsPath.MoveTo(f32.Pt(minX, minY))
-				eventsPath.LineTo(f32.Pt(maxX, minY))
-				eventsPath.LineTo(f32.Pt(maxX, maxY))
-				eventsPath.LineTo(f32.Pt(minX, maxY))
-				eventsPath.Close()
-
-				if cv.timeline.showTooltips < showTooltipsNone && track.widget.hover.Update(gtx.Queue) && track.widget.hover.Pointer().X >= minX && track.widget.hover.Pointer().X < maxX {
-					spanTooltipState.eventsUnderCursor = events.Slice(oldi, i+1)
-				}
-			}
-		}
-
-		if spanTooltipState.spans != nil && track.spanTooltip != nil {
+		if track.spanTooltip != nil && hovered {
 			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				// OPT(dh): this allocates for the closure
 				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-				return track.spanTooltip(win, gtx, tr, spanTooltipState)
+				return track.spanTooltip(win, gtx, tr, dspSpans)
 			})
 		}
 
@@ -1043,17 +1010,18 @@ func (track *Track) Layout(
 			doSpans(prevSpans.dspSpans, prevSpans.startPx, prevSpans.endPx)
 		}
 	} else {
-		it := renderedSpansIterator{
+		it := renderedSpansIterator[spanWithGetters, *spanWithGetters]{
 			cv:    cv,
-			spans: spans,
+			spans: myunsafe.Cast[Items[spanWithGetters]](spans),
 		}
 
 		allDspSpans := track.widget.prevFrame.dspSpans[:0]
 		for {
-			dspSpans, startPx, endPx, ok := it.next(gtx)
+			dspSpans_, startPx, endPx, ok := it.next(gtx)
 			if !ok {
 				break
 			}
+			dspSpans := myunsafe.Cast[Items[ptrace.Span]](dspSpans_)
 
 			allDspSpans = append(allDspSpans, struct {
 				dspSpans       Items[ptrace.Span]
@@ -1090,7 +1058,7 @@ func (track *Track) Layout(
 				// goroutine/processor is dead.
 				dspLast := track.widget.prevFrame.dspSpans[len(track.widget.prevFrame.dspSpans)-1]
 				// OPT(dh): can we use pointer identity here?
-				if *LastSpanPtr(dspLast.dspSpans) == *LastSpanPtr(spans) {
+				if *LastItemPtr(dspLast.dspSpans) == *LastItemPtr(spans) {
 					start := dspLast.endPx
 					deadFromPx = start
 				}
@@ -1110,7 +1078,7 @@ func (track *Track) Layout(
 				}
 			}
 		}
-		mid := float32(trackHeight) / 2
+		mid := float32(mainTrackHeight) / 2
 		top := mid - 2
 		bottom := mid + 2
 		if unbornUntilPx > 0 {
@@ -1127,7 +1095,7 @@ func (track *Track) Layout(
 	if g, ok := track.parent.item.(*ptrace.Goroutine); ok && g.End.Set() {
 		px := cv.tsToPx(g.End.MustGet())
 		if px > 0 && px < float32(gtx.Constraints.Max.X) {
-			theme.FillShape(win, gtx.Ops, colors[colorStateDone], clip.FRect{Min: f32.Pt(px, 0), Max: f32.Pt(px+float32(minSpanWidth), float32(trackHeight))}.Op(gtx.Ops))
+			theme.FillShape(win, gtx.Ops, colors[colorStateDone], clip.FRect{Min: f32.Pt(px, 0), Max: f32.Pt(px+float32(minSpanWidth), float32(mainTrackHeight))}.Op(gtx.Ops))
 		}
 	}
 
@@ -1136,9 +1104,9 @@ func (track *Track) Layout(
 		stack := hoveredSpan.Op(gtx.Ops).Push(gtx.Ops)
 		paint.LinearGradientOp{
 			Stop1:  hoveredSpan.Max,
-			Stop2:  f32.Pt(hoveredSpan.Max.X, hoveredSpan.Min.Y+float32(trackHeight)/4),
+			Stop2:  f32.Pt(hoveredSpan.Max.X, hoveredSpan.Min.Y+float32(mainTrackHeight)/4),
 			Color1: colors[colorSpanHighlightedPrimaryOutline].NRGBA(),
-			Color2: color.NRGBA{0, 0, 0, 0},
+			Color2: stdcolor.NRGBA{0, 0, 0, 0},
 		}.Add(gtx.Ops)
 		paint.PaintOp{}.Add(gtx.Ops)
 		stack.Pop()
@@ -1152,16 +1120,13 @@ func (track *Track) Layout(
 		stack := r.Op(gtx.Ops).Push(gtx.Ops)
 		paint.LinearGradientOp{
 			Stop1:  r.Max,
-			Stop2:  f32.Pt(r.Max.X, r.Min.Y+float32(trackHeight)/4),
+			Stop2:  f32.Pt(r.Max.X, r.Min.Y+float32(mainTrackHeight)/4),
 			Color1: colors[colorSpanHighlightedSecondaryOutline].NRGBA(),
-			Color2: color.NRGBA{0, 0, 0, 0},
+			Color2: stdcolor.NRGBA{0, 0, 0, 0},
 		}.Add(gtx.Ops)
 		paint.PaintOp{}.Add(gtx.Ops)
 		stack.Pop()
 	}
-
-	// Draw the event markers
-	theme.FillShape(win, gtx.Ops, oklcha(0, 0, 0, 0.85), clip.Outline{Path: eventsPath.End()}.Op())
 
 	// Print labels
 	labelsMacro.Stop().Add(gtx.Ops)
@@ -1171,7 +1136,266 @@ func (track *Track) Layout(
 
 	track.widget.scratchHighlighted = highlightedSpans[:0]
 
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, trackHeight)}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, mainTrackHeight)}
+}
+
+func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
+	timelineMinitrackHeight := gtx.Dp(timelineMinitrackHeightDp)
+	minSpanWidth := gtx.Dp(minSpanWidthDp)
+
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight)}.Push(gtx.Ops).Pop()
+	track.widget.tinyClick.Add(gtx.Ops)
+	track.widget.tinyHover.Add(gtx.Ops)
+
+	var trackNavigatedSpans bool
+	for _, ev := range track.widget.tinyClick.Update(gtx.Queue) {
+		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
+			switch ev.Modifiers {
+			case key.ModShortcut:
+				trackNavigatedSpans = true
+			case 0:
+				// XXX track clicked events
+			}
+		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
+			// XXX track context menu
+		}
+	}
+
+	var tinyPath, mergedPath clip.Path
+	tinyPath.Begin(track.widget.tinyOps.Get())
+	mergedPath.Begin(track.widget.mergedOps.Get())
+
+	for _, dspSpans := range track.widget.prevFrame.dspSpans {
+		dspSpans := dspSpans.dspSpans
+		startPx := cv.tsToPx(dspSpans.AtPtr(0).Start)
+		endPx := cv.tsToPx(LastItemPtr(dspSpans).End)
+
+		if dspSpans.Len() > 1 || endPx-startPx < float32(minSpanWidth) {
+			if endPx-startPx < float32(minSpanWidth) {
+				mid := startPx + (endPx-startPx)/2
+				dd := float32(minSpanWidth) / 2
+				startPx = mid - dd
+				endPx = mid + dd
+			}
+
+			min := f32.Pt(startPx, 0)
+			max := f32.Pt(endPx, float32(timelineMinitrackHeight))
+
+			var p *clip.Path
+			if x := track.widget.tinyHover.Pointer().X; track.widget.tinyHover.Update(gtx.Queue) && x >= startPx && x < endPx {
+				if trackNavigatedSpans {
+					track.widget.navigatedTimeSpan = container.Some(SpansRange(dspSpans))
+				}
+
+				if track.spanTooltip != nil {
+					win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						// OPT(dh): this allocates for the closure
+						// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
+						return track.spanTooltip(win, gtx, cv.trace, dspSpans)
+					})
+				}
+
+				theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: clip.FRect{Min: min, Max: max}.Path(gtx.Ops)}.Op())
+			} else if dspSpans.Len() > 1 {
+				p = &mergedPath
+			} else {
+				p = &tinyPath
+			}
+
+			if p != nil {
+				p.MoveTo(min)
+				p.LineTo(f32.Pt(max.X, min.Y))
+				p.LineTo(max)
+				p.LineTo(f32.Pt(min.X, max.Y))
+				p.Close()
+			}
+		}
+	}
+
+	theme.FillShape(win, gtx.Ops, colors[colorStateActive], clip.Outline{Path: tinyPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, colors[colorStateMerged], clip.Outline{Path: mergedPath.End()}.Op())
+
+	return layout.Dimensions{
+		Size: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight),
+	}
+}
+
+type eventsFromIDs struct {
+	tr    *ptrace.Trace
+	items Items[ptrace.EventID]
+}
+
+func (evs eventsFromIDs) At(idx int) trace.Event {
+	return *evs.tr.Event(evs.items.At(idx))
+}
+
+func (evs eventsFromIDs) AtPtr(idx int) *trace.Event {
+	return evs.tr.Event(evs.items.At(idx))
+}
+
+func (evs eventsFromIDs) Slice(start, end int) Items[trace.Event] {
+	return eventsFromIDs{
+		tr:    evs.tr,
+		items: evs.items.Slice(start, end),
+	}
+}
+
+func (evs eventsFromIDs) Len() int                          { return evs.items.Len() }
+func (evs eventsFromIDs) Contiguous() bool                  { return evs.items.Contiguous() }
+func (evs eventsFromIDs) Subslice() bool                    { return evs.items.Subslice() }
+func (evs eventsFromIDs) Container() (ItemContainer, bool)  { return evs.items.Container() }
+func (evs eventsFromIDs) ContainerAt(idx int) ItemContainer { return evs.items.ContainerAt(idx) }
+func (evs eventsFromIDs) MetadataAtPtr(index int) any       { return evs.items.MetadataAtPtr(index) }
+
+type eventWithGetters struct {
+	trace.Event
+}
+
+func (ev *eventWithGetters) Start() trace.Timestamp { return ev.Event.Ts }
+func (ev *eventWithGetters) End() trace.Timestamp   { return ev.Event.Ts }
+
+// Must only be called after layoutMain.
+func (track *Track) layoutEvents(win *theme.Window, gtx layout.Context, cv *Canvas) {
+	timelineMinitrackHeight := gtx.Dp(timelineMinitrackHeightDp)
+	minSpanWidth := gtx.Dp(minSpanWidthDp)
+
+	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight)}.Push(gtx.Ops).Pop()
+	track.widget.eventsClick.Add(gtx.Ops)
+	track.widget.eventsHover.Add(gtx.Ops)
+
+	var trackNavigatedEvents bool
+	for _, ev := range track.widget.eventsClick.Update(gtx.Queue) {
+		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
+			switch ev.Modifiers {
+			case key.ModShortcut:
+				trackNavigatedEvents = true
+			case 0:
+				// XXX track clicked events
+			}
+		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
+			// XXX track context menu
+		}
+	}
+
+	track.widget.eventsHover.Update(gtx.Queue)
+
+	var eventsPath, mergedEventsPath clip.Path
+	eventsPath.Begin(track.widget.eventsOps.Get())
+	mergedEventsPath.Begin(track.widget.mergedEventsOps.Get())
+	for _, dspSpans := range track.widget.prevFrame.dspSpans {
+		eventIDs := Events(dspSpans.dspSpans, cv.trace)
+		iter := renderedSpansIterator[eventWithGetters, *eventWithGetters]{
+			cv: cv,
+			spans: myunsafe.Cast[Items[eventWithGetters]](Items[trace.Event](eventsFromIDs{
+				tr:    cv.trace.Trace,
+				items: eventIDs,
+			})),
+		}
+
+		for {
+			events_, startPx, endPx, ok := iter.next(gtx)
+			if !ok {
+				break
+			}
+			events := myunsafe.Cast[Items[trace.Event]](events_)
+
+			if endPx-startPx < float32(minSpanWidth) {
+				mid := startPx + (endPx-startPx)/2
+				dd := float32(minSpanWidth) / 2
+				startPx = mid - dd
+				endPx = mid + dd
+			}
+
+			min := f32.Pt(startPx, 0)
+			max := f32.Pt(endPx, float32(timelineMinitrackHeight))
+
+			var p *clip.Path
+			if x := track.widget.eventsHover.Pointer().X; track.widget.eventsHover.Update(gtx.Queue) && x >= startPx && x < endPx {
+				if trackNavigatedEvents {
+					track.widget.navigatedTimeSpan = container.Some(EventsRange(events))
+				}
+
+				{
+					tr := cv.trace
+
+					var label string
+					if events.Len() == 1 {
+						ev := events.At(0)
+						switch ev.Type {
+						case trace.EvGoSysCall:
+							stk := tr.Stacks[events.At(0).StkID]
+							if len(stk) != 0 {
+								frame := tr.PCs[stk[0]]
+								label = "Syscall: " + frame.Fn
+							} else {
+								label = "Syscall"
+							}
+						case trace.EvGoCreate:
+							g := tr.G(ev.Args[trace.ArgGoCreateG])
+							label = fmt.Sprintf("Created goroutine %s", GoroutineLabel(g))
+						case trace.EvGoUnblock:
+							g := tr.G(ev.Args[trace.ArgGoUnblockG])
+							label = fmt.Sprintf("Unblocked goroutine %s", GoroutineLabel(g))
+						case trace.EvUserLog:
+							ev := events.AtPtr(0)
+							cat := tr.Strings[ev.Args[trace.ArgUserLogKeyID]]
+							msg := tr.Strings[ev.Args[trace.ArgUserLogMessage]]
+							if cat != "" {
+								label = fmt.Sprintf("Log: <%s> %s", cat, msg)
+							} else {
+								label = "Log: " + msg
+							}
+						default:
+							label = "1 event"
+						}
+					} else {
+						kind := events.At(0).Type
+						for i := 1; i < events.Len(); i++ {
+							ev := events.At(i)
+							if ev.Type != kind {
+								kind = 255
+								break
+							}
+						}
+						var noun string
+						switch kind {
+						case trace.EvGoSysCall:
+							noun = "syscalls"
+						case trace.EvGoCreate:
+							noun = "goroutine creations"
+						case trace.EvGoUnblock:
+							noun = "goroutine unblocks"
+						case trace.EvUserLog:
+							noun = "log messages"
+						default:
+							noun = "events"
+						}
+						label = local.Sprintf("%d %s", events.Len(), noun)
+					}
+
+					win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+						return theme.Tooltip(win.Theme, label).Layout(win, gtx)
+					})
+				}
+
+				theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: clip.FRect{Min: min, Max: max}.Path(gtx.Ops)}.Op())
+			} else if events.Len() == 1 {
+				p = &eventsPath
+			} else {
+				p = &mergedEventsPath
+			}
+
+			if p != nil {
+				p.MoveTo(min)
+				p.LineTo(f32.Pt(max.X, min.Y))
+				p.LineTo(max)
+				p.LineTo(f32.Pt(min.X, max.Y))
+				p.Close()
+			}
+		}
+	}
+	theme.FillShape(win, gtx.Ops, colors[colorEvent], clip.Outline{Path: eventsPath.End()}.Op())
+	theme.FillShape(win, gtx.Ops, colors[colorMergedEvents], clip.Outline{Path: mergedEventsPath.End()}.Op())
 }
 
 func singleSpanLabel(label string) func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
