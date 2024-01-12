@@ -852,7 +852,7 @@ func (track *Track) Layout(
 			highlightedSpans = append(highlightedSpans, clip.FRect{Min: minP, Max: maxP})
 		}
 
-		if dspSpans.Len() != 0 && dspSpans.AtPtr(0).State != statePlaceholder {
+		if dspSpans.Len() != 0 && dspSpans.AtPtr(0).State != statePlaceholder && maxP.X-minP.X >= float32(spanBorderWidth) {
 			off := float32(spanBorderWidth)
 			leftOff := off
 			rightOff := -off
