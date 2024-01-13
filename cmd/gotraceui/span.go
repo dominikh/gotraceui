@@ -11,6 +11,7 @@ import (
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
+	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 
@@ -675,4 +676,16 @@ func (spans *SpanList) Layout(win *theme.Window, gtx layout.Context) layout.Dime
 // HoveredLink returns the link that has been hovered during the last call to Layout.
 func (spans *SpanList) HoveredLink() ObjectLink {
 	return spans.cellFormatter.HoveredLink()
+}
+
+type TimeSpan struct {
+	Start trace.Timestamp
+	End   trace.Timestamp
+}
+
+func SpansRange(spans Items[ptrace.Span]) TimeSpan {
+	return TimeSpan{
+		Start: spans.AtPtr(0).Start,
+		End:   LastSpanPtr(spans).End,
+	}
 }

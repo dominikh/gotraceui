@@ -12,6 +12,7 @@ import (
 	"unsafe"
 
 	"honnef.co/go/gotraceui/clip"
+	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
@@ -76,8 +77,8 @@ type TimelineWidget struct {
 	// TimelineWidget doesn't have to mutate Timeline's state.
 	//
 	// OPT(dh): clicked spans and navigated spans are mutually exclusive, combine the fields
-	clickedSpans   Items[ptrace.Span]
-	navigatedSpans Items[ptrace.Span]
+	clickedSpans      Items[ptrace.Span]
+	navigatedTimeSpan container.Option[TimeSpan]
 
 	usedSuboptimalTexture time.Time
 }
@@ -306,9 +307,9 @@ type TrackWidget struct {
 	// mutate TimelineWidget's state.
 	//
 	// OPT(dh): clickedSpans and navigatedSpans are mutually exclusive, combine the fields
-	clickedSpans     Items[ptrace.Span]
-	navigatedSpans   Items[ptrace.Span]
-	lowQualityRender bool
+	clickedSpans      Items[ptrace.Span]
+	navigatedTimeSpan container.Option[TimeSpan]
+	lowQualityRender  bool
 
 	outlinesOps mem.ReusableOps
 	eventsOps   mem.ReusableOps
@@ -342,16 +343,16 @@ func (track *TrackWidget) ClickedSpans() Items[ptrace.Span] {
 	return track.clickedSpans
 }
 
-func (track *TrackWidget) NavigatedSpans() Items[ptrace.Span] {
-	return track.navigatedSpans
+func (track *TrackWidget) NavigatedTimeSpan() container.Option[TimeSpan] {
+	return track.navigatedTimeSpan
 }
 
 func (tw *TimelineWidget) ClickedSpans() Items[ptrace.Span] {
 	return tw.clickedSpans
 }
 
-func (tw *TimelineWidget) NavigatedSpans() Items[ptrace.Span] {
-	return tw.navigatedSpans
+func (tw *TimelineWidget) NavigatedTimeSpan() container.Option[TimeSpan] {
+	return tw.navigatedTimeSpan
 }
 
 func (tw *TimelineWidget) LabelClicked() bool {
@@ -442,7 +443,7 @@ func (tl *Timeline) Layout(
 	}
 
 	tl.widget.clickedSpans = NoItems[ptrace.Span]{}
-	tl.widget.navigatedSpans = NoItems[ptrace.Span]{}
+	tl.widget.navigatedTimeSpan = container.None[TimeSpan]()
 
 	tl.widget.labelClicks = 0
 	for _, click := range tl.widget.labelClick.Update(gtx) {
@@ -454,7 +455,8 @@ func (tl *Timeline) Layout(
 			case key.ModShortcut:
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
-				tl.widget.navigatedSpans = tl.tracks[0].Spans(win).Wait()
+				spans := tl.tracks[0].Spans(win).Wait()
+				tl.widget.navigatedTimeSpan = container.Some(SpansRange(spans))
 			}
 
 		case pointer.ButtonSecondary:
@@ -517,8 +519,8 @@ func (tl *Timeline) Layout(
 			continue
 		}
 		track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
-		if spans := track.widget.NavigatedSpans(); spans.Len() != 0 {
-			tl.widget.navigatedSpans = spans
+		if ts, ok := track.widget.NavigatedTimeSpan().Get(); ok {
+			tl.widget.navigatedTimeSpan = container.Some(ts)
 		}
 		if spans := track.widget.ClickedSpans(); spans.Len() != 0 {
 			tl.widget.clickedSpans = spans
@@ -716,7 +718,7 @@ func (track *Track) Layout(
 	track.widget.hover.Add(gtx.Ops)
 
 	track.widget.clickedSpans = NoItems[ptrace.Span]{}
-	track.widget.navigatedSpans = NoItems[ptrace.Span]{}
+	track.widget.navigatedTimeSpan = container.None[TimeSpan]()
 	track.widget.lowQualityRender = false
 
 	trackClickedSpans := false
@@ -806,7 +808,7 @@ func (track *Track) Layout(
 			hovered = true
 
 			if trackNavigatedSpans {
-				track.widget.navigatedSpans = dspSpans
+				track.widget.navigatedTimeSpan = container.Some(SpansRange(dspSpans))
 			}
 			if trackClickedSpans {
 				track.widget.clickedSpans = dspSpans

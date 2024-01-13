@@ -1102,10 +1102,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	}
 
 	for _, tl := range cv.prevFrame.displayedTls {
-		if spans := tl.widget.NavigatedSpans(); spans.Len() > 0 {
-			start := spans.AtPtr(0).Start
-			end := LastSpanPtr(spans).End
-			cv.navigateToStartAndEnd(gtx, start, end, cv.y)
+		if ts, ok := tl.widget.NavigatedTimeSpan().Get(); ok {
+			cv.navigateToStartAndEnd(gtx, ts.Start, ts.End, cv.y)
 			// FIXME(dh): canvas does event handling _after_ layout, so we need a second frame
 			op.InvalidateOp{}.Add(gtx.Ops)
 			break
