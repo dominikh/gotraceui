@@ -54,7 +54,6 @@ type Timeline struct {
 	tracks            []*Track
 	buildTrackWidgets func([]*Track)
 	widgetTooltip     func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions
-	invalidateCache   func(tl *Timeline, cv *Canvas) bool
 	item              any
 	shortName         string
 	label             string
@@ -778,7 +777,6 @@ func (track *Track) Layout(
 	if !track.widget.hover.Update(gtx.Queue) &&
 		!track.widget.prevFrame.hovered &&
 		cv.unchanged(gtx) &&
-		(tl.invalidateCache == nil || !tl.invalidateCache(tl, cv)) &&
 		track.widget.prevFrame.placeholder == !haveSpans &&
 		!track.widget.prevFrame.lowQualityRender &&
 		gtx.Constraints == track.widget.prevFrame.constraints {

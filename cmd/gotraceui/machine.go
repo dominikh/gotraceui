@@ -120,38 +120,6 @@ func machineTrack1SpanContextMenu(spans Items[ptrace.Span], cv *Canvas) []*theme
 	return items
 }
 
-func machineInvalidateCache(tl *Timeline, cv *Canvas) bool {
-	if cv.prevFrame.hoveredTimeline != cv.timeline.hoveredTimeline {
-		return true
-	}
-
-	if cv.prevFrame.hoveredSpans.Len() == 0 && cv.timeline.hoveredSpans.Len() == 0 {
-		// Nothing hovered in either frame.
-		return false
-	}
-
-	if cv.prevFrame.hoveredSpans.Len() > 1 && cv.timeline.hoveredSpans.Len() > 1 {
-		// We don't highlight spans if a merged span has been hovered, so if we hovered merged spans in both
-		// frames, then nothing changes for rendering.
-		return false
-	}
-
-	if cv.prevFrame.hoveredSpans.Len() != cv.timeline.hoveredSpans.Len() {
-		// OPT(dh): If we go from 1 hovered to not 1 hovered, then we only have to redraw if any spans were
-		// previously highlighted.
-		//
-		// The number of hovered spans changed, and at least in one frame the number was 1.
-		return true
-	}
-
-	// If we got to this point, then both slices have exactly one element.
-	if cv.trace.Event(cv.prevFrame.hoveredSpans.AtPtr(0).Event).P != cv.trace.Event(cv.timeline.hoveredSpans.AtPtr(0).Event).P {
-		return true
-	}
-
-	return false
-}
-
 type MachineTooltip struct {
 	m     *ptrace.Machine
 	trace *Trace
@@ -217,7 +185,6 @@ func NewMachineTimeline(tr *Trace, cv *Canvas, m *ptrace.Machine) *Timeline {
 		widgetTooltip: func(win *theme.Window, gtx layout.Context, tl *Timeline) layout.Dimensions {
 			return MachineTooltip{m, cv.trace}.Layout(win, gtx)
 		},
-		invalidateCache: machineInvalidateCache,
 	}
 
 	tl.tracks = []*Track{
