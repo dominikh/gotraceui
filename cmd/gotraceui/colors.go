@@ -119,7 +119,6 @@ var stateColors = [256]colorIndex{
 	ptrace.StateUserRegion:              colorStateUserRegion,
 	ptrace.StateStack:                   colorStateStack,
 	ptrace.StateCPUSample:               colorStateCPUSample,
-	ptrace.StateDone:                    colorStateDone,
 
 	// per-P states
 	ptrace.StateRunningG: colorStateActive,

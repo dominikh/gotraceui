@@ -598,7 +598,7 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 	start := s.Start
 	end := s.End
 
-	if time.Duration(end-start) < minSpanWidthD && s.State != ptrace.StateDone {
+	if time.Duration(end-start) < minSpanWidthD {
 		// Only the first span we iterate over can have off-screen spans to the left.
 		if !it.initialized {
 			for noffset := offset - 1; noffset >= 0; {
@@ -655,15 +655,9 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			if offset == spans.Len() {
 				// We couldn't find a span -> merge all remaining spans, except for the optional "goroutine returned"
 				// span
-				if LastSpanPtr(spans).State == ptrace.StateDone {
-					offset = spans.Len() - 1
-					end = spans.AtPtr(offset - 1).End
-					break
-				} else {
-					offset = spans.Len()
-					end = spans.AtPtr(offset - 1).End
-					break
-				}
+				offset = spans.Len()
+				end = spans.AtPtr(offset - 1).End
+				break
 			}
 
 			candidateSpan := spans.AtPtr(offset)
@@ -678,24 +672,6 @@ func (it *renderedSpansIterator) next(gtx layout.Context) (spansOut Items[ptrace
 			} else {
 				end = cEnd
 				offset++
-			}
-		}
-	}
-
-	if n := it.spans.Len(); n > 0 && offset == n {
-		switch offset - startOffset {
-		case 0:
-		case 1:
-			s := it.spans.AtPtr(offset - 1)
-			if s.State == ptrace.StateDone {
-				end = start + trace.Timestamp(minSpanWidthD)
-			}
-		default:
-			// Don't include the end of goroutine marker in merged spans
-			s := it.spans.AtPtr(offset - 1)
-			if s.State == ptrace.StateDone {
-				offset--
-				end = s.End
 			}
 		}
 	}
@@ -839,7 +815,6 @@ func (track *Track) Layout(
 
 	first := true
 	var prevEndPx float32
-	var endMarker [2]f32.Point
 	doSpans := func(dspSpans Items[ptrace.Span], startPx, endPx float32) {
 		if endPx < 0 {
 			return
@@ -1054,12 +1029,6 @@ func (track *Track) Layout(
 			}
 		}
 
-		if dspSpans.Len() == 1 {
-			if s := dspSpans.At(0); s.State == ptrace.StateDone {
-				endMarker = [2]f32.Point{minP, maxP}
-			}
-		}
-
 		prevEndPx = endPx
 		first = false
 	}
@@ -1173,8 +1142,11 @@ func (track *Track) Layout(
 	}
 
 	// Draw the end of goroutine marker
-	if endMarker != ([2]f32.Point{}) {
-		theme.FillShape(win, gtx.Ops, colors[colorStateDone], clip.FRect{Min: endMarker[0].Add(f32.Pt(-0.5, 0)), Max: endMarker[1]}.Op(gtx.Ops))
+	if g, ok := track.parent.item.(*ptrace.Goroutine); ok && g.End.Set() {
+		px := cv.tsToPx(g.End.MustGet())
+		if px > 0 && px < float32(gtx.Constraints.Max.X) {
+			theme.FillShape(win, gtx.Ops, colors[colorStateDone], clip.FRect{Min: f32.Pt(px, 0), Max: f32.Pt(px+float32(minSpanWidth), float32(trackHeight))}.Op(gtx.Ops))
+		}
 	}
 
 	// Highlight the hovered span

@@ -29,3 +29,14 @@ func (m Option[T]) GetOr(alt T) T {
 		return alt
 	}
 }
+
+func (m Option[T]) Set() bool {
+	return m.set
+}
+
+func (m Option[T]) MustGet() T {
+	if !m.set {
+		panic("called MustGet on unset Option")
+	}
+	return m.v
+}

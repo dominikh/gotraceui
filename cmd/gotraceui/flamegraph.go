@@ -124,7 +124,6 @@ func NewFlameGraphComponent(win *theme.Window, trace *ptrace.Trace, g *ptrace.Go
 					case ptrace.StateStuck:
 					case ptrace.StateReady, ptrace.StateCreated:
 						root = "ready"
-					case ptrace.StateDone:
 					case ptrace.StateGCMarkAssist:
 					case ptrace.StateGCSweep:
 					default:

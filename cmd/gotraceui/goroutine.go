@@ -42,7 +42,6 @@ var stateNames = [ptrace.StateLast]string{
 	ptrace.StateStuck:                   "stuck",
 	ptrace.StateReady:                   "ready",
 	ptrace.StateCreated:                 "created",
-	ptrace.StateDone:                    "done",
 	ptrace.StateGCMarkAssist:            "GC (mark assist)",
 	ptrace.StateGCSweep:                 "GC (sweep assist)",
 	ptrace.StateRunningG:                "active",
@@ -70,7 +69,6 @@ var stateNamesCapitalized = [ptrace.StateLast]string{
 	ptrace.StateStuck:                   "Stuck",
 	ptrace.StateReady:                   "Ready",
 	ptrace.StateCreated:                 "Created",
-	ptrace.StateDone:                    "Done",
 	ptrace.StateGCMarkAssist:            "GC (mark assist)",
 	ptrace.StateGCSweep:                 "GC (sweep assist)",
 	ptrace.StateRunningG:                "Active",
@@ -293,7 +291,7 @@ func (tt GoroutineTooltip) Layout(win *theme.Window, gtx layout.Context) layout.
 	}
 
 	observedStart := tt.g.Spans[0].State == ptrace.StateCreated
-	observedEnd := tt.g.Spans[len(tt.g.Spans)-1].State == ptrace.StateDone
+	observedEnd := tt.g.End.Set()
 	if observedStart {
 		fmts = append(fmts, "Created at: %s")
 		args = append(args, formatTimestamp(nil, start))
@@ -405,8 +403,6 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 			label += "GC assist wait"
 		case ptrace.StateBlockedSyscall:
 			label += "blocked on syscall"
-		case ptrace.StateDone:
-			label += "returned"
 		case ptrace.StateStuck:
 			label += "stuck"
 		case ptrace.StateReady:
@@ -460,9 +456,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, stat
 		}
 	}
 
-	if LastSpanPtr(state.spans).State != ptrace.StateDone {
-		label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spans)))
-	}
+	label += fmt.Sprintf("Duration: %s\n", roundDuration(SpansDuration(state.spans)))
 
 	if state.events.Len() > 0 {
 		label += local.Sprintf("Events in span: %d\n", state.events.Len())
@@ -559,11 +553,9 @@ var spanStateLabels = [...][]string{
 	ptrace.StateStuck:                   {"stuck"},
 	ptrace.StateReady:                   {"ready"},
 	ptrace.StateCreated:                 {"created"},
-	// StateDone spans will never be big enough to contain labels
-	ptrace.StateDone:         {},
-	ptrace.StateGCMarkAssist: {"GC mark assist", "M"},
-	ptrace.StateGCSweep:      {"GC sweep", "S"},
-	ptrace.StateLast:         nil,
+	ptrace.StateGCMarkAssist:            {"GC mark assist", "M"},
+	ptrace.StateGCSweep:                 {"GC sweep", "S"},
+	ptrace.StateLast:                    nil,
 }
 
 type stackSpanMeta struct {
@@ -823,7 +815,7 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 		end := spans[len(spans)-1].End
 		d := time.Duration(end - start)
 		observedStart := spans[0].State == ptrace.StateCreated
-		observedEnd := spans[len(spans)-1].State == ptrace.StateDone
+		observedEnd := g.End.Set()
 
 		if g.Parent != 0 {
 			parent := tr.G(g.Parent)

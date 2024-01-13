@@ -852,8 +852,8 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 			if last.State == StateDone {
 				// The goroutine has ended. We encode this as a zero length span.
 				s := &g.Spans[len(g.Spans)-1]
-				s.End = s.Start
-				g.End = container.Some(s.End)
+				g.Spans = g.Spans[:len(g.Spans)-1]
+				g.End = container.Some(s.Start)
 			} else {
 				g.Spans[len(g.Spans)-1].End = tr.Events[len(tr.Events)-1].Ts
 			}
