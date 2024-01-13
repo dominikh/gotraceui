@@ -78,7 +78,6 @@ type TimelineWidget struct {
 	// OPT(dh): clicked spans and navigated spans are mutually exclusive, combine the fields
 	clickedSpans   Items[ptrace.Span]
 	navigatedSpans Items[ptrace.Span]
-	hoveredSpans   Items[ptrace.Span]
 
 	usedSuboptimalTexture time.Time
 }
@@ -309,7 +308,6 @@ type TrackWidget struct {
 	// OPT(dh): clickedSpans and navigatedSpans are mutually exclusive, combine the fields
 	clickedSpans     Items[ptrace.Span]
 	navigatedSpans   Items[ptrace.Span]
-	hoveredSpans     Items[ptrace.Span]
 	lowQualityRender bool
 
 	outlinesOps mem.ReusableOps
@@ -348,20 +346,12 @@ func (track *TrackWidget) NavigatedSpans() Items[ptrace.Span] {
 	return track.navigatedSpans
 }
 
-func (track *TrackWidget) HoveredSpans() Items[ptrace.Span] {
-	return track.hoveredSpans
-}
-
 func (tw *TimelineWidget) ClickedSpans() Items[ptrace.Span] {
 	return tw.clickedSpans
 }
 
 func (tw *TimelineWidget) NavigatedSpans() Items[ptrace.Span] {
 	return tw.navigatedSpans
-}
-
-func (tw *TimelineWidget) HoveredSpans() Items[ptrace.Span] {
-	return tw.hoveredSpans
 }
 
 func (tw *TimelineWidget) LabelClicked() bool {
@@ -453,7 +443,6 @@ func (tl *Timeline) Layout(
 
 	tl.widget.clickedSpans = NoItems[ptrace.Span]{}
 	tl.widget.navigatedSpans = NoItems[ptrace.Span]{}
-	tl.widget.hoveredSpans = NoItems[ptrace.Span]{}
 
 	tl.widget.labelClicks = 0
 	for _, click := range tl.widget.labelClick.Update(gtx) {
@@ -482,7 +471,6 @@ func (tl *Timeline) Layout(
 	// exist so we can compute the scrollbar, and so we can jump to goroutines, which needs to compute an offset. In
 	// both cases we don't want to lay out every widget to figure out its size.
 	timelineHeight := tl.Height(gtx, tl.cv)
-	timelineTrackGap := gtx.Dp(timelineTrackGapDp)
 	timelineLabelHeight := gtx.Dp(timelineLabelHeightDp)
 
 	tl.displayed = true
@@ -528,11 +516,7 @@ func (tl *Timeline) Layout(
 		if track.kind == TrackKindStack && !tl.cv.timeline.displayStackTracks {
 			continue
 		}
-		dims := track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
-		op.Offset(image.Pt(0, dims.Size.Y+timelineTrackGap)).Add(gtx.Ops)
-		if spans := track.widget.HoveredSpans(); spans.Len() != 0 {
-			tl.widget.hoveredSpans = spans
-		}
+		track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
 		if spans := track.widget.NavigatedSpans(); spans.Len() != 0 {
 			tl.widget.navigatedSpans = spans
 		}
@@ -733,7 +717,6 @@ func (track *Track) Layout(
 
 	track.widget.clickedSpans = NoItems[ptrace.Span]{}
 	track.widget.navigatedSpans = NoItems[ptrace.Span]{}
-	track.widget.hoveredSpans = NoItems[ptrace.Span]{}
 	track.widget.lowQualityRender = false
 
 	trackClickedSpans := false
@@ -821,7 +804,6 @@ func (track *Track) Layout(
 		if track.widget.hover.Update(gtx.Queue) && track.widget.hover.Pointer().X >= startPx && track.widget.hover.Pointer().X < endPx && haveSpans {
 			// Highlight the span under the cursor
 			hovered = true
-			track.widget.hoveredSpans = dspSpans
 
 			if trackNavigatedSpans {
 				track.widget.navigatedSpans = dspSpans

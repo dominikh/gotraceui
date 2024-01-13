@@ -167,7 +167,6 @@ type Canvas struct {
 		showGCOverlays showGCOverlays
 
 		hoveredTimeline *Timeline
-		hoveredSpans    Items[ptrace.Span]
 		hover           gesture.Hover
 	}
 
@@ -184,7 +183,6 @@ type Canvas struct {
 		displayStackTracks bool
 		displayedTls       []*Timeline
 		hoveredTimeline    *Timeline
-		hoveredSpans       Items[ptrace.Span]
 		width              int
 		filter             Filter
 	}
@@ -223,7 +221,6 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 		},
 	}
 	cv.timeline.displayAllLabels = true
-	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
 
 	if len(t.GC) != 0 {
 		cv.timelines = append(cv.timelines, NewGCTimeline(cv, t, t.GC))
@@ -1088,13 +1085,11 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	cv.prevFrame.y = cv.y
 	cv.prevFrame.compact = cv.timeline.compact
 	cv.prevFrame.displayStackTracks = cv.timeline.displayStackTracks
-	cv.prevFrame.hoveredSpans = cv.timeline.hoveredSpans
 	cv.prevFrame.hoveredTimeline = cv.timeline.hoveredTimeline
 	cv.prevFrame.filter = cv.timeline.filter
 	cv.prevFrame.metric = gtx.Metric
 
 	cv.clickedSpans = cv.clickedSpans[:0]
-	cv.timeline.hoveredSpans = NoItems[ptrace.Span]{}
 	cv.timeline.hoveredTimeline = nil
 	for _, tl := range cv.prevFrame.displayedTls {
 		if clicked := tl.widget.ClickedSpans(); clicked.Len() > 0 {
@@ -1102,11 +1097,6 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		}
 		if tl.widget.Hovered(gtx) {
 			cv.timeline.hoveredTimeline = tl
-			spans := tl.widget.HoveredSpans()
-			if spans.Len() > 0 {
-				cv.timeline.hoveredSpans = spans
-			}
-
 			break
 		}
 	}
