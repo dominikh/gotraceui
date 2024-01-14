@@ -183,7 +183,7 @@ func stackSpanTooltip(level int) func(win *theme.Window, gtx layout.Context, tr 
 				}
 			}
 		} else {
-			label = local.Sprintf("mixed (%d spans)\n", spans.Len())
+			label = local.Sprintf("%d spans\n", spans.Len())
 		}
 		// We round the duration, in addition to saying "up to", to make it more obvious that the
 		// duration is a guess
@@ -433,7 +433,7 @@ func goroutineSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, span
 			label += local.Sprintf("\nUnblocked by goroutine %d (%s)", g, tr.G(g).Function)
 		}
 	} else {
-		label += local.Sprintf("mixed (%d spans)", spans.Len())
+		label = local.Sprintf("%d spans", spans.Len())
 	}
 	label += "\n"
 
@@ -487,7 +487,7 @@ func userRegionSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, spa
 				tr.Strings[ev.Args[trace.ArgUserRegionTypeID]])
 		}
 	} else {
-		label = local.Sprintf("mixed (%d spans)\n", spans.Len())
+		label = local.Sprintf("%d spans\n", spans.Len())
 	}
 	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(spans)))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
