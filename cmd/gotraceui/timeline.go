@@ -1478,6 +1478,14 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 		return append(out, stwSpanLabels[tr.STWReason(kindID)])
 	}
 	tl.tracks[0].spanColor = singleSpanColor(colorStateSTW)
+	tl.tracks[0].spanTooltip = func(win *theme.Window, gtx layout.Context, tr *Trace, spans Items[ptrace.Span]) layout.Dimensions {
+		if spans.Len() > 1 {
+			return defaultSpanTooltip(win, gtx, tr, spans)
+		}
+		kindID := tr.Events[spans.AtPtr(0).Event].Args[trace.ArgSTWStartKind]
+		label := fmt.Sprintf("%s\nDuration: %s", stwSpanLabels[tr.STWReason(kindID)], roundDuration(SpansDuration(spans)))
+		return theme.Tooltip(win.Theme, label).Layout(win, gtx)
+	}
 	tl.item = &STW{ss}
 
 	return tl
