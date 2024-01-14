@@ -323,8 +323,7 @@ type TrackWidget struct {
 	scratchTextureStacks []TextureStack
 	scratchTextures      []Texture
 
-	tinyOps         mem.ReusableOps
-	mergedOps       mem.ReusableOps
+	tinyOps         [colorStateLast]mem.ReusableOps
 	eventsOps       mem.ReusableOps
 	mergedEventsOps mem.ReusableOps
 
@@ -1173,9 +1172,10 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 	}
 	tsi.Update(gtx)
 
-	var tinyPath, mergedPath clip.Path
-	tinyPath.Begin(track.widget.tinyOps.Get())
-	mergedPath.Begin(track.widget.mergedOps.Get())
+	paths := [colorStateLast]clip.Path{}
+	for i := range paths {
+		paths[i].Begin(track.widget.tinyOps[i].Get())
+	}
 
 	for _, dspSpans := range track.widget.prevFrame.dspSpans {
 		dspSpans := dspSpans.dspSpans
@@ -1197,9 +1197,10 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 			if tsi.Handle(win, gtx, dspSpans, cv, startPx, endPx) {
 				theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: clip.FRect{Min: min, Max: max}.Path(gtx.Ops)}.Op())
 			} else if dspSpans.Len() > 1 {
-				p = &mergedPath
+				p = &paths[colorStateMerged]
 			} else {
-				p = &tinyPath
+				c := track.SpanColor(dspSpans.AtPtr(0), cv.trace)
+				p = &paths[c]
 			}
 
 			if p != nil {
@@ -1212,8 +1213,10 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 		}
 	}
 
-	theme.FillShape(win, gtx.Ops, colors[colorStateActive], clip.Outline{Path: tinyPath.End()}.Op())
-	theme.FillShape(win, gtx.Ops, colors[colorStateMerged], clip.Outline{Path: mergedPath.End()}.Op())
+	for cIdx := range paths {
+		p := &paths[cIdx]
+		theme.FillShape(win, gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
+	}
 
 	return layout.Dimensions{
 		Size: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight),
