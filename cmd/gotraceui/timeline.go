@@ -24,6 +24,7 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/font"
+	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/op"
@@ -773,25 +774,12 @@ func (track *Track) layoutMain(
 	track.widget.navigatedTimeSpan = container.None[TimeSpan]()
 	track.widget.lowQualityRender = false
 
-	trackClickedSpans := false
-	trackNavigatedSpans := false
-	trackContextMenuSpans := false
-
-	// We're passing gtx.Queue instead of gtx to avoid allocations because of convT. This means gtx.Queue mustn't be
-	// nil.
-	for _, ev := range track.widget.click.Update(gtx.Queue) {
-		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
-			switch ev.Modifiers {
-			case key.ModShortcut:
-				trackNavigatedSpans = true
-			case 0:
-				trackClickedSpans = true
-			}
-		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
-			trackContextMenuSpans = true
-		}
+	tsi := trackSpanInteractivity{
+		click: &track.widget.click,
+		hover: &track.widget.hover,
+		track: track,
 	}
-	track.widget.hover.Update(gtx.Queue)
+	tsi.Update(gtx)
 
 	spans, haveSpans := track.Spans(win).ResultNoWait()
 	if !haveSpans {
@@ -852,28 +840,7 @@ func (track *Track) layoutMain(
 		if endPx < 0 {
 			return
 		}
-		hovered := false
-		if track.widget.hover.Update(gtx.Queue) && track.widget.hover.Pointer().X >= startPx && track.widget.hover.Pointer().X < endPx && haveSpans {
-			// Highlight the span under the cursor
-			hovered = true
-
-			if trackNavigatedSpans {
-				track.widget.navigatedTimeSpan = container.Some(SpansRange(dspSpans))
-			}
-			if trackClickedSpans {
-				track.widget.clickedSpans = dspSpans
-			}
-			if trackContextMenuSpans {
-				if track.spanContextMenu != nil {
-					win.SetContextMenu(track.spanContextMenu(dspSpans, cv))
-				} else {
-					win.SetContextMenu([]*theme.MenuItem{
-						newZoomMenuItem(cv, dspSpans),
-						newOpenSpansMenuItem(dspSpans),
-					})
-				}
-			}
-		}
+		hovered := tsi.Handle(win, gtx, dspSpans, cv, startPx, endPx)
 
 		var minP f32.Point
 		var maxP f32.Point
@@ -914,14 +881,6 @@ func (track *Track) layoutMain(
 			if hovered {
 				hoveredSpan = clip.FRect{Min: minP, Max: maxP}
 			}
-		}
-
-		if track.spanTooltip != nil && hovered {
-			win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				// OPT(dh): this allocates for the closure
-				// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-				return track.spanTooltip(win, gtx, tr, dspSpans)
-			})
 		}
 
 		if track.spanLabel != nil && maxP.X-minP.X > float32(2*minSpanWidth) && dspSpans.Len() == 1 {
@@ -1139,27 +1098,80 @@ func (track *Track) layoutMain(
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, mainTrackHeight)}
 }
 
+type trackSpanInteractivity struct {
+	track                 *Track
+	hover                 *gesture.Hover
+	click                 *gesture.Click
+	trackNavigatedSpans   bool
+	trackClickedSpans     bool
+	trackContextMenuSpans bool
+}
+
+func (tsi *trackSpanInteractivity) Update(gtx layout.Context) {
+	for _, ev := range tsi.click.Update(gtx.Queue) {
+		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
+			switch ev.Modifiers {
+			case key.ModShortcut:
+				tsi.trackNavigatedSpans = true
+			case 0:
+				tsi.trackClickedSpans = true
+			}
+		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
+			tsi.trackContextMenuSpans = true
+		}
+	}
+
+	tsi.click.Add(gtx.Ops)
+	tsi.hover.Add(gtx.Ops)
+}
+
+func (tsi *trackSpanInteractivity) Hovered(q event.Queue, startPx, endPx float32) bool {
+	x := tsi.hover.Pointer().X
+	return tsi.hover.Update(q) && x >= startPx && x < endPx
+}
+
+func (tsi *trackSpanInteractivity) Handle(win *theme.Window, gtx layout.Context, spans Items[ptrace.Span], cv *Canvas, startPx, endPx float32) bool {
+	if !tsi.Hovered(gtx.Queue, startPx, endPx) {
+		return false
+	}
+	if tsi.trackNavigatedSpans {
+		tsi.track.widget.navigatedTimeSpan = container.Some(SpansRange(spans))
+	}
+	if tsi.trackClickedSpans {
+		tsi.track.widget.clickedSpans = spans
+	}
+	if tsi.trackContextMenuSpans {
+		if tsi.track.spanContextMenu != nil {
+			win.SetContextMenu(tsi.track.spanContextMenu(spans, cv))
+		} else {
+			win.SetContextMenu([]*theme.MenuItem{
+				newZoomMenuItem(cv, spans),
+				newOpenSpansMenuItem(spans),
+			})
+		}
+	}
+	if tsi.track.spanTooltip != nil {
+		win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+			// OPT(dh): this allocates for the closure
+			// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
+			return tsi.track.spanTooltip(win, gtx, cv.trace, spans)
+		})
+	}
+	return true
+}
+
 func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
 	timelineMinitrackHeight := gtx.Dp(timelineMinitrackHeightDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight)}.Push(gtx.Ops).Pop()
-	track.widget.tinyClick.Add(gtx.Ops)
-	track.widget.tinyHover.Add(gtx.Ops)
 
-	var trackNavigatedSpans bool
-	for _, ev := range track.widget.tinyClick.Update(gtx.Queue) {
-		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
-			switch ev.Modifiers {
-			case key.ModShortcut:
-				trackNavigatedSpans = true
-			case 0:
-				// XXX track clicked events
-			}
-		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
-			// XXX track context menu
-		}
+	tsi := trackSpanInteractivity{
+		click: &track.widget.tinyClick,
+		hover: &track.widget.tinyHover,
+		track: track,
 	}
+	tsi.Update(gtx)
 
 	var tinyPath, mergedPath clip.Path
 	tinyPath.Begin(track.widget.tinyOps.Get())
@@ -1182,19 +1194,7 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 			max := f32.Pt(endPx, float32(timelineMinitrackHeight))
 
 			var p *clip.Path
-			if x := track.widget.tinyHover.Pointer().X; track.widget.tinyHover.Update(gtx.Queue) && x >= startPx && x < endPx {
-				if trackNavigatedSpans {
-					track.widget.navigatedTimeSpan = container.Some(SpansRange(dspSpans))
-				}
-
-				if track.spanTooltip != nil {
-					win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						// OPT(dh): this allocates for the closure
-						// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-						return track.spanTooltip(win, gtx, cv.trace, dspSpans)
-					})
-				}
-
+			if tsi.Handle(win, gtx, dspSpans, cv, startPx, endPx) {
 				theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: clip.FRect{Min: min, Max: max}.Path(gtx.Ops)}.Op())
 			} else if dspSpans.Len() > 1 {
 				p = &mergedPath
