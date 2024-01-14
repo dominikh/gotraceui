@@ -2,6 +2,7 @@
 
 - Introduce thin strips above tracks that indicate tiny spans, merged spans, and events. This moves events out
   of the main track.
+- Add tooltips for spans in GC and STW timelines
 
 # v0.4.0 (2024-01-09)
 

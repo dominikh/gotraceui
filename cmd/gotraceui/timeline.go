@@ -1149,13 +1149,16 @@ func (tsi *trackSpanInteractivity) Handle(win *theme.Window, gtx layout.Context,
 			})
 		}
 	}
-	if tsi.track.spanTooltip != nil {
-		win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-			// OPT(dh): this allocates for the closure
-			// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
-			return tsi.track.spanTooltip(win, gtx, cv.trace, spans)
-		})
+
+	spanTooltip := tsi.track.spanTooltip
+	if spanTooltip == nil {
+		spanTooltip = defaultSpanTooltip
 	}
+	win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+		// OPT(dh): this allocates for the closure
+		// OPT(dh): avoid allocating a new tooltip if it's the same as last frame
+		return spanTooltip(win, gtx, cv.trace, spans)
+	})
 	return true
 }
 

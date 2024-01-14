@@ -701,3 +701,17 @@ func SpansRange(spans Items[ptrace.Span]) TimeSpan {
 		End:   LastItemPtr(spans).End,
 	}
 }
+
+func defaultSpanTooltip(
+	win *theme.Window,
+	gtx layout.Context,
+	tr *Trace,
+	spans Items[ptrace.Span],
+) layout.Dimensions {
+	var label string
+	if n := spans.Len(); n > 1 {
+		label = local.Sprintf("%d spans\n", n)
+	}
+	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(spans)))
+	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
+}
