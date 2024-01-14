@@ -64,7 +64,7 @@ const (
 	tickWidthDp            unit.Dp = 1
 	minTickLabelDistanceDp unit.Dp = 8
 
-	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 4
+	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 6
 
 	spanBorderWidthDp unit.Dp = 1
 )
