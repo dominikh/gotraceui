@@ -363,7 +363,7 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		return SimpleItems[ptrace.EventID, any]{
 			items:      allEvents[eStart:eEnd],
 			container:  c,
-			contiguous: true,
+			contiguous: false,
 			subslice:   true,
 		}
 	} else {
