@@ -747,6 +747,8 @@ func spansDurationForTooltipWithQualifier(spans Items[ptrace.Span], q string) st
 			label = fmt.Sprintf("Duration: %s\n", roundDuration(d))
 		}
 	}
-	label += fmt.Sprintf("Time span: %s\n", roundDuration(SpansTimeSpan(spans).Duration()))
+	if !spans.Contiguous() && spans.Len() > 1 {
+		label += fmt.Sprintf("Time span: %s\n", roundDuration(SpansTimeSpan(spans).Duration()))
+	}
 	return label
 }
