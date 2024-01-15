@@ -1376,7 +1376,8 @@ func (track *Track) layoutEvents(win *theme.Window, gtx layout.Context, cv *Canv
 						default:
 							noun = "events"
 						}
-						label = local.Sprintf("%d %s", events.Len(), noun)
+						label = local.Sprintf("%d %s\n", events.Len(), noun)
+						label += fmt.Sprintf("Time span: %s\n", roundDuration(time.Duration(LastItemPtr(events).Ts-events.AtPtr(0).Ts)))
 					}
 
 					win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
