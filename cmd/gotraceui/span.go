@@ -276,6 +276,14 @@ func (si *SpansInfo) buildDefaultDescription(win *theme.Window, gtx layout.Conte
 	}
 	attrs = append(attrs, a)
 
+	if spans.Len() > 1 && !spans.Contiguous() {
+		a = DescriptionAttribute{
+			Key:   "Time span",
+			Value: *tb.Span(SpansTimeSpan(spans).Duration().String()),
+		}
+		attrs = append(attrs, a)
+	}
+
 	a = DescriptionAttribute{
 		Key: "State",
 	}
