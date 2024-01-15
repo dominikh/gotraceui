@@ -695,7 +695,7 @@ type spanWithGetters struct {
 func (s *spanWithGetters) Start() trace.Timestamp { return s.Span.Start }
 func (s *spanWithGetters) End() trace.Timestamp   { return s.Span.End }
 
-func SpansRange(spans Items[ptrace.Span]) TimeSpan {
+func SpansTimeSpan(spans Items[ptrace.Span]) TimeSpan {
 	return TimeSpan{
 		Start: spans.AtPtr(0).Start,
 		End:   LastItemPtr(spans).End,

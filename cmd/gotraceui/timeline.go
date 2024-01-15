@@ -463,7 +463,7 @@ func (tl *Timeline) Layout(
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
 				spans := tl.tracks[0].Spans(win).Wait()
-				tl.widget.navigatedTimeSpan = container.Some(SpansRange(spans))
+				tl.widget.navigatedTimeSpan = container.Some(SpansTimeSpan(spans))
 			}
 
 		case pointer.ButtonSecondary:
@@ -1134,7 +1134,7 @@ func (tsi *trackSpanInteractivity) Handle(win *theme.Window, gtx layout.Context,
 		return false
 	}
 	if tsi.trackNavigatedSpans {
-		tsi.track.widget.navigatedTimeSpan = container.Some(SpansRange(spans))
+		tsi.track.widget.navigatedTimeSpan = container.Some(SpansTimeSpan(spans))
 	}
 	if tsi.trackClickedSpans {
 		tsi.track.widget.clickedSpans = spans
