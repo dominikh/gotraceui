@@ -730,9 +730,23 @@ func defaultSpanTooltip(
 	if n := spans.Len(); n > 1 {
 		label = local.Sprintf("%d spans\n", n)
 	}
+	label += spansDurationForTooltip(spans)
+	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
+}
+
+func spansDurationForTooltip(spans Items[ptrace.Span]) string {
+	return spansDurationForTooltipWithQualifier(spans, "")
+}
+
+func spansDurationForTooltipWithQualifier(spans Items[ptrace.Span], q string) string {
+	var label string
 	if d, ok := SpansDuration(spans); ok {
-		label += fmt.Sprintf("Duration: %s\n", roundDuration(d))
+		if q != "" {
+			label = fmt.Sprintf("Duration: %s %s\n", q, roundDuration(d))
+		} else {
+			label = fmt.Sprintf("Duration: %s\n", roundDuration(d))
+		}
 	}
 	label += fmt.Sprintf("Time span: %s\n", roundDuration(SpansTimeSpan(spans).Duration()))
-	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
+	return label
 }
