@@ -6,6 +6,7 @@
 - Add shortcuts for opening traces and quitting Gotraceui
 - Don't slow down UI trying to compute accurate span durations
 - Display time spans in addition to (or in place of) durations
+- Display durations of flame graph spans in proportion to their parents, zoomed-on roots, and global roots.
 
 # v0.4.0 (2024-01-09)
 
