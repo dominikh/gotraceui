@@ -1,4 +1,4 @@
-# v0.4.0 (unreleased)
+# v0.4.0 (2024-01-09)
 
 - Require Go 1.21 for building Gotraceui
 - All tables now have resizable and sortable columns
