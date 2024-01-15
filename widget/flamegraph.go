@@ -10,6 +10,7 @@ type FlameGraph struct {
 }
 
 type FlamegraphFrame struct {
+	Parent   *FlamegraphFrame
 	Name     string
 	Duration time.Duration
 	Children []FlamegraphFrame
@@ -96,4 +97,16 @@ func (fg *FlameGraph) Compute() {
 	}
 
 	fg.Samples = merge(fg.Samples)
+
+	// Populate parent pointers
+	var dfs func(s, parent *FlamegraphFrame)
+	dfs = func(s, parent *FlamegraphFrame) {
+		s.Parent = parent
+		for i := range s.Children {
+			dfs(&s.Children[i], s)
+		}
+	}
+	for i := range fg.Samples {
+		dfs(&fg.Samples[i], nil)
+	}
 }

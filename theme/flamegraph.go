@@ -40,6 +40,8 @@ type fgZoom struct {
 	offsetX     Unit
 	offsetLevel float32
 	scale       Unit
+	// The root that was selected by clicking on it. Nil if we're fully zoomed out
+	root *widget.FlamegraphFrame
 }
 
 func (z fgZoom) Lerp(end fgZoom, r float64) fgZoom {
@@ -47,6 +49,7 @@ func (z fgZoom) Lerp(end fgZoom, r float64) fgZoom {
 		offsetX:     Lerp(z.offsetX, end.offsetX, r),
 		offsetLevel: Lerp(z.offsetLevel, end.offsetLevel, r),
 		scale:       Lerp(z.scale, end.scale, r),
+		root:        end.root,
 	}
 }
 
@@ -446,6 +449,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 					offsetX:     -(clickedSpan.x * scale),
 					offsetLevel: float32(clickedSpan.level),
 					scale:       Unit(scale),
+					root:        clickedSpan.frame,
 				},
 				animateLength,
 				EaseBezier,
@@ -458,8 +462,33 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 			for _, child := range hoveredSpan.frame.Children {
 				self -= child.Duration
 			}
-			l := fmt.Sprintf("Name: %s\nStack depth: %d\nDuration: %s (%s self)\nImmediate children: %d",
-				hoveredSpan.frame.Name, hoveredSpan.level, roundDuration(hoveredSpan.frame.Duration), roundDuration(self), len(hoveredSpan.frame.Children))
+
+			topRoot := hoveredSpan.frame
+			for topRoot.Parent != nil {
+				topRoot = topRoot.Parent
+			}
+
+			var labels [7]string
+			labels[0] = fmt.Sprintf("Name: %s\n", hoveredSpan.frame.Name)
+			labels[1] = fmt.Sprintf("Stack depth: %d\n", hoveredSpan.level)
+			labels[2] = fmt.Sprintf("Duration: %s (%s / %.2f%% self)\n",
+				roundDuration(hoveredSpan.frame.Duration),
+				roundDuration(self),
+				(float64(self)/float64(hoveredSpan.frame.Duration))*100,
+			)
+			if p := hoveredSpan.frame.Parent; p != nil {
+				labels[3] = fmt.Sprintf("Duration: %.2f%% of parent\n",
+					(float64(hoveredSpan.frame.Duration)/float64(p.Duration))*100)
+			}
+			if r := fg.StyleState.zoom.root; r != nil {
+				labels[4] = fmt.Sprintf("Duration: %.2f%% of visible root\n",
+					(float64(hoveredSpan.frame.Duration)/float64(r.Duration))*100)
+			}
+			labels[5] = fmt.Sprintf("Duration: %.2f%% of top-level root\n",
+				(float64(hoveredSpan.frame.Duration)/float64(topRoot.Duration))*100)
+			labels[6] = fmt.Sprintf("Immediate children: %d\n", len(hoveredSpan.frame.Children))
+			l := strings.Join(labels[:], "")
+
 			fg.StyleState.tooltip = l
 			win.SetTooltip(Tooltip(win.Theme, l).Layout)
 		}
