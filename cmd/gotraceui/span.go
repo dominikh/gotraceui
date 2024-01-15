@@ -24,19 +24,33 @@ func LastItemPtr[E any, T Items[E]](sel T) *E {
 	return sel.AtPtr(sel.Len() - 1)
 }
 
-func SpansDuration(sel Items[ptrace.Span]) time.Duration {
+func spansDuration(sel Items[ptrace.Span], giveUp bool) (time.Duration, bool) {
 	if sel.Len() == 0 {
-		return 0
+		return 0, true
 	}
 	if sel.Contiguous() {
-		return time.Duration(LastItemPtr(sel).End - sel.AtPtr(0).Start)
-	} else {
+		return time.Duration(LastItemPtr(sel).End - sel.AtPtr(0).Start), true
+	} else if !giveUp || sel.Len() < 1e5 {
 		var total time.Duration
 		for i := 0; i < sel.Len(); i++ {
 			total += time.Duration(sel.AtPtr(i).End - sel.AtPtr(i).Start)
 		}
-		return total
+		return total, true
+	} else {
+		// Computing an accurate duration for more than 1e5 spans is too slow, so signal failure, upon which the caller
+		// should fall back to SpansTimeSpan.
+		return 0, false
 	}
+}
+
+func AccurateSpansDuration(sel Items[ptrace.Span]) time.Duration {
+	d, ok := spansDuration(sel, false)
+	assert(ok, "expected spans duration computation not to fail")
+	return d
+}
+
+func SpansDuration(sel Items[ptrace.Span]) (time.Duration, bool) {
+	return spansDuration(sel, true)
 }
 
 type ItemContainer struct {
@@ -193,7 +207,7 @@ func (si *SpansInfo) init(win *theme.Window) {
 	})
 
 	si.duration = theme.NewFuture(win, func(cancelled <-chan struct{}) time.Duration {
-		return SpansDuration(spans)
+		return AccurateSpansDuration(spans)
 	})
 }
 
@@ -702,6 +716,10 @@ func SpansTimeSpan(spans Items[ptrace.Span]) TimeSpan {
 	}
 }
 
+func (ts TimeSpan) Duration() time.Duration {
+	return time.Duration(ts.End - ts.Start)
+}
+
 func defaultSpanTooltip(
 	win *theme.Window,
 	gtx layout.Context,
@@ -712,6 +730,9 @@ func defaultSpanTooltip(
 	if n := spans.Len(); n > 1 {
 		label = local.Sprintf("%d spans\n", n)
 	}
-	label += fmt.Sprintf("Duration: %s", roundDuration(SpansDuration(spans)))
+	if d, ok := SpansDuration(spans); ok {
+		label += fmt.Sprintf("Duration: %s\n", roundDuration(d))
+	}
+	label += fmt.Sprintf("Time span: %s\n", roundDuration(SpansTimeSpan(spans).Duration()))
 	return theme.Tooltip(win.Theme, label).Layout(win, gtx)
 }

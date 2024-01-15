@@ -4,6 +4,8 @@
   of the main track.
 - Add tooltips for spans in GC and STW timelines
 - Add shortcuts for opening traces and quitting Gotraceui
+- Don't slow down UI trying to compute accurate span durations
+- Display time spans in addition to (or in place of) durations
 
 # v0.4.0 (2024-01-09)
 

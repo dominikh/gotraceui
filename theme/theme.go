@@ -6,6 +6,7 @@ import (
 	"image"
 	"math"
 	rtrace "runtime/trace"
+	"strings"
 
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
@@ -497,6 +498,7 @@ type TooltipStyle struct {
 }
 
 func Tooltip(th *Theme, msg string) TooltipStyle {
+	msg = strings.TrimRight(msg, "\n")
 	return TooltipStyle{
 		Message:         msg,
 		BorderSize:      th.WindowBorder,

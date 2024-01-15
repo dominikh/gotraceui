@@ -545,7 +545,8 @@ func (l *ScrollAndPanToSpansAction) Open(gtx layout.Context, mwin *MainWindow) {
 	assert(ok, "expected container")
 	y := mwin.canvas.timelineY(gtx, c.Timeline)
 	d := mwin.canvas.End() - mwin.canvas.start
-	ts := l.Spans.AtPtr(0).Start + trace.Timestamp(SpansDuration(l.Spans)/2)
+	tsp := SpansTimeSpan(l.Spans)
+	ts := tsp.Start + trace.Timestamp(tsp.End/2)
 	mwin.canvas.navigateTo(gtx, ts-d/2, mwin.canvas.nsPerPx, y)
 }
 
