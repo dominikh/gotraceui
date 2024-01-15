@@ -539,7 +539,6 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 	offSpans := 0
 	offSamples := 0
 	cpuSamples := tr.CPUSamples[g.ID]
-	stackTrackBase := len(tl.tracks)
 
 	nextEvent := func(advance bool) (ptrace.EventID, bool, bool) {
 		if offSpans == len(g.Spans) && offSamples == len(cpuSamples) {
@@ -723,7 +722,8 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		}
 		// TODO(dh): should we highlight hovered spans that share the same function?
 		tr.spanLabel = stackSpanLabel
-		tr.spanTooltip = stackSpanTooltip(i - stackTrackBase)
+		// OPT(dh): this allocates a closure for every stack track. it's not even stored in TrackWidget.
+		tr.spanTooltip = stackSpanTooltip(i + 1)
 		tr.spanColor = func(span *ptrace.Span, tr *Trace) colorIndex {
 			if state := span.State; state == statePlaceholder {
 				return colorStatePlaceholderStackSpan

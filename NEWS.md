@@ -7,6 +7,7 @@
 - Don't slow down UI trying to compute accurate span durations
 - Display time spans in addition to (or in place of) durations
 - Display durations of flame graph spans in proportion to their parents, zoomed-on roots, and global roots.
+- Fix the display of call stack depth in the tooltips of stack spans
 
 # v0.4.0 (2024-01-09)
 
