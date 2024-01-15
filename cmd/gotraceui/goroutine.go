@@ -221,7 +221,8 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 			Timeline: tl,
 			Track:    track,
 		},
-		subslice: true,
+		contiguous: true,
+		subslice:   true,
 	})
 
 	track.spanLabel = goroutineTrack0SpanLabel
