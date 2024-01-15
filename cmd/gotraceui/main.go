@@ -508,8 +508,8 @@ type MainMenu struct {
 func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 	m := &MainMenu{}
 
-	m.File.OpenTrace = theme.MenuItem{Label: PlainLabel("Open trace")}
-	m.File.Quit = theme.MenuItem{Label: PlainLabel("Quit")}
+	m.File.OpenTrace = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+O", Label: PlainLabel("Open trace")}
+	m.File.Quit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Q", Label: PlainLabel("Quit")}
 
 	notMainDisabled := func() bool { return mwin.state != "main" }
 	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
@@ -834,6 +834,20 @@ func (mwin *MainWindow) Run() error {
 				// Fill background
 				theme.Fill(win, gtx.Ops, mwin.twin.Theme.Palette.Background)
 
+				var unhandledShortcuts []theme.Shortcut
+				win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "O"})
+				win.AddShortcut(theme.Shortcut{Modifiers: key.ModShortcut, Name: "Q"})
+				for _, s := range win.PressedShortcuts() {
+					switch s {
+					case theme.Shortcut{Modifiers: key.ModShortcut, Name: "O"}:
+						mwin.showFileOpenDialog()
+					case theme.Shortcut{Modifiers: key.ModShortcut, Name: "Q"}:
+						os.Exit(0)
+					default:
+						unhandledShortcuts = append(unhandledShortcuts, s)
+					}
+				}
+
 				switch mwin.state {
 				case "empty":
 					return layout.Dimensions{}
@@ -844,7 +858,7 @@ func (mwin *MainWindow) Run() error {
 				case "loadingTrace":
 					return mwin.renderLoadingTraceScene(win, gtx)
 				case "main":
-					return mwin.renderMainScene(win, gtx)
+					return mwin.renderMainScene(win, gtx, unhandledShortcuts)
 				default:
 					return layout.Dimensions{}
 				}
@@ -939,11 +953,11 @@ func (mwin *MainWindow) renderLoadingTraceScene(win *theme.Window, gtx layout.Co
 	})
 }
 
-func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context) layout.Dimensions {
+func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context, shortcuts []theme.Shortcut) layout.Dimensions {
 	win.AddShortcut(theme.Shortcut{Name: "G"})
 	win.AddShortcut(theme.Shortcut{Name: "H"})
 
-	for _, s := range win.PressedShortcuts() {
+	for _, s := range shortcuts {
 		switch s {
 		case theme.Shortcut{Name: "G"}:
 			pl := &theme.CommandPalette{Prompt: "Scroll to timeline"}
