@@ -12,10 +12,10 @@ import (
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	myunsafe "honnef.co/go/gotraceui/unsafe"
 	"honnef.co/go/gotraceui/widget"
 
 	"gioui.org/font"
@@ -519,12 +519,81 @@ type stackSpanMeta struct {
 	num int
 }
 
-func ensureAtLeastLen[S ~[]E, E any](s S, n int) S {
-	if len(s) >= n {
-		return s
-	} else {
-		return append(s, make([]E, n-len(s))...)
+type samplesAndSpansIterator struct {
+	trace      *Trace
+	g          *ptrace.Goroutine
+	cpuSamples []ptrace.EventID
+	offSpans   int
+	offSamples int
+}
+
+func (it *samplesAndSpansIterator) next(advance bool) (evID ptrace.EventID, isSample bool, ok bool) {
+	for {
+		if it.offSpans == len(it.g.Spans) && it.offSamples == len(it.cpuSamples) {
+			return 0, false, false
+		}
+
+		evID = 0
+		isSample = false
+		ok = false
+
+		if it.offSpans < len(it.g.Spans) {
+			id := it.g.Spans[it.offSpans].Event
+			if it.offSamples < len(it.cpuSamples) {
+				oid := it.cpuSamples[it.offSamples]
+				if id <= oid {
+					if advance {
+						it.offSpans++
+					}
+					evID, isSample, ok = id, false, true
+				} else {
+					if advance {
+						it.offSamples++
+					}
+					evID, isSample, ok = oid, true, true
+				}
+			} else {
+				if advance {
+					it.offSpans++
+				}
+				evID, isSample, ok = id, false, true
+			}
+		} else {
+			id := it.cpuSamples[it.offSamples]
+			if advance {
+				it.offSamples++
+			}
+			evID, isSample, ok = id, true, true
+		}
+
+		if !ok || isSample || !advance {
+			return
+		}
+
+		ev := &it.trace.Events[evID]
+		switch ev.Type {
+		case trace.EvGoUnblock:
+			// The stack is in the goroutine that unblocked this one
+			continue
+		case trace.EvGoStart:
+			// This event doesn't have a stack; display an artificial stack representing time spent on-CPU
+			continue
+		default:
+			return
+		}
 	}
+}
+
+func trimSampleRuntimeFrames(stk []uint64, tr *Trace) []uint64 {
+	// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
+	// collected by the runtime tracer.
+	if len(stk) > 0 && tr.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
+		stk = stk[:len(stk)-1]
+	}
+	if len(stk) > 0 && tr.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
+		stk = stk[:len(stk)-1]
+	}
+	return stk
 }
 
 func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
@@ -534,82 +603,20 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		return
 	}
 
-	offSpans := 0
-	offSamples := 0
-	cpuSamples := tr.CPUSamples[g.ID]
-
-	nextEvent := func(advance bool) (ptrace.EventID, bool, bool) {
-		if offSpans == len(g.Spans) && offSamples == len(cpuSamples) {
-			return 0, false, false
-		}
-
-		if offSpans < len(g.Spans) {
-			id := g.Spans[offSpans].Event
-			if offSamples < len(cpuSamples) {
-				oid := cpuSamples[offSamples]
-				if id <= oid {
-					if advance {
-						offSpans++
-					}
-					return id, false, true
-				} else {
-					if advance {
-						offSamples++
-					}
-					return oid, true, true
-				}
-			} else {
-				if advance {
-					offSpans++
-				}
-				return id, false, true
-			}
-		} else {
-			id := cpuSamples[offSamples]
-			if advance {
-				offSamples++
-			}
-			return id, true, true
-		}
+	var timeRanges []struct {
+		start, end uint64
 	}
-
-	type track struct {
-		startsEnds  []uint64
-		eventIDs    []uint64
-		pcs         []uint64
-		nums        []uint64
-		isCPUSample []bool
-		prevFn      string
+	it := &samplesAndSpansIterator{
+		trace:      tr,
+		g:          g,
+		cpuSamples: tr.CPUSamples[g.ID],
 	}
-	var tracks []track
-	for {
-		evID, isSample, ok := nextEvent(true)
-		if !ok {
-			break
-		}
-
+	processEvent := func(evID ptrace.EventID, isSample bool) {
 		ev := &tr.Events[evID]
 		stk := tr.Stacks[ev.StkID]
-		switch ev.Type {
-		case trace.EvGoUnblock:
-			// The stack is in the goroutine that unblocked this one
-			continue
-		case trace.EvGoStart:
-			// This event doesn't have a stack; display an artificial stack representing time spent on-CPU
-			continue
-		}
 
-		state := ptrace.StateStack
 		if isSample {
-			state = ptrace.StateCPUSample
-			// CPU samples include two runtime functions at the start of the stack trace that isn't present for stacks
-			// collected by the runtime tracer.
-			if len(stk) > 0 && tr.PCs[stk[len(stk)-1]].Fn == "runtime.goexit" {
-				stk = stk[:len(stk)-1]
-			}
-			if len(stk) > 0 && tr.PCs[stk[len(stk)-1]].Fn == "runtime.main" {
-				stk = stk[:len(stk)-1]
-			}
+			stk = trimSampleRuntimeFrames(stk, tr)
 		}
 
 		if len(stk) > 64 {
@@ -620,119 +627,163 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 			stk = stk[:64]
 		}
 
-		tracks = ensureAtLeastLen(tracks, len(stk))
+		timeRanges = mem.EnsureLen(timeRanges, len(stk))
+
 		var end trace.Timestamp
-		if endEvID, _, ok := nextEvent(false); ok {
+		if endEvID, _, ok := it.next(false); ok {
+			end = tr.Events[endEvID].Ts
+		} else {
+			end = g.Spans[len(g.Spans)-1].End
+		}
+		for i := range stk {
+			if uint64(end) > timeRanges[i].end {
+				timeRanges[i].end = uint64(end)
+			}
+			if math.MaxUint64-uint64(ev.Ts) > timeRanges[i].start {
+				timeRanges[i].start = math.MaxUint64 - uint64(ev.Ts)
+			}
+		}
+	}
+	for {
+		evID, isSample, ok := it.next(true)
+		if !ok {
+			break
+		}
+		processEvent(evID, isSample)
+	}
+
+	for i, tsr := range timeRanges {
+		track := &Track{
+			parent:     tl,
+			kind:       TrackKindStack,
+			Start:      trace.Timestamp(math.MaxUint64 - tsr.start),
+			End:        trace.Timestamp(tsr.end),
+			stackLevel: i,
+			spanLabel:  stackSpanLabel,
+			// OPT(dh): this allocates a closure for every stack track. it's not even stored in TrackWidget.
+			spanTooltip: stackSpanTooltip(i + 1),
+			spanColor: func(span *ptrace.Span, tr *Trace) colorIndex {
+				if state := span.State; state == statePlaceholder {
+					return colorStatePlaceholderStackSpan
+				} else {
+					return stateColors[state]
+				}
+			},
+			compute: func(track *Track, cancelled <-chan struct{}) Items[ptrace.Span] {
+				return computeStackTrack(track, cancelled)
+			},
+		}
+		tl.tracks = append(tl.tracks, track)
+	}
+}
+
+func computeStackTrack(track *Track, cancelled <-chan struct{}) Items[ptrace.Span] {
+	defer rtrace.StartRegion(context.Background(), "main.computeStackTrack").End()
+
+	tr := track.parent.cv.trace
+	g := track.parent.item.(*ptrace.Goroutine)
+
+	it := &samplesAndSpansIterator{
+		trace:      tr,
+		g:          g,
+		cpuSamples: tr.CPUSamples[g.ID],
+	}
+
+	spans := spanSlicePool.Get()[:0]
+	metas := stackSpanMetaSlicePool.Get()[:0]
+
+	var prevFn string
+	i := 0
+	for {
+		if i%20000 == 0 && TryRecv(cancelled) {
+			return nil
+		}
+		evID, isSample, ok := it.next(true)
+		if !ok {
+			break
+		}
+
+		ev := &tr.Events[evID]
+		stk := tr.Stacks[ev.StkID]
+		state := ptrace.StateStack
+		if isSample {
+			state = ptrace.StateCPUSample
+			stk = trimSampleRuntimeFrames(stk, tr)
+		}
+
+		if len(stk) > 64 {
+			// Stacks of events have at most 128 frames (actually 126-127 due to a quirk in the runtime's
+			// implementation; it captures 128 frames, but then discards the top frame to skip runtime.goexit, and
+			// discards the next top frame if gid == 1 to skip runtime.main). Stacks of CPU samples, on the other hand,
+			// have at most 64 frames. Always limit ourselves to 64 frames for a consistent result.
+			stk = stk[:64]
+		}
+
+		var end trace.Timestamp
+		if endEvID, _, ok := it.next(false); ok {
 			end = tr.Events[endEvID].Ts
 		} else {
 			end = g.Spans[len(g.Spans)-1].End
 		}
 
-		for i := 0; i < len(stk); i++ {
-			track := &tracks[i]
-			if track.eventIDs == nil {
-				// We tried encoding values incrementally, but this had worse memory usage because of slice
-				// growth in append.
-				n := len(g.Spans) + len(cpuSamples)
-				track.startsEnds = uint64SliceCache.Get(2 * n)
-				track.eventIDs = uint64SliceCache.Get(n)
-				track.isCPUSample = boolSliceCache.Get(n)
-				track.pcs = uint64SliceCache.Get(n)
-				track.nums = uint64SliceCache.Get(n)
-			}
-			if len(track.startsEnds) != 0 {
-				// This isn't the first span. Check if we should merge this stack into the previous span.
-				prevFn := track.prevFn
-				prevEnd := trace.Timestamp(last(track.startsEnds))
-				var prevState ptrace.SchedulingState
-				if last(track.isCPUSample) {
-					prevState = ptrace.StateCPUSample
-				} else {
-					prevState = ptrace.StateStack
-				}
-				fn := tr.PCs[stk[len(stk)-i-1]].Fn
-				if prevEnd == tr.Events[evID].Ts && prevFn == fn && state == prevState {
-					// This is a continuation of the previous span. Merging these can have massive memory usage savings,
-					// which is why we do it here and not during display.
-					//
-					// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
-					// data more apparent.
-					*lastPtr(track.startsEnds) = uint64(end)
-					if state == ptrace.StateCPUSample {
-						*lastPtr(track.nums)++
-					}
-				} else {
-					// This is a new span
-					track.startsEnds = append(track.startsEnds, uint64(ev.Ts), uint64(end))
-					track.eventIDs = append(track.eventIDs, uint64(evID))
-					track.isCPUSample = append(track.isCPUSample, state == ptrace.StateCPUSample)
-					track.pcs = append(track.pcs, stk[len(stk)-i-1])
-					track.nums = append(track.nums, 1)
-					track.prevFn = fn
+		if track.stackLevel >= len(stk) {
+			continue
+		}
+		pc := stk[len(stk)-1-track.stackLevel]
+
+		if len(spans) != 0 {
+			// This isn't the first span. Check if we should merge this stack into the previous span.
+			prevEnd := trace.Timestamp(last(spans).End)
+			prevState := last(spans).State
+			fn := tr.PCs[pc].Fn
+			if prevEnd == tr.Events[evID].Ts && prevFn == fn && state == prevState {
+				// This is a continuation of the previous span. Merging these can have massive memory usage savings,
+				// which is why we do it here and not during display.
+				//
+				// TODO(dh): make this optional. Merging makes traces easier to read, but not merging makes the resolution of the
+				// data more apparent.
+				lastPtr(spans).End = end
+				if state == ptrace.StateCPUSample {
+					lastPtr(metas).num++
 				}
 			} else {
-				// This is the first span
-				track.startsEnds = append(track.startsEnds, uint64(ev.Ts), uint64(end))
-				track.eventIDs = append(track.eventIDs, uint64(evID))
-				track.isCPUSample = append(track.isCPUSample, state == ptrace.StateCPUSample)
-				track.pcs = append(track.pcs, stk[len(stk)-i-1])
-				track.nums = append(track.nums, 1)
-				track.prevFn = tr.PCs[stk[len(stk)-i-1]].Fn
+				// This is a new span
+				spans = append(spans, ptrace.Span{
+					Start: ev.Ts,
+					End:   end,
+					Event: evID,
+					State: state,
+				})
+				metas = append(metas, stackSpanMeta{
+					pc:  pc,
+					num: 1,
+				})
+				prevFn = tr.PCs[pc].Fn
 			}
+		} else {
+			// This is the first span
+			spans = append(spans, ptrace.Span{
+				Start: ev.Ts,
+				End:   end,
+				Event: evID,
+				State: state,
+			})
+			metas = append(metas, stackSpanMeta{
+				pc:  pc,
+				num: 1,
+			})
+			prevFn = tr.PCs[pc].Fn
 		}
 	}
 
-	bitpack := func(bs []bool) []uint64 {
-		out := make([]uint64, (len(bs)+63)/64)
-		for i, b := range bs {
-			out[i/64] |= uint64(myunsafe.Cast[byte](b)) << (i % 64)
-		}
-		return out
+	return SimpleItems[ptrace.Span, stackSpanMeta]{
+		items: spans,
+		container: ItemContainer{
+			Timeline: track.parent,
+			Track:    track,
+		},
+		metas: metas,
 	}
-
-	dup := func(in []uint64) []uint64 {
-		out := make([]uint64, len(in))
-		copy(out, in)
-		uint64SliceCache.Put(in)
-		return out
-	}
-	stackTracks := make([]*Track, len(tracks))
-	for i, track := range tracks {
-		tr := NewTrack(tl, TrackKindStack)
-		tr.Start = trace.Timestamp(track.startsEnds[0])
-		tr.End = trace.Timestamp(track.startsEnds[len(track.startsEnds)-1])
-
-		deltaZigZagEncode(track.startsEnds)
-		deltaZigZagEncode(track.eventIDs)
-		deltaZigZagEncode(track.pcs)
-		deltaZigZagEncode(track.nums)
-
-		tr.compressedSpans = compressedStackSpans{
-			count: len(track.eventIDs),
-			// We can encode in place because n >= 1 values are consumed to produce one value of output.
-			// This lets us avoid runtime.growslice. Instead, we copy the slice once when we're done.
-			startsEnds:  dup(Encode(track.startsEnds, track.startsEnds[:0])),
-			eventIDs:    dup(Encode(track.eventIDs, track.eventIDs[:0])),
-			pcs:         dup(Encode(track.pcs, track.pcs[:0])),
-			nums:        dup(Encode(track.nums, track.nums[:0])),
-			isCPUSample: bitpack(track.isCPUSample),
-		}
-		// TODO(dh): should we highlight hovered spans that share the same function?
-		tr.spanLabel = stackSpanLabel
-		// OPT(dh): this allocates a closure for every stack track. it's not even stored in TrackWidget.
-		tr.spanTooltip = stackSpanTooltip(i + 1)
-		tr.spanColor = func(span *ptrace.Span, tr *Trace) colorIndex {
-			if state := span.State; state == statePlaceholder {
-				return colorStatePlaceholderStackSpan
-			} else {
-				return stateColors[state]
-			}
-		}
-		boolSliceCache.Put(track.isCPUSample)
-		stackTracks[i] = tr
-	}
-
-	tl.tracks = append(tl.tracks, stackTracks...)
 }
 
 func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.Goroutine, allTimelines []*Timeline) *SpansInfo {

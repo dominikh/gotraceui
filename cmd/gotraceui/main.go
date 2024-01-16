@@ -53,10 +53,8 @@ import (
 )
 
 var (
-	uint64SliceCache        = mem.NewConcurrentSliceCache[uint64, []uint64]()
-	boolSliceCache          = mem.NewConcurrentSliceCache[bool, []bool]()
-	spanSliceCache          = mem.NewConcurrentSliceCache[ptrace.Span, []ptrace.Span]()
-	stackSpanMetaSliceCache = mem.NewConcurrentSliceCache[stackSpanMeta, []stackSpanMeta]()
+	spanSlicePool          = mysync.NewPool(func() []ptrace.Span { return nil })
+	stackSpanMetaSlicePool = mysync.NewPool(func() []stackSpanMeta { return nil })
 )
 
 func debugCaching(win *theme.Window, gtx layout.Context) {

@@ -9,7 +9,6 @@ import (
 	rtrace "runtime/trace"
 	"sort"
 	"time"
-	"unsafe"
 
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/container"
@@ -97,9 +96,11 @@ type Track struct {
 	parent           *Timeline
 	kind             TrackKind
 	spans            *theme.Future[Items[ptrace.Span]]
-	compressedSpans  compressedStackSpans
+	compute          func(track *Track, cancelled <-chan struct{}) Items[ptrace.Span]
 	events           []ptrace.EventID
 	hideEventMarkers bool
+
+	stackLevel int
 
 	Start trace.Timestamp
 	End   trace.Timestamp
@@ -149,126 +150,9 @@ func (tr *Track) Spans(win *theme.Window) *theme.Future[Items[ptrace.Span]] {
 	if tr.spans != nil {
 		return tr.spans
 	}
-	if tr.compressedSpans.count == 0 {
-		tr.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
-			container: ItemContainer{
-				Timeline: tr.parent,
-				Track:    tr,
-			},
-			contiguous: true,
-			subslice:   true,
-		})
-		return tr.spans
-	}
-
 	tr.spans = theme.NewFuture(win, func(cancelled <-chan struct{}) Items[ptrace.Span] {
-		bitunpackByte := func(bits uint8, dst *uint64) {
-			x64 := uint64(bits)
-			x_hi := x64 & 0xFE
-			r_hi := x_hi * 0b10000001000000100000010000001000000100000010000000
-			r := r_hi | x64
-			*dst = r & 0x0101010101010101
-		}
-		bitunpack := func(bits []uint64) []bool {
-			if len(bits) == 0 {
-				return nil
-			}
-
-			bytes := myunsafe.SliceCast[[]byte](bits)
-			out := boolSliceCache.Get(len(bytes) * 8)[:len(bytes)*8]
-			for i, v := range bytes {
-				bitunpackByte(v, myunsafe.Cast[*uint64](&out[i*8]))
-			}
-			return out
-		}
-
-		n := tr.compressedSpans.count
-		if n == 0 || n*2 == 0 {
-			// This is unreachable and only aids the bounds checker, eliminating bounds checks in calls to DecodeUnsafe for
-			// the second argument.
-			return nil
-		}
-
-		c := &tr.compressedSpans
-
-		startsEnds := uint64SliceCache.Get(n * 2)[:n*2]
-		// eventIDs, pcs, and nums share the same slice length, which eliminates bounds checking when we loop over the
-		// indices of eventIDs and use them to index the other slices.
-		eventIDs := uint64SliceCache.Get(n)[:n]
-		pcs := uint64SliceCache.Get(n)[:n]
-		nums := uint64SliceCache.Get(n)[:n]
-
-		// OPT(dh): we could reduce memory usage by decoding one property at a time and populating span fields one at a
-		// time. It would, however, increase CPU usage.
-		//
-		// OPT(dh): we could also decode one word at a time, interleaving decoding and constructing spans. This would,
-		// however, increase CPU usage to 1.3x.
-		DecodeUnsafe(c.startsEnds, &startsEnds[0])
-		DecodeUnsafe(c.eventIDs, &eventIDs[0])
-		DecodeUnsafe(c.pcs, &pcs[0])
-		DecodeUnsafe(c.nums, &nums[0])
-
-		deltaZigZagDecode(startsEnds)
-		deltaZigZagDecode(eventIDs)
-		deltaZigZagDecode(pcs)
-		deltaZigZagDecode(nums)
-		// We slice isCPUSample to [:n] to eliminate bounds checking.
-		isCPUSample := bitunpack(c.isCPUSample)[:n]
-
-		// spans and metas share the slice length of eventIDs, eliminating bounds checking.
-		spans := spanSliceCache.Get(len(eventIDs))[:n]
-		metas := stackSpanMetaSliceCache.Get(len(eventIDs))[:n]
-
-		// startsEndsPairwise and eventIDs have the same length, eliminating bounds checking.
-		startsEndsPairwise := unsafe.Slice(myunsafe.Cast[*[2]uint64](&startsEnds[0]), n)[:n]
-		for i := range eventIDs {
-			// OPT(dh): mind the bound checks
-			state := ptrace.StateStack
-			if isCPUSample[i] {
-				state = ptrace.StateCPUSample
-			}
-			span := ptrace.Span{
-				Start: trace.Timestamp(startsEndsPairwise[i][0]),
-				End:   trace.Timestamp(startsEndsPairwise[i][1]),
-				Event: ptrace.EventID(eventIDs[i]),
-				State: state,
-			}
-			meta := stackSpanMeta{
-				pc:  pcs[i],
-				num: int(nums[i]),
-			}
-			spans[i] = span
-			metas[i] = meta
-		}
-
-		uint64SliceCache.Put(startsEnds)
-		uint64SliceCache.Put(eventIDs)
-		uint64SliceCache.Put(pcs)
-		uint64SliceCache.Put(nums)
-
-		out := SimpleItems[ptrace.Span, stackSpanMeta]{
-			items: spans,
-			metas: metas,
-			container: ItemContainer{
-				Timeline: tr.parent,
-				Track:    tr,
-			},
-			subslice: true,
-		}
-
-		boolSliceCache.Put(isCPUSample)
-
-		select {
-		case <-cancelled:
-			// The future has already been cancelled. Return slices to caches.
-			spanSliceCache.Put(spans)
-			stackSpanMetaSliceCache.Put(metas)
-			return nil
-		default:
-			return out
-		}
+		return tr.compute(tr, cancelled)
 	})
-
 	return tr.spans
 }
 
@@ -401,13 +285,13 @@ func (tl *Timeline) notifyHidden(cv *Canvas) {
 		cv.trackWidgetsCache.Put(track.widget)
 		track.widget = nil
 		// TODO(dh): this code is ugly and punches through abstractions.
-		if track.compressedSpans.count != 0 {
+		if track.compute != nil {
 			if track.spans != nil {
 				if spans, ok := track.spans.ResultNoWait(); ok {
 					// XXX instead of special-casing SimpleItems and stackSpanMeta here, specify some interface
 					if spans, ok := spans.(SimpleItems[ptrace.Span, stackSpanMeta]); ok {
-						stackSpanMetaSliceCache.Put(spans.metas)
-						spanSliceCache.Put(spans.items)
+						stackSpanMetaSlicePool.Put(spans.metas[:0])
+						spanSlicePool.Put(spans.items[:0])
 					}
 				}
 			}

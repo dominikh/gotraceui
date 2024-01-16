@@ -207,3 +207,10 @@ func (c *AllocationCache[T]) Get() *T {
 func GrowLen[S ~[]E, E any](s S, n int) S {
 	return append(s, make([]E, n)...)
 }
+
+func EnsureLen[S ~[]E, E any](s S, n int) S {
+	if len(s) >= n {
+		return s
+	}
+	return GrowLen(s, n-len(s))
+}

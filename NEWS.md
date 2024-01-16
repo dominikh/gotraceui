@@ -8,6 +8,8 @@
 - Display time spans in addition to (or in place of) durations
 - Display durations of flame graph spans in proportion to their parents, zoomed-on roots, and global roots.
 - Fix the display of call stack depth in the tooltips of stack spans
+- Reduce memory required to load traces by 20-30%
+- Reduce time required to load traces by 10-30%
 
 # v0.4.0 (2024-01-09)
 
