@@ -48,4 +48,3 @@ The compiled binary includes code from dependencies. These dependencies and thei
 ## Known issues
 
 - [runtime/trace: time stamps out of order](https://github.com/golang/go/issues/16755)
-- Timelines with millions of events can be a bit slow to render
