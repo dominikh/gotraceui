@@ -124,7 +124,7 @@ type Canvas struct {
 
 	animate theme.Animation[canvasAnimation]
 
-	locationHistory []LocationHistoryEntry
+	locationHistory locationHistory
 	// All timelines. Index 0 and 1 are the GC and STW timelines, followed by processors and goroutines.
 	timelines      []*Timeline
 	itemToTimeline map[any]*Timeline
@@ -219,6 +219,9 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 			rgbas:         mysync.NewMutex(&container.RBTree[comparableTimeDuration, *texture]{AllowDuplicates: true}),
 			realizedRGBAs: mysync.NewMutex(container.Set[*texture]{}),
 		},
+		locationHistory: locationHistory{
+			cursor: -1,
+		},
 	}
 	cv.timeline.displayAllLabels = true
 
@@ -250,22 +253,52 @@ func (cv *Canvas) computeTimelinePositions(gtx layout.Context) {
 	}
 }
 
+// locationHistory is a stack of locations. Popping decrements a cursor, which can be undone until a new
+// element gets pushed. The element under the cursor is the current location.
+type locationHistory struct {
+	items  []LocationHistoryEntry
+	cursor int
+}
+
+func (h *locationHistory) undo() (LocationHistoryEntry, bool) {
+	if h.cursor > 0 {
+		h.cursor--
+		return h.items[h.cursor], true
+	}
+	return LocationHistoryEntry{}, false
+}
+
+func (h *locationHistory) redo() (LocationHistoryEntry, bool) {
+	if h.cursor < len(h.items)-1 {
+		h.cursor++
+		return h.items[h.cursor], true
+	}
+	return LocationHistoryEntry{}, false
+}
+
+func (h *locationHistory) push(loc LocationHistoryEntry) {
+	h.items = h.items[:h.cursor+1]
+
+	if len(h.items) > 0 && h.items[h.cursor] == loc {
+		// don't record duplicate locations
+		return
+	}
+	if len(h.items) == maxLocationHistoryEntries {
+		copy(h.items, h.items[1:])
+		h.items[len(h.items)-1] = loc
+	} else {
+		h.items = append(h.items, loc)
+		h.cursor++
+	}
+}
+
 func (cv *Canvas) rememberLocation() {
 	e := LocationHistoryEntry{
 		start:   cv.start,
 		nsPerPx: cv.nsPerPx,
 		y:       cv.y,
 	}
-	if o, ok := cv.peekLocationHistory(); ok && o == e {
-		// don't record duplicate locations
-		return
-	}
-	if len(cv.locationHistory) == maxLocationHistoryEntries {
-		copy(cv.locationHistory, cv.locationHistory[1:])
-		cv.locationHistory[len(cv.locationHistory)-1] = e
-	} else {
-		cv.locationHistory = append(cv.locationHistory, e)
-	}
+	cv.locationHistory.push(e)
 }
 
 func (cv *Canvas) navigateToChecks(start trace.Timestamp, nsPerPx float64, y normalizedY) bool {
@@ -285,15 +318,19 @@ func (cv *Canvas) cancelNavigation() {
 	cv.animate.Cancel()
 }
 
-// navigateTo modifes the canvas's start, end and y values, recording the previous location in the undo stack.
+// navigateTo modifes the canvas's start, end and y values, recording the new location in the undo stack.
 // navigateTo rejects invalid operations, like setting start = end.
 func (cv *Canvas) navigateTo(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
 	if !cv.navigateToChecks(start, nsPerPx, y) {
 		return
 	}
 
-	cv.rememberLocation()
 	cv.navigateToImpl(gtx, start, nsPerPx, y)
+	cv.locationHistory.push(LocationHistoryEntry{
+		start:   start,
+		nsPerPx: nsPerPx,
+		y:       y,
+	})
 }
 
 func (cv *Canvas) navigateToStartAndEnd(gtx layout.Context, start, end trace.Timestamp, y normalizedY) {
@@ -311,25 +348,6 @@ func (cv *Canvas) navigateToNoHistory(gtx layout.Context, start trace.Timestamp,
 
 func (cv *Canvas) navigateToImpl(gtx layout.Context, start trace.Timestamp, nsPerPx float64, y normalizedY) {
 	cv.animate.Start(gtx, canvasAnimation{cv.start, cv.nsPerPx, cv.y}, canvasAnimation{start, nsPerPx, y}, animateLength, nil)
-}
-
-func (cv *Canvas) peekLocationHistory() (LocationHistoryEntry, bool) {
-	if len(cv.locationHistory) == 0 {
-		return LocationHistoryEntry{}, false
-	}
-	return cv.locationHistory[len(cv.locationHistory)-1], true
-}
-
-func (cv *Canvas) popLocationHistory() (LocationHistoryEntry, bool) {
-	// XXX support redo
-
-	if len(cv.locationHistory) == 0 {
-		return LocationHistoryEntry{}, false
-	}
-	n := len(cv.locationHistory) - 1
-	e := cv.locationHistory[n]
-	cv.locationHistory = cv.locationHistory[:n]
-	return e, true
 }
 
 func (cv *Canvas) unchanged(gtx layout.Context) bool {
@@ -383,7 +401,6 @@ func (cv *Canvas) endZoomSelection(win *theme.Window, gtx layout.Context, pos f3
 
 func (cv *Canvas) startDrag(pos f32.Point) {
 	cv.cancelNavigation()
-	cv.rememberLocation()
 
 	cv.drag.clickAt = pos
 	cv.drag.active = true
@@ -393,6 +410,7 @@ func (cv *Canvas) startDrag(pos f32.Point) {
 
 func (cv *Canvas) endDrag() {
 	cv.drag.active = false
+	cv.rememberLocation()
 }
 
 func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
@@ -577,7 +595,13 @@ func (cv *Canvas) ToggleStackTracks() {
 }
 
 func (cv *Canvas) UndoNavigation(gtx layout.Context) {
-	if e, ok := cv.popLocationHistory(); ok {
+	if e, ok := cv.locationHistory.undo(); ok {
+		cv.navigateToNoHistory(gtx, e.start, e.nsPerPx, e.y)
+	}
+}
+
+func (cv *Canvas) RedoNavigation(gtx layout.Context) {
+	if e, ok := cv.locationHistory.redo(); ok {
 		cv.navigateToNoHistory(gtx, e.start, e.nsPerPx, e.y)
 	}
 }
@@ -631,6 +655,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		end := cv.trace.End()
 		slack := float64(end) * 0.05
 		cv.nsPerPx = (float64(end) + 2*slack) / float64(cv.width)
+		cv.rememberLocation()
 	}
 
 	cv.timeline.hover.Update(gtx.Queue)
@@ -670,6 +695,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 	win.AddShortcut(theme.Shortcut{Name: key.NameHome, Modifiers: key.ModShift})
 	win.AddShortcut(theme.Shortcut{Name: "S"})
 	win.AddShortcut(theme.Shortcut{Name: "Z", Modifiers: key.ModShortcut})
+	win.AddShortcut(theme.Shortcut{Name: "Y", Modifiers: key.ModShortcut})
 	win.AddShortcut(theme.Shortcut{Name: "X"})
 	win.AddShortcut(theme.Shortcut{Name: "C"})
 	win.AddShortcut(theme.Shortcut{Name: "T"})
@@ -704,6 +730,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		case theme.Shortcut{Name: "Z", Modifiers: key.ModShortcut}:
 			cv.UndoNavigation(gtx)
+
+		case theme.Shortcut{Name: "Y", Modifiers: key.ModShortcut}:
+			cv.RedoNavigation(gtx)
 
 		case theme.Shortcut{Name: "X"}:
 			cv.ToggleTimelineLabels()

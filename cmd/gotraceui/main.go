@@ -479,6 +479,7 @@ type MainMenu struct {
 
 	Display struct {
 		UndoNavigation       theme.MenuItem
+		RedoNavigation       theme.MenuItem
 		ScrollToTop          theme.MenuItem
 		ZoomToFit            theme.MenuItem
 		JumpToBeginning      theme.MenuItem
@@ -511,6 +512,7 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 
 	notMainDisabled := func() bool { return mwin.state != "main" }
 	m.Display.UndoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Z", Label: PlainLabel("Undo previous navigation"), Disabled: notMainDisabled}
+	m.Display.RedoNavigation = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Y", Label: PlainLabel("Redo navigation"), Disabled: notMainDisabled}
 	m.Display.ScrollToTop = theme.MenuItem{Shortcut: "Home", Label: PlainLabel("Scroll to top of canvas"), Disabled: notMainDisabled}
 	m.Display.ZoomToFit = theme.MenuItem{Shortcut: key.ModShortcut.String() + "+Home", Label: PlainLabel("Zoom to fit visible timelines"), Disabled: notMainDisabled}
 	m.Display.JumpToBeginning = theme.MenuItem{Shortcut: "Shift+Home", Label: PlainLabel("Jump to beginning of timeline"), Disabled: notMainDisabled}
@@ -547,6 +549,7 @@ func NewMainMenu(mwin *MainWindow, win *theme.Window) *MainMenu {
 				Items: []theme.Widget{
 					// TODO(dh): disable Undo menu item when there are no more undo steps
 					theme.NewMenuItemStyle(win.Theme, &m.Display.UndoNavigation).Layout,
+					theme.NewMenuItemStyle(win.Theme, &m.Display.RedoNavigation).Layout,
 
 					theme.MenuDivider(win.Theme).Layout,
 
@@ -668,6 +671,10 @@ func (mwin *MainWindow) Run() error {
 				if mwin.mainMenu.Display.UndoNavigation.Clicked(gtx) {
 					win.Menu.Close()
 					mwin.canvas.UndoNavigation(gtx)
+				}
+				if mwin.mainMenu.Display.RedoNavigation.Clicked(gtx) {
+					win.Menu.Close()
+					mwin.canvas.RedoNavigation(gtx)
 				}
 				if mwin.mainMenu.Display.ScrollToTop.Clicked(gtx) {
 					win.Menu.Close()

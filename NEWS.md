@@ -10,6 +10,7 @@
 - Fix the display of call stack depth in the tooltips of stack spans
 - Reduce memory required to load traces by 20-30%
 - Reduce time required to load traces by 10-30%
+- Implement redo for navigations
 
 # v0.4.0 (2024-01-09)
 
