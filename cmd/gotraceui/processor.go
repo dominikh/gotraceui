@@ -143,7 +143,6 @@ func NewProcessorTimeline(tr *Trace, cv *Canvas, p *ptrace.Processor) *Timeline 
 	}
 	tl.tracks[0].Start = p.Spans[0].Start
 	tl.tracks[0].End = p.Spans[len(p.Spans)-1].End
-	tl.tracks[0].Len = len(p.Spans)
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.tracks[0].spanLabel = processorTrackSpanLabel
 	tl.tracks[0].spanColor = processorTrackSpanColor

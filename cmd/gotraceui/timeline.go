@@ -103,7 +103,6 @@ type Track struct {
 
 	Start trace.Timestamp
 	End   trace.Timestamp
-	Len   int
 
 	spanLabel       func(spans Items[ptrace.Span], tr *Trace, out []string) []string
 	spanColor       func(span *ptrace.Span, tr *Trace) colorIndex
@@ -998,42 +997,37 @@ func (track *Track) layoutMain(
 			deadFromPx    = visWidthPx
 			unbornUntilPx float32
 		)
-		if track.Len == 0 {
-			// A track with no spans is similar to a track that's always dead
-			deadFromPx = 0
+		if len(track.widget.prevFrame.dspSpans) > 0 {
+			// If the first displayed span is also the first overall span, display an indicator that the
+			// goroutine/processor hasn't been created yet.
+			dspFirst := track.widget.prevFrame.dspSpans[0]
+			// OPT(dh): can we use pointer identity here?
+			if *dspFirst.dspSpans.AtPtr(0) == *spans.AtPtr(0) {
+				end := dspFirst.startPx
+				unbornUntilPx = end
+			}
+
+			// If the last displayed span is also the last overall span, display an indicator that the
+			// goroutine/processor is dead.
+			dspLast := track.widget.prevFrame.dspSpans[len(track.widget.prevFrame.dspSpans)-1]
+			// OPT(dh): can we use pointer identity here?
+			if *LastItemPtr(dspLast.dspSpans) == *LastItemPtr(spans) {
+				start := dspLast.endPx
+				deadFromPx = start
+			}
+
 		} else {
-			if len(track.widget.prevFrame.dspSpans) > 0 {
-				// If the first displayed span is also the first overall span, display an indicator that the
-				// goroutine/processor hasn't been created yet.
-				dspFirst := track.widget.prevFrame.dspSpans[0]
-				// OPT(dh): can we use pointer identity here?
-				if *dspFirst.dspSpans.AtPtr(0) == *spans.AtPtr(0) {
-					end := dspFirst.startPx
-					unbornUntilPx = end
-				}
+			// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
+			// between spans (for processor tracks).
+			born := track.Start
+			died := track.End
 
-				// If the last displayed span is also the last overall span, display an indicator that the
-				// goroutine/processor is dead.
-				dspLast := track.widget.prevFrame.dspSpans[len(track.widget.prevFrame.dspSpans)-1]
-				// OPT(dh): can we use pointer identity here?
-				if *LastItemPtr(dspLast.dspSpans) == *LastItemPtr(spans) {
-					start := dspLast.endPx
-					deadFromPx = start
-				}
-
-			} else {
-				// We didn't draw any spans. We're either displaying a not-yet-alive section, a dead section, or a gap
-				// between spans (for processor tracks).
-				born := track.Start
-				died := track.End
-
-				if cv.start >= died {
-					// The goroutine is dead
-					deadFromPx = 0
-				} else if cv.End() < born {
-					// The goroutine hasn't been created yet
-					unbornUntilPx = visWidthPx
-				}
+			if cv.start >= died {
+				// The goroutine is dead
+				deadFromPx = 0
+			} else if cv.End() < born {
+				// The goroutine hasn't been created yet
+				unbornUntilPx = visWidthPx
 			}
 		}
 		mid := float32(mainTrackHeight) / 2
@@ -1439,7 +1433,6 @@ func NewGCTimeline(cv *Canvas, trace *Trace, spans []ptrace.Span) *Timeline {
 	if len(spans) > 0 {
 		tl.tracks[0].Start = spans[0].Start
 		tl.tracks[0].End = spans[len(spans)-1].End
-		tl.tracks[0].Len = len(spans)
 	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.tracks[0].spanLabel = singleSpanLabel("GC")
@@ -1471,7 +1464,6 @@ func NewSTWTimeline(cv *Canvas, tr *Trace, spans []ptrace.Span) *Timeline {
 	if len(spans) > 0 {
 		tl.tracks[0].Start = spans[0].Start
 		tl.tracks[0].End = spans[len(spans)-1].End
-		tl.tracks[0].Len = len(spans)
 	}
 	tl.tracks[0].spans = theme.Immediate[Items[ptrace.Span]](ss)
 	tl.tracks[0].spanLabel = func(spans Items[ptrace.Span], tr *Trace, out []string) []string {

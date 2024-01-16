@@ -214,7 +214,6 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	track := NewTrack(tl, TrackKindUnspecified)
 	track.Start = g.EffectiveStart()
 	track.End = g.EffectiveEnd()
-	track.Len = len(g.Spans)
 	track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
 		items: g.Spans,
 		container: ItemContainer{
@@ -235,7 +234,6 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 		track := NewTrack(tl, TrackKindUserRegions)
 		track.Start = ug[0].Start
 		track.End = ug[len(ug)-1].End
-		track.Len = len(ug)
 		track.events = tl.tracks[0].events
 		track.hideEventMarkers = true
 		track.spans = theme.Immediate[Items[ptrace.Span]](SimpleItems[ptrace.Span, any]{
@@ -703,7 +701,6 @@ func addStackTracks(tl *Timeline, g *ptrace.Goroutine, tr *Trace) {
 		tr := NewTrack(tl, TrackKindStack)
 		tr.Start = trace.Timestamp(track.startsEnds[0])
 		tr.End = trace.Timestamp(track.startsEnds[len(track.startsEnds)-1])
-		tr.Len = len(track.eventIDs)
 
 		deltaZigZagEncode(track.startsEnds)
 		deltaZigZagEncode(track.eventIDs)
