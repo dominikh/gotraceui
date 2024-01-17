@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	rtrace "runtime/trace"
-	"sort"
 
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/trace"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
 )
@@ -24,20 +22,6 @@ type Filter struct {
 
 	// Bitmap of ptrace.SchedulingState
 	States uint64
-
-	// Filters specific to processor timelines
-	Processor struct {
-		// Highlight processor spans for this goroutine
-		Goroutine uint64
-		// StartAfter and EndBefore are ANDed together, not ORed
-		StartAfter trace.Timestamp
-		EndBefore  trace.Timestamp
-	}
-
-	// Filters specific to machine timelines
-	Machine struct {
-		Processor int32
-	}
 }
 
 func (f Filter) HasState(state ptrace.SchedulingState) bool {
@@ -61,90 +45,6 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 				}
 			}
 			return false, false
-		},
-
-		func() (bool, bool) {
-			if f.Processor.StartAfter == 0 && f.Processor.EndBefore == 0 {
-				return false, true
-			}
-
-			if _, ok := container.Timeline.item.(*ptrace.Processor); !ok {
-				return false, false
-			}
-
-			var off int
-			spans := spans
-			if f.Processor.StartAfter != 0 {
-				off = sort.Search(spans.Len(), func(i int) bool {
-					return spans.AtPtr(i).Start >= f.Processor.StartAfter
-				})
-			}
-
-			if f.Processor.EndBefore == 0 {
-				return off < spans.Len(), false
-			}
-
-			for i := off; i < spans.Len(); i++ {
-				span := spans.AtPtr(i)
-				// OPT(dh): don't be O(n)
-
-				if span.Start > f.Processor.EndBefore {
-					return false, false
-				}
-
-				if f.Processor.Goroutine != 0 {
-					// We are interested in the intersection of spans that are for the correct goroutine and spans that
-					// fit into the time range. However, the individual filter steps only answer questions for the
-					// merged span as a whole, which means that finding some spans with the right goroutine and some
-					// spans with the time range would allow the merged span to match, even if the two sets of spans
-					// didn't intersect.
-					if container.Timeline.cv.trace.Event(span.Event).G != f.Processor.Goroutine {
-						continue
-					}
-				}
-
-				if span.End <= f.Processor.EndBefore {
-					return true, false
-				}
-			}
-
-			return false, false
-		},
-
-		func() (bool, bool) {
-			if f.Processor.Goroutine != 0 {
-				if _, ok := container.Timeline.item.(*ptrace.Processor); ok {
-					tr := container.Timeline.cv.trace
-					for i := 0; i < spans.Len(); i++ {
-						g := tr.G(tr.Event(spans.AtPtr(i).Event).G)
-						if g.ID == f.Processor.Goroutine {
-							return true, false
-						}
-					}
-				}
-
-				return false, false
-			} else {
-				return false, true
-			}
-		},
-
-		func() (bool, bool) {
-			if f.Machine.Processor != 0 {
-				if _, ok := container.Timeline.item.(*ptrace.Machine); ok {
-					tr := container.Timeline.cv.trace
-					for i := 0; i < spans.Len(); i++ {
-						p := tr.P(tr.Event(spans.AtPtr(i).Event).P)
-						if p.ID == f.Machine.Processor {
-							return true, false
-						}
-					}
-				}
-
-				return false, false
-			} else {
-				return false, true
-			}
 		},
 	}
 
