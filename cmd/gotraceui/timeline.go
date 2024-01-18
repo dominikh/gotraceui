@@ -124,7 +124,10 @@ func (tl *Timeline) ensureTrackWidgets() {
 	// timelines.
 	for i := range tl.tracks {
 		tl.tracks[i].widget = tl.cv.trackWidgetsCache.Get()
-		*tl.tracks[i].widget = TrackWidget{}
+		*tl.tracks[i].widget = TrackWidget{
+			eventsMt: MiniTrack[eventWithGetters, *eventWithGetters]{MiniTrackBehavior: mtrackEvents},
+			tinyMt:   MiniTrack[spanWithGetters, *spanWithGetters]{MiniTrackBehavior: mtrackTiny},
+		}
 	}
 	if tl.buildTrackWidgets != nil {
 		tl.buildTrackWidgets(tl.tracks)
@@ -197,18 +200,12 @@ type TrackWidget struct {
 	hover gesture.Hover
 	click gesture.Click
 
-	eventsHover gesture.Hover
-	eventsClick gesture.Click
-	tinyHover   gesture.Hover
-	tinyClick   gesture.Click
+	tinyMt   MiniTrack[spanWithGetters, *spanWithGetters]
+	eventsMt MiniTrack[eventWithGetters, *eventWithGetters]
 
 	scratchHighlighted   []clip.FRect
 	scratchTextureStacks []TextureStack
 	scratchTextures      []Texture
-
-	tinyOps         [colorStateLast]mem.ReusableOps
-	eventsOps       mem.ReusableOps
-	mergedEventsOps mem.ReusableOps
 
 	// cached state
 	prevFrame struct {
@@ -1040,30 +1037,177 @@ func (tsi *trackSpanInteractivity) Handle(win *theme.Window, gtx layout.Context,
 	return true
 }
 
-func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
+type MiniTrack[T any, PT interface {
+	TimeSpanner
+	*T
+}] struct {
+	hover        gesture.Hover
+	click        gesture.Click
+	ops          [colorLast]mem.ReusableOps
+	clickedItems Items[T]
+	*MiniTrackBehavior[T]
+}
+
+type MiniTrackBehavior[T any] struct {
+	skipIter          bool
+	onlyTinyAndMerged bool
+	tooltip           func(win *theme.Window, items Items[T], track *Track) theme.Widget
+	timeSpan          func(items Items[T]) TimeSpan
+	color             func(items Items[T], track *Track) colorIndex
+	contextMenu       func(items Items[T], track *Track) []*theme.MenuItem
+}
+
+var (
+	mtrackTiny = &MiniTrackBehavior[spanWithGetters]{
+		skipIter:          true,
+		onlyTinyAndMerged: true,
+		tooltip: func(win *theme.Window, items Items[spanWithGetters], track *Track) theme.Widget {
+			return func(win *theme.Window, gtx layout.Context) layout.Dimensions {
+				return track.spanTooltip(win, gtx, track.parent.cv.trace, myunsafe.Cast[Items[ptrace.Span]](items))
+			}
+		},
+		timeSpan: func(items Items[spanWithGetters]) TimeSpan {
+			return SpansTimeSpan(myunsafe.Cast[Items[ptrace.Span]](items))
+		},
+		color: func(items Items[spanWithGetters], track *Track) colorIndex {
+			if items.Len() > 1 {
+				return colorStateMerged
+			} else {
+				return track.SpanColor(&items.AtPtr(0).Span, track.parent.cv.trace)
+			}
+		},
+		contextMenu: func(items Items[spanWithGetters], track *Track) []*theme.MenuItem {
+			spans := myunsafe.Cast[Items[ptrace.Span]](items)
+			if track.spanContextMenu != nil {
+				return track.spanContextMenu(spans, track.parent.cv)
+			} else {
+				return []*theme.MenuItem{
+					newZoomMenuItem(track.parent.cv, spans),
+					newOpenSpansMenuItem(spans),
+				}
+			}
+		},
+	}
+
+	mtrackEvents = &MiniTrackBehavior[eventWithGetters]{
+		tooltip: func(win *theme.Window, events Items[eventWithGetters], track *Track) theme.Widget {
+			tr := track.parent.cv.trace
+
+			var label string
+			if events.Len() == 1 {
+				ev := events.At(0)
+				switch ev.Type {
+				case trace.EvGoSysCall:
+					stk := tr.Stacks[events.At(0).StkID]
+					if len(stk) != 0 {
+						frame := tr.PCs[stk[0]]
+						label = "Syscall: " + frame.Fn
+					} else {
+						label = "Syscall"
+					}
+				case trace.EvGoCreate:
+					g := tr.G(ev.Args[trace.ArgGoCreateG])
+					label = fmt.Sprintf("Created goroutine %s", GoroutineLabel(g))
+				case trace.EvGoUnblock:
+					g := tr.G(ev.Args[trace.ArgGoUnblockG])
+					label = fmt.Sprintf("Unblocked goroutine %s", GoroutineLabel(g))
+				case trace.EvUserLog:
+					ev := events.AtPtr(0)
+					cat := tr.Strings[ev.Args[trace.ArgUserLogKeyID]]
+					msg := tr.Strings[ev.Args[trace.ArgUserLogMessage]]
+					if cat != "" {
+						label = fmt.Sprintf("Log: <%s> %s", cat, msg)
+					} else {
+						label = "Log: " + msg
+					}
+				default:
+					label = "1 event"
+				}
+			} else {
+				kind := events.At(0).Type
+				for i := 1; i < events.Len(); i++ {
+					ev := events.At(i)
+					if ev.Type != kind {
+						kind = 255
+						break
+					}
+				}
+				var noun string
+				switch kind {
+				case trace.EvGoSysCall:
+					noun = "syscalls"
+				case trace.EvGoCreate:
+					noun = "goroutine creations"
+				case trace.EvGoUnblock:
+					noun = "goroutine unblocks"
+				case trace.EvUserLog:
+					noun = "log messages"
+				default:
+					noun = "events"
+				}
+				label = local.Sprintf("%d %s\n", events.Len(), noun)
+				label += fmt.Sprintf("Time span: %s\n", roundDuration(time.Duration(LastItemPtr(events).Ts-events.AtPtr(0).Ts)))
+			}
+
+			return theme.Tooltip(win.Theme, label).Layout
+		},
+		timeSpan: func(items Items[eventWithGetters]) TimeSpan {
+			return EventsRange(myunsafe.Cast[Items[trace.Event]](items))
+		},
+		color: func(items Items[eventWithGetters], _ *Track) colorIndex {
+			if items.Len() < 2 {
+				return colorEvent
+			} else {
+				return colorMergedEvents
+			}
+		},
+	}
+)
+
+func (mtrack *MiniTrack[T, PT]) Layout(
+	win *theme.Window,
+	gtx layout.Context,
+	track *Track,
+	cv *Canvas,
+	items func(yield func(el Items[T]) bool),
+) layout.Dimensions {
 	timelineMinitrackHeight := gtx.Dp(timelineMinitrackHeightDp)
 	minSpanWidth := gtx.Dp(minSpanWidthDp)
 
 	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight)}.Push(gtx.Ops).Pop()
+	mtrack.click.Add(gtx.Ops)
+	mtrack.hover.Add(gtx.Ops)
 
-	tsi := trackSpanInteractivity{
-		click: &track.widget.tinyClick,
-		hover: &track.widget.tinyHover,
-		track: track,
+	mtrack.clickedItems = NoItems[T]{}
+
+	var (
+		trackNavigated   bool
+		trackContextMenu bool
+		trackClicked     bool
+	)
+	for _, ev := range mtrack.click.Update(gtx.Queue) {
+		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
+			switch ev.Modifiers {
+			case key.ModShortcut:
+				trackNavigated = true
+			case 0:
+				trackClicked = true
+			}
+		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
+			trackContextMenu = true
+		}
 	}
-	tsi.Update(gtx)
 
-	paths := [colorStateLast]clip.Path{}
-	for i := range paths {
-		paths[i].Begin(track.widget.tinyOps[i].Get())
-	}
+	mtrack.hover.Update(gtx.Queue)
 
-	for _, dspSpans := range track.widget.prevFrame.dspSpans {
-		dspSpans := dspSpans.dspSpans
-		startPx := cv.tsToPx(dspSpans.AtPtr(0).Start)
-		endPx := cv.tsToPx(LastItemPtr(dspSpans).End)
+	var paths [colorLast]clip.Path
+	var initPaths [colorLast]bool
+	items(func(el Items[T]) bool {
+		do := func(items Items[T], startPx, endPx float32) {
+			if mtrack.onlyTinyAndMerged && items.Len() < 2 && endPx-startPx >= float32(minSpanWidth) {
+				return
+			}
 
-		if dspSpans.Len() > 1 || endPx-startPx < float32(minSpanWidth) {
 			if endPx-startPx < float32(minSpanWidth) {
 				mid := startPx + (endPx-startPx)/2
 				dd := float32(minSpanWidth) / 2
@@ -1075,13 +1219,27 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 			max := f32.Pt(endPx, float32(timelineMinitrackHeight))
 
 			var p *clip.Path
-			if tsi.Handle(win, gtx, dspSpans, cv, startPx, endPx) {
+			if x := mtrack.hover.Pointer().X; mtrack.hover.Update(gtx.Queue) && x >= startPx && x < endPx {
+				if trackNavigated {
+					track.widget.navigatedTimeSpan = container.Some(mtrack.timeSpan(items))
+				}
+				if trackClicked {
+					mtrack.clickedItems = items
+				}
+				if trackContextMenu && mtrack.contextMenu != nil {
+					win.SetContextMenu(mtrack.contextMenu(items, track))
+				}
+
+				win.SetTooltip(mtrack.tooltip(win, items, track))
+
 				theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: clip.FRect{Min: min, Max: max}.Path(gtx.Ops)}.Op())
-			} else if dspSpans.Len() > 1 {
-				p = &paths[colorStateMerged]
 			} else {
-				c := track.SpanColor(dspSpans.AtPtr(0), cv.trace)
-				p = &paths[c]
+				cIdx := mtrack.color(items, track)
+				if !initPaths[cIdx] {
+					initPaths[cIdx] = true
+					paths[cIdx].Begin(mtrack.ops[cIdx].Get())
+				}
+				p = &paths[cIdx]
 			}
 
 			if p != nil {
@@ -1092,16 +1250,56 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 				p.Close()
 			}
 		}
-	}
 
-	for cIdx := range paths {
-		p := &paths[cIdx]
-		theme.FillShape(win, gtx.Ops, colors[cIdx], clip.Outline{Path: p.End()}.Op())
-	}
+		if mtrack.skipIter {
+			items := el
+			startPx := cv.tsToPx(PT(el.AtPtr(0)).Start())
+			endPx := cv.tsToPx(PT(LastItemPtr(el)).End())
+			do(items, startPx, endPx)
+		} else {
+			iter := renderedSpansIterator[T, PT]{
+				cv:    cv,
+				spans: el,
+			}
 
+			for {
+				items, startPx, endPx, ok := iter.next(gtx)
+				if !ok {
+					break
+				}
+				do(items, startPx, endPx)
+			}
+		}
+
+		return true
+	})
+
+	for i := range paths {
+		if !initPaths[i] {
+			continue
+		}
+		theme.FillShape(win, gtx.Ops, colors[i], clip.Outline{Path: paths[i].End()}.Op())
+	}
 	return layout.Dimensions{
 		Size: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight),
 	}
+}
+
+func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
+	dims := track.widget.tinyMt.Layout(win, gtx, track, cv, func(yield func(el Items[spanWithGetters]) bool) {
+		for _, dspSpans := range track.widget.prevFrame.dspSpans {
+			items := myunsafe.Cast[Items[spanWithGetters]](dspSpans.dspSpans)
+			if !yield(items) {
+				break
+			}
+		}
+	})
+
+	if spans := track.widget.tinyMt.clickedItems; spans.Len() != 0 {
+		track.widget.clickedSpans = myunsafe.Cast[Items[ptrace.Span]](spans)
+	}
+
+	return dims
 }
 
 type eventsFromIDs struct {
@@ -1140,147 +1338,19 @@ func (ev *eventWithGetters) End() trace.Timestamp   { return ev.Event.Ts }
 
 // Must only be called after layoutMain.
 func (track *Track) layoutEvents(win *theme.Window, gtx layout.Context, cv *Canvas) {
-	timelineMinitrackHeight := gtx.Dp(timelineMinitrackHeightDp)
-	minSpanWidth := gtx.Dp(minSpanWidthDp)
-
-	defer clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, timelineMinitrackHeight)}.Push(gtx.Ops).Pop()
-	track.widget.eventsClick.Add(gtx.Ops)
-	track.widget.eventsHover.Add(gtx.Ops)
-
-	var trackNavigatedEvents bool
-	for _, ev := range track.widget.eventsClick.Update(gtx.Queue) {
-		if ev.Kind == gesture.KindClick && ev.Button == pointer.ButtonPrimary {
-			switch ev.Modifiers {
-			case key.ModShortcut:
-				trackNavigatedEvents = true
-			case 0:
-				// XXX track clicked events
-			}
-		} else if ev.Kind == gesture.KindPress && ev.Button == pointer.ButtonSecondary {
-			// XXX track context menu
-		}
-	}
-
-	track.widget.eventsHover.Update(gtx.Queue)
-
-	var eventsPath, mergedEventsPath clip.Path
-	eventsPath.Begin(track.widget.eventsOps.Get())
-	mergedEventsPath.Begin(track.widget.mergedEventsOps.Get())
-	for _, dspSpans := range track.widget.prevFrame.dspSpans {
-		eventIDs := Events(dspSpans.dspSpans, cv.trace)
-		iter := renderedSpansIterator[eventWithGetters, *eventWithGetters]{
-			cv: cv,
-			spans: myunsafe.Cast[Items[eventWithGetters]](Items[trace.Event](eventsFromIDs{
+	track.widget.eventsMt.Layout(win, gtx, track, cv, func(yield func(el Items[eventWithGetters]) bool) {
+		for _, dspSpans := range track.widget.prevFrame.dspSpans {
+			eventIDs := Events(dspSpans.dspSpans, cv.trace)
+			items := myunsafe.Cast[Items[eventWithGetters]](Items[trace.Event](eventsFromIDs{
 				tr:    cv.trace.Trace,
 				items: eventIDs,
-			})),
-		}
-
-		for {
-			events_, startPx, endPx, ok := iter.next(gtx)
-			if !ok {
+			}))
+			if !yield(items) {
 				break
 			}
-			events := myunsafe.Cast[Items[trace.Event]](events_)
-
-			if endPx-startPx < float32(minSpanWidth) {
-				mid := startPx + (endPx-startPx)/2
-				dd := float32(minSpanWidth) / 2
-				startPx = mid - dd
-				endPx = mid + dd
-			}
-
-			min := f32.Pt(startPx, 0)
-			max := f32.Pt(endPx, float32(timelineMinitrackHeight))
-
-			var p *clip.Path
-			if x := track.widget.eventsHover.Pointer().X; track.widget.eventsHover.Update(gtx.Queue) && x >= startPx && x < endPx {
-				if trackNavigatedEvents {
-					track.widget.navigatedTimeSpan = container.Some(EventsRange(events))
-				}
-
-				{
-					tr := cv.trace
-
-					var label string
-					if events.Len() == 1 {
-						ev := events.At(0)
-						switch ev.Type {
-						case trace.EvGoSysCall:
-							stk := tr.Stacks[events.At(0).StkID]
-							if len(stk) != 0 {
-								frame := tr.PCs[stk[0]]
-								label = "Syscall: " + frame.Fn
-							} else {
-								label = "Syscall"
-							}
-						case trace.EvGoCreate:
-							g := tr.G(ev.Args[trace.ArgGoCreateG])
-							label = fmt.Sprintf("Created goroutine %s", GoroutineLabel(g))
-						case trace.EvGoUnblock:
-							g := tr.G(ev.Args[trace.ArgGoUnblockG])
-							label = fmt.Sprintf("Unblocked goroutine %s", GoroutineLabel(g))
-						case trace.EvUserLog:
-							ev := events.AtPtr(0)
-							cat := tr.Strings[ev.Args[trace.ArgUserLogKeyID]]
-							msg := tr.Strings[ev.Args[trace.ArgUserLogMessage]]
-							if cat != "" {
-								label = fmt.Sprintf("Log: <%s> %s", cat, msg)
-							} else {
-								label = "Log: " + msg
-							}
-						default:
-							label = "1 event"
-						}
-					} else {
-						kind := events.At(0).Type
-						for i := 1; i < events.Len(); i++ {
-							ev := events.At(i)
-							if ev.Type != kind {
-								kind = 255
-								break
-							}
-						}
-						var noun string
-						switch kind {
-						case trace.EvGoSysCall:
-							noun = "syscalls"
-						case trace.EvGoCreate:
-							noun = "goroutine creations"
-						case trace.EvGoUnblock:
-							noun = "goroutine unblocks"
-						case trace.EvUserLog:
-							noun = "log messages"
-						default:
-							noun = "events"
-						}
-						label = local.Sprintf("%d %s\n", events.Len(), noun)
-						label += fmt.Sprintf("Time span: %s\n", roundDuration(time.Duration(LastItemPtr(events).Ts-events.AtPtr(0).Ts)))
-					}
-
-					win.SetTooltip(func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						return theme.Tooltip(win.Theme, label).Layout(win, gtx)
-					})
-				}
-
-				theme.FillShape(win, gtx.Ops, colors[colorSpanHighlightedPrimaryOutline], clip.Outline{Path: clip.FRect{Min: min, Max: max}.Path(gtx.Ops)}.Op())
-			} else if events.Len() == 1 {
-				p = &eventsPath
-			} else {
-				p = &mergedEventsPath
-			}
-
-			if p != nil {
-				p.MoveTo(min)
-				p.LineTo(f32.Pt(max.X, min.Y))
-				p.LineTo(max)
-				p.LineTo(f32.Pt(min.X, max.Y))
-				p.Close()
-			}
 		}
-	}
-	theme.FillShape(win, gtx.Ops, colors[colorEvent], clip.Outline{Path: eventsPath.End()}.Op())
-	theme.FillShape(win, gtx.Ops, colors[colorMergedEvents], clip.Outline{Path: mergedEventsPath.End()}.Op())
+	})
+
 }
 
 func singleSpanLabel(label string) func(spans Items[ptrace.Span], tr *Trace, out []string) []string {
