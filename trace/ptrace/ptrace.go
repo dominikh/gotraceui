@@ -962,6 +962,7 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 			}
 		}()
 	}
+	wg.Wait()
 
 	for _, g := range tr.Goroutines {
 		fixEnds(g.Spans)
@@ -981,7 +982,6 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 	fixEnds(tr.GC)
 	fixEnds(tr.STW)
 
-	wg.Wait()
 }
 
 func populateObjects(tr *Trace, progress func(float64)) {
