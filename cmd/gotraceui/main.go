@@ -369,9 +369,6 @@ func NewMainWindow() *MainWindow {
 // window when it's done. OpenTrace should be called from a different goroutine than the render loop.
 func (mwin *MainWindow) OpenTrace(r io.Reader) {
 	mwin.SetState("loadingTrace")
-	// Use standard GC pacing while loading trace
-	mwin.gc.Pause()
-	defer mwin.gc.Resume()
 
 	res, err := loadTrace(r, mwin, &mwin.canvas)
 	if memprofileLoad != "" {
