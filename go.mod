@@ -5,6 +5,7 @@ go 1.21
 require (
 	gioui.org v0.4.1
 	gioui.org/x v0.4.0
+	github.com/davecgh/go-spew v1.1.1
 	github.com/golang/snappy v0.0.4
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 	golang.org/x/image v0.7.0

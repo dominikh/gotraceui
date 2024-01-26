@@ -1,8 +1,17 @@
 package container
 
+import "fmt"
+
 type Option[T any] struct {
 	v   T
 	set bool
+}
+
+func (opt Option[T]) String() string {
+	if !opt.set {
+		return "None"
+	}
+	return fmt.Sprintf("%v", opt.v)
 }
 
 func None[T any]() Option[T] {

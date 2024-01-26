@@ -10,6 +10,10 @@ func Cast[Dst, Src any](x Src) Dst {
 	return *(*Dst)(unsafe.Pointer(&x))
 }
 
+func Map[Dst any](x []byte) *Dst {
+	return (*Dst)(unsafe.Pointer(&x[:unsafe.Sizeof(*new(Dst))][0]))
+}
+
 func SliceCast[Dst ~[]DstE, Src ~[]SrcE, DstE, SrcE any](x Src) Dst {
 	// We don't use our Cast helper in this function because it increases the function complexity, making inlining
 	// more difficult.
