@@ -152,28 +152,29 @@ type eventAttr struct {
 type eventType uint32
 
 const (
-	typeHardware   eventType = 0
-	typeSoftware   eventType = 1
-	typeTracepoint eventType = 2
-	typeHWCache    eventType = 3
-	typeRaw        eventType = 4
-	typeBreakpoint eventType = 5
-	typeMax        eventType = 6
+	PERF_TYPE_HARDWARE   eventType = 0
+	PERF_TYPE_SOFTWARE   eventType = 1
+	PERF_TYPE_TRACEPOINT eventType = 2
+	PERF_TYPE_HW_CACHE   eventType = 3
+	PERF_TYPE_RAW        eventType = 4
+	PERF_TYPE_BREAKPOINT eventType = 5
+
+	PERF_TYPE_NUM = 6
 )
 
 func (typ eventType) String() string {
 	switch typ {
-	case typeHardware:
+	case PERF_TYPE_HARDWARE:
 		return "hardware"
-	case typeSoftware:
+	case PERF_TYPE_SOFTWARE:
 		return "software"
-	case typeTracepoint:
+	case PERF_TYPE_TRACEPOINT:
 		return "tracepoint"
-	case typeHWCache:
+	case PERF_TYPE_HW_CACHE:
 		return "hw cache"
-	case typeRaw:
+	case PERF_TYPE_RAW:
 		return "raw"
-	case typeBreakpoint:
+	case PERF_TYPE_BREAKPOINT:
 		return "breakpoint"
 	default:
 		return fmt.Sprintf("%d", typ)
@@ -285,8 +286,8 @@ func NewFile(data []byte) *File {
 	// then that's the offset we'll use. In all other cases we cannot reliably parse the file.
 	attrs := f.EventAttrs()
 	if len(attrs) > 0 {
-		allHaveIdentifier := attrs[0].sampleType&SampleTypeIdentifier != 0
-		allHaveID := attrs[0].sampleType&SampleTypeID != 0
+		allHaveIdentifier := attrs[0].sampleType&PERF_SAMPLE_IDENTIFIER != 0
+		allHaveID := attrs[0].sampleType&PERF_SAMPLE_ID != 0
 		allShareType := true
 		for i := range attrs {
 			attr := &attrs[i]
@@ -294,10 +295,10 @@ func NewFile(data []byte) *File {
 			if typ != attrs[0].sampleType {
 				allShareType = false
 			}
-			if typ&SampleTypeIdentifier == 0 {
+			if typ&PERF_SAMPLE_IDENTIFIER == 0 {
 				allHaveIdentifier = false
 			}
-			if typ&SampleTypeID == 0 {
+			if typ&PERF_SAMPLE_ID == 0 {
 				allHaveID = false
 			}
 
@@ -307,7 +308,7 @@ func NewFile(data []byte) *File {
 		}
 
 		idOffset := func(typ SampleType) uint64 {
-			set := bits.OnesCount64(uint64(typ & (SampleTypeIdentifier | SampleTypeIP | SampleTypeTID | SampleTypeTime | SampleTypeAddr)))
+			set := bits.OnesCount64(uint64(typ & (PERF_SAMPLE_IDENTIFIER | PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_TIME | PERF_SAMPLE_ADDR)))
 			return uint64(set) * 8
 		}
 
@@ -350,7 +351,7 @@ func (f *File) Record(idx int) Record {
 	b = b[:sz]
 	var typ SampleType
 
-	if h.typ == EventTypeSample {
+	if h.typ == PERF_RECORD_SAMPLE {
 		if t, ok := f.sharedType.Get(); ok {
 			typ = t
 		} else {
@@ -372,6 +373,7 @@ type Record struct {
 }
 
 type Comm struct {
+	Misc uint16
 	PID  uint32
 	TID  uint32
 	Name string
@@ -381,10 +383,11 @@ func (c Comm) String() string {
 	return fmt.Sprintf("PERF_RECORD_COMM: %s:%d/%d", c.Name, c.PID, c.TID)
 }
 
-func (r Record) Comm() Comm {
+func (r Record) Comm(c *Comm) {
 	name := unsafe.String(&r.data[16], len(r.data)-16)
 	name = name[:strings.IndexByte(name, 0)]
-	return Comm{
+	*c = Comm{
+		Misc: *myunsafe.Map[uint16](r.data[4:8]),
 		PID:  *myunsafe.Map[uint32](r.data[8:12]),
 		TID:  *myunsafe.Map[uint32](r.data[12:16]),
 		Name: name,
@@ -403,19 +406,48 @@ func (r Record) Exit() Exit {
 	return *myunsafe.Map[Exit](r.data[8:])
 }
 
-type Mmap2 struct {
-	PID             uint32
-	TID             uint32
-	Addr            uint64
-	Len             uint64
-	PageOffset      uint64
+type Mmap struct {
+	PID        uint32
+	TID        uint32
+	Addr       uint64
+	Len        uint64
+	PageOffset uint64
+	Filename   string
+}
+
+func (m *Mmap) String() string {
+	return fmt.Sprintf("PERF_RECORD_MMAP %d/%d: [0x%x(0x%x) @ %d]: %s %s",
+		m.PID, m.TID, m.Addr, m.Len, m.PageOffset, m.Filename)
+}
+
+func (r Record) Mmap(m *Mmap) {
+	*m = *myunsafe.Map[Mmap](r.data[8:])
+	name := r.data[8+32:]
+	name = name[:bytes.IndexByte(name, 0)]
+	m.Filename = unsafe.String(&name[0], len(name))
+}
+
+type Inode struct {
 	Major           uint32
 	Minor           uint32
 	Inode           uint64
 	InodeGeneration uint64
-	Protection      uint32
-	Flags           uint32
-	Filename        string
+}
+
+type Mmap2 struct {
+	PID        uint32
+	TID        uint32
+	Addr       uint64
+	Len        uint64
+	PageOffset uint64
+
+	// XXX inode and buildID are mutually exclusive, they should be a union.
+	Inode   container.Option[Inode]
+	BuildID container.Option[[]byte]
+
+	Protection uint32
+	Flags      uint32
+	Filename   string
 }
 
 const (
@@ -432,6 +464,23 @@ const (
 	PERF_SAMPLE_REGS_ABI_NONE = 0x0
 	PERF_SAMPLE_REGS_ABI_32   = 0x1
 	PERF_SAMPLE_REGS_ABI_64   = 0x2
+
+	PERF_RECORD_MISC_CPUMODE_MASK    = 0b111
+	PERF_RECORD_MISC_CPUMODE_UNKNOWN = 0
+	PERF_RECORD_MISC_KERNEL          = 1
+	PERF_RECORD_MISC_USER            = 2
+	PERF_RECORD_MISC_HYPERVISOR      = 3
+	PERF_RECORD_MISC_GUEST_KERNEL    = 4
+	PERF_RECORD_MISC_GUEST_USER      = 5
+
+	PERF_RECORD_MISC_MMAP_DATA  = 1 << 13
+	PERF_RECORD_MISC_COMM_EXEC  = 1 << 13
+	PERF_RECORD_MISC_FORK_EXEC  = 1 << 13
+	PERF_RECORD_MISC_SWITCH_OUT = 1 << 13
+
+	PERF_RECORD_MISC_EXACT_IP           = 1 << 14
+	PERF_RECORD_MISC_SWITCH_OUT_PREEMPT = 1 << 14
+	PERF_RECORD_MISC_MMAP_BUILD_ID      = 1 << 14
 )
 
 func (m *Mmap2) String() string {
@@ -454,15 +503,62 @@ func (m *Mmap2) String() string {
 	} else {
 		prots[3] = '?'
 	}
-	return fmt.Sprintf("PERF_RECORD_MMAP2 %d/%d: [0x%x(0x%x) @ %d %02x:%02x %d %d]: %s %s",
-		m.PID, m.TID, m.Addr, m.Len, m.PageOffset, m.Major, m.Minor, m.Inode, m.InodeGeneration, prots, m.Filename)
+
+	var s string
+	if inode, ok := m.Inode.Get(); ok {
+		s = fmt.Sprintf("%02x:%02x %d %d", inode.Major, inode.Minor, inode.Inode, inode.InodeGeneration)
+	} else if id, ok := m.BuildID.Get(); ok {
+		s = fmt.Sprintf("%x", id)
+	}
+	return fmt.Sprintf("PERF_RECORD_MMAP2 %d/%d: [0x%x(0x%x) @ %d %s]: %s %s",
+		m.PID, m.TID, m.Addr, m.Len, m.PageOffset, s, prots, m.Filename)
 }
 
 func (r Record) Mmap2(m *Mmap2) {
-	*m = *myunsafe.Map[Mmap2](r.data[8:])
+	type mmap2 struct {
+		_    uint32
+		misc uint16
+		_    uint16
+
+		pid, tid  uint32
+		start     uint64
+		len       uint64
+		pgoff     uint64
+		inodeOrID [24]byte
+		prot      uint32
+		flags     uint32
+	}
+
+	im := myunsafe.Map[mmap2](r.data)
+	inode := container.None[Inode]()
+	buildID := container.None[[]byte]()
+	if im.misc&PERF_RECORD_MISC_MMAP_BUILD_ID != 0 {
+		id := myunsafe.Map[struct {
+			sz uint8
+			_  uint8
+			_  uint16
+			id [20]byte
+		}](im.inodeOrID[:])
+		// XXX validate bounds
+		buildID = container.Some(id.id[:id.sz])
+	} else {
+		inode = container.Some(*myunsafe.Map[Inode](im.inodeOrID[:]))
+	}
+
 	name := r.data[8+64:]
 	name = name[:bytes.IndexByte(name, 0)]
-	m.Filename = unsafe.String(&name[0], len(name))
+	*m = Mmap2{
+		PID:        im.pid,
+		TID:        im.tid,
+		Addr:       im.start,
+		Len:        im.len,
+		PageOffset: im.pgoff,
+		Inode:      inode,
+		BuildID:    buildID,
+		Protection: im.prot,
+		Flags:      im.flags,
+		Filename:   unsafe.String(&name[0], len(name)),
+	}
 }
 
 type ThreadMap struct {
@@ -501,26 +597,37 @@ func (sym Ksymbol) String() string {
 		sym.Addr, sym.Len, sym.Type, sym.Flags, sym.Name)
 }
 
-func (r Record) Ksymbol() Ksymbol {
+func (r Record) Ksymbol(sym *Ksymbol) {
 	name := r.data[24:]
 	name = name[:bytes.IndexByte(name, 0)]
-	sym := Ksymbol{
+	*sym = Ksymbol{
 		Addr:  *myunsafe.Map[uint64](r.data[8:]),
 		Len:   *myunsafe.Map[uint32](r.data[16:]),
 		Type:  *myunsafe.Map[uint16](r.data[20:]),
 		Flags: *myunsafe.Map[uint16](r.data[22:]),
 		Name:  unsafe.String(&name[0], len(name)),
 	}
-	return sym
 }
 
-// [ ] EventTypeMmap
+type Fork struct {
+	PID  uint32
+	PPID uint32
+	TID  uint32
+	PTID uint32
+	Time uint64
+}
+
+func (r Record) Fork() *Fork {
+	return myunsafe.Map[Fork](r.data[8:])
+}
+
+// [X] EventTypeMmap
 // [ ] EventTypeLost
 // [X] EventTypeComm
 // [X] EventTypeExit
 // [ ] EventTypeThrottle
 // [ ] EventTypeUnthrottle
-// [ ] EventTypeFork
+// [X] EventTypeFork
 // [ ] EventTypeRead
 // [X] EventTypeSample
 // [X] EventTypeMmap2
@@ -570,6 +677,7 @@ type BranchEntry struct {
 }
 
 type Sample struct {
+	Misc     uint16
 	ID       container.Option[uint64]
 	IP       container.Option[uint64]
 	PID      container.Option[uint32]
@@ -615,49 +723,48 @@ func (r Record) Sample(f *File, s *Sample) {
 		return ret
 	}
 	typ := r.sampleType
-	fmt.Println()
-	fmt.Println(typ)
-	if typ&SampleTypeIdentifier != 0 {
+	s.Misc = myunsafe.Map[EventHeader](r.data).misc
+	if typ&PERF_SAMPLE_IDENTIFIER != 0 {
 		s.ID = container.Some(u64())
 	}
-	if typ&SampleTypeIP != 0 {
+	if typ&PERF_SAMPLE_IP != 0 {
 		s.IP = container.Some(u64())
 	}
-	if typ&SampleTypeTID != 0 {
+	if typ&PERF_SAMPLE_TID != 0 {
 		s.PID, s.TID = container.Some(u32()), container.Some(u32())
 	}
-	if typ&SampleTypeTime != 0 {
+	if typ&PERF_SAMPLE_TIME != 0 {
 		s.Time = container.Some(u64())
 	}
-	if typ&SampleTypeAddr != 0 {
+	if typ&PERF_SAMPLE_ADDR != 0 {
 		s.Addr = container.Some(u64())
 	}
-	if typ&SampleTypeID != 0 {
+	if typ&PERF_SAMPLE_ID != 0 {
 		s.ID = container.Some(u64())
 	}
-	if typ&SampleTypeStreamID != 0 {
+	if typ&PERF_SAMPLE_STREAM_ID != 0 {
 		s.StreamID = container.Some(u64())
 	}
-	if typ&SampleTypeCPU != 0 {
+	if typ&PERF_SAMPLE_CPU != 0 {
 		s.CPU, s.Res = container.Some(u32()), container.Some(u32())
 	}
-	if typ&SampleTypePeriod != 0 {
+	if typ&PERF_SAMPLE_PERIOD != 0 {
 		s.Period = container.Some(u64())
 	}
-	if typ&SampleTypeRead != 0 {
+	if typ&PERF_SAMPLE_READ != 0 {
 		// XXX
 	}
-	if typ&SampleTypeCallchain != 0 {
+	if typ&PERF_SAMPLE_CALLCHAIN != 0 {
 		n := u64()
 		s.IPs = container.Some(myunsafe.SliceCast[[]uint64](r.data[off : off+(n*8)]))
 		off += n * 8
 	}
-	if typ&SampleTypeRaw != 0 {
+	if typ&PERF_SAMPLE_RAW != 0 {
 		n := uint64(u32())
 		s.Raw = container.Some(r.data[off : off+n])
 		off += n
 	}
-	if typ&SampleTypeBranchStack != 0 {
+	if typ&PERF_SAMPLE_BRANCH_STACK != 0 {
 		// XXX
 	}
 	regs := func(mask uint64) Registers {
@@ -675,7 +782,7 @@ func (r Record) Sample(f *File, s *Sample) {
 		off += uint64(weight) * 8
 		return out
 	}
-	if typ&SampleTypeRegsUser != 0 {
+	if typ&PERF_SAMPLE_REGS_USER != 0 {
 		abi := u64()
 		s.ABIUser = container.Some(abi)
 		if abi != 0 {
@@ -689,7 +796,7 @@ func (r Record) Sample(f *File, s *Sample) {
 			}
 		}
 	}
-	if typ&SampleTypeStackUser != 0 {
+	if typ&PERF_SAMPLE_STACK_USER != 0 {
 		// The first size is the full, padded size of the stack data.
 		n := u64()
 		if n > 0 {
@@ -700,19 +807,19 @@ func (r Record) Sample(f *File, s *Sample) {
 			s.Stack = container.Some(r.data[off2 : off2+n])
 		}
 	}
-	if typ&SampleTypeWeight != 0 {
+	if typ&PERF_SAMPLE_WEIGHT != 0 {
 		s.Weight = container.Some(u64())
-	} else if typ&SampleTypeWeightStruct != 0 {
+	} else if typ&PERF_SAMPLE_WEIGHT_STRUCT != 0 {
 		// TODO support the struct
 		s.Weight = container.Some(u64())
 	}
-	if typ&SampleTypeDataSrc != 0 {
+	if typ&PERF_SAMPLE_DATA_SRC != 0 {
 		s.DataSrc = container.Some(u64())
 	}
-	if typ&SampleTypeTransaction != 0 {
+	if typ&PERF_SAMPLE_TRANSACTION != 0 {
 		s.Transaction = container.Some(u64())
 	}
-	if typ&SampleTypeRegsIntr != 0 {
+	if typ&PERF_SAMPLE_REGS_INTR != 0 {
 		abi := u64()
 		s.ABIIntr = container.Some(abi)
 		if abi != 0 {
@@ -726,19 +833,19 @@ func (r Record) Sample(f *File, s *Sample) {
 			}
 		}
 	}
-	if typ&SampleTypePhysAddr != 0 {
+	if typ&PERF_SAMPLE_PHYS_ADDR != 0 {
 		s.PhysAddr = container.Some(u64())
 	}
-	if typ&SampleTypeCgroup != 0 {
+	if typ&PERF_SAMPLE_CGROUP != 0 {
 		s.Cgroup = container.Some(u64())
 	}
-	if typ&SampleTypeDataPageSize != 0 {
+	if typ&PERF_SAMPLE_DATA_PAGE_SIZE != 0 {
 		s.DataPageSize = container.Some(u64())
 	}
-	if typ&SampleTypeCodePageSize != 0 {
+	if typ&PERF_SAMPLE_CODE_PAGE_SIZE != 0 {
 		s.CodePageSize = container.Some(u64())
 	}
-	if typ&SampleTypeAux != 0 {
+	if typ&PERF_SAMPLE_AUX != 0 {
 		n := u64()
 		s.Aux = container.Some(r.data[off : off+n])
 		off += n
@@ -877,29 +984,39 @@ func main() {
 	for i := 0; i < f.NumRecords(); i++ {
 		r := f.Record(i)
 		switch r.Header().typ {
-		case EventTypeComm:
-			fmt.Println("comm", r.Comm())
-		case EventTypeExit:
+		case PERF_RECORD_COMM:
+			var comm Comm
+			r.Comm(&comm)
+			fmt.Println(comm)
+		case PERF_RECORD_EXIT:
 			fmt.Println("exit", r.Exit())
-		case EventTypeMmap2:
+		case PERF_RECORD_MMAP2:
 			var m Mmap2
 			r.Mmap2(&m)
 			fmt.Println(&m)
-		case EventTypeSample:
+		case PERF_RECORD_SAMPLE:
 			r.Sample(f, &sample)
 			printSample(&sample)
-		case EventTypeTimeConv:
+		case PERF_RECORD_TIME_CONV:
 			fmt.Println(r.TimeConv())
-		case EventTypeThreadMap:
+		case PERF_RECORD_THREAD_MAP:
 			fmt.Println(r.ThreadMap())
-		case EventTypeKsymbol:
-			fmt.Println(r.Ksymbol())
-		case EventTypeIDIndex:
+		case PERF_RECORD_KSYMBOL:
+			var ksym Ksymbol
+			r.Ksymbol(&ksym)
+			fmt.Println(ksym)
+		case PERF_RECORD_ID_INDEX:
 			fmt.Println(r.IDIndex())
-		case EventTypeFinishedInit:
+		case PERF_RECORD_FINISHED_INIT:
 			fmt.Println("PERF_RECORD_FINISHED_INIT")
-		case EventTypeFinishedRound:
+		case PERF_RECORD_FINISHED_ROUND:
 			fmt.Println("PERF_RECORD_FINISHED_ROUND")
+		case PERF_RECORD_SWITCH:
+			type Switch struct {
+				PID uint32
+				TID uint32
+			}
+			fmt.Println("---->", myunsafe.Map[Switch](r.data[8:]))
 		default:
 			fmt.Println(r.Header().typ)
 		}
@@ -920,7 +1037,7 @@ func main() {
 			}
 			evhdr := myunsafe.Map[EventHeader](f.data[off:])
 
-			if evhdr.typ == EventTypeSample {
+			if evhdr.typ == PERF_RECORD_SAMPLE {
 				fmt.Println("sample_id:", *myunsafe.Map[uint64](f.data[off+uint64(unsafe.Sizeof(evhdr)):]))
 			}
 
@@ -979,167 +1096,169 @@ type SampleData struct {
 type Event interface{}
 
 type EventHeader struct {
-	typ  EventType
+	typ  RecordType
 	misc uint16
 	size uint16
 }
 
-//go:generate stringer -trimprefix "EventType" -type EventType -linecomment
-type EventType uint32
+//go:generate stringer -type RecordType
+type RecordType uint32
 
 const (
-	EventTypeMmap          EventType = 1
-	EventTypeLost          EventType = 2
-	EventTypeComm          EventType = 3
-	EventTypeExit          EventType = 4
-	EventTypeThrottle      EventType = 5
-	EventTypeUnthrottle    EventType = 6
-	EventTypeFork          EventType = 7
-	EventTypeRead          EventType = 8
-	EventTypeSample        EventType = 9
-	EventTypeMmap2         EventType = 10
-	EventTypeAux           EventType = 11
-	EventTypeItraceStart   EventType = 12
-	EventTypeLostSamples   EventType = 13
-	EventTypeSwitch        EventType = 14
-	EventTypeSwitchCPUWide EventType = 15
-	EventTypeNamespaces    EventType = 16
-	EventTypeKsymbol       EventType = 17
-	EventTypeBPFEvent      EventType = 18
-	EventTypeCgroup        EventType = 19
-	EventTypeTextPoke      EventType = 20
-	EventTypeAuxOutputHWID EventType = 21
+	PERF_RECORD_MMAP             RecordType = 1
+	PERF_RECORD_LOST             RecordType = 2
+	PERF_RECORD_COMM             RecordType = 3
+	PERF_RECORD_EXIT             RecordType = 4
+	PERF_RECORD_THROTTLE         RecordType = 5
+	PERF_RECORD_UNTHROTTLE       RecordType = 6
+	PERF_RECORD_FORK             RecordType = 7
+	PERF_RECORD_READ             RecordType = 8
+	PERF_RECORD_SAMPLE           RecordType = 9
+	PERF_RECORD_MMAP2            RecordType = 10
+	PERF_RECORD_AUX              RecordType = 11
+	PERF_RECORD_ITRACE_START     RecordType = 12
+	PERF_RECORD_LOST_SAMPLES     RecordType = 13
+	PERF_RECORD_SWITCH           RecordType = 14
+	PERF_RECORD_SWITCH_CPU_WIDE  RecordType = 15
+	PERF_RECORD_NAMESPACES       RecordType = 16
+	PERF_RECORD_KSYMBOL          RecordType = 17
+	PERF_RECORD_BPF_EVENT        RecordType = 18
+	PERF_RECORD_CGROUP           RecordType = 19
+	PERF_RECORD_TEXT_POKE        RecordType = 20
+	PERF_RECORD_AUX_OUTPUT_HW_ID RecordType = 21
 
-	EventTypeHeaderAttr        EventType = 64
-	EventTypeHeaderEventType   EventType = 65
-	EventTypeHeaderTracingData EventType = 66
-	EventTypeHeaderBuildID     EventType = 67
-	EventTypeFinishedRound     EventType = 68
-	EventTypeIDIndex           EventType = 69
-	EventTypeAuxtraceInfo      EventType = 70
-	EventTypeAuxtrace          EventType = 71
-	EventTypeAuxtraceError     EventType = 72
-	EventTypeThreadMap         EventType = 73
-	EventTypeCPUMap            EventType = 74
-	EventTypeStatConfig        EventType = 75
-	EventTypeStat              EventType = 76
-	EventTypeStatRound         EventType = 77
-	EventTypeEventUpdate       EventType = 78
-	EventTypeTimeConv          EventType = 79
-	EventTypeHeaderFeature     EventType = 80
-	EventTypeCompressed        EventType = 81
-	EventTypeFinishedInit      EventType = 82
+	PERF_RECORD_HEADER_ATTR         RecordType = 64
+	PERF_RECORD_HEADER_EVENT_TYPE   RecordType = 65
+	PERF_RECORD_HEADER_TRACING_DATA RecordType = 66
+	PERF_RECORD_HEADER_BUILD_ID     RecordType = 67
+	PERF_RECORD_FINISHED_ROUND      RecordType = 68
+	PERF_RECORD_ID_INDEX            RecordType = 69
+	PERF_RECORD_AUXTRACE_INFO       RecordType = 70
+	PERF_RECORD_AUXTRACE            RecordType = 71
+	PERF_RECORD_AUXTRACE_ERROR      RecordType = 72
+	PERF_RECORD_THREAD_MAP          RecordType = 73
+	PERF_RECORD_CPU_MAP             RecordType = 74
+	PERF_RECORD_STAT_CONFIG         RecordType = 75
+	PERF_RECORD_STAT                RecordType = 76
+	PERF_RECORD_STAT_ROUND          RecordType = 77
+	PERF_RECORD_EVENT_UPDATE        RecordType = 78
+	PERF_RECORD_TIME_CONV           RecordType = 79
+	PERF_RECORD_HEADER_FEATURE      RecordType = 80
+	PERF_RECORD_COMPRESSED          RecordType = 81
+	PERF_RECORD_FINISHED_INIT       RecordType = 82
 )
 
 type SampleType uint64
 
 const (
-	SampleTypeIP           SampleType = 1 << 0
-	SampleTypeTID          SampleType = 1 << 1
-	SampleTypeTime         SampleType = 1 << 2
-	SampleTypeAddr         SampleType = 1 << 3
-	SampleTypeRead         SampleType = 1 << 4
-	SampleTypeCallchain    SampleType = 1 << 5
-	SampleTypeID           SampleType = 1 << 6
-	SampleTypeCPU          SampleType = 1 << 7
-	SampleTypePeriod       SampleType = 1 << 8
-	SampleTypeStreamID     SampleType = 1 << 9
-	SampleTypeRaw          SampleType = 1 << 10
-	SampleTypeBranchStack  SampleType = 1 << 11
-	SampleTypeRegsUser     SampleType = 1 << 12
-	SampleTypeStackUser    SampleType = 1 << 13
-	SampleTypeWeight       SampleType = 1 << 14
-	SampleTypeDataSrc      SampleType = 1 << 15
-	SampleTypeIdentifier   SampleType = 1 << 16
-	SampleTypeTransaction  SampleType = 1 << 17
-	SampleTypeRegsIntr     SampleType = 1 << 18
-	SampleTypePhysAddr     SampleType = 1 << 19
-	SampleTypeAux          SampleType = 1 << 20
-	SampleTypeCgroup       SampleType = 1 << 21
-	SampleTypeDataPageSize SampleType = 1 << 22
-	SampleTypeCodePageSize SampleType = 1 << 23
-	SampleTypeWeightStruct SampleType = 1 << 24
-	SampleTypeNum                     = 25
+	PERF_SAMPLE_IP             SampleType = 1 << 0
+	PERF_SAMPLE_TID            SampleType = 1 << 1
+	PERF_SAMPLE_TIME           SampleType = 1 << 2
+	PERF_SAMPLE_ADDR           SampleType = 1 << 3
+	PERF_SAMPLE_READ           SampleType = 1 << 4
+	PERF_SAMPLE_CALLCHAIN      SampleType = 1 << 5
+	PERF_SAMPLE_ID             SampleType = 1 << 6
+	PERF_SAMPLE_CPU            SampleType = 1 << 7
+	PERF_SAMPLE_PERIOD         SampleType = 1 << 8
+	PERF_SAMPLE_STREAM_ID      SampleType = 1 << 9
+	PERF_SAMPLE_RAW            SampleType = 1 << 10
+	PERF_SAMPLE_BRANCH_STACK   SampleType = 1 << 11
+	PERF_SAMPLE_REGS_USER      SampleType = 1 << 12
+	PERF_SAMPLE_STACK_USER     SampleType = 1 << 13
+	PERF_SAMPLE_WEIGHT         SampleType = 1 << 14
+	PERF_SAMPLE_DATA_SRC       SampleType = 1 << 15
+	PERF_SAMPLE_IDENTIFIER     SampleType = 1 << 16
+	PERF_SAMPLE_TRANSACTION    SampleType = 1 << 17
+	PERF_SAMPLE_REGS_INTR      SampleType = 1 << 18
+	PERF_SAMPLE_PHYS_ADDR      SampleType = 1 << 19
+	PERF_SAMPLE_AUX            SampleType = 1 << 20
+	PERF_SAMPLE_CGROUP         SampleType = 1 << 21
+	PERF_SAMPLE_DATA_PAGE_SIZE SampleType = 1 << 22
+	PERF_SAMPLE_CODE_PAGE_SIZE SampleType = 1 << 23
+	PERF_SAMPLE_WEIGHT_STRUCT  SampleType = 1 << 24
+
+	PERF_SAMPLE_NUM = 25
+	PERF_SAMPLE_MAX = 1 << PERF_SAMPLE_NUM
 )
 
 func (st SampleType) String() string {
 	ss := make([]string, 0, hdrMax)
-	if st&SampleTypeIP != 0 {
+	if st&PERF_SAMPLE_IP != 0 {
 		ss = append(ss, "ip")
 	}
-	if st&SampleTypeTID != 0 {
+	if st&PERF_SAMPLE_TID != 0 {
 		ss = append(ss, "tid")
 	}
-	if st&SampleTypeTime != 0 {
+	if st&PERF_SAMPLE_TIME != 0 {
 		ss = append(ss, "time")
 	}
-	if st&SampleTypeAddr != 0 {
+	if st&PERF_SAMPLE_ADDR != 0 {
 		ss = append(ss, "addr")
 	}
-	if st&SampleTypeRead != 0 {
+	if st&PERF_SAMPLE_READ != 0 {
 		ss = append(ss, "read")
 	}
-	if st&SampleTypeCallchain != 0 {
+	if st&PERF_SAMPLE_CALLCHAIN != 0 {
 		ss = append(ss, "callchain")
 	}
-	if st&SampleTypeID != 0 {
+	if st&PERF_SAMPLE_ID != 0 {
 		ss = append(ss, "id")
 	}
-	if st&SampleTypeCPU != 0 {
+	if st&PERF_SAMPLE_CPU != 0 {
 		ss = append(ss, "cpu")
 	}
-	if st&SampleTypePeriod != 0 {
+	if st&PERF_SAMPLE_PERIOD != 0 {
 		ss = append(ss, "period")
 	}
-	if st&SampleTypeStreamID != 0 {
+	if st&PERF_SAMPLE_STREAM_ID != 0 {
 		ss = append(ss, "stream id")
 	}
-	if st&SampleTypeRaw != 0 {
+	if st&PERF_SAMPLE_RAW != 0 {
 		ss = append(ss, "raw")
 	}
-	if st&SampleTypeBranchStack != 0 {
+	if st&PERF_SAMPLE_BRANCH_STACK != 0 {
 		ss = append(ss, "branch stack")
 	}
-	if st&SampleTypeRegsUser != 0 {
+	if st&PERF_SAMPLE_REGS_USER != 0 {
 		ss = append(ss, "regs user")
 	}
-	if st&SampleTypeStackUser != 0 {
+	if st&PERF_SAMPLE_STACK_USER != 0 {
 		ss = append(ss, "stack user")
 	}
-	if st&SampleTypeWeight != 0 {
+	if st&PERF_SAMPLE_WEIGHT != 0 {
 		ss = append(ss, "weight")
 	}
-	if st&SampleTypeDataSrc != 0 {
+	if st&PERF_SAMPLE_DATA_SRC != 0 {
 		ss = append(ss, "data src")
 	}
-	if st&SampleTypeIdentifier != 0 {
+	if st&PERF_SAMPLE_IDENTIFIER != 0 {
 		ss = append(ss, "identifier")
 	}
-	if st&SampleTypeTransaction != 0 {
+	if st&PERF_SAMPLE_TRANSACTION != 0 {
 		ss = append(ss, "transaction")
 	}
-	if st&SampleTypeRegsIntr != 0 {
+	if st&PERF_SAMPLE_REGS_INTR != 0 {
 		ss = append(ss, "regs intr")
 	}
-	if st&SampleTypePhysAddr != 0 {
+	if st&PERF_SAMPLE_PHYS_ADDR != 0 {
 		ss = append(ss, "phys addr")
 	}
-	if st&SampleTypeAux != 0 {
+	if st&PERF_SAMPLE_AUX != 0 {
 		ss = append(ss, "aux")
 	}
-	if st&SampleTypeCgroup != 0 {
+	if st&PERF_SAMPLE_CGROUP != 0 {
 		ss = append(ss, "cgroup")
 	}
-	if st&SampleTypeDataPageSize != 0 {
+	if st&PERF_SAMPLE_DATA_PAGE_SIZE != 0 {
 		ss = append(ss, "data page size")
 	}
-	if st&SampleTypeCodePageSize != 0 {
+	if st&PERF_SAMPLE_CODE_PAGE_SIZE != 0 {
 		ss = append(ss, "code page size")
 	}
-	if st&SampleTypeWeightStruct != 0 {
+	if st&PERF_SAMPLE_WEIGHT_STRUCT != 0 {
 		ss = append(ss, "weight struct")
 	}
-	st &^= (1 << SampleTypeNum) - 1
+	st &^= PERF_SAMPLE_MAX - 1
 	if st != 0 {
 		ss = append(ss, fmt.Sprintf("%b", st))
 	}
