@@ -14,51 +14,51 @@ import (
 	"math/bits"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 
-	"github.com/klauspost/compress/zstd"
 	"honnef.co/go/gotraceui/container"
 	myunsafe "honnef.co/go/gotraceui/unsafe"
 )
 
-type hdrType uint8
+type HeaderType uint8
 
-//go:generate stringer -trimprefix "hdr" -type hdrType -linecomment
+//go:generate stringer -type HeaderType
 const (
-	hdrTracingData    hdrType = 1  // tracing data
-	hdrBuildID        hdrType = 2  // build id
-	hdrHostname       hdrType = 3  // hostname
-	hdrOSRelease      hdrType = 4  // OS release
-	hdrVersion        hdrType = 5  // version
-	hdrArch           hdrType = 6  // arch
-	hdrNrCPUs         hdrType = 7  // num CPUs
-	hdrCPUDesc        hdrType = 8  // CPU desc
-	hdrCPUID          hdrType = 9  // CPUID
-	hdrTotalMem       hdrType = 10 // total mem
-	hdrCmdline        hdrType = 11 // cmdline
-	hdrEventDesc      hdrType = 12 // event desc
-	hdrCPUTopology    hdrType = 13 // CPU topology
-	hdrNUMATopology   hdrType = 14 // NUMA topology
-	hdrBranchStack    hdrType = 15 // branch stack
-	hdrPMUMappings    hdrType = 16 // PMU mappings
-	hdrGroupDesc      hdrType = 17 // group desc
-	hdrAuxTrace       hdrType = 18 // aux
-	hdrStat           hdrType = 19 // stat
-	hdrCache          hdrType = 20 // cache
-	hdrSampleTime     hdrType = 21 // sample time
-	hdrSampleTopology hdrType = 22 // sample topology
-	hdrClockID        hdrType = 23 // clock ID
-	hdrDirFormat      hdrType = 24 // dir format
-	hdrBPFProgInfo    hdrType = 25 // BPF prog info
-	hdrBPFBTF         hdrType = 26 // BPF BTF
-	hdrCompressed     hdrType = 27 // compressed
-	hdrCPUPMUCaps     hdrType = 28 // CPU PMU caps
-	hdrClockData      hdrType = 29 // clock data
-	hdrHybridTopology hdrType = 30 // hybrid topology
-	hdrPMUCaps        hdrType = 31 // PMU caps
-
-	hdrMax hdrType = 32
+	HEADER_FIRST_FEATURE   HeaderType = 1
+	HEADER_TRACING_DATA    HeaderType = 1
+	HEADER_BUILD_ID        HeaderType = 2
+	HEADER_HOSTNAME        HeaderType = 3
+	HEADER_OSRELEASE       HeaderType = 4
+	HEADER_VERSION         HeaderType = 5
+	HEADER_ARCH            HeaderType = 6
+	HEADER_NRCPUS          HeaderType = 7
+	HEADER_CPUDESC         HeaderType = 8
+	HEADER_CPUID           HeaderType = 9
+	HEADER_TOTAL_MEM       HeaderType = 10
+	HEADER_CMDLINE         HeaderType = 11
+	HEADER_EVENT_DESC      HeaderType = 12
+	HEADER_CPU_TOPOLOGY    HeaderType = 13
+	HEADER_NUMA_TOPOLOGY   HeaderType = 14
+	HEADER_BRANCH_STACK    HeaderType = 15
+	HEADER_PMU_MAPPINGS    HeaderType = 16
+	HEADER_GROUP_DESC      HeaderType = 17
+	HEADER_AUXTRACE        HeaderType = 18
+	HEADER_STAT            HeaderType = 19
+	HEADER_CACHE           HeaderType = 20
+	HEADER_SAMPLE_TIME     HeaderType = 21
+	HEADER_MEM_TOPOLOGY    HeaderType = 22
+	HEADER_CLOCKID         HeaderType = 23
+	HEADER_DIR_FORMAT      HeaderType = 24
+	HEADER_BPF_PROG_INFO   HeaderType = 25
+	HEADER_BPF_BTF         HeaderType = 26
+	HEADER_COMPRESSED      HeaderType = 27
+	HEADER_CPU_PMU_CAPS    HeaderType = 28
+	HEADER_CLOCK_DATA      HeaderType = 29
+	HEADER_HYBRID_TOPOLOGY HeaderType = 30
+	HEADER_PMU_CAPS        HeaderType = 31
+	HEADER_LAST_FEATURE    HeaderType = 32
 )
 
 //go:generate stringer -type RecordType
@@ -142,7 +142,7 @@ const (
 )
 
 func (st SampleFlag) String() string {
-	ss := make([]string, 0, hdrMax)
+	ss := make([]string, 0, HEADER_LAST_FEATURE)
 	if st&PERF_SAMPLE_IP != 0 {
 		ss = append(ss, "ip")
 	}
@@ -227,14 +227,14 @@ func (st SampleFlag) String() string {
 
 type flags [4]uint64
 
-func (fl *flags) bit(x hdrType) bool {
+func (fl *flags) bit(x HeaderType) bool {
 	return fl[x/64]&(1<<(x-(x/64)*64)) != 0
 }
 
 func (fl *flags) String() string {
 	// XXX include unknown bits in the output
-	ss := make([]string, 0, hdrMax)
-	for i := hdrType(0); i < hdrMax; i++ {
+	ss := make([]string, 0, HEADER_LAST_FEATURE)
+	for i := HeaderType(0); i < HEADER_LAST_FEATURE; i++ {
 		if fl.bit(i) {
 			ss = append(ss, i.String())
 		}
@@ -346,7 +346,7 @@ type File struct {
 	// mapping from header type to offset in data where fileSection starts. Zero indicates absence of a
 	// section.
 	header   *header
-	sections [hdrMax]uint64
+	sections [HEADER_LAST_FEATURE]uint64
 	data     string
 
 	// Map from event IDs to event descriptions
@@ -362,18 +362,18 @@ func (f *File) EventAttrs() []fileEventAttr {
 	return myunsafe.ToSliceStr[[]fileEventAttr](f.data[f.header.attrs.offset:][:f.header.attrs.size])
 }
 
-func (f *File) Hostname() string  { return f.strSection(hdrHostname) }
-func (f *File) OSRelease() string { return f.strSection(hdrOSRelease) }
-func (f *File) Version() string   { return f.strSection(hdrVersion) }
-func (f *File) Arch() string      { return f.strSection(hdrArch) }
-func (f *File) CPUDesc() string   { return f.strSection(hdrCPUDesc) }
-func (f *File) CPUID() string     { return f.strSection(hdrCPUID) }
+func (f *File) Hostname() string  { return f.strSection(HEADER_HOSTNAME) }
+func (f *File) OSRelease() string { return f.strSection(HEADER_OSRELEASE) }
+func (f *File) Version() string   { return f.strSection(HEADER_VERSION) }
+func (f *File) Arch() string      { return f.strSection(HEADER_ARCH) }
+func (f *File) CPUDesc() string   { return f.strSection(HEADER_CPUDESC) }
+func (f *File) CPUID() string     { return f.strSection(HEADER_CPUID) }
 
 func (f *File) Clock() *Clock {
-	if f.sections[hdrClockID] == 0 {
+	if f.sections[HEADER_CLOCKID] == 0 {
 		return nil
 	}
-	s := f.section(hdrClockData)
+	s := f.section(HEADER_CLOCK_DATA)
 	return myunsafe.MapStr[Clock](f.data[s.offset:])
 }
 
@@ -388,11 +388,15 @@ func (c *Clock) Time() time.Time {
 	return time.Unix(0, int64(c.Wall))
 }
 
-func (f *File) section(section hdrType) *fileSection {
-	return myunsafe.MapStr[fileSection](f.data[f.sections[section]:])
+func (f *File) section(section HeaderType) *fileSection {
+	off := f.sections[section]
+	if off == 0 {
+		return nil
+	}
+	return myunsafe.MapStr[fileSection](f.data[off:])
 }
 
-func (f *File) strSection(section hdrType) string {
+func (f *File) strSection(section HeaderType) string {
 	if f.sections[section] == 0 {
 		return ""
 	}
@@ -425,28 +429,15 @@ func NewFile(data []byte) *File {
 
 	// Index all of the optional sections
 	off := hdr.data.offset + hdr.data.size
-	for i := hdrType(0); i < hdrMax; i++ {
+	for i := HEADER_FIRST_FEATURE; i < HEADER_LAST_FEATURE; i++ {
 		if hdr.flags.bit(i) {
 			f.sections[i] = off
 			off += uint64(unsafe.Sizeof(fileSection{}))
 		}
 	}
 
-	{
-
-		s := f.section(hdrCompressed)
-		b := []byte(f.data[s.offset:][:s.size])
-		fmt.Println(1, *myunsafe.Map[uint32](b[0:]))
-		fmt.Println(2, *myunsafe.Map[uint32](b[4:]))
-		fmt.Println(3, *myunsafe.Map[uint32](b[8:]))
-		fmt.Println(4, *myunsafe.Map[uint32](b[12:]))
-		fmt.Println(5, *myunsafe.Map[uint32](b[16:]))
-
-		// u32                     comp_ratio;
-		// u32                     comp_ver;
-		// u32                     comp_type;
-		// u32                     comp_level;
-		// u32                     comp_mmap_len;
+	if hdr.flags.bit(HEADER_COMPRESSED) {
+		panic("compressed perf.data not supported")
 	}
 
 	// Figure out how to reliably determine the types of samples. When there are multiple event sources in a
@@ -529,9 +520,12 @@ func (f *File) Record(idx int) Record {
 		return myunsafe.MapStr[Comm](b)
 	case PERF_RECORD_EXIT:
 		return myunsafe.MapStr[Exit](b)
-	// case PERF_RECORD_THROTTLE:
-	// case PERF_RECORD_UNTHROTTLE:
-	// case PERF_RECORD_FORK:
+	case PERF_RECORD_THROTTLE:
+		return myunsafe.MapStr[Throttle](b)
+	case PERF_RECORD_UNTHROTTLE:
+		return myunsafe.MapStr[Unthrottle](b)
+	case PERF_RECORD_FORK:
+		return myunsafe.MapStr[Fork](b)
 	// case PERF_RECORD_READ:
 	case PERF_RECORD_SAMPLE:
 		return myunsafe.MapStr[SampleHandle](b)
@@ -557,7 +551,8 @@ func (f *File) Record(idx int) Record {
 	// case PERF_RECORD_HEADER_EVENT_TYPE:
 	// case PERF_RECORD_HEADER_TRACING_DATA:
 	// case PERF_RECORD_HEADER_BUILD_ID:
-	// case PERF_RECORD_FINISHED_ROUND:
+	case PERF_RECORD_FINISHED_ROUND:
+		return myunsafe.MapStr[FinishedRound](b)
 	case PERF_RECORD_ID_INDEX:
 		n := *myunsafe.MapStr[uint64](b[8:])
 		return myunsafe.ToSliceStr[IDIndex](b[16 : 16+n*uint64(unsafe.Sizeof(IDIndexEntry{}))])
@@ -576,20 +571,10 @@ func (f *File) Record(idx int) Record {
 		return myunsafe.MapStr[TimeConv](b)
 	// case PERF_RECORD_HEADER_FEATURE:
 	case PERF_RECORD_COMPRESSED:
-		sz := myunsafe.MapStr[EventHeader](b).size + 8
-		fmt.Println(myunsafe.MapStr[EventHeader](b))
-		d := b[8:sz]
-		dec, _ := zstd.NewReader(nil, zstd.WithDecoderConcurrency(0))
-		dd := unsafe.Slice((*byte)(unsafe.StringData(d)), len(d))
-		fmt.Println(len(dd))
-		e, err := dec.DecodeAll(dd, nil)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(e)
 		return nil
 	// case PERF_RECORD_FINISHED_INIT:
 	default:
+		fmt.Println("MISSING", h.typ)
 		// XXX return error instead of panicking
 		return nil
 		panic(fmt.Sprintf("unhandled type %s", h.typ))
@@ -695,9 +680,9 @@ func (tm ThreadMaps) String() string {
 // [X] EventTypeLost
 // [X] EventTypeComm
 // [X] EventTypeExit
-// [ ] EventTypeThrottle
-// [ ] EventTypeUnthrottle
-// [ ] EventTypeFork
+// [X] EventTypeThrottle
+// [X] EventTypeUnthrottle
+// [X] EventTypeFork
 // [ ] EventTypeRead
 // [ ] EventTypeSample
 // [X] EventTypeMmap2
@@ -717,7 +702,7 @@ func (tm ThreadMaps) String() string {
 // [ ] EventTypeHeaderEventType
 // [ ] EventTypeHeaderTracingData
 // [ ] EventTypeHeaderBuildID
-// [ ] EventTypeFinishedRound
+// [X] EventTypeFinishedRound
 // [X] EventTypeIDIndex
 // [ ] EventTypeAuxtraceInfo
 // [ ] EventTypeAuxtrace
@@ -798,7 +783,7 @@ func (s *Sample) String() string {
 ... Lbr: %v
 ... ABIUser: %v
 ... RegsUser: %v
-... Stack: %v
+... Stack: %s
 ... Weight: %v
 ... DataSrc: %v
 ... Transaction: %v
@@ -811,9 +796,15 @@ func (s *Sample) String() string {
 ... Aux: %v
 `
 
+	var stack string
+	if ss, ok := s.Stack.Get(); ok {
+		stack = fmt.Sprintf("%d bytes", len(ss))
+	} else {
+		stack = "None"
+	}
 	return fmt.Sprintf(f,
 		s.ID, s.IP, s.PID, s.TID, s.Time, s.Addr, s.StreamID, s.CPU, s.Res, s.Period, s.V, s.IPs,
-		s.Raw, s.Lbr, s.ABIUser, s.RegsUser, s.Stack, s.Weight, s.DataSrc, s.Transaction, s.ABIIntr, s.RegsIntr,
+		s.Raw, s.Lbr, s.ABIUser, s.RegsUser, stack, s.Weight, s.DataSrc, s.Transaction, s.ABIIntr, s.RegsIntr,
 		s.PhysAddr, s.Cgroup, s.DataPageSize, s.CodePageSize, s.Aux,
 	)
 }
@@ -874,6 +865,7 @@ func (f *File) Sample(sh *SampleHandle, s *Sample) {
 		s.Period = container.Some(u64())
 	}
 	if typ&PERF_SAMPLE_READ != 0 {
+		panic("not supported")
 		// XXX
 	}
 	if typ&PERF_SAMPLE_CALLCHAIN != 0 {
@@ -922,10 +914,12 @@ func (f *File) Sample(sh *SampleHandle, s *Sample) {
 		// The first size is the full, padded size of the stack data.
 		n1 := u64()
 		if n1 > 0 {
+			stack := unsafe.String((*byte)(p), n1)
+			p = unsafe.Add(p, n1)
 			// The second size is the actual size of the stack data, with n2 <= n1.
 			n2 := u64()
-			s.Stack = container.Some(unsafe.String((*byte)(p), n2))
-			p = unsafe.Add(p, n1)
+			stack = stack[:n2]
+			s.Stack = container.Some(stack)
 		}
 	}
 	if typ&PERF_SAMPLE_WEIGHT != 0 {
@@ -1021,10 +1015,19 @@ func main() {
 	// elfStuff()
 	// return
 
-	data, err := os.ReadFile(os.Args[1])
+	ff, err := os.OpenFile(os.Args[1], os.O_RDONLY, 0)
 	if err != nil {
 		log.Fatal(err)
 	}
+	fi, err := ff.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+	data, err := syscall.Mmap(int(ff.Fd()), 0, int(fi.Size()), PROT_READ, MAP_PRIVATE)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ff.Close()
 
 	f := NewFile(data)
 	for i := 0; i < f.NumRecords(); i++ {
@@ -1039,42 +1042,6 @@ func main() {
 		default:
 			fmt.Println(r)
 		}
-		// switch r := r.(type) {
-		// case *Comm:
-		// 	fmt.Println(r.Comm())
-		// case *Exit:
-		// 	fmt.Println("exit", r.Exit())
-		// case *Mmap2:
-		// 	fmt.Println(r.Mmap2())
-		// case *Sample:
-		// 	var sample Sample
-		// 	r.Sample(f, &sample)
-		// 	fmt.Println(&sample)
-		// case *TimeConv:
-		// 	fmt.Println(r.TimeConv())
-		// case *ThreadMap:
-		// 	fmt.Println(r.ThreadMap())
-		// case *Lost:
-		// 	fmt.Println(r.Lost())
-		// case *LostSamples:
-		// 	fmt.Println(r.LostSamples())
-		// case *Ksymbol:
-		// 	fmt.Println(r.Ksymbol())
-		// case *IDIndex:
-		// 	fmt.Println(r.IDIndex())
-		// case *FinishedInit:
-		// 	fmt.Println("PERF_RECORD_FINISHED_INIT")
-		// case *FinishedRound:
-		// 	fmt.Println("PERF_RECORD_FINISHED_ROUND")
-		// case *Switch:
-		// 	fmt.Println(r.Switch())
-		// case *TextPoke:
-		// 	fmt.Println(r.TextPoke())
-		// case *Cgroup:
-		// 	fmt.Println(r.Cgroup())
-		// default:
-		// 	fmt.Println("womp womp", r.Header().typ)
-		// }
 	}
 
 	// XXX confirm header size
@@ -1176,6 +1143,13 @@ type recordTextPoke struct {
 	newLen uint16
 }
 
+type recordThrottle struct {
+	_        EventHeader
+	time     uint64
+	id       uint64
+	streamID uint64
+}
+
 type recordTimeConv struct {
 	_                EventHeader
 	timeShift        uint64
@@ -1191,16 +1165,19 @@ type recordTimeConv struct {
 type Cgroup struct{ b byte }
 type Comm struct{ b byte }
 type Exit struct{ b byte }
+type FinishedRound struct{ b byte }
 type Fork struct{ b byte }
 type Ksymbol struct{ b byte }
+type Lost struct{ b byte }
+type LostSamples struct{ b byte }
 type Mmap struct{ b byte }
 type Mmap2 struct{ b byte }
 type SampleHandle struct{ b byte }
 type Switch struct{ b byte }
+type Throttle struct{ b byte }
 type TimeConv struct{ b byte }
 type TextPoke struct{ b byte }
-type Lost struct{ b byte }
-type LostSamples struct{ b byte }
+type Unthrottle struct{ b byte }
 
 // func (r Record) Header() *EventHeader { return cast[EventHeader](r.data) }
 
@@ -1239,11 +1216,16 @@ func (e *Exit) String() string {
 	return fmt.Sprintf("PERF_RECORD_EXIT (%d:%d):(%d:%d)", e.Ppid(), e.Tid(), e.Ppid(), e.Ptid())
 }
 
+func (f *FinishedRound) String() string { return "PERF_RECORD_FINISHED_ROUND" }
+
 func (f *Fork) Pid() uint32  { return cast[recordFork](f).pid }
 func (f *Fork) Ppid() uint32 { return cast[recordFork](f).ppid }
 func (f *Fork) Tid() uint32  { return cast[recordFork](f).tid }
 func (f *Fork) Ptid() uint32 { return cast[recordFork](f).ptid }
 func (f *Fork) Time() uint64 { return cast[recordFork](f).time }
+func (e *Fork) String() string {
+	return fmt.Sprintf("PERF_RECORD_FORK (%d:%d):(%d:%d)", e.Ppid(), e.Tid(), e.Ppid(), e.Ptid())
+}
 
 func (sym *Ksymbol) Addr() uint64  { return cast[recordKsymbol](sym).addr }
 func (sym *Ksymbol) Len() uint32   { return cast[recordKsymbol](sym).len }
@@ -1327,6 +1309,13 @@ func (t *TextPoke) String() string {
 		t.Addr(), t.OldLen(), t.NewLen())
 }
 
+func (t *Throttle) Time() uint64     { return cast[recordThrottle](t).time }
+func (t *Throttle) ID() uint64       { return cast[recordThrottle](t).id }
+func (t *Throttle) StreamID() uint64 { return cast[recordThrottle](t).streamID }
+func (t *Throttle) String() string {
+	return fmt.Sprintf("PERF_RECORD_THROTTLE %d %d %d", t.Time(), t.ID(), t.StreamID())
+}
+
 func (t *TimeConv) TimeShift() uint64       { return cast[recordTimeConv](t).timeShift }
 func (t *TimeConv) TimeMult() uint64        { return cast[recordTimeConv](t).timeMult }
 func (t *TimeConv) TimeZero() uint64        { return cast[recordTimeConv](t).timeZero }
@@ -1354,6 +1343,13 @@ func (tc *TimeConv) String() string {
 		tc.CapUserTimeZero(),
 		tc.CapUserTimeShort(),
 	)
+}
+
+func (t *Unthrottle) Time() uint64     { return cast[recordThrottle](t).time }
+func (t *Unthrottle) ID() uint64       { return cast[recordThrottle](t).id }
+func (t *Unthrottle) StreamID() uint64 { return cast[recordThrottle](t).streamID }
+func (t *Unthrottle) String() string {
+	return fmt.Sprintf("PERF_RECORD_UNTHROTTLE %d %d %d", t.Time(), t.ID(), t.StreamID())
 }
 
 type Record interface {
