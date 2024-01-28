@@ -7,6 +7,14 @@ type Option[T any] struct {
 	set bool
 }
 
+func (opt Option[T]) Format(f fmt.State, verb rune) {
+	if !opt.set {
+		fmt.Fprint(f, "None")
+	} else {
+		fmt.Fprintf(f, fmt.FormatString(f, verb), opt.v)
+	}
+}
+
 func (opt Option[T]) String() string {
 	if !opt.set {
 		return "None"
