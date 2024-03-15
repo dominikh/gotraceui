@@ -523,16 +523,27 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 					gtx.Constraints.Min = gtx.Constraints.Max
 					switch tabs[si.tabbedState.Current] {
 					case "Stack trace":
-						return theme.List(win.Theme, &si.stacktraceList).Layout(win, gtx, 1, func(gtx layout.Context, index int) layout.Dimensions {
-							if index != 0 {
-								panic("impossible")
-							}
-							if si.stackSelectable.Text() == "" {
-								si.stackSelectable.SetText(si.cfg.Stacktrace)
-							}
+						return theme.List(win.Theme, &si.stacktraceList).Layout(
+							win,
+							gtx,
+							1,
+							func(gtx layout.Context, index int) layout.Dimensions {
+								if index != 0 {
+									panic("impossible")
+								}
+								if si.stackSelectable.Text() == "" {
+									si.stackSelectable.SetText(si.cfg.Stacktrace)
+								}
 
-							return si.stackSelectable.Layout(gtx, win.Theme.Shaper, font.Font{}, win.Theme.TextSize, win.ColorMaterial(gtx, win.Theme.Palette.Foreground), win.ColorMaterial(gtx, win.Theme.Palette.PrimarySelection))
-						})
+								return si.stackSelectable.Layout(
+									gtx,
+									win.Theme.Shaper,
+									font.Font{},
+									win.Theme.TextSize,
+									win.ColorMaterial(gtx, win.Theme.Palette.Foreground),
+									win.ColorMaterial(gtx, win.Theme.Palette.PrimarySelection))
+							},
+						)
 
 					case "Statistics":
 						return layout.Rigids(gtx, layout.Vertical,

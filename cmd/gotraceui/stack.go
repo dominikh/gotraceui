@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	rtrace "runtime/trace"
+	"strings"
 
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/trace/ptrace"
@@ -330,4 +331,38 @@ func addStackTracks[C *ptrace.Goroutine | *ptrace.Processor](tl *Timeline, c C, 
 		}
 		tl.tracks = append(tl.tracks, track)
 	}
+}
+
+// formatStack formats a stack in the usual Go fashion. When limit is positive, only that many frames will be shown, and
+// omitted frames will be replaced with a single line indicating their absence. A limit of 1 will act like a limit of 2.
+func formatStack(tr *Trace, stk exptrace.Stack, limit int) string {
+	sb := strings.Builder{}
+	if limit == 1 {
+		limit = 2
+	}
+	pcs := tr.Stacks[stk]
+	if limit > 0 && len(pcs) > limit {
+		top := pcs[:limit-limit/2]
+		bottom := pcs[len(pcs)-limit/2:]
+
+		for _, pc := range top {
+			frame := tr.PCs[pc]
+			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Func, frame.File, frame.Line)
+		}
+		fmt.Fprintf(&sb, "[%d frames hidden]\n", len(pcs)-limit)
+		for _, pc := range bottom {
+			frame := tr.PCs[pc]
+			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Func, frame.File, frame.Line)
+		}
+	} else {
+		for _, pc := range pcs {
+			frame := tr.PCs[pc]
+			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Func, frame.File, frame.Line)
+		}
+	}
+	stacktrace := sb.String()
+	if len(stacktrace) > 0 && stacktrace[len(stacktrace)-1] == '\n' {
+		stacktrace = stacktrace[:len(stacktrace)-1]
+	}
+	return stacktrace
 }

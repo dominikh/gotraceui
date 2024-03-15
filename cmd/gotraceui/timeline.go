@@ -98,6 +98,7 @@ type Track struct {
 	spans            *theme.Future[Items[ptrace.Span]]
 	compute          func(track *Track, cancelled <-chan struct{}) Items[ptrace.Span]
 	events           []ptrace.EventID
+	samples          []ptrace.EventID
 	hideEventMarkers bool
 
 	stackLevel int
@@ -125,8 +126,9 @@ func (tl *Timeline) ensureTrackWidgets() {
 	for i := range tl.tracks {
 		tl.tracks[i].widget = tl.cv.trackWidgetsCache.Get()
 		*tl.tracks[i].widget = TrackWidget{
-			eventsMt: MiniTrack[eventWithGetters, *eventWithGetters]{MiniTrackBehavior: mtrackEvents},
-			tinyMt:   MiniTrack[spanWithGetters, *spanWithGetters]{MiniTrackBehavior: mtrackTiny},
+			eventsMt:  MiniTrack[eventWithGetters, *eventWithGetters]{MiniTrackBehavior: mtrackEvents},
+			tinyMt:    MiniTrack[spanWithGetters, *spanWithGetters]{MiniTrackBehavior: mtrackTiny},
+			samplesMt: MiniTrack[eventWithGetters, *eventWithGetters]{MiniTrackBehavior: mtrackSamples},
 		}
 	}
 	if tl.buildTrackWidgets != nil {
@@ -200,8 +202,9 @@ type TrackWidget struct {
 	hover gesture.Hover
 	click gesture.Click
 
-	tinyMt   MiniTrack[spanWithGetters, *spanWithGetters]
-	eventsMt MiniTrack[eventWithGetters, *eventWithGetters]
+	tinyMt    MiniTrack[spanWithGetters, *spanWithGetters]
+	eventsMt  MiniTrack[eventWithGetters, *eventWithGetters]
+	samplesMt MiniTrack[eventWithGetters, *eventWithGetters]
 
 	scratchHighlighted   []clip.FRect
 	scratchTextureStacks []TextureStack
@@ -570,6 +573,9 @@ func (track *Track) Height(gtx layout.Context) int {
 	if !track.hideEventMarkers && len(track.events) != 0 {
 		height += gtx.Dp(timelineMinitrackHeightDp) + gtx.Dp(timelineMinitrackGapDp)
 	}
+	if len(track.samples) != 0 {
+		height += gtx.Dp(timelineMinitrackHeightDp) + gtx.Dp(timelineMinitrackGapDp)
+	}
 	return height
 }
 
@@ -622,6 +628,11 @@ func (track *Track) Layout(
 	if !track.hideEventMarkers && len(track.events) != 0 {
 		defer op.Offset(image.Pt(0, tiny.Size.Y+gtx.Dp(timelineMinitrackGapDp))).Push(gtx.Ops).Pop()
 		track.layoutEvents(win, gtx, tl.cv)
+	}
+
+	if len(track.samples) != 0 {
+		defer op.Offset(image.Pt(0, tiny.Size.Y+gtx.Dp(timelineMinitrackGapDp))).Push(gtx.Ops).Pop()
+		track.layoutSamples(win, gtx, tl.cv)
 	}
 
 	defer op.Offset(image.Pt(0, tiny.Size.Y+gtx.Dp(timelineMinitrackGapDp))).Push(gtx.Ops).Pop()
@@ -1186,11 +1197,23 @@ var (
 			return EventsRange(myunsafe.Cast[Items[exptrace.Event]](items))
 		},
 		color: func(items Items[eventWithGetters], _ *Track) colorIndex {
-			if items.Len() < 2 {
-				return colorEvent
+			return colorEvent
+		},
+	}
+
+	mtrackSamples = &MiniTrackBehavior[eventWithGetters]{
+		tooltip: func(win *theme.Window, items Items[eventWithGetters], track *Track) theme.Widget {
+			if items.Len() > 1 {
+				return theme.Tooltip(win.Theme, fmt.Sprintf("%d stack samples", items.Len())).Layout
 			} else {
-				return colorMergedEvents
+				return theme.Tooltip(win.Theme, formatStack(track.parent.cv.trace, items.AtPtr(0).Stack(), 6)).Layout
 			}
+		},
+		timeSpan: func(items Items[eventWithGetters]) TimeSpan {
+			return EventsRange(myunsafe.Cast[Items[exptrace.Event]](items))
+		},
+		color: func(items Items[eventWithGetters], track *Track) colorIndex {
+			return colorStateCPUSample
 		},
 	}
 )
@@ -1382,6 +1405,20 @@ func (track *Track) layoutEvents(win *theme.Window, gtx layout.Context, cv *Canv
 		}
 	})
 
+}
+
+func (track *Track) layoutSamples(win *theme.Window, gtx layout.Context, cv *Canvas) {
+	track.widget.samplesMt.Layout(win, gtx, track, cv, func(yield func(el Items[eventWithGetters]) bool) {
+		eventIDs := SimpleItems[ptrace.EventID, struct{}]{
+			items: track.samples,
+		}
+		// XXX limit ourselves to events in the visible range?
+		items := myunsafe.Cast[Items[eventWithGetters]](Items[exptrace.Event](eventsFromIDs{
+			tr:    cv.trace.Trace,
+			items: eventIDs,
+		}))
+		yield(items)
+	})
 }
 
 func singleSpanLabel(label string) func(spans Items[ptrace.Span], tr *Trace, out []string) []string {

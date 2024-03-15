@@ -171,6 +171,7 @@ func NewGoroutineTimeline(tr *Trace, cv *Canvas, g *ptrace.Goroutine) *Timeline 
 	track.spanTooltip = goroutineSpanTooltip
 	track.spanContextMenu = goroutineTrack0SpanContextMenu
 	track.events = g.Events
+	track.samples = tr.CPUSamplesByG[g.ID]
 	tl.tracks = []*Track{track}
 
 	for _, ug := range g.UserRegions {
@@ -408,17 +409,8 @@ func NewGoroutineInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, g *ptrace.G
 
 	var stacktrace string
 	if spans[0].State == ptrace.StateCreated {
-		ev := tr.Event(spans[0].StartEvent)
-		stk := ev.Stack()
-		sb := strings.Builder{}
-		stk.Frames(func(frame exptrace.StackFrame) bool {
-			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Func, frame.File, frame.Line)
-			return true
-		})
-		stacktrace = sb.String()
-		if len(stacktrace) > 0 && stacktrace[len(stacktrace)-1] == '\n' {
-			stacktrace = stacktrace[:len(stacktrace)-1]
-		}
+		stk := tr.Event(spans[0].StartEvent).Stack()
+		stacktrace = formatStack(tr, stk, 0)
 	}
 
 	buildDescription := func(win *theme.Window, gtx layout.Context) Description {
