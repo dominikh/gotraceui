@@ -1,7 +1,7 @@
 # v0.5.0 (unreleased)
 
-- Introduce thin strips above tracks that indicate tiny spans, merged spans, and events. This moves events out
-  of the main track.
+- Introduce thin strips above tracks that indicate tiny spans, merged spans, events, and
+  CPU samples. This moves events out of the main track.
 - Add tooltips for spans in GC and STW timelines
 - Add shortcuts for opening traces and quitting Gotraceui
 - Don't slow down UI trying to compute accurate span durations
