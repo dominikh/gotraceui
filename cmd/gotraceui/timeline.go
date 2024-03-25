@@ -1074,7 +1074,11 @@ var (
 		onlyTinyAndMerged: true,
 		tooltip: func(win *theme.Window, items Items[spanWithGetters], track *Track) theme.Widget {
 			return func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-				return track.spanTooltip(win, gtx, track.parent.cv.trace, myunsafe.Cast[Items[ptrace.Span]](items))
+				spanTooltip := track.spanTooltip
+				if spanTooltip == nil {
+					spanTooltip = defaultSpanTooltip
+				}
+				return spanTooltip(win, gtx, track.parent.cv.trace, myunsafe.Cast[Items[ptrace.Span]](items))
 			}
 		},
 		timeSpan: func(items Items[spanWithGetters]) TimeSpan {
