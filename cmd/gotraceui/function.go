@@ -206,6 +206,7 @@ func (fi *FunctionInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dim
 								gs = fi.fn.Goroutines
 							}
 							if fi.goroutineList.Goroutines.Len() == 0 || len(gs) == 0 || &gs[0] != &fi.goroutineList.Goroutines.Items[0] {
+								fi.goroutineList.Trace = fi.trace
 								fi.goroutineList.SetGoroutines(win, gtx, gs)
 							}
 							return fi.goroutineList.Layout(win, gtx)
