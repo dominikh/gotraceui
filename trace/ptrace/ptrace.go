@@ -636,16 +636,17 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 		case exptrace.EventRegionEnd:
 			gid := ev.Goroutine()
 			g := getG(gid)
-			// XXX can we see a region end without seeing the start? Right now we can't because that crashes
-			// exptrace.
 			d := userRegionDepths[gid] - 1
-			ss := g.UserRegions[d]
-			ss[len(ss)-1].EndEvent = evID
-			ss[len(ss)-1].End = ev.Time()
-			if d > 0 {
-				userRegionDepths[gid] = d
-			} else {
-				delete(userRegionDepths, gid)
+			// We can see a region end without a region start if the two occured in different traces.
+			if d >= 0 {
+				ss := g.UserRegions[d]
+				ss[len(ss)-1].EndEvent = evID
+				ss[len(ss)-1].End = ev.Time()
+				if d > 0 {
+					userRegionDepths[gid] = d
+				} else {
+					delete(userRegionDepths, gid)
+				}
 			}
 		case exptrace.EventStackSample:
 			tr.CPUSamples = append(tr.CPUSamples, evID)
