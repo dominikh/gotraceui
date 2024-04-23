@@ -132,7 +132,8 @@ type Canvas struct {
 	scrollbar      widget.Scrollbar
 	axis           Axis
 
-	memoryGraph Plot
+	memoryGraph    Plot
+	goroutineGraph Plot
 
 	// State for dragging the canvas
 	drag struct {
@@ -209,7 +210,7 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 	*cv = Canvas{
 		resizeMemoryTimelines: component.Resize{
 			Axis:  layout.Vertical,
-			Ratio: 0.1,
+			Ratio: 0.2,
 		},
 		axis:           Axis{cv: cv, anchor: AxisAnchorCenter},
 		trace:          t,
@@ -924,13 +925,25 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 			func(gtx layout.Context) layout.Dimensions {
 				return theme.Resize(win.Theme, &cv.resizeMemoryTimelines).Layout(win, gtx,
-					// Memory graph
 					func(win *theme.Window, gtx layout.Context) layout.Dimensions {
-						defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-						cv.drag.drag.Add(gtx.Ops)
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
+								// Memory graph
+								defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+								cv.drag.drag.Add(gtx.Ops)
 
-						dims := cv.memoryGraph.Layout(win, gtx, cv)
-						return dims
+								dims := cv.memoryGraph.Layout(win, gtx, cv)
+								return dims
+							}),
+							layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
+								// Goroutine graph
+								defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+								cv.drag.drag.Add(gtx.Ops)
+
+								dims := cv.goroutineGraph.Layout(win, gtx, cv)
+								return dims
+							}),
+						)
 					},
 
 					// Timelines and scrollbar

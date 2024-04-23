@@ -438,6 +438,31 @@ func rangeActualScope(r exptrace.Range) rangeScope {
 	}
 }
 
+// runningGauge builds up a gauge over time.
+type runningGauge struct {
+	// current is the current value of the gauge.
+	current int64
+	// points capture the current value over time.
+	points []Point
+}
+
+// add adds a value to the gauge at time t.
+// It assumes that t will not decrease with subsequent calls.
+func (rg *runningGauge) add(t exptrace.Time, v int64) {
+	rg.current += v
+	if idx := len(rg.points) - 1; idx >= 0 && rg.points[idx].When == t {
+		rg.points[idx].Value = uint64(rg.current)
+	} else {
+		rg.points = append(rg.points, Point{When: t, Value: uint64(rg.current)})
+	}
+}
+
+type goroutineMetrics struct {
+	runnableGoroutines runningGauge
+	runningGoroutines  runningGauge
+	blockedGoroutines  runningGauge
+}
+
 func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error {
 	// OPT(dh): evaluate reading all events in one pass, then preallocating []Span slices based on the number
 	// of events we saw for Ps and Gs.
@@ -476,6 +501,7 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 	synced := false
 	userRegionDepths := map[exptrace.GoID]int{}
 	var traceStart exptrace.Time
+	var gm goroutineMetrics
 	for {
 		ev, err := r.ReadEvent()
 		if err != nil {
@@ -490,6 +516,9 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 
 		if tr.Events.Len() == 0 {
 			traceStart = ev.Time()
+			gm.runningGoroutines.add(traceStart, 0)
+			gm.runnableGoroutines.add(traceStart, 0)
+			gm.blockedGoroutines.add(traceStart, 0)
 		}
 
 		evID := EventID(tr.Events.Len())
@@ -711,6 +740,26 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 				if from == exptrace.GoUndetermined {
 					s.Start = traceStart
 				}
+				switch {
+				case from == exptrace.GoRunnable:
+					gm.runnableGoroutines.add(ev.Time(), -1)
+				case to == exptrace.GoRunnable:
+					gm.runnableGoroutines.add(ev.Time(), 1)
+				}
+				switch {
+				case from == exptrace.GoRunning:
+					gm.runningGoroutines.add(ev.Time(), -1)
+				case to == exptrace.GoRunning:
+					gm.runningGoroutines.add(ev.Time(), 1)
+				}
+				fromIsBlocked := from == exptrace.GoSyscall || from == exptrace.GoWaiting
+				toIsBlocked := to == exptrace.GoSyscall || to == exptrace.GoWaiting
+				switch {
+				case fromIsBlocked && !toIsBlocked:
+					gm.blockedGoroutines.add(ev.Time(), -1)
+				case !fromIsBlocked && toIsBlocked:
+					gm.blockedGoroutines.add(ev.Time(), 1)
+				}
 
 				// XXX actually, for from == exptrace.GoUndetermined, we still need to do omst of the work to update P
 				// spans. a proc may start, followed by a goroutine going from undetermined->running on that proc, and
@@ -872,6 +921,10 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			}
 		}
 	}
+
+	tr.Metrics["/gotraceui/sched/goroutines/runnable:goroutines"] = gm.runnableGoroutines.points
+	tr.Metrics["/gotraceui/sched/goroutines/running:goroutines"] = gm.runningGoroutines.points
+	tr.Metrics["/gotraceui/sched/goroutines/waiting:goroutines"] = gm.blockedGoroutines.points
 
 	return nil
 }

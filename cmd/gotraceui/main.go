@@ -1111,6 +1111,7 @@ func (mwin *MainWindow) showFileOpenDialog() {
 func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	NewCanvasInto(&mwin.canvas, mwin.debugWindow, res.trace)
 	mwin.canvas.memoryGraph = res.plot
+	mwin.canvas.goroutineGraph = res.goroutinePlot
 	mwin.canvas.timelines = append(mwin.canvas.timelines, res.timelines...)
 
 	for _, tl := range res.timelines {
@@ -1436,9 +1437,10 @@ func main() {
 }
 
 type loadTraceResult struct {
-	trace     *Trace
-	plot      Plot
-	timelines []*Timeline
+	trace         *Trace
+	plot          Plot
+	goroutinePlot Plot
+	timelines     []*Timeline
 }
 
 type progresser interface {
@@ -1581,6 +1583,31 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		},
 	)
 
+	gg := Plot{
+		Name: "Goroutine count",
+		Unit: "goroutines",
+	}
+	gg.AddSeries(
+		PlotSeries{
+			Name:   "Runnable",
+			Points: pt.Metrics["/gotraceui/sched/goroutines/runnable:goroutines"],
+			Style:  PlotStaircase,
+			Color:  colors[colorStateReady],
+		},
+		PlotSeries{
+			Name:   "Running",
+			Points: pt.Metrics["/gotraceui/sched/goroutines/running:goroutines"],
+			Style:  PlotStaircase,
+			Color:  colors[colorStateActive],
+		},
+		PlotSeries{
+			Name:   "Waiting",
+			Points: pt.Metrics["/gotraceui/sched/goroutines/waiting:goroutines"],
+			Style:  PlotStaircase,
+			Color:  colors[colorStateBlocked],
+		},
+	)
+
 	var goroot, gopath string
 	for _, fn := range tr.Functions {
 		if strings.HasPrefix(fn.Func, "runtime.") && strings.Count(fn.Func, ".") == 1 && strings.Contains(fn.File, filepath.Join("go", "src", "runtime")) && !strings.ContainsRune(fn.Func, os.PathSeparator) {
@@ -1626,9 +1653,10 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	tr.TimeOffset = -tr.Start()
 
 	return loadTraceResult{
-		trace:     tr,
-		plot:      mg,
-		timelines: timelines,
+		trace:         tr,
+		plot:          mg,
+		goroutinePlot: gg,
+		timelines:     timelines,
 	}, nil
 }
 
