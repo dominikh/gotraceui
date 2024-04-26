@@ -50,6 +50,7 @@ const (
 	TrackKindUnspecified TrackKind = iota
 	TrackKindStack
 	TrackKindUserRegions
+	TrackKindTask
 )
 
 type Timeline struct {
