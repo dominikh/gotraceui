@@ -55,6 +55,7 @@ const (
 
 	// Special states used by user regions and stack frames
 	StateUserRegion
+	StateTask
 	StateStack
 	StateCPUSample
 
@@ -279,18 +280,47 @@ type Processor struct {
 }
 
 type Task struct {
-	// OPT(dh): Technically we only need the EventID field, everything else can be extracted from the event on demand.
+	// OPT(dh): Technically we only need the StartEventID field, everything else can be extracted from the event on demand.
 	// But there are probably not enough tasks to make that worth it.
 	ID     exptrace.TaskID
 	Parent exptrace.TaskID
 	// Sequential ID of task in the trace
-	SeqID int
-	Name  string
-	Event EventID
+	SeqID      int
+	Name       string
+	Start      container.Option[exptrace.Time]
+	End        container.Option[exptrace.Time]
+	StartEvent EventID
+	EndEvent   EventID
+	Spans      []Span
+	Events     []EventID
 }
 
 func (t *Task) Stub() bool {
-	return t.Event == 0
+	return t.StartEvent == 0
+}
+
+func (t *Task) EffectiveStart() exptrace.Time {
+	if ts, ok := t.Start.Get(); ok {
+		return ts
+	} else {
+		if len(t.Spans) != 0 {
+			return t.Spans[0].Start
+		} else {
+			return 0
+		}
+	}
+}
+
+func (t *Task) EffectiveEnd() exptrace.Time {
+	if ts, ok := t.End.Get(); ok {
+		return ts
+	} else {
+		if len(t.Spans) != 0 {
+			return t.Spans[len(t.Spans)-1].End
+		} else {
+			return 0
+		}
+	}
 }
 
 func (s *Span) StartedBeforeTrace(tr *Trace) bool {
@@ -326,7 +356,7 @@ type Span struct {
 	// The Span type is carefully laid out to optimize its size and to avoid pointers, the latter so that the garbage
 	// collector won't have to scan any memory of our millions of events.
 	//
-	// Instead of pointers, fields like PC and Event are indices into slices.
+	// Instead of pointers, fields like PC and StartEvent are indices into slices.
 
 	Start exptrace.Time
 	End   exptrace.Time
@@ -336,7 +366,7 @@ type Span struct {
 	EndEvent EventID
 	// At is an offset from the top of the stack, skipping over uninteresting runtime frames.
 	At uint8
-	// We track the scheduling State explicitly, instead of mapping from trace.Event.Type, because we apply pattern
+	// We track the scheduling State explicitly, instead of mapping from trace.StartEvent.Type, because we apply pattern
 	// matching to stack traces that may result in more accurate states. For example, we can determine
 	// stateBlockedSyncOnce from the stack trace, and we would otherwise use stateBlockedSync.
 	State SchedulingState
@@ -497,6 +527,24 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 		g := getG(gid)
 		g.Events = append(g.Events, ev)
 	}
+	getTask := func(taskID exptrace.TaskID) *Task {
+		idx, ok := tr.task(taskID)
+		if ok {
+			return tr.Tasks[idx]
+		}
+
+		// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
+		// was created before tracing began.
+		task := &Task{
+			ID: taskID,
+		}
+		tr.Tasks = slices.Insert(tr.Tasks, idx, task)
+		return task
+	}
+	addEventToTask := func(taskID exptrace.TaskID, ev EventID) {
+		t := getTask(taskID)
+		t.Events = append(t.Events, ev)
+	}
 
 	synced := false
 	userRegionDepths := map[exptrace.GoID]int{}
@@ -560,6 +608,10 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			}
 		case exptrace.EventLog:
 			addEventToCurrentSpan(ev.Goroutine(), evID)
+			l := ev.Log()
+			if l.Task != exptrace.NoTask {
+				addEventToTask(l.Task, evID)
+			}
 		case exptrace.EventMetric:
 			m := ev.Metric()
 			mm := tr.Metrics[m.Name]
@@ -653,16 +705,8 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			r := ev.Region()
 			// XXX add a default background task with ID 0
 			if r.Task != 0 && r.Task != exptrace.NoTask {
-				idx, ok := tr.task(r.Task)
-				if !ok {
-					// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
-					// was created before tracing began.
-					task := &Task{
-						ID:    r.Task,
-						Event: evID,
-					}
-					tr.Tasks = slices.Insert(tr.Tasks, idx, task)
-				}
+				// ensure the task exists
+				getTask(r.Task)
 			}
 			continue
 		case exptrace.EventRegionEnd:
@@ -894,14 +938,50 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			}
 		case exptrace.EventTaskBegin:
 			t := ev.Task()
-			tr.Tasks = append(tr.Tasks, &Task{
-				ID:     t.ID,
-				Parent: t.Parent,
-				Event:  evID,
-				Name:   t.Type,
-			})
+			idx, ok := tr.task(t.ID)
+			if ok {
+				panic("task already exists")
+			}
+			task := &Task{
+				ID:         t.ID,
+				Parent:     t.Parent,
+				Start:      container.Some(ev.Time()),
+				StartEvent: evID,
+				Name:       t.Type,
+			}
+			// Tasks may not be sorted in the trace, so we need to insert them at the correct position.
+			// This will translate to an append in most cases.
+			tr.Tasks = slices.Insert(tr.Tasks, idx, task)
+			addEventToCurrentSpan(ev.Goroutine(), evID)
+			if t.Parent != exptrace.NoTask {
+				addEventToTask(t.Parent, evID)
+			}
 		case exptrace.EventTaskEnd:
-			// Nothing to do
+			t := ev.Task()
+			idx, ok := tr.task(t.ID)
+			if !ok {
+				// The task with the given ID doesn't exist. This can happen in well-formed traces when the task
+				// was created before tracing began.
+				task := &Task{
+					ID:       t.ID,
+					Parent:   t.Parent,
+					End:      container.Some(ev.Time()),
+					EndEvent: evID,
+					Name:     t.Type,
+				}
+				tr.Tasks = slices.Insert(tr.Tasks, idx, task)
+			} else {
+				if tr.Tasks[idx].Stub() {
+					// Fill the missing information
+					tr.Tasks[idx].Parent = t.Parent
+					tr.Tasks[idx].Name = t.Type
+				}
+				tr.Tasks[idx].End = container.Some(ev.Time())
+				tr.Tasks[idx].EndEvent = evID
+			}
+			if t.Parent != exptrace.NoTask {
+				addEventToTask(t.Parent, evID)
+			}
 		default:
 			panic(fmt.Sprintf("unhandled kind %s", ev.Kind()))
 		}
@@ -1045,6 +1125,18 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 			fixEnds(ranges)
 		}
 	}
+	for i := range tr.Tasks {
+		tr.Tasks[i].Spans = []Span{
+			{
+				Start:      tr.Tasks[i].EffectiveStart(),
+				End:        tr.Tasks[i].EffectiveEnd(),
+				StartEvent: tr.Tasks[i].StartEvent,
+				EndEvent:   tr.Tasks[i].EndEvent,
+				State:      StateTask,
+			},
+		}
+		fixEnds(tr.Tasks[i].Spans)
+	}
 	fixEnds(tr.GC)
 	fixEnds(tr.STW)
 
@@ -1125,7 +1217,7 @@ func (t *Trace) Event(ev EventID) *exptrace.Event {
 func (t *Trace) Task(id exptrace.TaskID) *Task {
 	idx, ok := t.task(id)
 	if !ok {
-		panic("couldn't find task")
+		panic(fmt.Sprintf("couldn't find task %d", id))
 	}
 	return t.Tasks[idx]
 }

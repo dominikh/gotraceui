@@ -138,6 +138,7 @@ var stateColors = [256]colorIndex{
 	ptrace.StateBlockedSyncOnce:         colorStateBlockedHappensBefore,
 	ptrace.StateBlockedSyncTriggeringGC: colorStateGC,
 	ptrace.StateUserRegion:              colorStateUserRegion,
+	ptrace.StateTask:                    colorStateUserRegion,
 	ptrace.StateStack:                   colorStateStack,
 	ptrace.StateCPUSample:               colorStateCPUSample,
 

@@ -16,6 +16,7 @@ import (
 	"runtime/pprof"
 	rtrace "runtime/trace"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,7 +29,6 @@ import (
 	"honnef.co/go/gotraceui/container"
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/tinylfu"
@@ -116,6 +116,11 @@ var (
 
 func (mwin *MainWindow) openGoroutine(g *ptrace.Goroutine) {
 	gi := NewGoroutineInfo(mwin.trace, mwin.twin, &mwin.canvas, g, mwin.canvas.timelines)
+	mwin.openPanel(gi)
+}
+
+func (mwin *MainWindow) openTask(t *ptrace.Task) {
+	gi := NewTaskInfo(mwin.trace, mwin.twin, &mwin.canvas, t, mwin.canvas.timelines)
 	mwin.openPanel(gi)
 }
 
@@ -1070,11 +1075,17 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context, s
 			mwin.openGoroutine(g)
 			// FIXME(dh): canvas does event handling _after_ layout, so we need a second frame
 			op.InvalidateOp{}.Add(gtx.Ops)
+		} else if t, ok := tl.item.(*ptrace.Task); ok {
+			mwin.openTask(t)
+			// FIXME(dh): canvas does event handling _after_ layout, so we need a second frame
+			op.InvalidateOp{}.Add(gtx.Ops)
 		}
 	}
 	for _, tl := range mwin.canvas.rightClickedTimelines {
 		if g, ok := tl.item.(*ptrace.Goroutine); ok {
 			win.SetContextMenu((&GoroutineObjectLink{Goroutine: g}).ContextMenu())
+		} else if t, ok := tl.item.(*ptrace.Task); ok {
+			win.SetContextMenu((&TaskObjectLink{Task: t}).ContextMenu())
 		}
 	}
 	for _, clicked := range mwin.canvas.clickedSpans {
@@ -1126,6 +1137,10 @@ func (mwin *MainWindow) loadTraceImpl(res loadTraceResult) {
 	mwin.tabbedState.Current = 0
 	mwin.openTabBg(Tab{
 		Component:  NewGoroutinesComponent(mwin.trace.Goroutines, res.trace),
+		Unclosable: true,
+	})
+	mwin.openTabBg(Tab{
+		Component:  NewTasksComponent(mwin.trace.Tasks, res.trace),
 		Unclosable: true,
 	})
 }
@@ -1459,6 +1474,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		"Processing",
 		"Processing",
 		"Processing",
+		"Processing",
 	}
 
 	p.SetProgressStages(names)
@@ -1540,29 +1556,52 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		}
 	}
 
-	// TODO(dh): preallocate
-	var timelines []*Timeline
+	timelines := make([]*Timeline, len(tr.Processors)+len(tr.Goroutines)+len(tr.Tasks))
 
 	p.SetProgressStage(5)
 
 	p.SetProgressStage(6)
 	for i, proc := range tr.Processors {
-		timelines = append(timelines, NewProcessorTimeline(tr, cv, proc))
+		timelines[i] = NewProcessorTimeline(tr, cv, proc)
 		p.SetProgress(float64(i+1) / float64(len(tr.Processors)))
 	}
 
 	p.SetProgressStage(7)
-	baseTimeline := len(timelines)
-	timelines = mem.GrowLen(timelines, len(tr.Goroutines))
+	goroutineTimelines := make([]*Timeline, len(tr.Goroutines))
 	var progress atomic.Uint64
 	mysync.Distribute(tr.Goroutines, 0, func(group int, step int, subitems []*ptrace.Goroutine) error {
 		for j, g := range subitems {
-			timelines[baseTimeline+group*step+j] = NewGoroutineTimeline(tr, cv, g)
+			goroutineTimelines[group*step+j] = NewGoroutineTimeline(tr, cv, g)
 			pr := progress.Add(1)
 			p.SetProgress(float64(pr) / float64(len(tr.Goroutines)))
 		}
 		return nil
 	})
+
+	p.SetProgressStage(8)
+	taskTimelines := make([]*Timeline, len(tr.Tasks))
+	progress.Store(0)
+	mysync.Distribute(tr.Tasks, 0, func(group int, step int, subitems []*ptrace.Task) error {
+		for j, t := range subitems {
+			taskTimelines[group*step+j] = NewTaskTimeline(tr, cv, t)
+			pr := progress.Add(1)
+			p.SetProgress(float64(pr) / float64(len(tr.Tasks)))
+		}
+		return nil
+	})
+	sort.Slice(taskTimelines, func(i, j int) bool {
+		taskI := taskTimelines[i].item.(*ptrace.Task)
+		taskJ := taskTimelines[j].item.(*ptrace.Task)
+		goI := goroutineIDForTask(taskI, tr)
+		goJ := goroutineIDForTask(taskJ, tr)
+
+		if goI != goJ {
+			return goI < goJ
+		}
+		return taskI.ID < taskJ.ID
+	})
+
+	mergeTimelines(goroutineTimelines, taskTimelines, timelines[len(pt.Processors):][:0], tr)
 
 	mg := Plot{
 		Name: "Memory usage",
@@ -1660,6 +1699,26 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	}, nil
 }
 
+func mergeTimelines(a, b, out []*Timeline, tr *Trace) {
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		goroutine := a[i].item.(*ptrace.Goroutine)
+		task := b[j].item.(*ptrace.Task)
+		if goroutine.ID <= goroutineIDForTask(task, tr) {
+			out = append(out, a[i])
+			i++
+		} else {
+			out = append(out, b[j])
+			j++
+		}
+	}
+	if i < len(a) {
+		out = append(out, a[i:]...)
+	} else if j < len(b) {
+		out = append(out, b[j:]...)
+	}
+}
+
 type Description struct {
 	Attributes []DescriptionAttribute
 }
@@ -1708,6 +1767,10 @@ func (cmd ScrollToTimelineCommand) Layout(win *theme.Window, gtx layout.Context,
 		start = item.EffectiveStart()
 		end = item.EffectiveEnd()
 	case *ptrace.Processor:
+		numSpans = len(item.Spans)
+		start = item.Spans[0].Start
+		end = item.Spans[len(item.Spans)-1].End
+	case *ptrace.Task:
 		numSpans = len(item.Spans)
 		start = item.Spans[0].Start
 		end = item.Spans[len(item.Spans)-1].End

@@ -92,6 +92,22 @@ func (cf *CellFormatter) Goroutine(win *theme.Window, gtx layout.Context, g *ptr
 	})
 }
 
+func (cf *CellFormatter) Task(win *theme.Window, gtx layout.Context, t *ptrace.Task, label string) layout.Dimensions {
+	return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
+		link := cf.Clicks.Grow()
+		link.Link = &TaskObjectLink{Task: t}
+		return link.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			if label == "" {
+				label = cf.nfUint64.Format("%d", uint64(t.ID))
+			}
+			return widget.Label{
+				MaxLines:  1,
+				Alignment: text.Start,
+			}.Layout(gtx, win.Theme.Shaper, font.Font{}, 12, label, win.ColorMaterial(gtx, win.Theme.Palette.OpenLink))
+		})
+	})
+}
+
 func (cf *CellFormatter) Duration(win *theme.Window, gtx layout.Context, d time.Duration, approx bool) layout.Dimensions {
 	return layout.RightAligned(gtx, func(gtx layout.Context) layout.Dimensions {
 		value, unit := durationNumberFormatSITable.format(d)

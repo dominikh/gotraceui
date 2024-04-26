@@ -118,6 +118,8 @@ func (f Filter) couldMatchState(spans ptrace.Spans, container ItemContainer) boo
 			}
 		case TrackKindUserRegions:
 			return f.HasState(ptrace.StateUserRegion)
+		case TrackKindTask:
+			return f.HasState(ptrace.StateTask)
 		case TrackKindStack:
 			return f.HasState(ptrace.StateStack)
 		}
