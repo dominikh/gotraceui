@@ -197,8 +197,8 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 		ptPx.Y = flipY(ptPx.Y)
 		targetLevel := int((ptPx.Y + fg.StyleState.zoom.offsetLevel*levelHeight) / levelHeight)
 
-		var do func(level int, startX Unit, samples []widget.FlamegraphFrame)
-		do = func(level int, startX Unit, samples []widget.FlamegraphFrame) {
+		var do func(level int, startX Unit, samples []*widget.FlamegraphFrame)
+		do = func(level int, startX Unit, samples []*widget.FlamegraphFrame) {
 			x := startX
 			for i := range samples {
 				scaledX := x*fg.StyleState.zoom.scale + fg.StyleState.zoom.offsetX
@@ -207,7 +207,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 				}
 
 				var (
-					frame  = &samples[i]
+					frame  = samples[i]
 					width  = Unit(float64(frame.Duration) * fgPerNs)
 					pxSize = f32.Pt(
 						toReal(width*fg.StyleState.zoom.scale),
@@ -321,8 +321,8 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 
 		labelsMacro := op.Record(gtx.Ops)
 
-		var do func(level int, startX Unit, samples []widget.FlamegraphFrame, draw bool)
-		do = func(level int, startX Unit, samples []widget.FlamegraphFrame, draw bool) {
+		var do func(level int, startX Unit, samples []*widget.FlamegraphFrame, draw bool)
+		do = func(level int, startX Unit, samples []*widget.FlamegraphFrame, draw bool) {
 			if len(fg.StyleState.indices) < level+1 {
 				fg.StyleState.indices = slices.Grow(fg.StyleState.indices, level+1-len(fg.StyleState.indices))[:level+1]
 			}
@@ -339,7 +339,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 				}
 
 				var (
-					frame  = &samples[i]
+					frame  = samples[i]
 					width  = Unit(float64(frame.Duration) * fgPerNs)
 					pxSize = f32.Pt(
 						toReal(width*fg.StyleState.zoom.scale),
