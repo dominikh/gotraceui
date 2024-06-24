@@ -119,7 +119,7 @@ func NewFlameGraphComponent(win *theme.Window, tr *ptrace.Trace, g *ptrace.Gorou
 					case ptrace.StateBlockedSyscall:
 						root = "blocking syscall"
 					case ptrace.StateStuck:
-					case ptrace.StateReady, ptrace.StateCreated:
+					case ptrace.StateReady, ptrace.StateCreated, ptrace.StateWaitingPreempted:
 						root = "ready"
 					case ptrace.StateGCMarkAssist:
 					case ptrace.StateGCSweep:
