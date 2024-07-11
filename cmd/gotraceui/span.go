@@ -177,6 +177,7 @@ func (si *SpansInfo) init(win *theme.Window) {
 	si.eventList.Filter.ShowGoUnblock.Value = true
 	si.eventList.Filter.ShowGoSysCall.Value = true
 	si.eventList.Filter.ShowUserLog.Value = true
+	si.eventList.Filter.ShowTasks.Value = true
 	si.eventList.Events = Events(spans, si.trace)
 	si.eventList.UpdateFilter()
 

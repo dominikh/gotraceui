@@ -27,6 +27,7 @@ type EventList struct {
 		ShowGoUnblock widget.Bool
 		ShowGoSysCall widget.Bool
 		ShowUserLog   widget.Bool
+		ShowTasks     widget.Bool
 	}
 	filteredEvents SortedItems[ptrace.EventID]
 
@@ -42,14 +43,16 @@ func (evs *EventList) UpdateFilter() {
 	if evs.Filter.ShowGoCreate.Value &&
 		evs.Filter.ShowGoUnblock.Value &&
 		evs.Filter.ShowGoSysCall.Value &&
-		evs.Filter.ShowUserLog.Value {
+		evs.Filter.ShowUserLog.Value &&
+		evs.Filter.ShowTasks.Value {
 
 		// Everything is shown
 		evs.filteredEvents = NewSortedItems(evs.Events)
 	} else if !evs.Filter.ShowGoCreate.Value &&
 		!evs.Filter.ShowGoUnblock.Value &&
 		!evs.Filter.ShowGoSysCall.Value &&
-		!evs.Filter.ShowUserLog.Value {
+		!evs.Filter.ShowUserLog.Value &&
+		!evs.Filter.ShowTasks.Value {
 
 		// Nothing is shown
 		evs.filteredEvents = NewSortedItems(NoItems[ptrace.EventID]{})
@@ -72,6 +75,8 @@ func (evs *EventList) UpdateFilter() {
 				}
 			case exptrace.EventLog:
 				return evs.Filter.ShowUserLog.Value
+			case exptrace.EventTaskBegin, exptrace.EventTaskEnd:
+				return evs.Filter.ShowTasks.Value
 			default:
 				panic(fmt.Sprintf("unexpected kind %s", ev.Kind()))
 			}
@@ -130,6 +135,10 @@ func (evs *EventList) eventMessage(ev *exptrace.Event) []string {
 		} else {
 			return []string{l.Message}
 		}
+	case exptrace.EventTaskBegin:
+		return []string{"Created task ", local.Sprintf("%d", ev.Task())}
+	case exptrace.EventTaskEnd:
+		return []string{"Subtask ended: ", local.Sprintf("%d", ev.Task())}
 	default:
 		panic(fmt.Sprintf("unhandled kind %v", ev.Kind()))
 	}
@@ -196,7 +205,8 @@ func (evs *EventList) Update(gtx layout.Context) []TextEvent {
 	if evs.Filter.ShowGoCreate.Update(gtx) ||
 		evs.Filter.ShowGoUnblock.Update(gtx) ||
 		evs.Filter.ShowGoSysCall.Update(gtx) ||
-		evs.Filter.ShowUserLog.Update(gtx) {
+		evs.Filter.ShowUserLog.Update(gtx) ||
+		evs.Filter.ShowTasks.Update(gtx) {
 		evs.UpdateFilter()
 	}
 
@@ -248,6 +258,10 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 			tb.DefaultLink(local.Sprintf("goroutine %d", gid), "", evs.Trace.G(gid))
 		}
 
+		addSpanTask := func(tid exptrace.TaskID, typ string) {
+			tb.DefaultLink(local.Sprintf("task %d (%s)", tid, typ), "", evs.Trace.Task(tid))
+		}
+
 		addSpanTs := func(ts exptrace.Time) {
 			tb.DefaultLink(formatTimestamp(nil, evs.Trace.AdjustedTime(ts)), "", evs.timestampObjects.Append(ts))
 		}
@@ -290,6 +304,12 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 				} else {
 					tb.Span(l.Message)
 				}
+			case exptrace.EventTaskBegin:
+				tb.Span("Created ")
+				addSpanTask(ev.Task().ID, ev.Task().Type)
+			case exptrace.EventTaskEnd:
+				tb.Span("Subtask ended: ")
+				addSpanTask(ev.Task().ID, ev.Task().Type)
 			default:
 				panic(fmt.Sprintf("unhandled kind %v", ev.Kind()))
 			}
@@ -314,7 +334,9 @@ func (evs *EventList) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoCreate, "Goroutine creations").Layout),
 			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoUnblock, "Goroutine unblocks").Layout),
 			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowGoSysCall, "Syscalls").Layout),
-			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout))
+			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowUserLog, "User logs").Layout),
+			theme.Record(win, gtx, theme.CheckBox(win.Theme, &evs.Filter.ShowTasks, "Task start/end").Layout),
+		)
 
 		for _, checkbox := range checkboxes {
 			if checkbox.Dimensions.Size.X > widestCheckbox.Dimensions.Size.X {

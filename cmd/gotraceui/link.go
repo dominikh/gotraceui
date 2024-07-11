@@ -68,6 +68,10 @@ type OpenGoroutineFlameGraphAction struct {
 	Goroutine  *ptrace.Goroutine
 	Provenance string
 }
+type OpenTaskAction struct {
+	Task       *ptrace.Task
+	Provenance string
+}
 type ScrollToTimestampAction exptrace.Time
 type OpenFunctionAction struct {
 	Function   *ptrace.Function
@@ -143,9 +147,14 @@ type STWObjectLink struct {
 type SpansObjectLink struct {
 	Spans Items[ptrace.Span]
 }
+type TaskObjectLink struct {
+	Task       *ptrace.Task
+	Provenance string
+}
 
 func (*OpenGoroutineAction) IsAction()              {}
 func (*OpenGoroutineFlameGraphAction) IsAction()    {}
+func (*OpenTaskAction) IsAction()                   {}
 func (ScrollToTimestampAction) IsAction()           {}
 func (*OpenFunctionAction) IsAction()               {}
 func (*SpansAction) IsAction()                      {}
@@ -193,6 +202,8 @@ func defaultObjectLink(obj any, provenance string) ObjectLink {
 		return &GCObjectLink{obj, provenance}
 	case *STW:
 		return &STWObjectLink{obj, provenance}
+	case *ptrace.Task:
+		return &TaskObjectLink{obj, provenance}
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", obj))
 	}
@@ -474,6 +485,52 @@ func (l *SpansObjectLink) ContextMenu() []*theme.MenuItem {
 	}
 }
 
+func (l *TaskObjectLink) Action(mods key.Modifiers) theme.Action {
+	switch mods {
+	default:
+		return (*OpenTaskAction)(l)
+	case key.ModShift:
+		return &ScrollToObjectAction{
+			Object:     l.Task,
+			Provenance: l.Provenance,
+		}
+	case key.ModShortcut:
+		return &ZoomToObjectAction{
+			Object:     l.Task,
+			Provenance: l.Provenance,
+		}
+	}
+}
+
+func (l *TaskObjectLink) ContextMenu() []*theme.MenuItem {
+	return []*theme.MenuItem{
+		{
+			Label: PlainLabel("Scroll to task"),
+			Action: func() theme.Action {
+				return &ScrollToObjectAction{
+					Object:     l.Task,
+					Provenance: l.Provenance,
+				}
+			},
+		},
+		{
+			Label: PlainLabel("Zoom to task"),
+			Action: func() theme.Action {
+				return &ZoomToObjectAction{
+					Object:     l.Task,
+					Provenance: l.Provenance,
+				}
+			},
+		},
+		{
+			Label: PlainLabel("Show task information"),
+			Action: func() theme.Action {
+				return (*OpenTaskAction)(l)
+			},
+		},
+	}
+}
+
 func (l *ScrollToTimelineAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.canvas.scrollToTimeline(gtx, l.Timeline)
 }
@@ -514,6 +571,10 @@ func (l *OpenGoroutineAction) Open(_ layout.Context, mwin *MainWindow) {
 
 func (l *OpenGoroutineFlameGraphAction) Open(gtx layout.Context, mwin *MainWindow) {
 	mwin.openFlameGraph(l.Goroutine)
+}
+
+func (l *OpenTaskAction) Open(_ layout.Context, mwin *MainWindow) {
+	mwin.openTask(l.Task)
 }
 
 func (l ScrollToTimestampAction) Open(gtx layout.Context, mwin *MainWindow) {
@@ -692,6 +753,7 @@ func (*PrevPanelAction) Open(gtx layout.Context, mwin *MainWindow) {
 
 func (*OpenGoroutineAction) IsOpenAction()                    {}
 func (*OpenGoroutineFlameGraphAction) IsOpenAction()          {}
+func (*OpenTaskAction) IsOpenAction()                         {}
 func (ScrollToTimestampAction) IsNavigationAction()           {}
 func (*OpenFunctionAction) IsOpenAction()                     {}
 func (*SpansAction) IsOpenAction()                            {}
