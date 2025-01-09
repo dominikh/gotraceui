@@ -434,48 +434,26 @@ func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
 	// XXX don't allow dragging cv.Y beyond the end
 }
 
-func (cv *Canvas) zoom(gtx layout.Context, ticks float32, at f32.Point) {
+func (cv *Canvas) zoom(ticks float64, at f32.Point) {
 	// TODO(dh): implement location history for zooming. We shouldn't record one entry per call to zoom, and instead
 	// only record on calls that weren't immediately preceeded by other calls to zoom.
 
-	if ticks < 0 {
-		// Scrolling up, into the screen, zooming in
-		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
-		ds := exptrace.Time(cv.nsPerPx * 100 * ratio)
-		de := exptrace.Time(cv.nsPerPx * 100 * (1 - ratio))
-
-		start := cv.start + ds
-		end := cv.End() - de
-		if start == end {
-			// nsPerPx must never be 0.
-			end++
-		}
-		cv.start = start
-		cv.nsPerPx = float64(end-start) / float64(cv.width)
-	} else if ticks > 0 {
-		// Scrolling down, out of the screen, zooming out
-		ratio := float64(at.X) / float64(gtx.Constraints.Max.X)
-		ds := exptrace.Time(cv.nsPerPx * 100 * ratio)
-		de := exptrace.Time(cv.nsPerPx * 100 * (1 - ratio))
-
-		// Make sure the user can always zoom out
-		if ds < 1 {
-			ds = 1
-		}
-		if de < 1 {
-			de = 1
-		}
-
-		start := cv.start - ds
-		end := cv.End() + de
-
-		// Limit canvas to roughly one day. There's no reason to zoom out this far, and zooming out further will lead
-		// to edge cases and eventually overflow.
-		if time.Duration(end-start) < 24*time.Hour {
-			cv.start = start
-			cv.nsPerPx = float64(end-start) / float64(cv.width)
-		}
-	}
+	const scrollSpeed = 100
+	const minNsPerPx = 0.005
+	// Limit canvas to roughly one day. There's no reason to zoom out this
+	// far, and zooming out further will lead to edge cases and eventually
+	// overflow.
+	maxNsPerPx := float64(24*time.Hour) / float64(cv.width)
+	ts := cv.pxToTs(at.X)
+	ratio := scrollSpeed / float64(cv.width)
+	// Scrolling up == into the screen == zooming in. Opposite for scrolling
+	// down.
+	ratio = math.Copysign(ratio, ticks)
+	new := cv.nsPerPx + cv.nsPerPx*ratio
+	new = max(new, minNsPerPx)
+	new = min(new, maxNsPerPx)
+	cv.nsPerPx = new
+	cv.start = ts - exptrace.Time(math.Round(float64(at.X)*new))
 }
 
 func (cv *Canvas) visibleSpans(spans Items[ptrace.Span]) Items[ptrace.Span] {
@@ -786,7 +764,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				cv.abortZoomSelection()
 				switch ev.Modifiers {
 				case key.ModShortcut:
-					cv.zoom(gtx, ev.Scroll.Y, ev.Position)
+					cv.zoom(float64(ev.Scroll.Y), ev.Position)
 				case key.ModShift:
 					// Gio swaps X and Y when Shift is pressed, matching the behavior we desire.
 					fallthrough
