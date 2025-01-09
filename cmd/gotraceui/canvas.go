@@ -416,7 +416,14 @@ func (cv *Canvas) endDrag() {
 }
 
 func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
-	td := time.Duration(math.Round(cv.nsPerPx * float64(cv.drag.clickAt.X-pos.X)))
+	// Pan in increments of nsPerPx, roughly. If we pan by exactly n*nsPerPx
+	// then the timelines and--more importantly--the plots can move by exactly n
+	// pixels, avoiding shimmering effects from anti-aliasing and plot shapes
+	// changing due to aliasing effects during decimation. cv.nsPerPx is
+	// floating point while cv.start is integer, so we're generally not panning
+	// in exact increments, but it is close enough that differences aren't
+	// easily perceptible.
+	td := time.Duration(math.Round(cv.nsPerPx * math.Round(float64(cv.drag.clickAt.X-pos.X))))
 	cv.start = cv.drag.start + exptrace.Time(td)
 
 	yd := int(round32(cv.drag.clickAt.Y - pos.Y))
