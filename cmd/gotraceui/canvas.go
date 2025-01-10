@@ -438,20 +438,21 @@ func (cv *Canvas) zoom(ticks float64, at f32.Point) {
 	// TODO(dh): implement location history for zooming. We shouldn't record one entry per call to zoom, and instead
 	// only record on calls that weren't immediately preceeded by other calls to zoom.
 
-	const scrollSpeed = 0.1
+	const scrollSpeed = 0.001
 	const minNsPerPx = 0.005
 	// Limit canvas to roughly one day. There's no reason to zoom out this
 	// far, and zooming out further will lead to edge cases and eventually
 	// overflow.
 	maxNsPerPx := float64(24*time.Hour) / float64(cv.width)
 	ts := cv.pxToTs(at.X)
+	ratio := scrollSpeed * math.Abs(ticks)
 	// Scrolling up == into the screen == zooming in. Opposite for scrolling
 	// down.
 	var new float64
 	if ticks < 0 {
-		new = cv.nsPerPx * (1 - scrollSpeed)
+		new = cv.nsPerPx * (1 - ratio)
 	} else {
-		new = cv.nsPerPx / (1 - scrollSpeed)
+		new = cv.nsPerPx / (1 - ratio)
 	}
 	new = max(new, minNsPerPx)
 	new = min(new, maxNsPerPx)
