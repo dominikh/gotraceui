@@ -31,7 +31,7 @@
         };
       in
         {
-          packages.gotraceui = pkgs.buildGo121Module {
+          packages.gotraceui = pkgs.buildGo123Module {
             name = "gotraceui";
             src = self;
             vendorHash = "sha256-lszJObdEN6/Mo94btf5AD6W5dmTx7ciQgJWgQZ05UiU=";
