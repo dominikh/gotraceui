@@ -54,7 +54,7 @@ package main
 // When the user zooms into the trace using an area selection, we will animate through many zoom levels,
 // possibly at a speed faster than texture computation. At first glance, it might seem like we should cancel
 // textures that we no longer need. However, individual texture computation takes well under one frame of
-// time, and cancelling it after one frame would more often than not wouldn't have any effect.
+// time, and cancelling it after one frame would more often than not not have any effect.
 //
 // We'd rather keep the textures around in case we need them in the future (for example when the user zooms
 // out again). If they're truly useless they'll eventually be deleted as part of texture compaction.
