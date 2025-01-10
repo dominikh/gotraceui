@@ -1571,13 +1571,13 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	mg.AddSeries(
 		PlotSeries{
 			Name:   "Heap size",
-			Points: pt.Metrics["/memory/classes/heap/objects:bytes"],
+			Metric: pt.Metrics["/memory/classes/heap/objects:bytes"],
 			Style:  PlotFilled,
 			Color:  oklch(70.59, 0.102, 139.64),
 		},
 		PlotSeries{
 			Name:   "Heap goal",
-			Points: pt.Metrics["/gc/heap/goal:bytes"],
+			Metric: pt.Metrics["/gc/heap/goal:bytes"],
 			Style:  PlotStaircase,
 			Color:  colors[colorStateBlockedGC],
 		},
@@ -1590,19 +1590,19 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	gg.AddSeries(
 		PlotSeries{
 			Name:   "Runnable",
-			Points: pt.Metrics["/gotraceui/sched/goroutines/runnable:goroutines"],
+			Metric: pt.Metrics["/gotraceui/sched/goroutines/runnable:goroutines"],
 			Style:  PlotStaircase,
 			Color:  colors[colorStateReady],
 		},
 		PlotSeries{
 			Name:   "Running",
-			Points: pt.Metrics["/gotraceui/sched/goroutines/running:goroutines"],
+			Metric: pt.Metrics["/gotraceui/sched/goroutines/running:goroutines"],
 			Style:  PlotStaircase,
 			Color:  colors[colorStateActive],
 		},
 		PlotSeries{
 			Name:   "Waiting",
-			Points: pt.Metrics["/gotraceui/sched/goroutines/waiting:goroutines"],
+			Metric: pt.Metrics["/gotraceui/sched/goroutines/waiting:goroutines"],
 			Style:  PlotStaircase,
 			Color:  colors[colorStateBlocked],
 		},

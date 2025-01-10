@@ -21,11 +21,6 @@ import (
 	exptrace "golang.org/x/exp/trace"
 )
 
-type Point struct {
-	When  exptrace.Time
-	Value uint64
-}
-
 type SchedulingState uint8
 
 const (
@@ -74,6 +69,11 @@ const (
 	StateLast
 )
 
+type Metric struct {
+	Timestamps []exptrace.Time
+	Values     []uint64
+}
+
 type Trace struct {
 	// OPT(dh): can we get rid of all these pointers?
 	Goroutines    []*Goroutine
@@ -83,7 +83,7 @@ type Trace struct {
 	GC            []Span
 	STW           []Span
 	Tasks         []*Task
-	Metrics       map[string][]Point
+	Metrics       map[string]Metric
 	CPUSamples    []EventID
 	CPUSamplesByG map[exptrace.GoID][]EventID
 	CPUSamplesByP map[exptrace.ProcID][]EventID
@@ -367,7 +367,7 @@ func Parse(r *exptrace.Reader, progress func(float64)) (*Trace, error) {
 		msByID:        map[exptrace.ThreadID]*Machine{},
 		CPUSamplesByG: map[exptrace.GoID][]EventID{},
 		CPUSamplesByP: map[exptrace.ProcID][]EventID{},
-		Metrics:       map[string][]Point{},
+		Metrics:       map[string]Metric{},
 		GC:            make(spansSlice, 0),
 		STW:           make(spansSlice, 0),
 		PCs:           make(map[uint64]exptrace.StackFrame),
@@ -440,20 +440,20 @@ func rangeActualScope(r exptrace.Range) rangeScope {
 
 // runningGauge builds up a gauge over time.
 type runningGauge struct {
-	// current is the current value of the gauge.
-	current int64
-	// points capture the current value over time.
-	points []Point
+	current    int64
+	timestamps []exptrace.Time
+	values     []uint64
 }
 
 // add adds a value to the gauge at time t.
 // It assumes that t will not decrease with subsequent calls.
 func (rg *runningGauge) add(t exptrace.Time, v int64) {
 	rg.current += v
-	if idx := len(rg.points) - 1; idx >= 0 && rg.points[idx].When == t {
-		rg.points[idx].Value = uint64(rg.current)
+	if idx := len(rg.timestamps) - 1; idx >= 0 && rg.timestamps[idx] == t {
+		rg.values[idx] = uint64(rg.current)
 	} else {
-		rg.points = append(rg.points, Point{When: t, Value: uint64(rg.current)})
+		rg.timestamps = append(rg.timestamps, t)
+		rg.values = append(rg.values, uint64(rg.current))
 	}
 }
 
@@ -562,7 +562,10 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			addEventToCurrentSpan(ev.Goroutine(), evID)
 		case exptrace.EventMetric:
 			m := ev.Metric()
-			tr.Metrics[m.Name] = append(tr.Metrics[m.Name], Point{ev.Time(), m.Value.Uint64()})
+			mm := tr.Metrics[m.Name]
+			mm.Timestamps = append(mm.Timestamps, ev.Time())
+			mm.Values = append(mm.Values, m.Value.Uint64())
+			tr.Metrics[m.Name] = mm
 		case exptrace.EventRangeActive:
 			if synced {
 				// We're being told about a range we must've already seen a RangeBegin for
@@ -922,9 +925,18 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 		}
 	}
 
-	tr.Metrics["/gotraceui/sched/goroutines/runnable:goroutines"] = gm.runnableGoroutines.points
-	tr.Metrics["/gotraceui/sched/goroutines/running:goroutines"] = gm.runningGoroutines.points
-	tr.Metrics["/gotraceui/sched/goroutines/waiting:goroutines"] = gm.blockedGoroutines.points
+	tr.Metrics["/gotraceui/sched/goroutines/runnable:goroutines"] = Metric{
+		Timestamps: gm.runnableGoroutines.timestamps,
+		Values:     gm.runnableGoroutines.values,
+	}
+	tr.Metrics["/gotraceui/sched/goroutines/running:goroutines"] = Metric{
+		Timestamps: gm.runningGoroutines.timestamps,
+		Values:     gm.runningGoroutines.values,
+	}
+	tr.Metrics["/gotraceui/sched/goroutines/waiting:goroutines"] = Metric{
+		Timestamps: gm.blockedGoroutines.timestamps,
+		Values:     gm.blockedGoroutines.values,
+	}
 
 	return nil
 }
