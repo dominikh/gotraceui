@@ -448,8 +448,12 @@ func (cv *Canvas) zoom(ticks float64, at f32.Point) {
 	ratio := scrollSpeed / float64(cv.width)
 	// Scrolling up == into the screen == zooming in. Opposite for scrolling
 	// down.
-	ratio = math.Copysign(ratio, ticks)
-	new := cv.nsPerPx + cv.nsPerPx*ratio
+	var new float64
+	if ticks < 0 {
+		new = cv.nsPerPx * (1 - ratio)
+	} else {
+		new = cv.nsPerPx / (1 - ratio)
+	}
 	new = max(new, minNsPerPx)
 	new = min(new, maxNsPerPx)
 	cv.nsPerPx = new
