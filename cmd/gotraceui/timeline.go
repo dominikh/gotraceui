@@ -1138,6 +1138,9 @@ var (
 
 			var label string
 			if events.Len() == 1 {
+				// TODO(dh): this logic should be factored out; it's somewhat
+				// duplicated with code in events.go that generates event
+				// descriptions for the Events table.
 				ev := events.At(0)
 				switch ev.Kind() {
 				case exptrace.EventStateTransition:
@@ -1166,6 +1169,21 @@ var (
 						label = fmt.Sprintf("Log: <%s> %s", cat, msg)
 					} else {
 						label = "Log: " + msg
+					}
+				case exptrace.EventTaskBegin:
+					task := ev.Task()
+					if task.Type != "" {
+						label = local.Sprintf("Created task %d (%s)", task.ID, task.Type)
+					} else {
+						// This should be impossible.
+						label = local.Sprintf("Created task %d", task.ID)
+					}
+				case exptrace.EventTaskEnd:
+					task := ev.Task()
+					if task.Type != "" {
+						label = local.Sprintf("Subtask ended: task %d (%s)", task.ID, task.Type)
+					} else {
+						label = local.Sprintf("Subtask ended: task %d", task.ID, task.Type)
 					}
 				default:
 					label = "1 event"
