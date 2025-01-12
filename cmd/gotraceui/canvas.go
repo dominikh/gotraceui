@@ -67,6 +67,9 @@ const (
 	minSpanWidthDp unit.Dp = spanBorderWidthDp*2 + 6
 
 	spanBorderWidthDp unit.Dp = 1
+
+	// minimum value of nsPerPx that can be set by zooming
+	minNsPerPx = 0.005
 )
 
 const animateLength = 250 * time.Millisecond
@@ -439,7 +442,6 @@ func (cv *Canvas) zoom(ticks float64, at f32.Point) {
 	// only record on calls that weren't immediately preceeded by other calls to zoom.
 
 	const scrollSpeed = 0.001
-	const minNsPerPx = 0.005
 	// Limit canvas to roughly one day. There's no reason to zoom out this
 	// far, and zooming out further will lead to edge cases and eventually
 	// overflow.
@@ -646,7 +648,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 		end := cv.trace.End()
 		slack := exptrace.Time(float64(end - -cv.trace.TimeOffset) * 0.05)
 		cv.start = -cv.trace.TimeOffset - slack
-		cv.nsPerPx = float64((end - -cv.trace.TimeOffset)+2*slack) / float64(cv.width)
+		cv.nsPerPx = max(float64((end - -cv.trace.TimeOffset)+2*slack)/float64(cv.width), minNsPerPx)
 		cv.rememberLocation()
 	}
 
@@ -678,7 +680,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		v := cv.animate.Value(gtx)
 		cv.start = v.start
-		cv.nsPerPx = v.nsPerPx
+		cv.nsPerPx = max(v.nsPerPx, minNsPerPx)
 		cv.y = v.y
 	}
 
