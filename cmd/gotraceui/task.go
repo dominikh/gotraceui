@@ -9,16 +9,16 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/font"
-	"gioui.org/text"
-	"golang.org/x/exp/trace"
-	exptrace "golang.org/x/exp/trace"
 	"honnef.co/go/gotraceui/clip"
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
+
+	"gioui.org/font"
+	"gioui.org/text"
+	exptrace "golang.org/x/exp/trace"
 )
 
 func NewTaskTimeline(tr *Trace, cv *Canvas, t *ptrace.Task) *Timeline {
@@ -107,7 +107,7 @@ func taskSpanTooltip(win *theme.Window, gtx layout.Context, tr *Trace, spans Ite
 			label = local.Sprintf("Unknown task\n")
 		} else {
 			goID := goroutineIDForTask(task, tr)
-			if goID != trace.NoGoroutine {
+			if goID != exptrace.NoGoroutine {
 				label = local.Sprintf("Task: %s\nCreated by goroutine %d\n", task.Name, goID)
 			} else {
 				label = local.Sprintf("Task: %s\n", task.Name)
@@ -163,7 +163,7 @@ func (tt TaskTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 	}
 
 	goroutineID := goroutineIDForTask(tt.t, tt.trace)
-	if goroutineID != trace.NoGoroutine {
+	if goroutineID != exptrace.NoGoroutine {
 		fmts = append(fmts, "Created by goroutine: %d")
 		args = append(args, goroutineID)
 	}
@@ -174,9 +174,9 @@ func (tt TaskTooltip) Layout(win *theme.Window, gtx layout.Context) layout.Dimen
 }
 
 // goroutineIDForTask returns the goroutine ID that created a given task, or trace.NoGoroutine if we don't know.
-func goroutineIDForTask(t *ptrace.Task, tr *Trace) trace.GoID {
+func goroutineIDForTask(t *ptrace.Task, tr *Trace) exptrace.GoID {
 	if t == nil || t.StartEvent <= 0 {
-		return trace.NoGoroutine
+		return exptrace.NoGoroutine
 	}
 	ev := tr.Event(t.StartEvent)
 	return ev.Goroutine()
@@ -222,7 +222,7 @@ func NewTaskInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, t *ptrace.Task, 
 			})
 		}
 
-		if t.Parent != trace.NoTask {
+		if t.Parent != exptrace.NoTask {
 			parent := tr.Task(t.Parent)
 
 			var parentLabel string
@@ -244,7 +244,7 @@ func NewTaskInfo(tr *Trace, mwin *theme.Window, canvas *Canvas, t *ptrace.Task, 
 
 		parentGoroutineID := goroutineIDForTask(t, tr)
 
-		if parentGoroutineID != 0 && parentGoroutineID != trace.NoGoroutine {
+		if parentGoroutineID != 0 && parentGoroutineID != exptrace.NoGoroutine {
 			parentG := tr.G(parentGoroutineID)
 
 			var parentGLabel string
