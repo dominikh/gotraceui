@@ -32,6 +32,9 @@ const (
 	debugDisableCaching = false
 )
 
+const zoom1Pixels = 32768
+const plotPaddingDp = 5
+
 type PlotStyle uint8
 
 const (
@@ -78,8 +81,6 @@ type Plot struct {
 		disabledSeries uint64
 	}
 }
-
-const zoom1Pixels = 32768
 
 func (pl *Plot) AddSeries(series ...PlotSeries) {
 	for i := range series {
@@ -146,17 +147,12 @@ func (pl *Plot) computeExtents(start, end exptrace.Time) (min, max uint64) {
 	}
 
 	if min == max {
-		min--
-		max++
+		if min > 0 {
+			min--
+		} else {
+			max++
+		}
 	}
-
-	d := max - min
-	if n := min - d/10; n <= min {
-		min = n
-	} else {
-		min = 0
-	}
-	max += d / 10
 
 	return min, max
 }
@@ -168,6 +164,11 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 	pl.hover.Update(gtx.Queue)
 	pl.click.Add(gtx.Ops)
 	pl.hover.Add(gtx.Ops)
+
+	padding := gtx.Dp(plotPaddingDp)
+	plotHeight := max(gtx.Constraints.Max.Y-padding, 0)
+	plotBottom := plotHeight
+	plotTop := padding
 
 	var clicked bool
 	for _, click := range pl.click.Update(gtx.Queue) {
@@ -308,17 +309,20 @@ func (pl *Plot) Layout(win *theme.Window, gtx layout.Context, cv *Canvas) layout
 			rec := theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				return theme.Label(win.Theme, local.Sprintf("%d %s", pl.max, pl.Unit)).Layout(win, gtx)
 			})
+			off := op.Offset(image.Pt(0, plotTop)).Push(gtx.Ops)
 			theme.FillShape(win, gtx.Ops, oklch(100, 0, 0), clip.Rect{Max: rec.Dimensions.Size}.Op())
 			paint.ColorOp{Color: win.ConvertColor(oklch(0, 0, 0))}.Add(gtx.Ops)
 			rec.Layout(win, gtx)
+			off.Pop()
 
 			rec = theme.Record(win, gtx, func(win *theme.Window, gtx layout.Context) layout.Dimensions {
 				return theme.Label(win.Theme, local.Sprintf("%d %s", pl.min, pl.Unit)).Layout(win, gtx)
 			})
-			defer op.Offset(image.Pt(0, gtx.Constraints.Max.Y-rec.Dimensions.Size.Y)).Push(gtx.Ops).Pop()
+			off = op.Offset(image.Pt(0, plotBottom-rec.Dimensions.Size.Y)).Push(gtx.Ops)
 			theme.FillShape(win, gtx.Ops, oklch(100, 0, 0), clip.Rect{Max: rec.Dimensions.Size}.Op())
 			paint.ColorOp{Color: win.ConvertColor(oklch(0, 0, 0))}.Add(gtx.Ops)
 			rec.Layout(win, gtx)
+			off.Pop()
 			r.End()
 		}
 	}
@@ -435,9 +439,13 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 	}
 
 	const lineWidth = 3
+	padding := gtx.Dp(plotPaddingDp)
+	plotHeight := max(gtx.Constraints.Max.Y-padding, 0)
+	plotTop := padding
+	plotBottom := plotHeight
 
 	scaleValue := func(v uint64) float64 {
-		y := scale(float64(pl.min), float64(pl.max), float64(gtx.Constraints.Max.Y), 0, float64(v))
+		y := scale(float64(pl.min), float64(pl.max), float64(plotBottom), float64(plotTop), float64(v))
 		if y < 0 {
 			y = 0
 		}
@@ -579,8 +587,8 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 		giopath.Begin(gtx.Ops)
 		start := curveToGio(path, &giopath)
 		// Close the area and fill it
-		giopath.LineTo(f32.Pt(giopath.Pos().X, float32(gtx.Constraints.Max.Y)))
-		giopath.LineTo(f32.Pt(float32(start.X), float32(gtx.Constraints.Max.Y)))
+		giopath.LineTo(f32.Pt(giopath.Pos().X, float32(plotBottom)))
+		giopath.LineTo(f32.Pt(float32(start.X), float32(plotBottom)))
 		giopath.Close()
 		theme.FillShape(win, gtx.Ops, s.Color, clip.Outline{Path: giopath.End()}.Op())
 	} else {
