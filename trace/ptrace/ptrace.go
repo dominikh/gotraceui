@@ -982,6 +982,8 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			if t.Parent != exptrace.NoTask {
 				addEventToTask(t.Parent, evID)
 			}
+		case exptrace.EventExperimental:
+			// TODO(dh): do something useful with these
 		default:
 			panic(fmt.Sprintf("unhandled kind %s", ev.Kind()))
 		}
