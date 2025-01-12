@@ -511,6 +511,10 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 		fmt.Printf("downsampled %q to %d points in %s\n", s.Name, len(indices), time.Since(t))
 	}
 
+	if len(indices) == 0 {
+		return
+	}
+
 	// This step removes insignificant points. For some reason this greatly
 	// improves Gio's performance, even when only 1% of points get removed. We
 	// believe this isn't due to the overall number of points but some edge
