@@ -13,8 +13,8 @@ Users of Nix can use the flake. There are no packages for other distributions or
 
 ## Manual
 
-Gotraceui [includes a manual](https://github.com/dominikh/gotraceui/releases/latest/download/gotraceui.pdf) in PDF form.
-Each [release](https://github.com/dominikh/gotraceui/releases) includes the manual as an asset.
+- [Manual for the latest release](https://gotraceui.dev/manual/latest/)
+- [Manual for the development version](https://gotraceui.dev/manual/master/)
 
 ## Notes for package maintainers
 

@@ -1,0 +1,72 @@
+pre.src-golang:before { content: 'Go'; }
+
+.state-active { background-color: #4A8E4A; }
+.state-blockedGC { background-color: #B55A79; }
+.state-blockedHappensBefore { background-color: #DB7A75; }
+.state-blockedNet { background-color: #C9716C; }
+.state-blockedSyscall { background-color: #B95B57; }
+.state-blocked { background-color: #A94C49; }
+.state-GC { background-color: #8A68B8; }
+.state-inactive { background-color: #7C7C7C; }
+.state-ready { background-color: #008F9F; }
+.state-stuck { background-color: #000000; }
+.state-userRegion { background-color: #F8ABEE; }
+.state-stack { background-color: #7DBC7B; }
+.state-sampled { background-color: #A1DB9F; }
+
+figure img {
+    display: block;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+li, dd, p {
+    text-align: justify;
+    text-justify: inter-word;
+}
+
+figure.side-by-side > figure {
+    display: inline-block;
+    width: 40%;
+}
+
+figure.side-by-side > figure img {
+    max-width: 100%;
+}
+
+figure.side-by-side > figure > figcaption {
+    text-align: center;
+}
+
+kbd:not(.sequence, .menu) {
+	background-color: #eee;
+	border-radius: 3px;
+	border: 1px solid #b4b4b4;
+	box-shadow:
+		0 1px 1px rgba(0, 0, 0, 0.2),
+		0 2px 0 0 rgba(255, 255, 255, 0.7) inset;
+	display: inline-block;
+	font-weight: 700;
+	line-height: 1;
+	padding: 2px 4px;
+	white-space: nowrap;
+}
+
+thead {
+	border-bottom: 1px solid black;
+}
+
+td {
+	padding: 3px;
+}
+
+td + td {
+	padding-left: 1em;
+}
+
+aside {
+	margin-left: 2em;
+	padding-left: 1em;
+	border-left: 5px solid blue;
+}

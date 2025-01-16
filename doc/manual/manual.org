@@ -1,0 +1,1124 @@
+#+MACRO: traceState @@html:<span class="state-$2">$1</span>@@
+#+MACRO: menu (eval (dh/gotraceui-menu-macro $1 $2 $3 $4 $5 $6 $7 $8 $9))
+#+MACRO: keys (eval (dh/gotraceui-keys-macro $1 $2 $3 $4 $5 $6 $7 $8 $9))
+#+TITLE: Gotraceui---the manual
+#+AUTHOR: Dominik Honnef & contributors
+#+HTML_DOCTYPE: html5
+#+HTML_HEAD: <link rel='stylesheet' type='text/css' href='style.css' />
+#+OPTIONS: ':t H:6 html5-fancy:t
+
+#+BEGIN_SRC emacs-lisp :exports "none"
+  (defun dh/gotraceui-keys-macro (&rest args)
+    (let ((keys (-keep #'identity args)))
+  	(if (= 1 (length keys))
+  		(format "@@html:<kbd>%s</kbd>@@" (car keys))
+  	  (format
+  	   "@@html:<kbd class='sequence'>%s</kbd>@@"
+  	   (-reduce
+  		(lambda (a b) (format "%s + %s" a b))
+  		(-map
+  		 (lambda (key) (format "<kbd>%s</kbd>" key))
+  		 keys))))))
+
+  (defun dh/gotraceui-menu-macro (&rest args)
+    (let ((keys (-keep #'identity args)))
+  	(if (= 1 (length keys))
+  		(format "@@html:<kbd><samp>%s</samp></kbd>@@" (car keys))
+  	  (format
+  	   "@@html:<kbd class='menu sequence'>%s</kbd>@@"
+  	   (-reduce
+  		(lambda (a b) (format "%s &gt; %s" a b))
+  		(-map
+  		 (lambda (key) (format "<kbd><samp>%s</samp></kbd>" key))
+  		 keys))))))
+
+  (org-publish
+   '("manual"
+     :base-directory "."
+     :base-extension "org"
+     :publishing-directory "."
+     :publishing-function org-html-publish-to-html
+     :html-checkbox-type html
+     :html-self-link-headlines t
+     :html-validation-link nil)
+   t)
+#+END_SRC
+
+#+RESULTS:
+
+* TODO Porting TODOs [5/8]                                         :noexport:
+- [X] add nice CSS for <kbd>
+- [ ] /emphasized/ text should use <em> not <i>
+- [X] don't load mathjax if we aren't using math
+- [ ] checkboxes should be read-only
+- [X] ensure all headers have custom IDs
+- [ ] internal links to sections should read "section 1.1", not "1.1". we can't just put the text ourselves because then it's not part of the link.
+- [X] style asides and TODOs
+- [X] style menus
+
+# XXX update colors
+
+* TODO UI features to document [0/7]                               :noexport:
+- [ ] mention ctrl+z somewhere
+- [ ] jump to timeline dialog
+- [ ] event in span tooltip
+- [ ] highlighting of related spans
+- [ ] highlight spans dialog
+- [ ] tabs
+- [ ] goroutine tab
+
+
+* Introduction
+:PROPERTIES:
+:CUSTOM_ID: sec:introduction
+:END:
+
+The official implementation of the Go language depends on a runtime for memory management (via garbage collection) and for scheduling goroutines.
+The runtime does its work in the background, out of sight, but it provides a powerful tool for inspecting its actions: the runtime tracer.
+
+The runtime tracer produces execution traces, which are exact (i.e., not sampled) streams of events describing in detail the execution of goroutines.
+It shows when goroutines start or stop, where they block, what unblocks them, how long they spend stuck in syscalls, and more.
+Traces also contain information about the work of the garbage collector (GC), indicating its various phases, and how much CPU time goroutines have to contribute to assisting the GC.
+In short, the runtime tracer provides a complete view of the interactions between the runtime and our code.
+
+These traces can be useful in two situations:
+When the runtime isn't behaving as we expect, negatively affecting the performance of our code,
+and when we want to analyze how our goroutines interact with each other and the outside world.
+
+Because the runtime is responsible for scheduling goroutines, it may make decisions that we don't agree with.
+For example, it might take an unusually long time to schedule an important goroutine.
+This might become apparent due to unreliable performance and large tail latencies.
+When this happens, traces are the best way to make sure that the issue does indeed lie with Go and not our code.
+
+More commonly, traces can be used to understand the behavior of our own code.
+Virtually all interactions between goroutines go through the runtime.
+Similarly, most interactions with the outside world (such as file or network I/O, or syscalls) go through the runtime, too.
+Execution traces, then, provide an accurate view into what our code is doing while it's not spending time on the CPU executing instructions.
+In other words, they show us what our code is waiting on.
+This, too, can help diagnose performance issues (this time caused by us), deadlocks, and more.
+
+Finally, the =runtime/trace= package allows us to annotate our code with regions, tasks, and logs.
+These help us group spans and provide additional information, making tracing useful for debugging CPU usage, too.
+
+Unfortunately, the tracer hasn't seen widespread adoption.
+This can be attributed to shortcomings in the official frontend, the /Trace viewer/.
+The trace viewer isn't a custom-made tool for viewing Go execution traces;
+instead, it is a repurposed copy of Chrome's old tracing frontend, /Catapult/.
+Unfortunately, it wasn't made to handle the millions of events that can occur in even short traces,
+nor does it have any functionality that helps with understanding the specifics of the behavior of the Go runtime.
+Finally, the UI is just weird, using controls that are neither ergonomic nor intuitive.
+Go tries to work around these shortcomings, by splitting large traces into smaller ones and by clever use of Catapult's features.
+However, workarounds can only do so much and come with their own problems.
+For these reasons, the tracer is usually people's last choice for debugging problems.
+
+Gotraceui was created to address these problems.
+It was written from scratch, with a focus on displaying large Go execution traces and making them more accessible.
+It can handle millions of events in a single trace, overlay traces with CPU profiling data as well as memory usage,
+and annotate traces with metadata extracted from stack traces, among other things.
+Unlike the official frontend, Gotraceui provides both per-processor and per-goroutine timelines,
+with the latter often being much more useful for understanding the behavior of user code.
+
+Even though the current version of Gotraceui is still in its early stages,
+lacking many of the envisioned features,
+it has already proven to be a useful tool in everyday use
+and people have diagnosed real problems with it without prior experience with Go's traces.
+
+The purpose of this manual is not just to explain every aspect of Gotraceui,
+but also to offer an introduction to execution traces themselves,
+and, where necessary, explain how the runtime works to make better sense of the traces it produces.
+
+The authors hope that execution traces will become a standard debugging tool for most Go developers.
+
+* Install
+:PROPERTIES:
+:CUSTOM_ID: sec:install
+:END:
+
+** NixOS, nixpkgs
+:PROPERTIES:
+:CUSTOM_ID: sec:nixpkgs
+:END:
+
+Gotraceui can be installed from Nixpkgs.
+The stable channel =23.11= contains version 0.3.0,
+while the unstable channel contains the latest released version
+(within reason, as it takes some time to update Nixpkgs after a new release of Gotraceui.)
+
+** Flatpak
+:PROPERTIES:
+:CUSTOM_ID: sec:flatpak
+:END:
+
+An unofficial, third-party Flatpak exists at https://github.com/hdonnay/co.honnef.Gotraceui.
+We're not in control of it and you'd be installing it at your own risk.
+The last time we looked at it (at commit =ecf252fd56ce02071c7eb829de81726a0df98d51=), it seemed safe.
+
+** Linux
+:PROPERTIES:
+:CUSTOM_ID: sec:linux
+:END:
+
+Gotraceui hasn't yet been packaged by most Linux distributions.
+You can build it yourself, as long as you have the following development dependencies installed:
+
+- Wayland
+- X11
+- xkbcommon
+- GLES
+- EGL
+- libXcursor
+
+On Fedora, you can use the following command to install all required dependencies:
+
+#+BEGIN_SRC sh
+dnf install gcc pkg-config wayland-devel libX11-devel libxkbcommon-x11-devel mesa-libGLES-devel mesa-libEGL-devel libXcursor-devel vulkan-headers
+#+END_SRC
+
+On Ubuntu, you can use the following command to install all required dependencies:
+
+#+BEGIN_SRC sh
+apt install gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev
+#+END_SRC
+
+After having installed all dependencies, you can run Gotraceui with
+
+#+BEGIN_SRC sh
+go run honnef.co/go/gotraceui/cmd/gotraceui@latest
+#+END_SRC
+
+** macOS
+:PROPERTIES:
+:CUSTOM_ID: sec:macos
+:END:
+
+The only dependency on macOS is Xcode.
+
+After having installed Xcode, you can run Gotraceui with
+
+#+BEGIN_SRC sh
+go run honnef.co/go/gotraceui/cmd/gotraceui@latest
+#+END_SRC
+
+** Windows
+:PROPERTIES:
+:CUSTOM_ID: sec:windows
+:END:
+
+There are no external dependencies on Windows.
+
+To run Gotraceui you can use
+
+#+BEGIN_SRC sh
+go run -ldflags="-H windowsgui" honnef.co/go/gotraceui/cmd/gotraceui@latest
+#+END_SRC
+
+* System requirements
+:PROPERTIES:
+:CUSTOM_ID: sec:sysreqs
+:END:
+
+Gotraceui runs on Linux (X11 and Wayland), Windows, and macOS.
+
+Execution traces are very dense in information and can contain millions of events in the span of seconds.
+The format emitted by =runtime/trace= is optimized for small and low overhead output and is highly compressed.
+To be able to process and display a trace, Gotraceui has to parse and materialize it in memory.
+Memory usage is roughly 30× the size of the input trace.
+That is, a 300 MB trace file will need about 9 GB of memory to be loaded by Gotraceui.
+For reference, an example 300 MB trace file was produced by tracing a busy Prometheus instance for one minute,
+resulting in 66,044,021 events.
+This represents an extreme example.
+Many of your traces will be much smaller than that.
+For example, tracing =net/http='s tests produces a 7.3 MB trace instead.
+
+* Adding tracing to your application
+:PROPERTIES:
+:CUSTOM_ID: sec:adding-tracing
+:END:
+
+** The =runtime/trace= package
+:PROPERTIES:
+:CUSTOM_ID: sec:runtime/trace
+:END:
+
+The =runtime/trace= package provides the interface between user code and runtime tracing.
+It allows recording traces, as well as adding additional information to them, in the form of user regions and tasks.
+The package is [[https://pkg.go.dev/runtime/trace][well documented]] and we recommend that you read it for a complete overview.
+For the purposes of this manual, we will quickly describe how to use =runtime/trace= to write trace files and how to add user regions.
+
+To start tracing, use the =Start= function and pass it the desired destination, usually a file.
+To stop tracing, use the =Stop= function.
+It is crucial that =Stop= gets called, as otherwise an incomplete trace may get written, which may not be parseable at all.
+For short-lived applications, =Start= is best called as early in your main function as possible, and =Stop= right before returning.
+For long-lived applications, it is better to start and stop tracing on demand, for example via an API call of some sort, to capture an interesting time window.
+One possible implementation is =net/http/pprof=, which is described in [[#sec:net-http-pprof]].
+
+*** User annotations
+:PROPERTIES:
+:CUSTOM_ID: sec:user-annotations
+:END:
+It is possible to add your own information to traces by using user annotations, which encompass log messages, regions, and tasks.
+
+Log messages show up as events in Gotraceui, consist of a category and message, and can be emitted via =Log= or =Logf=.
+
+Regions group events in a goroutine.
+They can be used to, for example, denote distinct steps when handling an API request, such as querying the database, processing the results, and serializing them.
+Regions can also be nested, for additional detail. They can be started with =StartRegion= and stopped with =(*Region).End=.
+It is important that regions are stopped in a LIFO order to maintain valid nesting.
+It is therefore recommended to use =defer=, like in the following example:
+#+BEGIN_SRC golang
+defer trace.StartRegion(ctx, "myTracedRegion").End()
+#+END_SRC
+There is also a helper function called =WithRegion= that wraps the execution of a function in a region.
+
+#+CAPTION: User regions showing how part of Gotraceui's UI is being rendered.
+[[file:images/screenshots/user-regions.png][file:./images/screenshots/user-regions.png]]
+
+Finally, tasks exist to group work that is happening across multiple goroutines.
+For example, if an incoming API request causes multiple goroutines to do work on behalf of that request in parallel, a task will be able to tie all of them together.
+Tasks are created similarly to regions, but with =NewTask= and =(*Task).End= respectively.
+
+Gotraceui does not currently display tasks.
+
+** =net/http/pprof=
+:PROPERTIES:
+:CUSTOM_ID: sec:net-http-pprof
+:END:
+
+=net/http/pprof= is a package that adds HTTP debugging endpoints to your application.
+This is commonly used for acquiring CPU and memory profiles, but it can also be used to capture traces.
+To collect a 5-second trace you can run a command like
+
+#+BEGIN_SRC sh
+curl -o trace.out 'http://localhost:6060/debug/pprof/trace?seconds=5'
+#+END_SRC
+
+There is no single endpoint to capture a trace with CPU profiling enabled, but you could capture both a CPU profile and a trace in parallel, like this:
+
+#+BEGIN_SRC sh
+curl -o /dev/null 'http://localhost:6060/debug/pprof/profile?seconds=6' &
+curl -o trace.out 'http://localhost:6060/debug/pprof/trace?seconds=5'
+#+END_SRC
+
+We capture a slightly longer CPU profile to ensure it covers the entire duration of the trace.
+
+** Tracing tests
+:PROPERTIES:
+:CUSTOM_ID: sec:tracing-tests
+:END:
+
+One way to acquire execution traces without having to modify your code is by using =go test='s =-trace= flag, which writes an execution trace to a file.
+This can be particularly useful in combination with running benchmarks.
+You can additionally use the =-cpuprofile= flag to include CPU profiling samples in the trace.
+
+
+* The user interface
+:PROPERTIES:
+:CUSTOM_ID: sec:ui
+:END:
+The following sections will describe the various components of Gotraceui's UI.
+
+The Gotraceui UI consists of a main menu, a list of tabs, the main view displaying the current tab, and a side panel.
+
+** Timelines
+:PROPERTIES:
+:CUSTOM_ID: sec:timelines-tab
+:END:
+When loading a trace, the initially selected tab (/Timelines/) displays the /timelines view/.
+This is an interactive view consisting of multiple elements, most prominently /timelines/ representing the trace data.
+
+*** Axis
+:PROPERTIES:
+:CUSTOM_ID: sec:axis
+:END:
+The top of the timelines view shows the /axis/.
+The bold tick indicates the origin of the axis and displays the absolute time at that point in the trace.
+Ticks to the left and right of the origin show relative decrements and increments to this absolute time.
+
+By default, the origin is placed at the center of the axis,
+as analyzing traces often involves looking at what happened before and after an event.
+The origin can be moved by clicking and dragging anywhere on the axis.
+Alternatively, the context menu of the axis allows quickly placing the origin at the beginning, middle, or end of the axis.
+Manually placed origins will stay in place when resizing the window or timelines view,
+while origins set via the context menu will stay at their relative position.
+
+Additionally, the axis contains red and purple sections,
+which correspond to the garbage collector's stop-the-world phase and general activity.
+Pressing {{{keys(O)}}} cycles through displaying the red section, both sections, or none of the sections across the entire view.
+
+*** Memory plot
+:PROPERTIES:
+:CUSTOM_ID: sec:memory-plot
+:END:
+
+The axis is followed by the /memory plot/, which shows memory usage (more specifically the size of the heap) and the garbage collector goal, using green and purple respectively.
+Hovering anywhere on the plot will show a tooltip with the exact numeric values.
+The memory plot is separated from the timelines by a black border.
+This border can be dragged to resize the plot.
+
+The plot's context menu offers the following additional features:
+
+- {{{menu(Hide/Show legends)}}} :: hides or shows the labels for the minimum and maximum value.
+- {{{menu(Hide/Show "Heap size" series)}}} :: hides or shows the heap size.
+- {{{menu(Hide/Show "Heap goal" series)}}} :: hides or shows the heap goal.
+- {{{menu(Set extents to global extrema)}}} :: scales the plot so that the bottom represents the smallest measured value and the top represents the largest measured value, for the entire trace.
+  Only the values of enabled series will be considered.
+- {{{menu(Set extents to local extrema)}}} :: works like the previous command, but only considers the currently visible portion of the trace.
+- {{{menu(Auto-set extents to local extrema)}}} :: automatically applies the previous command whenever the currently visible portion of the trace changes.
+- {{{menu(Reset extents)}}} :: resets the extents to their default: zero at the bottom and the global maximum at the top.
+  It also disables auto-set extents.
+
+*** Timelines, tracks, and spans
+:PROPERTIES:
+:CUSTOM_ID: sec:timelines-tab
+:END:
+The main section of the timelines view consists of a number of horizontally stacked timelines.
+A timeline might show a processor, a goroutine, or phases of the garbage collector.
+Every timeline has a label, hovering over which may display a tooltip, and right-clicking which may open a context menu.
+
+For example, for processors, the tooltip will show how much time was spent executing user code,
+doing garbage collection work,
+and being idle.
+Pressing {{{keys(Ctrl/⌘,LMB)}}} on a label will zoom the view such that all spans in that timeline are visible.
+Pressing {{{keys(LMB)}}} on a goroutine label will open a panel with additional information about the goroutine (see [[#sec:panels]] for more on panels.)
+
+A timeline consists of one or more horizontally stacked /tracks/
+and each track consists of a series of /spans/.
+A span represents a state for some duration of time.
+For example, a goroutine may be blocked on a channel send operation for 100 ms, and this would be displayed as a single span.
+Tracks can visualize various things, such as the states of goroutines, call stacks, or user regions.
+
+The space before the first and after the last span in a track is filled with /whiskers/, which are green and grey respectively.
+To differentiate goroutines that ended during the trace from goroutines that were still running by the end of the trace,
+the tracks of goroutines that have ended have a final, black span, indicating the end of the goroutine.
+
+The view can be moved around by dragging with {{{keys(LMB)}}}, by using the scroll wheel, or by using the scrollbar.
+Holding {{{keys(Ctrl/⌘)}}} while scrolling zooms in and out, centered around the cursor's position.
+Holding {{{keys(Shift)}}} while scrolling swaps the axes. That is, scrolling vertically will scroll horizontally and vice versa.
+Dragging with {{{keys(Ctrl/⌘,LMB)}}} selects a region of time to zoom to.
+
+The {{{menu(Display)}}} menu contains commands for changing the way timelines are displayed,
+as well as commands for quick navigation.
+
+#+CAPTION: A complete goroutine track, showing whiskers, two actual spans, and the end of goroutine indicator.
+[[file:images/screenshots/track_whiskers_spans_end.png][file:./images/screenshots/track_whiskers_spans_end.png]]
+
+Hovering over a span will show context-specific information about it,
+including its state and duration,
+but also additional information such as tags (see [[#sec:tags]])
+or the reason for being in a certain state.
+Pressing {{{keys(LMB)}}} on a span will open a panel with additional information about the span, including a list of events that happened during that span.
+Pressing {{{keys(Ctrl/⌘,LMB)}}} on a span will zoom to the span.
+
+Spans have different colors depending on the states they represent.
+Different kinds of timelines and tracks use different color schemes.
+These are explained in [[#sec:span-colors]].
+
+Depending on the zoom level, individual spans may be too small to display.
+When that happens, Gotraceui groups small spans together in a /merged/ span,
+which is rendered using a downsampled preview of the contained spans.
+Zooming into merged spans will progressively show higher resolution previews,
+until eventually the merged spans break up into individual spans.
+
+#+CAPTION: The preview of a merged span consisting of 55,000 spans.
+[[file:images/screenshots/merged-span.png][file:./images/screenshots/merged-span.png]]
+
+Computing the previews for merged spans can sometimes take a long time,
+in which case we fall back to lower quality previews or a placeholder while the better preview gets computed in the background.
+As long as some of the visible previews aren't displayed in the best quality possible,
+a dancing gopher will be shown.
+
+All spans have context menus,
+which include at least a {{{menu(Zoom)}}} option,
+which acts identically to {{{keys(Ctrl/⌘,LMB)}}},
+and a {{{menu(Show span info)}}} option, which opens the span panel.
+Some spans have more options:
+
+- Spans in processor timelines have a {{{menu(Scroll to goroutine)}}} option to scroll to the corresponding goroutine timeline.
+- Blocked spans in goroutine timelines have a {{{menu(Scroll to unblocking goroutine)}}} option to scroll to the goroutine that unblocked the goroutine.
+  For example, for a goroutine stuck in a channel receive, this will scroll to the sending goroutine.
+- Running spans in goroutine timelines have a {{{menu(Scroll to processor)}}} option to scroll to the processor that the goroutine is running on at the time.
+
+**** Span colors
+:PROPERTIES:
+:CUSTOM_ID: sec:span-colors
+:END:
+
+Spans in processor timelines will have one of two colors:
+{{{traceState(Green,active)}}} for spans that represent running user goroutines,
+and {{{traceState(purple,GC)}}} for spans that represent garbage collection work.
+
+Spans in the first track of goroutine timelines can have many different colors,
+representing the many different states a goroutine can be in.
+You can find an exhaustive list of all goroutine states --- and the corresponding span colors --- in [[#sec:goroutine-states]].
+
+User regions are displayed in {{{traceState(light pink,userRegion)}}}.
+Stack traces are displayed either in a {{{traceState(light shade of green,stack)}}} if they're from events,
+or in a {{{traceState(lighter shade of green,sampled)}}} if they've been acquired via CPU sampling.
+
+**** Span tags
+:PROPERTIES:
+:CUSTOM_ID: sec:tags
+:END:
+Gotraceui annotates spans with tags, which further describe the states goroutines are in.
+These tags are produced by automatically parsing stack traces,
+and for example deducing that a goroutine that's blocked on pollable I/O got to that state by making a TLS-encrypted
+HTTP request over TCP,
+which provides a lot more information than just /I/O/.
+
+Being based on stack trace parsing, tags are provided on a best-effort basis.
+Without a matching, hand-written pattern, tags will not be recognized.
+The authors add new patterns as they discover them and try to keep them in sync with new releases of Go.
+
+The following tags exist:
+
+- =HTTP=, for I/O related to HTTP
+- =TCP=, for I/O related to TCP
+- =TLS=, for I/O related to TLS
+- =accept=, for blocking on [[https://man7.org/linux/man-pages/man2/accept.2.html][accept(2)]]ing on a network connection
+- =dial=, for blocking on dialing a network connection
+- =network=, for network I/O
+- =read=, for read I/O
+
+A single span can be annotated with multiple tags.
+
+
+**** Stack traces and CPU sampling
+:PROPERTIES:
+:CUSTOM_ID: sec:cpu-sampling
+:END:
+In addition to sequences of runtime events and user regions, Gotraceui can also display tracks for stack traces.
+These can be enabled via {{{menu(Display,Show stack frames)}}} or by pressing the {{{keys(S)}}} key.
+When using the keyboard shortcut, the timeline that is currently under the cursor will stay in its current position.
+Other timelines will have to move, as their heights change due to the new tracks.
+
+Each track represents one frame of the stack trace, with the frames sorted from bottom to top.
+In other words, the first displayed frame represents the entry point of the goroutine.
+
+There are two kinds of stack traces in Gotraceui: stacks associated with runtime events, and CPU sampling.
+The first kind is straightforward to understand and conceptualize.
+Most events that cause state transitions into blocked states, which cause new spans to be created, have stack traces associated with them.
+These stacks are true for the entire duration of a span;
+a span that is blocked on a channel receive in some function will be blocked at the same place the whole time, for example.
+
+The second kind is trickier to understand. When CPU profiling is enabled during tracing, the trace will include CPU samples.
+A CPU profiling sample states that at a specific point in time, a certain function was executing and how we got there.
+It doesn't say anything about what happened right before or after the sample.
+
+#+BEGIN_aside
+More correctly, a sample states which instruction was executing and what the call stack looked like. In Gotraceui, we only consider the call stack.
+#+END_aside
+
+By default, samples occur at a frequency of 100 Hz, i.e., once every 10 ms.
+This means that there is 10 ms of uncertainty after a sample.
+The stack trace might've changed anywhere from 0 to 10 ms after the sample.
+The same function may even have been called repeatedly.
+All we really know is that at one point in time, the function was running.
+
+Displaying spans that are infinitely small, however, wouldn't be very useful.
+For that reason, Gotraceui displays CPU samples similarly to how it displays stack traces of events.
+A span for a CPU sample will start when the sample was made and it ends either when another sample is captured or when a state transition occurs.
+To differentiate these less accurate stack traces from others, they are displayed in a lighter color.
+
+The power of CPU samples lies in spotting macroscopic patterns in code execution, on the scales of hundreds of milliseconds, if not seconds.
+A frame that gets sampled multiple times is likely to be spending more time executing than other frames.
+To further aid this macroscopic view, spans of consecutive CPU samples that describe the same frame are merged.
+This creates the usual layered representation of stacks that one might be familiar with from other tools such as flame graphs.
+
+However, the data is woefully inadequate at small scales --- the kind of scales at which execution trace data exists.
+You shouldn't rely on sampled stack traces to fill in the gaps between two runtime events that happened 100 ms apart.
+It is important to either look at runtime events or CPU samples, but not both together.
+Runtime events show an exact history of what happened in the runtime, while CPU samples show a guess at what happened in user code.
+
+#+CAPTION: The trace of a loop parsing PNG files.
+#+CAPTION: Each pink span denotes an iteration.
+#+CAPTION: The CPU samples give us a rough idea of what was happening, but their resolution is quite coarse.
+#+CAPTION: There were six samples in total, which is less than one sample per iteration.
+#+CAPTION: We can be fairly certain that most time was spent somewhere in =readImagePass=, but beyond that we don't have enough data.
+[[file:images/screenshots/sampling.png][file:./images/screenshots/sampling.png]]
+
+It is also important to understand that CPU profiling samples happen at a fairly constant rate, which means all samples have the same uncertainty.
+Runtime events, however, can happen at arbitrary points.
+If a sample is followed by a runtime event 1 ms later then it will look much smaller than if it were followed by a runtime event 9 ms later,
+even though in the latter case we still don't know what happened for the first 9 ms.
+
+** Links
+:PROPERTIES:
+:CUSTOM_ID: sec:links
+:END:
+
+Gotraceui's UI contains many kinds of links, such as links to timestamps, goroutines, functions, etc.
+
+Links are color-coded. Red links refer to timestamps and blue links refer to /objects/ such as goroutines or spans.
+
+Left-clicking on links executes their default action,
+and most links also have alternate actions that can be accessed using the context menu,
+or by holding certain modifier keys while left-clicking.
+
+Clicking on a timestamp scrolls the timelines view to that point in time, specifically by scrolling the time to the origin configured in the axis.
+Links to processors, goroutines, and spans all share the same functionality:
+
+- Clicking on one opens the corresponding information panel.
+- Holding {{{keys(Ctrl/⌘)}}} while clicking on one zooms to it.
+- Holding {{{keys(Shift)}}} while clicking on one scrolls the timelines view to the corresponding timeline or beginning timestamp.
+
+The context menu of span links allows scrolling to their beginnings or ends, in addition to opening their info and zooming to them.
+
+Hovering over timestamp links highlights the timestamp in the timelines view.
+This either uses a red cursor, if the timestamp is visible,
+or it highlights the left or right border of the view to indicate the direction in which the timestamp lies.
+
+** Panels
+:PROPERTIES:
+:CUSTOM_ID: sec:panels
+:END:
+
+Gotraceui uses a side panel to display additional information about entities such as goroutines and spans.
+Clicking on a supported entity opens the panel on the right side of the window.
+
+Panels can be resized by dragging the black line.
+Clicking {{{menu(Back)}}} will go back to the previously displayed panel. This can be used repeatedly.
+Finally, clicking {{{menu(Tabify)}}} will turn a panel into a tab (see [[#sec:tabs]] for more information on tabs).
+# A window can be turned back into a panel by clicking the {{{menu(Attach)}}} button.
+
+Depending on the type of panel, additional buttons may exist.
+
+Panels consist of summary information at the top and tabs that display more specific information.
+
+*** Goroutine panel
+:PROPERTIES:
+:CUSTOM_ID: sec:goroutine-panel
+:END:
+
+Clicking on goroutine labels or goroutine links opens the goroutine panel.
+
+Goroutine panels display the following information:
+
+- Basic information, such as the goroutine's parent, its duration, or what function it was running.
+- Statistics of the different states of spans.
+- All spans in the goroutine.
+- All events in the goroutine.
+- The stack trace, showing where the goroutine was created, if that information is available.
+
+Goroutine panels have two additional buttons for scrolling and zooming to the goroutine.
+
+*** Span panel
+:PROPERTIES:
+:CUSTOM_ID: sec:span-panel
+:END:
+
+Clicking on spans (either merged or unmerged ones) opens the span panel.
+
+Span panels display the following information:
+
+- Basic information, such as the start and end time.
+- Statistics of the different states.
+- A list of the individual spans.
+- For goroutine spans, including user regions, events that occurred during the span.
+- For unmerged spans, the stack trace.
+
+Additionally, individual user region spans have a button labeled {{{menu(Select user region)}}},
+which selects all user region spans with the same label.
+Spans selected that way have a {{{menu(Histogram)}}} tab, which displays a histogram of span durations.
+See [[#sec:histograms]] for more information on histograms.
+
+Span panels have two additional buttons for scrolling & panning and zooming to the spans.
+
+*** Function panel
+:PROPERTIES:
+:CUSTOM_ID: sec:function-panel
+:END:
+
+Clicking on function links---such as the ones displayed in goroutine panels---opens the function panel.
+
+Function panels display the following information:
+
+- Basic information, such as how many goroutines ran the function
+- A list of all goroutines.
+- A histogram, showing the durations of goroutines that ran the function.
+  See [[#sec:histograms]] for more information on using histograms.
+
+** Tabs
+:PROPERTIES:
+:CUSTOM_ID: sec:tabs
+:END:
+
+The main UI uses tabs to display the major features of Gotraceui.
+These are the timelines view, the list of goroutines, heatmaps, and flame graphs.
+Furthermore, every panel can be converted to a tab using the {{{menu(Tabify)}}} button.
+
+Most tabs can be closed by clicking on them with the middle mouse button,
+with the exception of the /Timelines/ and /Goroutines/ tabs.
+
+When the tab bar contains more tabs than can be displayed it can be scrolled horizontally,
+or by holding {{{keys(Shift)}}} while scrolling vertically.
+
+*** Goroutines
+:PROPERTIES:
+:CUSTOM_ID: sec:goroutines-tab
+:END:
+
+The /Goroutines/ tab displays a tabular view of all goroutines in the trace.
+
+*** Heatmaps
+:PROPERTIES:
+:CUSTOM_ID: sec:heatmaps
+:END:
+
+Gotraceui can display processor utilization using quantized heatmaps.
+These can be accessed via {{{menu(Analyze,Open processor utilization heatmap)}}}.
+
+The X-axis shows time, the Y-axis shows utilization in percent, and color saturation represents the number of processors.
+
+The size of a bucket can be adjusted using the arrow keys. The {{{keys(←)}}} and {{{keys(→)}}} keys decrease and increase the amount of time represented by a bucket in steps of 10 ms.
+The {{{keys(↓)}}} and {{{keys(↑)}}} keys decrease and increase the range of percentage points per bucket.
+
+By default, a ranked color palette is used, where each distinct value that occurred gets its own saturation.
+Compared to a linear palette, where the color is proportional to the value, a ranked palette makes it easier to spot outliers.
+On the flip side, a linear palette allows comparing absolute values just by looking at the color.
+
+#+BEGIN_aside
+We are limited to 256 levels of saturation, but you probably don't have more than 256 processors in a utilization bucket.
+#+END_aside
+
+#+BEGIN_EXPORT html
+<figure class="side-by-side">
+  <figure>
+    <a href="images/screenshots/heatmap-linear.png">
+      <img src="images/screenshots/heatmap-linear.png" />
+    </a>
+    <figcaption>Linear color palette.</figcaption>
+  </figure>
+
+  <figure>
+    <a href="images/screenshots/heatmap-ranked.png">
+      <img src="images/screenshots/heatmap-ranked.png" />
+    </a>
+    <figcaption>Ranked color palette.</figcaption>
+  </figure>
+
+  <figcaption>
+    Two heatmaps showing a trace with 31 processors at 95--100% utilization and
+    one processor at 0--5% utilization. Note how on the left, the single
+    processor is barely visible.
+  </figcaption>
+</figure>
+#+END_EXPORT
+
+The bottom of the heatmap tab displays information about the currently hovered bucket:
+the range of time and the range of utilization represented by the bucket, as well as the number of processors in said bucket.
+
+Please note that /processor/ refers to the concept from the Go runtime, and not actual CPUs or CPU cores.
+While processor utilization is a good estimate for actual CPU utilization, it cannot account for the OS scheduler, nor for cgo.
+
+*** Flame graphs
+:PROPERTIES:
+:CUSTOM_ID: sec:flamegraphs
+:END:
+
+Gotraceui can display flame graphs based on CPU sampling as well as the stack traces associated with tracing
+events.
+
+#+BEGIN_QUOTE
+  Flame graphs are a visualization of hierarchical data, created to visualize stack traces of profiled
+  software so that the most frequent code-paths to be identified quickly and accurately. ---Brendan Gregg
+#+END_QUOTE
+
+Our flame graphs follow the common conventions:
+colors don't have any meaning and only serve to differentiate spans,
+and the order of spans on the X axis is alphabetical.
+Gotraceui assigns colors so that functions from the same package have the same hue,
+using different lightness values to differentiate neighboring spans.
+
+#+CAPTION: A goroutine flame graph.
+[[file:images/screenshots/flame-graph.png][file:./images/screenshots/flame-graph.png]]
+
+There are two ways of opening flame graphs:
+the first is by using {{{menu(Analyze,Open flame graph)}}}.
+This will open a flame graph visualizing all of the CPU samples found in the trace.
+The second is by choosing the {{{menu(Open flame graph)}}} option in goroutine context menus.
+This will open a flame graph specific to that goroutine,
+displaying both CPU samples (under the root span titled /Running/)
+and stacks from goroutine state transitions (e.g. being blocked on a channel send),
+thus showing both on- and off-CPU time.
+
+Flame graphs are interactive.
+Hovering over spans will display tooltips with useful information.
+Pressing {{{keys(Ctrl/⌘,LMB)}}} on a span will zoom to it and {{{keys(Ctrl/⌘,Z)}}} undoes zooming.
+
+** Histograms
+:PROPERTIES:
+:CUSTOM_ID: sec:histograms
+:END:
+
+Histograms are used for showing the distribution of data.
+They are similar to bar charts, but instead of discrete values, each bar represents a range of values.
+Gotraceui uses histograms to show the distribution of durations of goroutines and user regions.
+
+They can be accessed in two ways: via function panels (see [[#sec:function-panel]]),
+and via span panels for user regions (see [[#sec:span-panel]].)
+
+By default, our histograms use 100 bins and don't reject outliers.
+Both of these things can be changed by right-clicking on a histogram and selecting {{{menu(Change settings)}}}.
+The /Filter outliers/ option removes outliers before computing the histogram.
+Outliers are defined as values that are larger than 2.5× the interquartile range.
+
+Histograms are interactive.
+Hovering over a bin shows a tooltip describing the range represented by the bin, as well as the number of values in the bin.
+Double-clicking a bin, or drawing a selection with {{{keys(Ctrl/⌘,LMB)}}}, focuses the histogram on the selected time range.
+You can reset the histogram by right-clicking and choosing {{{menu(Zoom out)}}}.
+
+The {{{menu(Goroutines)}}} tab of function panels has a checkbox titled /Filter list to range of durations selected in histogram/.
+When this is enabled, focusing a time range in the histogram will filter the list of goroutines to those whose durations fall into the focused range.
+This is useful for finding goroutines that take abnormally long.
+For example, if you have a server application where each user request is served by a goroutine running a certain function,
+then you can use the histogram to focus on the time range you deem unacceptable---for
+example, requests might be intended to only take up to 10 ms and all goroutines that run for more than that are problematic.
+
+** Tables
+:PROPERTIES:
+:CUSTOM_ID: sec:tables
+:END:
+
+Tables are used in various places.
+They allow sorting columns by clicking on their headers.
+They also allow resizing columns by dragging the divider between column headers.
+Without any modifier keys, dragging the divider will adjust the ratio between two columns.
+When holding the {{{keys(Shift)}}} key while dragging,
+the size of the left column will be adjusted without changing the size the right column.
+This might increase the width of the table.
+
+** Mouse and keyboard controls
+:PROPERTIES:
+:CUSTOM_ID: sec:controls
+:END:
+
+*** Global
+:PROPERTIES:
+:CUSTOM_ID: sec:controls-global
+:END:
+
+| Input                   | Function          |
+|-------------------------+-------------------|
+| {{{keys(Ctrl/⌘,+)}}}    | Increase UI scale |
+| {{{keys(Ctrl/⌘,=)}}}    | Increase UI scale |
+| {{{keys(Ctrl/⌘,-)}}}    | Decrease UI scale |
+| {{{keys(Ctrl/⌘,0)}}}    | Reset UI scale    |
+| {{{keys(RMB)}}} (click) | Open context menu |
+
+*** Timelines view
+:PROPERTIES:
+:CUSTOM_ID: sec:controls-timelines
+:END:
+
+# XXX scroll wheel
+# XXX shift + scroll wheel
+# XXX shortcut + scroll wheel
+
+| Input                          | Function                                |
+|--------------------------------+-----------------------------------------|
+| {{{keys(LMB)}}} (click)        | Open timeline and span information      |
+| {{{keys(LMB)}}} (drag)         | Pan the timelines view                  |
+| {{{keys(Ctrl/⌘,LMB)}}} (drag)  | Zoom to selected area                   |
+| {{{keys(Ctrl/⌘,LMB)}}} (click) | Zoom to clicked span or timeline        |
+| {{{keys(Home)}}}               | Scroll to top of timelines view         |
+| {{{keys(Ctrl/⌘,Home)}}}        | Zoom to fit currently visible timelines |
+| {{{keys(Shift,Home)}}}         | Jump to beginning of trace              |
+| {{{keys(C)}}}                  | Toggle compact display                  |
+| {{{keys(G)}}}                  | Open timeline selector                  |
+| {{{keys(H)}}}                  | Open span highlighting dialog           |
+| {{{keys(O)}}}                  | Toggle STW and GC overlays              |
+| {{{keys(S)}}}                  | Toggle display of stack tracks          |
+| {{{keys(T)}}}                  | Toggle displaying tooltips              |
+| {{{keys(X)}}}                  | Toggle display of all timeline labels   |
+| {{{keys(Ctrl/⌘,Z)}}}           | Undo navigation                         |
+
+*** Heatmaps
+:PROPERTIES:
+:CUSTOM_ID: sec:controls-heatmaps
+:END:
+
+| Input         | Function                             |
+|---------------+--------------------------------------|
+| {{{keys(←)}}} | Decrease X-axis bucket size by 10 ms |
+| {{{keys(→)}}} | Increase X-axis bucket size by 10 ms |
+| {{{keys(↓)}}} | Decrease Y-axis bucket size          |
+| {{{keys(↑)}}} | Increase Y-axis bucket size          |
+
+*** Histograms
+:PROPERTIES:
+:CUSTOM_ID: sec:controls-histograms
+:END:
+
+| Input                          | Function              |
+|--------------------------------+-----------------------|
+| {{{keys(LMB)}}} (double-click) | Zoom to selected bin  |
+| {{{keys(Ctrl/⌘,LMB)}}} (drag)  | Zoom to selected bins |
+
+*** Flame graphs
+:PROPERTIES:
+:CUSTOM_ID: sec:controls-flamegraphs
+:END:
+
+| Input                          | Function             |
+|--------------------------------+----------------------|
+| {{{keys(Ctrl/⌘,LMB)}}} (click) | Zoom to clicked span |
+| {{{keys(Ctrl/⌘,Z)}}}           | Undo navigation      |
+
+* The Go runtime
+:PROPERTIES:
+:CUSTOM_ID: sec:runtime/trace
+:END:
+
+Execution traces are primarily about the interactions between goroutines and the runtime.
+To make sense of traces, then, it is helpful to understand how the runtime functions.
+The following sections explain the most important aspects of the runtime and their impact on Gotraceui's visualization.
+
+** The scheduler
+:PROPERTIES:
+:CUSTOM_ID: sec:scheduler
+:END:
+Go programs can have very many goroutines, up to millions.
+Because it wouldn't be feasible to map one goroutine to one OS level thread,
+Go has to distribute goroutines over a smaller number of threads.
+To do so, the scheduler has to decide which goroutines to run when,
+part of which involves tracking which goroutines /can/ run.
+The activity related to this makes up a large part of what the trace captures and Gotraceui visualizes.
+It is thus helpful to understand how the scheduler works.
+
+*** Machines, Processors, and Goroutines
+:PROPERTIES:
+:CUSTOM_ID: sec:mpg
+:END:
+
+The scheduler manages three resources: Machines, Processors, and Goroutines.
+In conversations, documentation, and source code these are usually referred to by their initials.
+
+Machines correspond to operating system threads.
+They are responsible for actually executing instructions.
+Processors are, conceptually, tokens.
+Machines need to hold processors to be allowed to run goroutines.
+This serves two purposes:
+First, it puts a bound on parallelism.
+You wouldn't want hundreds of threads to fight for CPU resources.
+Second, it allows for an efficient implementation.
+While processors are tokens in principle, they are also a concrete data structure that holds information necessary for efficiently running goroutines.
+In other words, machines use processors to run goroutines.
+The environment variable =GOMAXPROCS= controls the number of available processors.
+It defaults to the number of CPU cores.
+
+In the context of execution traces and Gotraceui, goroutines are said to be running on processors, as the trace format is processor-centric.
+In fact, Gotraceui does not expose machines at all.
+If it did, it would show goroutines running on processors and processors running on machines.
+
+If you'd like to learn more about the internals of the scheduler that aren't necessary to understand traces but are nevertheless interesting,
+check out [[https://morsmachine.dk/go-scheduler][Daniel Morsing's blog post on the topic]].
+
+*** Syscalls
+:PROPERTIES:
+:CUSTOM_ID: sec:syscalls
+:END:
+Syscalls, short for system calls, are the primary way that processes use to communicate with the operating system's kernel.
+They are used to, for example, manipulate files, spawn new processes, use the network, etc.
+
+Syscalls are synchronous: once a thread executes a syscall it cannot do anything else until the syscall returns.
+When a goroutine executes a syscall it causes the whole machine to block---that machine will not be able to run any other goroutines until the syscall returns.
+When this happens, the machine loses its processor, after all it is no longer able to run goroutines, and another machine may pick up the processor.
+Additionally, Go ensures that there are always enough unblocked machines to run all processors by creating new ones when necessary.
+
+All of this work is fairly expensive.
+That is why Go differentiates between ``non-blocking'' and ``blocking'' syscalls.
+Non-blocking syscalls aren't truly non-blocking; they're just syscalls that return very quickly.
+For example, the =gettimeofday= syscall usually returns within a few microseconds.
+It would take longer to give up the processor and spawn a new thread than it would to wait for the syscall to return.
+Additionally, the goroutine that invoked the syscall would have to wait its turn to be scheduled again, which might involve waiting for another goroutine to be preempted.
+All in all, the cost of a cheap syscall would multiply tenfold.
+Instead of doing all that, Go just waits to see if the syscall returns promptly.
+Only if it doesn't will Go go through the steps we described earlier.
+
+#+BEGIN_aside
+The exact duration that Go waits for syscalls to return quickly depends on various factors, but it ranges from 0 to 10 ms.
+#+END_aside
+
+In the execution trace, and thus Gotraceui, these two kinds of syscalls are represented differently.
+Short syscalls appear as instantaneous events during a span, while long syscalls appear as their own spans.
+
+*** =LockOSThread=
+:PROPERTIES:
+:CUSTOM_ID: sec:lockosthread
+:END:
+
+By default, the scheduler moves goroutines between processors and processors between machines as necessary to maintain good performance.
+For most Go programs, this is fine and indeed desirable.
+However, when using cgo, it may be the case that the libraries you use depend on /thread-local storage/ (TLS).
+TLS allows storing per-thread state, which is little more than global variables scoped to threads.
+Of course, if Go moves goroutines across threads, then thread-local state will not be available consistently.
+To solve this problem, Go offers the =runtime.LockOSThread= function, which locks the current goroutine to the current thread.
+From that point on, the goroutine will only ever run on that thread (unless =UnlockOSThread= is called), and no other goroutines will be allowed to run on it.
+
+Because Gotraceui visualizes processors and goroutines but not machines, the use of =LockOSThread= is largely invisible.
+In particular, thread-locked goroutines can still move between processors freely.
+
+*** Cooperative scheduling and preemption
+:PROPERTIES:
+:CUSTOM_ID: sec:cooperative-scheduling
+:END:
+
+#+BEGIN_TODO
+This section will be expanded in the future
+#+END_TODO
+
+*** Goroutine states
+:PROPERTIES:
+:CUSTOM_ID: sec:goroutine-states
+:END:
+
+All goroutines are in one of three states: Runnable, running, and blocked.
+The runtime subdivides /blocked/ into different reasons for being blocked, and Gotraceui introduces some of its own subdivisions to further increase the level of detail.
+
+The following is an exhaustive list of states found in Gotraceui.
+Each state name's background color corresponds to the span color used in Gotraceui.
+
+- {{{traceState(created,ready)}}} :: Newly created goroutines will be in this state before they get scheduled for the first time.
+  It is a special case of the ready state.
+
+- {{{traceState(active,active)}}} :: Active goroutines are those that are currently running.
+
+- {{{traceState(send,blockedHappensBefore)}}}, {{{traceState(recv,blockedHappensBefore)}}}, {{{traceState(select,blockedHappensBefore)}}} ::
+  These states describe the three ways in which goroutines can be
+  blocked on channel communication.
+
+- {{{traceState(sync,blockedHappensBefore)}}} :: This state is used by goroutines that are blocked on sync
+  primitives, such as =sync.Mutex=.
+
+- {{{traceState(sync.Once,blockedHappensBefore)}}} :: Blocked on a =sync.Once=.
+  This is a special case of the sync state and detected by Gotraceui based on stack traces.
+
+- {{{traceState(sync.Cond,blockedHappensBefore)}}} :: Blocked on a condition variable (=sync.Cond=.)
+
+- {{{traceState(I/O,blockedNet)}}} :: This state is entered by goroutines that are waiting for pollable I/O to complete.
+  See [[#sec:netpoller]] for more information.
+
+- {{{traceState(syscall,blockedSyscall)}}} :: Goroutines enter this state when they invoke a blocking syscall.
+  See [[#sec:syscalls]] for an explanation of the difference between blocking and non-blocking syscalls in the context of Go.
+
+- {{{traceState(blocked,blocked)}}} :: Blocked goroutines are waiting for something to happen, but we don't know what.
+  This usually happens for goroutines of the runtime that don't emit more accurate information.
+  User goroutines will usually have more specific states such as /send/.
+
+- {{{traceState(inactive,inactive)}}} :: This state is one of Gotraceui's custom states and is used for
+  goroutines that are blocked or ready to run, but aren't actually eager to run.
+  For blocked goroutines,
+  this is exclusively used by goroutines of the runtime that block on some lock to pace the amount of work they do.
+  Goroutines that are technically in the ready state but are marked inactive are those that called =runtime.Gosched= or =time.Sleep=,
+  as this indicates that they willingly gave up part of their share in CPU time,
+  and their time spent waiting shouldn't be considered scheduler latency.
+
+- {{{traceState(Blocked (GC),GC)}}} :: The goroutine is waiting to assist the garbage collector.
+
+- {{{traceState(ready,ready)}}} :: A goroutine in this state isn't blocked on anything anymore and can start running
+  as soon as it gets scheduled.
+  A goroutine can be in this state because there aren't any free processors to run it,
+  or simply because the scheduler hasn't gotten around to starting it yet.
+  Goroutines can transition into this state from the active state if they get preempted,
+  or from any of the various blocked states once they get unblocked.
+  Time spent in this state is commonly called scheduler latency.
+
+- {{{traceState(GC (idle),GC)}}} :: A =runtime.gcBgMarkWorker= goroutine doing idle mark work.
+
+- {{{traceState(GC (dedicated),GC)}}} :: A =runtime.gcBgMarkWorker= goroutine doing dedicated mark work.
+
+- {{{traceState(GC (fractional),GC)}}} :: A =runtime.gcBgMarkWorker= goroutine doing fractional mark work.
+
+- {{{traceState(GC mark assist,GC)}}} :: Goroutines in the /GC mark assist/ state are assisting the mark phase.
+
+- {{{traceState(GC sweep,GC)}}} :: Goroutines in the /GC sweep/ state are sweeping memory.
+
+- stuck :: Goroutines in this state are stuck and can never make progress.
+  This happens, for example, when receiving from a nil channel or using =select= with no cases.
+
+- done :: This state is used for synthetic spans that indicate that goroutines have exited.
+
+** Pollable vs. non-pollable I/O
+:PROPERTIES:
+:CUSTOM_ID: sec:netpoller
+:END:
+
+To do I/O on files (we use /files/ in the Unix sense, referring to actual files, pipes, network connections, etc) we need to involve the operating system.
+In [[#sec:syscalls]] we established that this usually requires syscalls and indeed, the most straightforward way to read and write is to use the =read= and =write= syscalls (in the following we'll focus on reading, but everything applies equally to writing.)
+However, we've also established that syscalls block execution and force Go to create new threads.
+This is especially true for I/O, which rarely finishes quickly.
+But what happens if we're working on a highly concurrent server that handles thousands of connections simultaneously?
+We certainly do not want thousands of threads.
+Threads are expensive to create, they need memory, the OS has to manage them, the Go runtime has to manage them, and so on.
+Avoiding a large number of threads is one of the reasons Go doesn't use one thread per goroutine in the first place.
+
+Most operating systems provide a more efficient alternative to having thousands of threads waiting in syscalls:
+a combination of non-blocking I/O and some mechanism that can be polled to wait for files to become ready.
+Non-blocking means that instead of blocking, read syscalls fail immediately if there is no data available to be read.
+The expectation is that the program will try again in the future.
+Ideally this is combined with the aforementioned polling-based mechanism which tells the program when a file is ready to be read from.
+Using these two features means that we no longer need one thread per outstanding I/O operation. Instead, we need one thread to poll for events, and some number of threads to do I/O.
+
+In a low-level language like C, we'd be responsible for managing non-blocking I/O, polling, retrying reads, and possibly using a thread pool.
+In Go, all of this is hidden from view. To the programmer, all reads look like ordinary blocking calls: ~f.Read(b)~ will return once it has read some data.
+In the background, however, the runtime uses the features we've described previously.
+A read doesn't map to a simple syscall. Instead, it calls into the runtime, which is responsible for reading, polling, and retrying.
+During polling, the goroutine is put into a blocked state and the processor that was running it is free to run other goroutines.
+Once the file becomes ready for reading, the goroutine is unblocked and scheduled so it can retry the read.
+
+The runtime system responsible for polling is called the /netpoller/. It is called that because originally, it only supported network connections.
+Since then it has been expanded to operate on other kinds of files, too, such as pipes.
+However, not all kinds of files are pollable. For example, Go uses epoll on Linux, and epoll doesn't support ordinary disk files.
+Which kinds of files are pollable also differs between operating systems, as each OS provides its own mechanism.
+For non-pollable files the netpoller cannot be used and Go falls back to normal, blocking syscalls, with all of the previously mentioned downsides.
+However, the most important use case of the netpoller is undoubtedly network connections, and these are pollable on all systems.
+
+In Gotraceui, blocking on pollable I/O is represented using I/O spans, while non-pollable I/O is shown as syscalls in the way described in [[#sec:syscalls]].
+For pollable I/O, span tooltips may additionally show the kind of I/O, such as network reads. This information is based on tags, which are described in [[#sec:tags]].
+
+#+CAPTION: A span blocked on a pollable network read.
+[[file:images/screenshots/pollable-io-span.png][file:./images/screenshots/pollable-io-span.png]]
+
+** Garbage collection
+:PROPERTIES:
+:CUSTOM_ID: sec:gc
+:END:
+Go uses a concurrent mark and sweep garbage collector.
+Its activity will interact with the scheduling of your goroutines in various ways,
+which we'll explore in this section.
+We will focus on the details that matter for understanding execution traces.
+There are many more details to how the GC works
+and you're encouraged to read the [[https://go.dev/doc/gc-guide][official documentation]] to learn more about it.
+
+# \todo{Something about mark, sweep, mark assist, STW, how GC gets triggered, etc}
+
+
+#+BEGIN_TODO
+This section will be expanded in the future
+#+END_TODO
+
+** The runtime's goroutines
+:PROPERTIES:
+:CUSTOM_ID: sec:runtime-goroutines
+:END:
+The runtime spawns several of its own goroutines that will show up in most traces.
+Most of these exist to help with the concurrent garbage collector.
+
+- =bgsweep= is a low priority goroutine that sweeps spans when there are idle processors. This reduces the amount
+  of sweeping that has to be done by other goroutines.
+- =bgscavenge= periodically returns unused memory to the OS.
+- Multiple =gcBgMarkWorker= goroutines implement the garbage collector's concurrent mark phase. See [[#sec:gc]] for more information on the garbage collector.
+- =forcegchelper= periodically gets woken up and forces a garbage collection cycle to start.
+  This ensures that garbage gets collected regularly even if the program isn't allocating enough memory to hit the heap target.
+- =runfinq= is the goroutine that is responsible for running finalizers.
+  That means that this runtime goroutine will execute code provided by the user via =runtime.SetFinalizer=.
+
+* Final words
+:PROPERTIES:
+:CUSTOM_ID: sec:final-words
+:END:
+
+The best way to get started with runtime tracing is to jump right in.
+
+#+CAPTION: Olive, who is the bestest. © [[https://catzkorn.dev/][Charlotte Brandhorst-Satzkorn]], Olive's owner.
+[[file:images/olive.jpg][file:./images/olive.jpg]]
