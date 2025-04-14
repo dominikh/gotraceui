@@ -542,6 +542,7 @@ func (gs *TaskList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 		case "Duration": // Duration
 			// If the task's end wasn't observed, then traceEnd is equal to the trace's end
 			traceEnd := t.EffectiveEnd()
+			traceStart := t.EffectiveStart()
 
 			start, sok := t.Start.Get()
 			end, eok := t.End.Get()
@@ -549,10 +550,10 @@ func (gs *TaskList) Layout(win *theme.Window, gtx layout.Context) layout.Dimensi
 			var d time.Duration
 			var approx bool
 			if !sok && !eok {
-				d = time.Duration(traceEnd)
+				d = time.Duration(traceEnd - traceStart)
 				approx = true
 			} else if !sok {
-				d = time.Duration(end)
+				d = time.Duration(end - traceStart)
 				approx = true
 			} else if !eok {
 				d = time.Duration(traceEnd - start)
