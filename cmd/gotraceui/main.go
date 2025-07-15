@@ -1601,7 +1601,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 		return taskI.ID < taskJ.ID
 	})
 
-	mergeTimelines(goroutineTimelines, taskTimelines, timelines[len(pt.Processors):][:0], tr)
+	mergeTimelines(goroutineTimelines, taskTimelines, timelines[len(pt.Processors):], tr)
 
 	mg := Plot{
 		Name: "Memory usage",
@@ -1700,23 +1700,29 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 }
 
 func mergeTimelines(a, b, out []*Timeline, tr *Trace) {
-	i, j := 0, 0
-	for i < len(a) && j < len(b) {
-		goroutine := a[i].item.(*ptrace.Goroutine)
-		task := b[j].item.(*ptrace.Task)
+	write := func(els ...*Timeline) {
+		// We intentionally use len(els) instead of the return value of copy.
+		// The out slice is expected to have the right size; if it's too small,
+		// the current version of this function will panic instead of silently
+		// dropping elements.
+		copy(out, els)
+		out = out[len(els):]
+	}
+
+	for len(a) > 0 && len(b) > 0 {
+		goroutine := a[0].item.(*ptrace.Goroutine)
+		task := b[0].item.(*ptrace.Task)
 		if goroutine.ID <= goroutineIDForTask(task, tr) {
-			out = append(out, a[i])
-			i++
+			write(a[0])
+			a = a[1:]
 		} else {
-			out = append(out, b[j])
-			j++
+			write(b[0])
+			b = b[1:]
 		}
 	}
-	if i < len(a) {
-		out = append(out, a[i:]...)
-	} else if j < len(b) {
-		out = append(out, b[j:]...)
-	}
+
+	write(a...)
+	write(b...)
 }
 
 type Description struct {
