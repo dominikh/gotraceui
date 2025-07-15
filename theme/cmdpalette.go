@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	rtrace "runtime/trace"
+	"slices"
 	"strings"
 
 	"honnef.co/go/gotraceui/color"
@@ -18,7 +19,6 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/unit"
 	"gioui.org/x/eventx"
-	"golang.org/x/exp/slices"
 )
 
 // XXX split into style and state
@@ -92,7 +92,7 @@ func (cmd NormalCommand) Link() Action {
 }
 
 func (cmd NormalCommand) Filter(input string) bool {
-	for _, f := range strings.Fields(input) {
+	for f := range strings.FieldsSeq(input) {
 		// XXX calling ToLower every time Filter gets called is a bit stupid
 		lf := strings.ToLower(f)
 		if !(strings.Contains(strings.ToLower(cmd.PrimaryLabel), lf) ||
@@ -226,7 +226,7 @@ func (pl *CommandPalette) filter(input string) {
 	} else {
 		pl.filtered = pl.filtered[:0]
 
-		for i := 0; i < pl.cmds.Len(); i++ {
+		for i := range pl.cmds.Len() {
 			if pl.cmds.At(i).Filter(input) {
 				pl.filtered = append(pl.filtered, i)
 			}

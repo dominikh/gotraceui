@@ -1173,7 +1173,7 @@ func fmtFrac(buf []byte, v uint64, prec int, numSig int) (nw int, nv uint64) {
 	// Omit trailing zeros up to and including decimal point.
 	w := len(buf)
 	print := false
-	for i := 0; i < prec; i++ {
+	for i := range prec {
 		digit := v % 10
 		print = prec-i-1 < numSig
 		if print {
@@ -1498,7 +1498,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStage(2)
 	// Assign GC tag to all GC spans so we can later determine their span colors cheaply.
 	for i, proc := range pt.Processors {
-		for j := 0; j < len(proc.Spans); j++ {
+		for j := range len(proc.Spans) {
 			trans := pt.Events.Ptr(int(proc.Spans[j].StartEvent)).StateTransition()
 			if trans.Resource.Kind != exptrace.ResourceGoroutine {
 				continue
@@ -1791,7 +1791,7 @@ func (cmd ScrollToTimelineCommand) Link() theme.Action {
 }
 
 func (cmd ScrollToTimelineCommand) Filter(input string) bool {
-	for _, f := range strings.Fields(input) {
+	for f := range strings.FieldsSeq(input) {
 		b := func() bool {
 			if strings.HasPrefix(f, "g") {
 				if f == "g" {

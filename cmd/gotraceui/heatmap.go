@@ -205,8 +205,8 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 			saturations = hm.rankedSaturations
 		}
 
-		for x := 0; x < numXBuckets; x++ {
-			for y := 0; y < hm.numYBuckets; y++ {
+		for x := range numXBuckets {
+			for y := range hm.numYBuckets {
 				idx := x*hm.numYBuckets + y
 				v := hm.data[idx]
 				if v == 0 {

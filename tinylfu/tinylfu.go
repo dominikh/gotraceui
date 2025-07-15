@@ -23,25 +23,11 @@ type T[K comparable, V any] struct {
 }
 
 func New[K comparable, V any](size int, samples int) *T[K, V] {
-
 	const lruPct = 1
-
-	lruSize := (lruPct * size) / 100
-	if lruSize < 1 {
-		lruSize = 1
-	}
-	slruSize := size - lruSize
-	if slruSize < 1 {
-		slruSize = 1
-
-	}
-	slru20 := slruSize / 5
-	if slru20 < 1 {
-		slru20 = 1
-	}
-
+	lruSize := max((lruPct*size)/100, 1)
+	slruSize := max(size-lruSize, 1)
+	slru20 := max(slruSize/5, 1)
 	data := make(map[K]*list.Element[*slruItem[K, V]], size)
-
 	return &T[K, V]{
 		c:       newCM4(size),
 		w:       0,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	rtrace "runtime/trace"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,7 +25,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"golang.org/x/exp/slices"
 )
 
 // TODO(dh): would it make sense to support collapsing self-recursive calls?

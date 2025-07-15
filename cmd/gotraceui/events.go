@@ -84,7 +84,7 @@ func (evs *EventList) UpdateFilter() {
 	}
 
 	var max int
-	for i := 0; i < evs.filteredEvents.Len(); i++ {
+	for i := range evs.filteredEvents.Len() {
 		evID := evs.filteredEvents.At(i)
 		msgs := evs.eventMessage(evs.Trace.Event(evID))
 		n := 0
@@ -99,7 +99,7 @@ func (evs *EventList) UpdateFilter() {
 
 // HoveredLink returns the link that has been hovered during the last call to Layout.
 func (evs *EventList) HoveredLink() ObjectLink {
-	for i := 0; i < evs.texts.Len(); i++ {
+	for i := range evs.texts.Len() {
 		txt := evs.texts.Ptr(i)
 		if h := txt.HoveredLink(); h != nil {
 			return h
@@ -211,7 +211,7 @@ func (evs *EventList) Update(gtx layout.Context) []TextEvent {
 	}
 
 	var out []TextEvent
-	for i := 0; i < evs.texts.Len(); i++ {
+	for i := range evs.texts.Len() {
 		out = append(out, evs.texts.Ptr(i).Update(gtx, evs.prevSpans)...)
 	}
 
@@ -424,7 +424,7 @@ func Events(spans Items[ptrace.Span], tr *Trace) Items[ptrace.EventID] {
 		// OPT(dh): even if all spans aren't a subslice, individual runs of spans might be. Detecting that, however,
 		// would be the responsibility of the Items implementation, and wouldn't always be possible.
 		events := make([]Items[ptrace.EventID], 0, spans.Len())
-		for i := 0; i < spans.Len(); i++ {
+		for i := range spans.Len() {
 			events = append(events, Events(spans.Slice(i, i+1), tr))
 		}
 		return MergeItems[ptrace.EventID](events, func(a, b *ptrace.EventID) bool {

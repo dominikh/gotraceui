@@ -30,7 +30,7 @@ func (l *BucketSlice[T]) Grow() *T {
 
 // GrowN grows the slice by n elements.
 func (l *BucketSlice[T]) GrowN(n int) {
-	for i := 0; i < n; i++ {
+	for range n {
 		l.Grow()
 	}
 }
@@ -101,7 +101,7 @@ func (l *LargeBucketSlice[T]) Grow() *T {
 }
 
 func (l *LargeBucketSlice[T]) GrowN(n int) {
-	for i := 0; i < n; i++ {
+	for range n {
 		l.Grow()
 	}
 }

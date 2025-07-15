@@ -28,7 +28,7 @@ func BenchmarkGet(b *testing.B) {
 	key := "some arbitrary key"
 	val := "some arbitrary value"
 	t.Add(key, val)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		SinkString, SinkBool = t.Get(key)
 	}
 }

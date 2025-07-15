@@ -30,7 +30,7 @@ func TestNvec(t *testing.T) {
 		t.Errorf("n.get(1)=%d, want 1", w)
 	}
 
-	for i := 0; i < 14; i++ {
+	for range 14 {
 		n.inc(1)
 	}
 	if n[0] != 0xf1 {
@@ -44,7 +44,7 @@ func TestNvec(t *testing.T) {
 	}
 
 	// ensure clamped
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		n.inc(1)
 		if n[0] != 0xf1 {
 			t.Errorf("n[0]=0x%02x, want 0xf1: (n=% 02x)", n[0], n)
@@ -75,7 +75,7 @@ func TestCM4(t *testing.T) {
 func BenchmarkCMAddSaturated(b *testing.B) {
 	cm := newCM4(32)
 	hash := uint64(0x0ddc0ffeebadf00d)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cm.add(hash)
 	}
 }
@@ -86,14 +86,14 @@ func BenchmarkCMEstimate(b *testing.B) {
 	cm := newCM4(32)
 	hash := uint64(0x0ddc0ffeebadf00d)
 	cm.add(hash)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		SinkByte = cm.estimate(hash)
 	}
 }
 
 func BenchmarkCMReset(b *testing.B) {
 	cm := newCM4(3200)
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		cm.reset()
 	}
 }

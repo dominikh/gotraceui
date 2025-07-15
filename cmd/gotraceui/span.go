@@ -32,7 +32,7 @@ func spansDuration(sel Items[ptrace.Span], giveUp bool) (time.Duration, bool) {
 		return time.Duration(LastItemPtr(sel).End - sel.AtPtr(0).Start), true
 	} else if !giveUp || sel.Len() < 1e5 {
 		var total time.Duration
-		for i := 0; i < sel.Len(); i++ {
+		for i := range sel.Len() {
 			total += time.Duration(sel.AtPtr(i).End - sel.AtPtr(i).Start)
 		}
 		return total, true
@@ -215,7 +215,7 @@ func (si *SpansInfo) computeHistogram(win *theme.Window, cfg *widget.HistogramCo
 	spans := si.spans.MustResult()
 	n := spans.Len()
 	spanDurations := make([]time.Duration, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s := spans.AtPtr(i)
 		d := time.Duration(s.End - s.Start)
 		spanDurations[i] = d
@@ -473,7 +473,6 @@ func (si *SpansInfo) Layout(win *theme.Window, gtx layout.Context) layout.Dimens
 
 				children := make([]layout.FlexChild, 0, len(buttonsLeft)+2)
 				for _, btn := range buttonsLeft {
-					btn := btn
 					children = append(children,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return theme.Button(win.Theme, btn.w, btn.label).Layout(win, gtx)

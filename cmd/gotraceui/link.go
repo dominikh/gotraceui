@@ -631,7 +631,7 @@ func handleLinkClick(win *theme.Window, ev gesture.ClickEvent, link ObjectLink) 
 }
 
 func handleLinkClicks(win *theme.Window, gtx layout.Context, clicks *mem.BucketSlice[Link]) {
-	for i := 0; i < clicks.Len(); i++ {
+	for i := range clicks.Len() {
 		link := clicks.Ptr(i)
 		for _, ev := range link.Update(gtx.Queue) {
 			handleLinkClick(win, ev, link.Link)

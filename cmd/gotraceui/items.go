@@ -160,7 +160,7 @@ func (items *MergedItems[T]) sort(less func(a, b *T) bool) {
 		baseLengths[i] = b.Len()
 	}
 
-	for i := 0; i < n; i++ {
+	for range n {
 		var (
 			minBaseIdx = -1
 			minItem    *T
@@ -355,7 +355,7 @@ func (items ItemsSubset[T]) MetadataAtPtr(idx int) any {
 
 func FilterItems[T any](items Items[T], fn func(item *T) bool) Items[T] {
 	var subset []int
-	for i := 0; i < items.Len(); i++ {
+	for i := range items.Len() {
 		if fn(items.AtPtr(i)) {
 			subset = append(subset, i)
 		}

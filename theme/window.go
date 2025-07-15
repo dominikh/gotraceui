@@ -350,16 +350,10 @@ func (win *Window) Layout(ops *op.Ops, ev system.FrameEvent, w func(win *Window,
 				if isPopup {
 					off := win.modal.at.Round()
 					if off.X+dims.Size.X > gtx.Constraints.Max.X {
-						off.X = gtx.Constraints.Max.X - dims.Size.X
-						if off.X < 0 {
-							off.X = 0
-						}
+						off.X = max(gtx.Constraints.Max.X-dims.Size.X, 0)
 					}
 					if off.Y+dims.Size.Y > gtx.Constraints.Max.Y {
-						off.Y = gtx.Constraints.Max.Y - dims.Size.Y
-						if off.Y < 0 {
-							off.Y = 0
-						}
+						off.Y = max(gtx.Constraints.Max.Y-dims.Size.Y, 0)
 					}
 					defer op.Offset(off).Push(gtx.Ops).Pop()
 				}

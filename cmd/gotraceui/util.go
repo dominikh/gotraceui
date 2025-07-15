@@ -51,7 +51,7 @@ func (cf *CellFormatter) Update(win *theme.Window, gtx layout.Context) {
 }
 
 func (cl *CellFormatter) HoveredLink() ObjectLink {
-	for i, n := 0, cl.Clicks.Len(); i < n; i++ {
+	for i := range cl.Clicks.Len() {
 		c := cl.Clicks.Ptr(i)
 		if c.Click.Hovered() {
 			return c.Link

@@ -47,8 +47,7 @@ func Distribute[S ~[]E, E any](items S, limit int, fn func(group int, step int, 
 	var gerr error
 	var wg sync.WaitGroup
 	wg.Add(limit)
-	for g := 0; g < limit; g++ {
-		g := g
+	for g := range limit {
 		go func() {
 			defer wg.Done()
 			var subset S

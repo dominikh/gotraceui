@@ -3,15 +3,14 @@ package ptrace
 import (
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"time"
 )
 
 func ComputeProcessorBusy(tr *Trace, p *Processor, bucketSize time.Duration) []int {
 	total := tr.Duration()
 	buckets := make([]time.Duration, int(math.Ceil(float64(total)/float64(bucketSize))))
-	for i := 0; i < len(p.Spans); i++ {
-		span := p.Spans[i]
+	for _, span := range p.Spans {
 		d := time.Duration(span.End - span.Start)
 		bucket := time.Duration(span.Start-tr.Start()) / bucketSize
 		bucketRemainder := bucketSize - time.Duration(span.Start-tr.Start())%bucketSize
@@ -62,7 +61,7 @@ func ComputeStatistics(spans Spans) Statistics {
 		values[i] = values[i][:0]
 	}
 
-	for i := 0; i < spans.Len(); i++ {
+	for i := range spans.Len() {
 		s := spans.AtPtr(i)
 		stat := &stats[s.State]
 		stat.Count++
@@ -86,10 +85,7 @@ func ComputeStatistics(spans Spans) Statistics {
 
 		stat.Average = float64(stat.Total) / float64(len(values[state]))
 
-		sort.Slice(values[state], func(i, j int) bool {
-			return values[state][i] < values[state][j]
-		})
-
+		slices.Sort(values[state])
 		if len(values[state])%2 == 0 {
 			mid := len(values[state]) / 2
 			stat.Median = float64(values[state][mid]+values[state][mid-1]) / 2

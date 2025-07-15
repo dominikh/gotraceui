@@ -463,10 +463,7 @@ func (gs *TaskList) initTable(win *theme.Window, gtx layout.Context) {
 
 	// Find space needed for largest goroutine ID
 	n := gs.Tasks.Len()
-	s := n - 32
-	if s < 0 {
-		s = 0
-	}
+	s := max(n-32, 0)
 	var maxID exptrace.TaskID
 	// Look at the last 32 goroutines for this function. This has a high likelyhood of telling us the greatest ID.
 	for _, g := range gs.Tasks.Items[s:n] {

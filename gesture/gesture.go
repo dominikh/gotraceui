@@ -14,6 +14,8 @@ import (
 // The duration is somewhat arbitrary.
 const doubleClickDuration = 200 * time.Millisecond
 
+const numButtons = 3
+
 const (
 	// KindPress is reported for the first pointer
 	// press.
@@ -46,7 +48,7 @@ type Click struct {
 	hovered bool
 	// entered tracks whether an Enter event has been received.
 	entered bool
-	buttons [3]clickButton
+	buttons [numButtons]clickButton
 	// The e.Buttons of the previous pointer event.
 	prevButtons pointer.Buttons
 }
@@ -82,7 +84,7 @@ func (c *Click) Hovered() bool {
 
 // Pressed returns whether a pointer is pressing.
 func (c *Click) Pressed(btn pointer.Buttons) bool {
-	for i := 0; i < 3; i++ {
+	for i := range numButtons {
 		if btn&(1<<i) == 0 {
 			continue
 		}
@@ -109,7 +111,7 @@ func (c *Click) Update(q event.Queue) []ClickEvent {
 		case pointer.Release:
 			// e.Buttons contains the buttons which are still pressed, so we need to process the bits that aren't set
 
-			for i := 0; i < 3; i++ {
+			for i := range numButtons {
 				if e.Buttons&(1<<i) != 0 {
 					continue
 				}
@@ -128,7 +130,7 @@ func (c *Click) Update(q event.Queue) []ClickEvent {
 		case pointer.Cancel:
 			// Cancel affects all buttons
 			c.prevButtons = 0
-			for i := 0; i < 3; i++ {
+			for i := range numButtons {
 				btn := &c.buttons[i]
 				wasPressed := btn.pressed
 				btn.pressed = false
@@ -141,7 +143,7 @@ func (c *Click) Update(q event.Queue) []ClickEvent {
 		case pointer.Press:
 			// e.Buttons contains all buttons currently held. e.Buttons &^ prevButtons are all newly pressed buttons.
 			buttons := e.Buttons &^ prevButtons
-			for i := 0; i < 3; i++ {
+			for i := range numButtons {
 				btn := &c.buttons[i]
 				if btn.pressed {
 					continue
@@ -167,7 +169,7 @@ func (c *Click) Update(q event.Queue) []ClickEvent {
 		case pointer.Leave:
 			// Leave affects all buttons
 			c.prevButtons = 0
-			for i := 0; i < 3; i++ {
+			for i := range numButtons {
 				btn := &c.buttons[i]
 				if !btn.pressed {
 					btn.pid = e.PointerID
@@ -178,7 +180,7 @@ func (c *Click) Update(q event.Queue) []ClickEvent {
 			}
 		case pointer.Enter:
 			// Enter affects all buttons
-			for i := 0; i < 3; i++ {
+			for i := range numButtons {
 				btn := &c.buttons[i]
 				if !btn.pressed {
 					btn.pid = e.PointerID

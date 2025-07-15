@@ -13,17 +13,8 @@ type doorkeeper struct {
 
 func newDoorkeeper(capacity int, falsePositiveRate float64) *doorkeeper {
 	bits := float64(capacity) * -math.Log(falsePositiveRate) / (math.Log(2.0) * math.Log(2.0)) // in bits
-	m := nextPowerOfTwo(uint32(bits))
-
-	if m < 1024 {
-		m = 1024
-	}
-
-	k := uint32(0.7 * float64(m) / float64(capacity))
-	if k < 2 {
-		k = 2
-	}
-
+	m := max(nextPowerOfTwo(uint32(bits)), 1024)
+	k := max(uint32(0.7*float64(m)/float64(capacity)), 2)
 	return &doorkeeper{
 		m:      m,
 		filter: newbv(m),

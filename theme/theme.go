@@ -6,6 +6,7 @@ import (
 	"image"
 	"math"
 	rtrace "runtime/trace"
+	"slices"
 	"strings"
 
 	"honnef.co/go/gotraceui/color"
@@ -21,7 +22,6 @@ import (
 	"gioui.org/unit"
 	"gioui.org/x/component"
 	"gioui.org/x/outlay"
-	"golang.org/x/exp/slices"
 )
 
 type Theme struct {
@@ -810,13 +810,7 @@ func (ss SwitchStyle) Layout(win *Window, gtx layout.Context) layout.Dimensions 
 	dimsRight := widget.Label{MaxLines: 1}.Layout(noMin(gtx), win.Theme.Shaper, activeFont, 12, ss.Right, rightForeground)
 	m.Stop()
 
-	var labelWidth int
-	if dimsLeft.Size.X >= dimsRight.Size.X {
-		labelWidth = dimsLeft.Size.X
-	} else {
-		labelWidth = dimsRight.Size.X
-	}
-
+	labelWidth := max(dimsLeft.Size.X, dimsRight.Size.X)
 	minWidth := 2*labelWidth + 4*gtx.Dp(padding) + gtx.Dp(borderWidth)
 	gtx.Constraints.Max.X = gtx.Constraints.Constrain(image.Pt(minWidth, 0)).X
 

@@ -850,7 +850,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			var p clip.Path
 			p.Begin(gtx.Ops)
 			visible := cv.visibleSpans(spans)
-			for i := 0; i < visible.Len(); i++ {
+			for i := range visible.Len() {
 				s := visible.AtPtr(i)
 				start := s.Start
 				end := s.End
@@ -983,9 +983,9 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 										timeout := time.NewTimer(time.Millisecond)
 										defer timeout.Stop()
 									doneLoop:
-										for n := 0; n < len(dones); n++ {
+										for _, done := range dones {
 											select {
-											case <-dones[n]:
+											case <-done:
 											case <-timeout.C:
 												break doneLoop
 											}

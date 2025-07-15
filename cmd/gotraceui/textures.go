@@ -1203,7 +1203,7 @@ func linearToSRGB(c *color.LinearSRGB, out *stdcolor.RGBA) {
 	maxv := math.Float32frombits(0x3f7fffff)
 	alpha := c.A
 	out.A = 255
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		f := uc[i] * alpha
 
 		if !(f > minv) {

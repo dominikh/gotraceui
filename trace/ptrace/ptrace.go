@@ -9,6 +9,7 @@ import (
 	"log"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +18,6 @@ import (
 	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/mem"
 
-	"golang.org/x/exp/slices"
 	exptrace "golang.org/x/exp/trace"
 )
 
@@ -1025,7 +1025,7 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 func postProcessSpans(tr *Trace, progress func(float64)) {
 	var wg sync.WaitGroup
 	doG := func(g *Goroutine) {
-		for i := 0; i < len(g.Spans); i++ {
+		for i := range len(g.Spans) {
 			s := g.Spans[i]
 			pcs := tr.Stacks[tr.Events.Ptr(int(s.StartEvent)).Stack()]
 			s = applyPatterns(tr, s, pcs)
@@ -1058,8 +1058,7 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 						last.End = g.Spans[len(g.Spans)-1].End
 					} else {
 						// OPT(dh): use binary search
-						for i := 0; i < len(g.UserRegions[depth-1]); i++ {
-							parent := g.UserRegions[depth-1][i]
+						for _, parent := range g.UserRegions[depth-1] {
 							// The first parent user region that ends after our region starts has to be our parent.
 							if parent.End >= last.Start {
 								last.End = parent.End
@@ -1089,13 +1088,8 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 
 	var progressMu sync.Mutex
 	var progressValue int
-	for off := 0; off < len(tr.Goroutines); off += step {
+	for slice := range slices.Chunk(tr.Goroutines, step) {
 		wg.Add(1)
-		end := off + step
-		if end > len(tr.Goroutines) {
-			end = len(tr.Goroutines)
-		}
-		slice := tr.Goroutines[off:end]
 		go func() {
 			defer wg.Done()
 			for i, g := range slice {

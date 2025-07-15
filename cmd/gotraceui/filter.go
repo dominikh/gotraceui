@@ -39,7 +39,7 @@ func (f Filter) Match(spans ptrace.Spans, container ItemContainer) bool {
 				return false, true
 			}
 
-			for i := 0; i < spans.Len(); i++ {
+			for i := range spans.Len() {
 				if f.HasState(spans.AtPtr(i).State) {
 					return true, false
 				}

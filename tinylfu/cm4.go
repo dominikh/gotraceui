@@ -19,7 +19,7 @@ func newCM4(w int) *cm4 {
 		mask: w32 - 1,
 	}
 
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		c.s[i] = newNvec(int(w32))
 	}
 

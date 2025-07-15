@@ -235,7 +235,7 @@ patternLoop:
 
 			// OPT(dh): be better than O(n²)
 		offsetLoop:
-			for start := 0; start < len(pcs); start++ {
+			for start := range pcs {
 				if len(pcs)-start < len(relFns) {
 					break
 				}

@@ -92,7 +92,6 @@ func (pb *ComponentButtons) Layout(win *Window, gtx layout.Context) layout.Dimen
 	var cmds CommandSlice
 	children := make([]layout.Widget, 0, 3)
 	for _, btn := range buttons {
-		btn := btn
 		children = append(children,
 			func(gtx layout.Context) layout.Dimensions {
 				return Button(win.Theme, &btn.w.Clickable, btn.label).Layout(win, gtx)

@@ -27,8 +27,8 @@ func (sg SmallGrid) Layout(gtx Context, rows, cols int, sizeEstimator outlay.Cel
 	// those dimensions. However, as written, the code depends less on implementation details.
 	dims := make([]Dimensions, rows*cols)
 
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			dim := sizeEstimator(gtx, row, col)
 			dims[row*cols+col] = dim
 			if dim.Size.X > colWidths[col] {

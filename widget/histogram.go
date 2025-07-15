@@ -2,6 +2,7 @@ package widget
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"time"
 )
@@ -101,7 +102,7 @@ func NewHistogram(cfg *HistogramConfig, values []time.Duration) *Histogram {
 	}
 
 	if rejectOutliers {
-		sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+		slices.Sort(values)
 
 		first, _, third := quartiles(values)
 		iqr := third - first
