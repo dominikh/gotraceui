@@ -596,25 +596,25 @@ func (gl *GoroutineList) setGoroutines(gtx layout.Context, gs []*ptrace.Goroutin
 		})
 	case "Start time":
 		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
-			starti := gi.Start.GetOr(-1)
-			startj := gj.Start.GetOr(-1)
+			starti := gi.Start.UnwrapOr(-1)
+			startj := gj.Start.UnwrapOr(-1)
 			return cmp(starti, startj, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "End time":
 		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
-			endi := gi.End.GetOr(math.MaxInt64)
-			endj := gj.End.GetOr(math.MaxInt64)
+			endi := gi.End.UnwrapOr(math.MaxInt64)
+			endj := gj.End.UnwrapOr(math.MaxInt64)
 			return cmp(endi, endj, gl.table.SortOrder == theme.SortDescending)
 		})
 	case "Duration":
 		gl.Goroutines.Sort(func(gi, gj *ptrace.Goroutine) int {
-			starti := gi.Start.GetOr(-1)
-			startj := gj.Start.GetOr(-1)
+			starti := gi.Start.UnwrapOr(-1)
+			startj := gj.Start.UnwrapOr(-1)
 			// We use traceEnd + 1 instead of MaxInt64 so that durations still sort usefully even if one of
 			// start or end is missing. For example, even if the end is unknown, one event happening before
 			// the other will have a longer duration.
-			endi := gi.End.GetOr(gi.EffectiveEnd() + 1)
-			endj := gj.End.GetOr(gj.EffectiveEnd() + 1)
+			endi := gi.End.UnwrapOr(gi.EffectiveEnd() + 1)
+			endj := gj.End.UnwrapOr(gj.EffectiveEnd() + 1)
 
 			di := endi - starti
 			dj := endj - startj

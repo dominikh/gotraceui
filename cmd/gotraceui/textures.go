@@ -84,7 +84,9 @@ import (
 	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	myunsafe "honnef.co/go/gotraceui/unsafe"
+	"honnef.co/go/safeish"
+	"honnef.co/go/stuff/container/rbtree"
+	"honnef.co/go/stuff/syncutil"
 
 	"gioui.org/f32"
 	"gioui.org/layout"
@@ -124,7 +126,7 @@ const (
 // Statically check that 4 * texWidth is a multiple of 8
 const _ = -uint((4 * texWidth) % 8)
 
-var pixPool = mysync.NewPool(func() *[texWidth]stdcolor.RGBA {
+var pixPool = syncutil.NewPool(func() *[texWidth]stdcolor.RGBA {
 	return new([texWidth]stdcolor.RGBA)
 })
 
@@ -149,12 +151,12 @@ type TextureStack struct {
 
 func (tex TextureStack) Realize(tm *TextureManager, tr *Trace) (bestReady chan struct{}) {
 	firstDone := tm.Realize(tex.texs[0].tex, tr)
-	if TryRecv(firstDone) {
+	if syncutil.TryRecv(firstDone) {
 		return closedDoneChannel
 	}
 	for _, t := range tex.texs[1:] {
 		done := tm.Realize(t.tex, tr)
-		if TryRecv(done) {
+		if syncutil.TryRecv(done) {
 			break
 		}
 	}
@@ -252,9 +254,9 @@ type textureRealized struct {
 
 func (tex *texture) ready() bool {
 	if tex.realized.done != nil {
-		return TryRecv(tex.realized.done)
+		return syncutil.TryRecv(tex.realized.done)
 	}
-	return TryRecv(tex.computed.done) && tex.computed.uniform != nil
+	return syncutil.TryRecv(tex.computed.done) && tex.computed.uniform != nil
 }
 
 func (tex *texture) End() exptrace.Time {
@@ -639,7 +641,7 @@ func computeTexture(tex *texture) textureImage {
 	return textureImage{
 		pix: pix,
 		img: &image.RGBA{
-			Pix:    myunsafe.SliceCast[[]uint8](pix[:]),
+			Pix:    safeish.SliceCast[[]uint8](pix[:]),
 			Stride: 4 * texWidth,
 			Rect:   image.Rect(0, 0, texWidth, 1),
 		},
@@ -777,7 +779,7 @@ type TextureManager struct {
 
 	// All known RGBA textures, including unrealized and uncomputed ones. The key is the time it took to
 	// compute the texture for the first time.
-	rgbas *mysync.Mutex[*container.RBTree[comparableTimeDuration, *texture]]
+	rgbas *mysync.Mutex[*rbtree.Tree[comparableTimeDuration, *texture]]
 	// All currently realized RGBA textures.
 	realizedRGBAs *mysync.Mutex[container.Set[*texture]]
 
@@ -803,7 +805,7 @@ func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (ima
 	tex.lastUse = win.Frame
 	tm.Realize(tex, tr)
 
-	if TryRecv(tex.realized.done) {
+	if syncutil.TryRecv(tex.realized.done) {
 		return tex.realized.image.img, tex.realized.op, true
 	} else {
 		return nil, paint.ImageOp{}, false
@@ -813,7 +815,7 @@ func (tm *TextureManager) Image(win *theme.Window, tr *Trace, tex *texture) (ima
 func (tm *TextureManager) uncompute(texs []*texture) {
 	var sz int
 	for _, tex := range texs {
-		if tex.computed.done != nil && !TryRecv(tex.realized.done) {
+		if tex.computed.done != nil && !syncutil.TryRecv(tex.realized.done) {
 			// Don't uncompute if the texture isn't fully computed yet. There's still a goroutine computing
 			// it, and it would race with us uncomputing it.
 			continue
@@ -830,7 +832,7 @@ func (tm *TextureManager) unrealize(texs []*texture) {
 	s, unlock := tm.realizedRGBAs.Lock()
 	defer unlock.Unlock()
 	for _, tex := range texs {
-		if tex.realized.done != nil && !TryRecv(tex.realized.done) {
+		if tex.realized.done != nil && !syncutil.TryRecv(tex.realized.done) {
 			// Don't unrealize if the texture isn't fully realized yet. There's still a goroutine realizing
 			// it, and it would race with us unrealizing it.
 			continue
@@ -870,7 +872,7 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (done chan struct{}) 
 				tex.realized.image = textureImage{
 					pix: pix,
 					img: &image.RGBA{
-						Pix: myunsafe.SliceCast[[]uint8](pix[:]),
+						Pix: safeish.SliceCast[[]uint8](pix[:]),
 						// XXX shouldn't the stride be 4 * texWidth?
 						Stride: 4,
 						Rect:   image.Rect(0, 0, texWidth, 1),
@@ -896,7 +898,7 @@ func (tm *TextureManager) Realize(tex *texture, tr *Trace) (done chan struct{}) 
 	}
 
 	// Avoid spawning a goroutine if the computation is already done
-	if TryRecv(tex.computed.done) {
+	if syncutil.TryRecv(tex.computed.done) {
 		rtrace.Logf(context.Background(), "texture renderer", "computation already ready")
 		do()
 		close(tex.realized.done)
@@ -954,7 +956,7 @@ func (tm *TextureManager) compute(tex *texture, tr *Trace) {
 func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 	var prefix, suffix uint
 
-	data := myunsafe.SliceCast[[]uint64](pix[:])
+	data := safeish.SliceCast[[]uint64](pix[:])
 
 	first := data[0]
 	last := data[len(data)-1]
@@ -992,7 +994,7 @@ func compressTexture(pix *[texWidth]stdcolor.RGBA) []byte {
 	}
 
 	if rem := uint(len(data)) - prefix - suffix; rem > 0 {
-		remData := myunsafe.SliceCast[[]byte](data[prefix : len(data)-int(suffix)])
+		remData := safeish.SliceCast[[]byte](data[prefix : len(data)-int(suffix)])
 		// The result of snappy.MaxEncodedLen for our texture width. Will fail to compile if it exceeds the maximum
 		// size snappy accepts.
 		const maxCompressedTextureSize uint32 = 32 + texWidth*4 + (texWidth*4)/6
@@ -1031,7 +1033,7 @@ func decompressTexture(pix *[texWidth]stdcolor.RGBA, data []byte) {
 		return
 	}
 
-	out := myunsafe.SliceCast[[]byte](pix[:])
+	out := safeish.SliceCast[[]byte](pix[:])
 
 	for len(data) >= 3 {
 		switch data[0] {
@@ -1041,7 +1043,7 @@ func decompressTexture(pix *[texWidth]stdcolor.RGBA, data []byte) {
 			seq := binary.LittleEndian.Uint64(data[3:])
 			data = data[11:]
 
-			ptr := myunsafe.SliceCast[[]uint64](out)[:n]
+			ptr := safeish.SliceCast[[]uint64](out)[:n]
 			for i := range ptr {
 				ptr[i] = seq
 			}
@@ -1152,7 +1154,7 @@ func (tm *TextureManager) Compact() {
 				return false
 			}
 			lookedAt++
-			if !TryRecv(tex.computed.done) {
+			if !syncutil.TryRecv(tex.computed.done) {
 				// The compressed data has already been deleted, and is either still gone, or in the
 				// process of being recomputed.
 				return true
@@ -1196,8 +1198,8 @@ var toSrgb8Table = [104]uint32{
 }
 
 func linearToSRGB(c *color.LinearSRGB, out *stdcolor.RGBA) {
-	uc := myunsafe.Cast[*[3]float32](c)
-	uout := myunsafe.Cast[*[3]uint8](out)
+	uc := safeish.Cast[*[3]float32](c)
+	uout := safeish.Cast[*[3]uint8](out)
 
 	minv := math.Float32frombits(0x39000000)
 	maxv := math.Float32frombits(0x3f7fffff)
@@ -1216,7 +1218,7 @@ func linearToSRGB(c *color.LinearSRGB, out *stdcolor.RGBA) {
 		}
 		fu := math.Float32bits(f)
 		j := (fu - 0x39000000) >> 20
-		entry := *myunsafe.Index(toSrgb8Table[:], j)
+		entry := *safeish.Index(toSrgb8Table[:], j)
 		bias := (entry >> 16) << 9
 		scale := entry & 0xFFFF
 

@@ -11,14 +11,15 @@ import (
 	"time"
 
 	"honnef.co/go/gotraceui/clip"
-	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
-	myunsafe "honnef.co/go/gotraceui/unsafe"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/safeish"
+	"honnef.co/go/stuff/container/maybe"
+	"honnef.co/go/stuff/math/math32"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -81,7 +82,7 @@ type TimelineWidget struct {
 	//
 	// OPT(dh): clicked spans and navigated spans are mutually exclusive, combine the fields
 	clickedSpans      Items[ptrace.Span]
-	navigatedTimeSpan container.Option[TimeSpan]
+	navigatedTimeSpan maybe.Option[TimeSpan]
 
 	usedSuboptimalTexture time.Time
 }
@@ -194,7 +195,7 @@ type TrackWidget struct {
 	//
 	// OPT(dh): clickedSpans and navigatedSpans are mutually exclusive, combine the fields
 	clickedSpans      Items[ptrace.Span]
-	navigatedTimeSpan container.Option[TimeSpan]
+	navigatedTimeSpan maybe.Option[TimeSpan]
 	lowQualityRender  bool
 
 	outlinesOps mem.ReusableOps
@@ -232,7 +233,7 @@ func (track *TrackWidget) ClickedSpans() Items[ptrace.Span] {
 	return track.clickedSpans
 }
 
-func (track *TrackWidget) NavigatedTimeSpan() container.Option[TimeSpan] {
+func (track *TrackWidget) NavigatedTimeSpan() maybe.Option[TimeSpan] {
 	return track.navigatedTimeSpan
 }
 
@@ -240,7 +241,7 @@ func (tw *TimelineWidget) ClickedSpans() Items[ptrace.Span] {
 	return tw.clickedSpans
 }
 
-func (tw *TimelineWidget) NavigatedTimeSpan() container.Option[TimeSpan] {
+func (tw *TimelineWidget) NavigatedTimeSpan() maybe.Option[TimeSpan] {
 	return tw.navigatedTimeSpan
 }
 
@@ -334,7 +335,7 @@ func (tl *Timeline) Layout(
 	}
 
 	tl.widget.clickedSpans = NoItems[ptrace.Span]{}
-	tl.widget.navigatedTimeSpan = container.None[TimeSpan]()
+	tl.widget.navigatedTimeSpan = maybe.None[TimeSpan]()
 
 	tl.widget.labelClicks = 0
 	for _, click := range tl.widget.labelClick.Update(gtx) {
@@ -347,7 +348,7 @@ func (tl *Timeline) Layout(
 				// XXX this assumes that the first track is the widest one. This is currently true, but a brittle
 				// assumption to make.
 				spans := tl.tracks[0].Spans(win).Wait()
-				tl.widget.navigatedTimeSpan = container.Some(SpansTimeSpan(spans))
+				tl.widget.navigatedTimeSpan = maybe.Some(SpansTimeSpan(spans))
 			}
 
 		case pointer.ButtonSecondary:
@@ -412,7 +413,7 @@ func (tl *Timeline) Layout(
 		}
 		dims := track.Layout(win, gtx, tl, cv.timeline.filter, trackSpanLabels)
 		if ts, ok := track.widget.NavigatedTimeSpan().Get(); ok {
-			tl.widget.navigatedTimeSpan = container.Some(ts)
+			tl.widget.navigatedTimeSpan = maybe.Some(ts)
 		}
 		if spans := track.widget.ClickedSpans(); spans.Len() != 0 {
 			tl.widget.clickedSpans = spans
@@ -662,7 +663,7 @@ func (track *Track) layoutMain(
 	track.widget.hover.Add(gtx.Ops)
 
 	track.widget.clickedSpans = NoItems[ptrace.Span]{}
-	track.widget.navigatedTimeSpan = container.None[TimeSpan]()
+	track.widget.navigatedTimeSpan = maybe.None[TimeSpan]()
 	track.widget.lowQualityRender = false
 
 	tsi := trackSpanInteractivity{
@@ -804,7 +805,7 @@ func (track *Track) layoutMain(
 						gtx.Ops = labelsOps
 						m := op.Record(gtx.Ops)
 						gtx.Constraints.Min = image.Point{}
-						gtx.Constraints.Max = image.Pt(int(round32(maxP.X-minP.X)), int(round32(maxP.Y-minP.Y)))
+						gtx.Constraints.Max = image.Pt(int(math32.Round(maxP.X-minP.X)), int(math32.Round(maxP.Y-minP.Y)))
 						dims = widget.Label{MaxLines: 1, Truncator: "…", WrapPolicy: text.WrapGraphemes}.
 							Layout(gtx, win.Theme.Shaper, font, win.Theme.TextSize, label, win.ColorMaterial(gtx, win.Theme.Palette.Foreground))
 						call = m.Stop()
@@ -862,7 +863,7 @@ func (track *Track) layoutMain(
 	} else {
 		it := renderedSpansIterator[spanWithGetters, *spanWithGetters]{
 			cv:    cv,
-			spans: myunsafe.Cast[Items[spanWithGetters]](spans),
+			spans: safeish.Cast[Items[spanWithGetters]](spans),
 		}
 
 		allDspSpans := track.widget.prevFrame.dspSpans[:0]
@@ -871,7 +872,7 @@ func (track *Track) layoutMain(
 			if !ok {
 				break
 			}
-			dspSpans := myunsafe.Cast[Items[ptrace.Span]](dspSpans_)
+			dspSpans := safeish.Cast[Items[ptrace.Span]](dspSpans_)
 
 			allDspSpans = append(allDspSpans, struct {
 				dspSpans       Items[ptrace.Span]
@@ -938,7 +939,7 @@ func (track *Track) layoutMain(
 
 	// Draw the end of goroutine marker
 	if g, ok := track.parent.item.(*ptrace.Goroutine); ok && g.End.Set() {
-		px := cv.tsToPx(g.End.MustGet())
+		px := cv.tsToPx(g.End.Unwrap())
 		if px > 0 && px < float32(gtx.Constraints.Max.X) {
 			theme.FillShape(win, gtx.Ops, colors[colorStateDone], clip.FRect{Min: f32.Pt(px, 0), Max: f32.Pt(px+float32(minSpanWidth), float32(mainTrackHeight))}.Op(gtx.Ops))
 		}
@@ -1021,7 +1022,7 @@ func (tsi *trackSpanInteractivity) Handle(win *theme.Window, gtx layout.Context,
 		return false
 	}
 	if tsi.trackNavigatedSpans {
-		tsi.track.widget.navigatedTimeSpan = container.Some(SpansTimeSpan(spans))
+		tsi.track.widget.navigatedTimeSpan = maybe.Some(SpansTimeSpan(spans))
 	}
 	if tsi.trackClickedSpans {
 		tsi.track.widget.clickedSpans = spans
@@ -1079,11 +1080,11 @@ var (
 				if spanTooltip == nil {
 					spanTooltip = defaultSpanTooltip
 				}
-				return spanTooltip(win, gtx, track.parent.cv.trace, myunsafe.Cast[Items[ptrace.Span]](items))
+				return spanTooltip(win, gtx, track.parent.cv.trace, safeish.Cast[Items[ptrace.Span]](items))
 			}
 		},
 		timeSpan: func(items Items[spanWithGetters]) TimeSpan {
-			return SpansTimeSpan(myunsafe.Cast[Items[ptrace.Span]](items))
+			return SpansTimeSpan(safeish.Cast[Items[ptrace.Span]](items))
 		},
 		color: func(items Items[spanWithGetters], track *Track) colorIndex {
 			if items.Len() > 1 {
@@ -1093,7 +1094,7 @@ var (
 			}
 		},
 		contextMenu: func(items Items[spanWithGetters], track *Track) []*theme.MenuItem {
-			spans := myunsafe.Cast[Items[ptrace.Span]](items)
+			spans := safeish.Cast[Items[ptrace.Span]](items)
 			if track.spanContextMenu != nil {
 				return track.spanContextMenu(spans, track.parent.cv)
 			} else {
@@ -1217,7 +1218,7 @@ var (
 			return theme.Tooltip(win.Theme, label).Layout
 		},
 		timeSpan: func(items Items[eventWithGetters]) TimeSpan {
-			return EventsRange(myunsafe.Cast[Items[exptrace.Event]](items))
+			return EventsRange(safeish.Cast[Items[exptrace.Event]](items))
 		},
 		color: func(items Items[eventWithGetters], _ *Track) colorIndex {
 			return colorEvent
@@ -1233,7 +1234,7 @@ var (
 			}
 		},
 		timeSpan: func(items Items[eventWithGetters]) TimeSpan {
-			return EventsRange(myunsafe.Cast[Items[exptrace.Event]](items))
+			return EventsRange(safeish.Cast[Items[exptrace.Event]](items))
 		},
 		color: func(items Items[eventWithGetters], track *Track) colorIndex {
 			return colorStateCPUSample
@@ -1298,7 +1299,7 @@ func (mtrack *MiniTrack[T, PT]) Layout(
 			var p *clip.Path
 			if x := mtrack.hover.Pointer().X; mtrack.hover.Update(gtx.Queue) && x >= startPx && x < endPx {
 				if trackNavigated {
-					track.widget.navigatedTimeSpan = container.Some(mtrack.timeSpan(items))
+					track.widget.navigatedTimeSpan = maybe.Some(mtrack.timeSpan(items))
 				}
 				if trackClicked {
 					mtrack.clickedItems = items
@@ -1365,7 +1366,7 @@ func (mtrack *MiniTrack[T, PT]) Layout(
 func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas) layout.Dimensions {
 	dims := track.widget.tinyMt.Layout(win, gtx, track, cv, func(yield func(el Items[spanWithGetters]) bool) {
 		for _, dspSpans := range track.widget.prevFrame.dspSpans {
-			items := myunsafe.Cast[Items[spanWithGetters]](dspSpans.dspSpans)
+			items := safeish.Cast[Items[spanWithGetters]](dspSpans.dspSpans)
 			if !yield(items) {
 				break
 			}
@@ -1373,7 +1374,7 @@ func (track *Track) layoutTiny(win *theme.Window, gtx layout.Context, cv *Canvas
 	})
 
 	if spans := track.widget.tinyMt.clickedItems; spans.Len() != 0 {
-		track.widget.clickedSpans = myunsafe.Cast[Items[ptrace.Span]](spans)
+		track.widget.clickedSpans = safeish.Cast[Items[ptrace.Span]](spans)
 	}
 
 	return dims
@@ -1418,7 +1419,7 @@ func (track *Track) layoutEvents(win *theme.Window, gtx layout.Context, cv *Canv
 	track.widget.eventsMt.Layout(win, gtx, track, cv, func(yield func(el Items[eventWithGetters]) bool) {
 		for _, dspSpans := range track.widget.prevFrame.dspSpans {
 			eventIDs := Events(dspSpans.dspSpans, cv.trace)
-			items := myunsafe.Cast[Items[eventWithGetters]](Items[exptrace.Event](eventsFromIDs{
+			items := safeish.Cast[Items[eventWithGetters]](Items[exptrace.Event](eventsFromIDs{
 				tr:    cv.trace.Trace,
 				items: eventIDs,
 			}))
@@ -1436,7 +1437,7 @@ func (track *Track) layoutSamples(win *theme.Window, gtx layout.Context, cv *Can
 			items: track.samples,
 		}
 		// XXX limit ourselves to events in the visible range?
-		items := myunsafe.Cast[Items[eventWithGetters]](Items[exptrace.Event](eventsFromIDs{
+		items := safeish.Cast[Items[eventWithGetters]](Items[exptrace.Event](eventsFromIDs{
 			tr:    cv.trace.Trace,
 			items: eventIDs,
 		}))

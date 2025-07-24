@@ -14,6 +14,7 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/math/math32"
 
 	"gioui.org/f32"
 	"gioui.org/io/key"
@@ -215,10 +216,10 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 				}
 
 				// Round coordinates to avoid conflation artifacts.
-				xStart := round32(float32(x) * xStepPx)
-				yEnd := round32(float32(dims.Y) - float32(y)*yStepPx)
-				xEnd := round32(float32(x+1) * xStepPx)
-				yStart := round32(float32(dims.Y) - float32(y+1)*yStepPx)
+				xStart := math32.Round(float32(x) * xStepPx)
+				yEnd := math32.Round(float32(dims.Y) - float32(y)*yStepPx)
+				xEnd := math32.Round(float32(x+1) * xStepPx)
+				yStart := math32.Round(float32(dims.Y) - float32(y+1)*yStepPx)
 
 				p := &paths[saturations[idx]]
 				p.MoveTo(f32.Pt(xStart, yStart))
@@ -251,10 +252,10 @@ func (hm *Heatmap) Layout(win *theme.Window, gtx layout.Context) layout.Dimensio
 		x := int(hm.pointer.X / xStepPx)
 		y := int((float32(dims.Y) - hm.pointer.Y) / yStepPx)
 
-		xStart := round32(float32(x) * xStepPx)
-		yEnd := round32(float32(dims.Y) - float32(y)*yStepPx)
-		xEnd := round32(float32(x+1) * xStepPx)
-		yStart := round32(float32(dims.Y) - float32(y+1)*yStepPx)
+		xStart := math32.Round(float32(x) * xStepPx)
+		yEnd := math32.Round(float32(dims.Y) - float32(y)*yStepPx)
+		xEnd := math32.Round(float32(x+1) * xStepPx)
+		yStart := math32.Round(float32(dims.Y) - float32(y+1)*yStepPx)
 
 		outline := myclip.RectangularOutline{
 			Rect:  myclip.FRect{Min: f32.Pt(xStart, yStart), Max: f32.Pt(xEnd, yEnd)},

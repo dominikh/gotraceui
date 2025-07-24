@@ -15,8 +15,8 @@ import (
 	"honnef.co/go/gotraceui/color"
 	myfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/container/tinylfu"
 
 	"gioui.org/app"
 	"gioui.org/f32"

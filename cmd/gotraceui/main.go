@@ -26,14 +26,14 @@ import (
 
 	"honnef.co/go/gotraceui/cmd/gotraceui/assets"
 	"honnef.co/go/gotraceui/color"
-	"honnef.co/go/gotraceui/container"
 	ourfont "honnef.co/go/gotraceui/font"
 	"honnef.co/go/gotraceui/layout"
-	"honnef.co/go/gotraceui/mysync"
 	"honnef.co/go/gotraceui/theme"
-	"honnef.co/go/gotraceui/tinylfu"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/container/maybe"
+	"honnef.co/go/stuff/container/tinylfu"
+	"honnef.co/go/stuff/syncutil"
 
 	"gioui.org/app"
 	"gioui.org/f32"
@@ -53,8 +53,8 @@ import (
 )
 
 var (
-	spanSlicePool          = mysync.NewPool(func() []ptrace.Span { return nil })
-	stackSpanMetaSlicePool = mysync.NewPool(func() []stackSpanMeta { return nil })
+	spanSlicePool          = syncutil.NewPool(func() []ptrace.Span { return nil })
+	stackSpanMetaSlicePool = syncutil.NewPool(func() []stackSpanMeta { return nil })
 )
 
 func debugCaching(win *theme.Window, gtx layout.Context) {
@@ -971,12 +971,12 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context, s
 		}
 	}
 
-	mwin.canvas.indicateTimestamp = container.None[exptrace.Time]()
+	mwin.canvas.indicateTimestamp = maybe.None[exptrace.Time]()
 	if mwin.panel != nil {
 		if l := mwin.panel.HoveredLink(); l != nil {
 			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
-				mwin.canvas.indicateTimestamp = container.Some(exptrace.Time(a))
+				mwin.canvas.indicateTimestamp = maybe.Some(exptrace.Time(a))
 			}
 		}
 
@@ -1003,7 +1003,7 @@ func (mwin *MainWindow) renderMainScene(win *theme.Window, gtx layout.Context, s
 			// TODO(dh): factor out into own function, remove duplication from here and earlier
 			switch a := l.Action(0).(type) {
 			case ScrollToTimestampAction:
-				mwin.canvas.indicateTimestamp = container.Some(exptrace.Time(a))
+				mwin.canvas.indicateTimestamp = maybe.Some(exptrace.Time(a))
 			}
 
 			// Only one link can be hovered at a time
@@ -1569,7 +1569,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStage(7)
 	goroutineTimelines := make([]*Timeline, len(tr.Goroutines))
 	var progress atomic.Uint64
-	mysync.Distribute(tr.Goroutines, 0, func(group int, step int, subitems []*ptrace.Goroutine) error {
+	syncutil.Distribute(tr.Goroutines, 0, func(group int, step int, subitems []*ptrace.Goroutine) error {
 		for j, g := range subitems {
 			goroutineTimelines[group*step+j] = NewGoroutineTimeline(tr, cv, g)
 			pr := progress.Add(1)
@@ -1581,7 +1581,7 @@ func loadTrace(f io.Reader, p progresser, cv *Canvas) (loadTraceResult, error) {
 	p.SetProgressStage(8)
 	taskTimelines := make([]*Timeline, len(tr.Tasks))
 	progress.Store(0)
-	mysync.Distribute(tr.Tasks, 0, func(group int, step int, subitems []*ptrace.Task) error {
+	syncutil.Distribute(tr.Tasks, 0, func(group int, step int, subitems []*ptrace.Task) error {
 		for j, t := range subitems {
 			taskTimelines[group*step+j] = NewTaskTimeline(tr, cv, t)
 			pr := progress.Add(1)
@@ -1985,15 +1985,6 @@ func cmp[T constraints.Ordered](a, b T, negate bool) int {
 		ret = -ret
 	}
 	return ret
-}
-
-func TryRecv[T any](ch <-chan T) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
 }
 
 func makeClosedChan[T any]() chan T {

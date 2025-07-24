@@ -19,6 +19,11 @@ import (
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/container/maybe"
+	"honnef.co/go/stuff/container/rbtree"
+	"honnef.co/go/stuff/math/math32"
+	"honnef.co/go/stuff/math/mathutil"
+	"honnef.co/go/stuff/syncutil"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -91,9 +96,9 @@ type canvasAnimation struct {
 
 func (ca canvasAnimation) Lerp(end canvasAnimation, r float64) canvasAnimation {
 	return canvasAnimation{
-		start:   theme.Lerp(ca.start, end.start, r),
-		nsPerPx: theme.Lerp(ca.nsPerPx, end.nsPerPx, r),
-		y:       theme.Lerp(ca.y, end.y, r),
+		start:   mathutil.Lerp(ca.start, end.start, r),
+		nsPerPx: mathutil.Lerp(ca.nsPerPx, end.nsPerPx, r),
+		y:       mathutil.Lerp(ca.y, end.y, r),
 	}
 }
 
@@ -124,7 +129,7 @@ type Canvas struct {
 	scratchTexs  []TextureStack
 	scratchDones []chan struct{}
 
-	indicateTimestamp container.Option[exptrace.Time]
+	indicateTimestamp maybe.Option[exptrace.Time]
 
 	animate theme.Animation[canvasAnimation]
 
@@ -221,7 +226,7 @@ func NewCanvasInto(cv *Canvas, dwin *DebugWindow, t *Trace) {
 		itemToTimeline: make(map[any]*Timeline),
 		timelines:      make([]*Timeline, 0, len(t.Goroutines)+len(t.Processors)+len(t.Machines)+2),
 		textures: TextureManager{
-			rgbas:         mysync.NewMutex(&container.RBTree[comparableTimeDuration, *texture]{AllowDuplicates: true}),
+			rgbas:         mysync.NewMutex(&rbtree.Tree[comparableTimeDuration, *texture]{AllowDuplicates: true}),
 			realizedRGBAs: mysync.NewMutex(container.Set[*texture]{}),
 		},
 		locationHistory: locationHistory{
@@ -429,7 +434,7 @@ func (cv *Canvas) dragTo(gtx layout.Context, pos f32.Point) {
 	td := time.Duration(math.Round(cv.nsPerPx * math.Round(float64(cv.drag.clickAt.X-pos.X))))
 	cv.start = cv.drag.start + exptrace.Time(td)
 
-	yd := int(round32(cv.drag.clickAt.Y - pos.Y))
+	yd := int(math32.Round(cv.drag.clickAt.Y - pos.Y))
 	cv.y = cv.drag.startY + cv.normalizeY(gtx, yd)
 	if cv.y < 0 {
 		cv.y = 0
@@ -564,7 +569,7 @@ func (cv *Canvas) height(gtx layout.Context) int {
 	}
 
 	// OPT(dh): reuse slice
-	totals, _ := mysync.Map(cv.timelines, 0, nil, func(subitems []*Timeline) (int, error) {
+	totals, _ := syncutil.Map(cv.timelines, 0, nil, func(subitems []*Timeline) (int, error) {
 		total := 0
 		for _, tl := range subitems {
 			total += tl.Height(gtx, cv)
@@ -618,7 +623,7 @@ func (cv *Canvas) ToggleTimelineLabels() {
 func (cv *Canvas) scroll(gtx layout.Context, dx, dy float32) {
 	// TODO(dh): implement location history for scrolling. We shouldn't record one entry per call to scroll, and instead
 	// only record on calls that weren't immediately preceeded by other calls to scroll.
-	cv.y += cv.normalizeY(gtx, int(round32(dy)))
+	cv.y += cv.normalizeY(gtx, int(math32.Round(dy)))
 	if cv.y < 0 {
 		cv.y = 0
 	}
@@ -974,7 +979,7 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 									notReady := false
 									for _, ch := range dones {
-										if !TryRecv(ch) {
+										if !syncutil.TryRecv(ch) {
 											notReady = true
 											break
 										}
@@ -1061,8 +1066,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 
 		// Draw cursor
 		rect := clip.Rect{
-			Min: image.Pt(int(round32(cv.pointerAt.X)), 0),
-			Max: image.Pt(int(round32(cv.pointerAt.X+1)), gtx.Constraints.Max.Y),
+			Min: image.Pt(int(math32.Round(cv.pointerAt.X)), 0),
+			Max: image.Pt(int(math32.Round(cv.pointerAt.X+1)), gtx.Constraints.Max.Y),
 		}
 		theme.FillShape(win, gtx.Ops, win.Theme.Palette.Foreground, rect.Op())
 
@@ -1073,8 +1078,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 			px := cv.tsToPx(hts)
 			if px < 0 {
 				stack := clip.Rect{
-					Min: image.Pt(int(round32(0)), 0),
-					Max: image.Pt(int(round32(55)), gtx.Constraints.Max.Y),
+					Min: image.Pt(int(math32.Round(0)), 0),
+					Max: image.Pt(int(math32.Round(55)), gtx.Constraints.Max.Y),
 				}.Push(gtx.Ops)
 				c1 := win.Theme.Palette.NavigationLink
 				c2 := c1
@@ -1105,8 +1110,8 @@ func (cv *Canvas) Layout(win *theme.Window, gtx layout.Context) layout.Dimension
 				stack.Pop()
 			} else {
 				rect := clip.Rect{
-					Min: image.Pt(int(round32(px)), 0),
-					Max: image.Pt(int(round32(px+1)), gtx.Constraints.Max.Y),
+					Min: image.Pt(int(math32.Round(px)), 0),
+					Max: image.Pt(int(math32.Round(px+1)), gtx.Constraints.Max.Y),
 				}
 				theme.FillShape(win, gtx.Ops, win.Theme.Palette.NavigationLink, rect.Op())
 			}
@@ -1452,7 +1457,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			// bad, because it might cut off the sign.
 			prevLabelEnd = addf(start, float32(rec.Dimensions.Size.X/2))
 			if start+float32(rec.Dimensions.Size.X/2) <= float32(gtx.Constraints.Max.X) {
-				stack := op.Offset(image.Pt(int(round32(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
+				stack := op.Offset(image.Pt(int(math32.Round(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))).Push(gtx.Ops)
 				rec.Layout(win, gtx)
 				stack.Pop()
 			}
@@ -1491,7 +1496,7 @@ func (axis *Axis) Layout(win *theme.Window, gtx layout.Context) (dims layout.Dim
 			return ls.Layout(win, gtx)
 		})
 		// TODO separate value and unit symbol with a space
-		labelStart := image.Pt(int(round32(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))
+		labelStart := image.Pt(int(math32.Round(start-float32(rec.Dimensions.Size.X/2))), int(tickHeight))
 		if labelStart.X < 0 {
 			labelStart.X = 0
 		} else if labelStart.X+rec.Dimensions.Size.X > gtx.Constraints.Max.X {

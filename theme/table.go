@@ -7,11 +7,11 @@ import (
 	rtrace "runtime/trace"
 
 	"honnef.co/go/gotraceui/color"
-	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/container/maybe"
 
 	"gioui.org/font"
 	"gioui.org/io/key"
@@ -55,7 +55,7 @@ type Table struct {
 	drags         []tableDrag
 	rowHovers     mem.BucketSlice[gesture.Hover]
 	headerClicks  []gesture.Click
-	clickedColumn container.Option[int]
+	clickedColumn maybe.Option[int]
 }
 
 type Column struct {
@@ -94,12 +94,12 @@ func (tbl *Table) SetColumns(win *Window, gtx layout.Context, cols []Column) {
 }
 
 func (tbl *Table) Update(gtx layout.Context) {
-	tbl.clickedColumn = container.None[int]()
+	tbl.clickedColumn = maybe.None[int]()
 	for i := range tbl.headerClicks {
 		click := &tbl.headerClicks[i]
 		for _, ev := range click.Update(gtx.Queue) {
 			if ev.Button == pointer.ButtonPrimary && ev.Kind == gesture.KindClick {
-				tbl.clickedColumn = container.Some(i)
+				tbl.clickedColumn = maybe.Some(i)
 			}
 		}
 	}

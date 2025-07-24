@@ -9,6 +9,7 @@ import (
 
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	"honnef.co/go/stuff/syncutil"
 
 	exptrace "golang.org/x/exp/trace"
 )
@@ -43,7 +44,7 @@ func computeStackTrack(track *Track, cancelled <-chan struct{}) Items[ptrace.Spa
 	var prevFn string
 	i := 0
 	for {
-		if i%20000 == 0 && TryRecv(cancelled) {
+		if i%20000 == 0 && syncutil.TryRecv(cancelled) {
 			return nil
 		}
 		idSpan, ok := it.next(true)

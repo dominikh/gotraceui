@@ -15,8 +15,9 @@ import (
 	"honnef.co/go/gotraceui/gesture"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/mem"
-	myslices "honnef.co/go/gotraceui/slices"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/math/mathutil"
+	"honnef.co/go/stuff/sliceutil"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -46,9 +47,9 @@ type fgZoom struct {
 
 func (z fgZoom) Lerp(end fgZoom, r float64) fgZoom {
 	return fgZoom{
-		offsetX:     Lerp(z.offsetX, end.offsetX, r),
-		offsetLevel: Lerp(z.offsetLevel, end.offsetLevel, r),
-		scale:       Lerp(z.scale, end.scale, r),
+		offsetX:     mathutil.Lerp(z.offsetX, end.offsetX, r),
+		offsetLevel: mathutil.Lerp(z.offsetLevel, end.offsetLevel, r),
+		scale:       mathutil.Lerp(z.scale, end.scale, r),
 		root:        end.root,
 	}
 }
@@ -183,7 +184,7 @@ func (fg FlameGraphStyle) Layout(win *Window, gtx layout.Context) (dims layout.D
 				prev fgZoom
 				ok   bool
 			)
-			prev, fg.StyleState.zoomHistory, ok = myslices.Pop(fg.StyleState.zoomHistory)
+			prev, fg.StyleState.zoomHistory, ok = sliceutil.Pop(fg.StyleState.zoomHistory)
 			if ok {
 				fg.StyleState.animate.Start(gtx, fg.StyleState.zoom, prev, animateLength, EaseBezier)
 			}

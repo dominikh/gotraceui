@@ -5,17 +5,15 @@ import (
 	"math"
 	"time"
 
+	"honnef.co/go/gotraceui/layout"
+	"honnef.co/go/stuff/math/mathutil"
+
 	"gioui.org/op"
 	"golang.org/x/exp/constraints"
-	"honnef.co/go/gotraceui/layout"
 )
 
 type EasingFunction func(float64) float64
 type LerpFunction[T any] func(start, end T, r float64) T
-
-func Lerp[T constraints.Integer | constraints.Float](start, end T, r float64) T {
-	return start + T(float64(end-start)*r)
-}
 
 type Lerper[T any] interface {
 	Lerp(end T, ratio float64) T
@@ -44,7 +42,7 @@ func (anim *Animation[T]) Start(gtx layout.Context, v1, v2 T, d time.Duration, e
 
 func StartSimpleAnimation[T constraints.Integer | constraints.Float](gtx layout.Context, anim *Animation[T], v1, v2 T, d time.Duration, ease EasingFunction) {
 	anim.Start(gtx, v1, v2, d, ease)
-	anim.Lerp = Lerp
+	anim.Lerp = mathutil.Lerp
 }
 
 func (anim *Animation[T]) Value(gtx layout.Context) T {

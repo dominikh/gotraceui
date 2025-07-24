@@ -12,6 +12,7 @@ import (
 	"honnef.co/go/gotraceui/color"
 	"honnef.co/go/gotraceui/layout"
 	"honnef.co/go/gotraceui/widget"
+	"honnef.co/go/stuff/math/mathutil"
 
 	"gioui.org/f32"
 	"gioui.org/font"
@@ -419,13 +420,7 @@ func (r frect) Op(ops *op.Ops) clip.Op {
 
 // clamp1 limits v to range [0..1].
 func clamp1(v float32) float32 {
-	if v >= 1 {
-		return 1
-	} else if v <= 0 {
-		return 0
-	} else {
-		return v
-	}
+	return mathutil.Clamp(v, 0, 1)
 }
 
 type FoldableStyle struct {

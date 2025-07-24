@@ -18,6 +18,7 @@ import (
 	"honnef.co/go/gotraceui/mem"
 	"honnef.co/go/gotraceui/theme"
 	"honnef.co/go/gotraceui/trace/ptrace"
+	"honnef.co/go/stuff/math/mathutil"
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
@@ -445,7 +446,7 @@ func (pl *Plot) drawPoints(win *theme.Window, gtx layout.Context, cv *Canvas, s 
 	plotBottom := plotHeight
 
 	scaleValue := func(v uint64) float64 {
-		y := scale(float64(pl.min), float64(pl.max), float64(plotBottom), float64(plotTop), float64(v))
+		y := mathutil.Rescale(float64(pl.min), float64(pl.max), float64(plotBottom), float64(plotTop), float64(v))
 		if y < 0 {
 			y = 0
 		}

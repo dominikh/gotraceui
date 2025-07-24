@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"honnef.co/go/gotraceui/container"
 	"honnef.co/go/gotraceui/mem"
+	"honnef.co/go/stuff/container/maybe"
 
 	exptrace "golang.org/x/exp/trace"
 )
@@ -224,8 +224,8 @@ type Goroutine struct {
 	Ranges   map[string][]Span
 	// The actual Start and end times of the goroutine. While spans are bounded to 0 and the end of the trace, the
 	// actual Start and end of the goroutine might be unknown.
-	Start       container.Option[exptrace.Time]
-	End         container.Option[exptrace.Time]
+	Start       maybe.Option[exptrace.Time]
+	End         maybe.Option[exptrace.Time]
 	UserRegions [][]Span
 	Events      []EventID
 }
@@ -286,8 +286,8 @@ type Task struct {
 	// Sequential ID of task in the trace
 	SeqID      int
 	Name       string
-	Start      container.Option[exptrace.Time]
-	End        container.Option[exptrace.Time]
+	Start      maybe.Option[exptrace.Time]
+	End        maybe.Option[exptrace.Time]
 	StartEvent EventID
 	EndEvent   EventID
 	Spans      []Span
@@ -862,13 +862,13 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 				}
 				switch to {
 				case exptrace.GoNotExist:
-					g.End = container.Some(ev.Time())
+					g.End = maybe.Some(ev.Time())
 					continue
 				case exptrace.GoRunnable:
 					if from == exptrace.GoNotExist {
 						// Goroutine creation
 						s.State = StateCreated
-						g.Start = container.Some(ev.Time())
+						g.Start = maybe.Some(ev.Time())
 						g.Parent = ev.Goroutine()
 						// ev.Goroutine is the goroutine that's creating us, versus g, which is the
 						// created goroutine.
@@ -944,7 +944,7 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 			task := &Task{
 				ID:         t.ID,
 				Parent:     t.Parent,
-				Start:      container.Some(ev.Time()),
+				Start:      maybe.Some(ev.Time()),
 				StartEvent: evID,
 				Name:       t.Type,
 			}
@@ -964,7 +964,7 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 				task := &Task{
 					ID:       t.ID,
 					Parent:   t.Parent,
-					End:      container.Some(ev.Time()),
+					End:      maybe.Some(ev.Time()),
 					EndEvent: evID,
 					Name:     t.Type,
 				}
@@ -975,7 +975,7 @@ func processEvents(r *exptrace.Reader, tr *Trace, progress func(float64)) error 
 					tr.Tasks[idx].Parent = t.Parent
 					tr.Tasks[idx].Name = t.Type
 				}
-				tr.Tasks[idx].End = container.Some(ev.Time())
+				tr.Tasks[idx].End = maybe.Some(ev.Time())
 				tr.Tasks[idx].EndEvent = evID
 			}
 			if t.Parent != exptrace.NoTask {
@@ -1044,7 +1044,7 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 				// The goroutine has ended. We encode this as a zero length span.
 				s := &g.Spans[len(g.Spans)-1]
 				g.Spans = g.Spans[:len(g.Spans)-1]
-				g.End = container.Some(s.Start)
+				g.End = maybe.Some(s.Start)
 			}
 		}
 
