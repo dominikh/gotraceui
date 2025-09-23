@@ -148,10 +148,9 @@ func (si *SpansInfo) init(win *theme.Window) {
 		ev := si.trace.Event(spans.AtPtr(0).StartEvent)
 		stk := ev.Stack()
 		sb := strings.Builder{}
-		stk.Frames(func(frame exptrace.StackFrame) bool {
+		for frame := range stk.Frames() {
 			fmt.Fprintf(&sb, "%s\n        %s:%d\n", frame.Func, frame.File, frame.Line)
-			return true
-		})
+		}
 		stacktrace := sb.String()
 		if len(stacktrace) > 0 && stacktrace[len(stacktrace)-1] == '\n' {
 			stacktrace = stacktrace[:len(stacktrace)-1]
