@@ -135,10 +135,9 @@ func (t *Trace) addStack(stk exptrace.Stack) {
 	pcs, _ := get(stacks, reflect.ValueOf(stk).FieldByName("id").Uint())
 	t.Stacks[stk] = pcs
 
-	stk.Frames(func(f exptrace.StackFrame) bool {
+	for f := range stk.Frames() {
 		t.PCs[f.PC] = f
-		return true
-	})
+	}
 }
 
 // Start returns the time of the first event in the trace.

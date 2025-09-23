@@ -1,12 +1,12 @@
 module honnef.co/go/gotraceui
 
-go 1.23
+go 1.24.0
 
 require (
 	gioui.org v0.4.1
 	gioui.org/x v0.4.0
 	github.com/golang/snappy v0.0.4
-	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
+	golang.org/x/exp v0.0.0-20250911091902-df9299821621
 	golang.org/x/image v0.7.0
 	golang.org/x/text v0.9.0
 	honnef.co/go/curve v0.0.0-20250106034005-bfbc0c6fe0cc
