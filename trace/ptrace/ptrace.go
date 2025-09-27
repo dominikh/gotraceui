@@ -1136,6 +1136,9 @@ func postProcessSpans(tr *Trace, progress func(float64)) {
 				State:      StateTask,
 			},
 		}
+		if len(tr.Tasks[i].Spans) != 0 && tr.Tasks[i].Spans[0].Start == 0 {
+			tr.Tasks[i].Spans[0].Start = tr.Start()
+		}
 		fixEnds(tr.Tasks[i].Spans)
 	}
 	fixEnds(tr.GC)
