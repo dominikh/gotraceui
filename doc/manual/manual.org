@@ -668,6 +668,12 @@ Gotraceui can display processor utilization using quantized heatmaps.
 These can be accessed via {{{menu(Analyze,Open processor utilization heatmap)}}}.
 
 The X-axis shows time, the Y-axis shows utilization in percent, and color saturation represents the number of processors.
+For example, pale red squares spread along a column represent processors at varying degrees of saturation.
+A dark red square at the top of a column shows many processors at close to 100% utilization.
+Inversely, a dark red square at the bottom of a column means that many processors are near-idle.
+
+A more in-depth explanation is available from
+[[https://www.brendangregg.com/HeatMaps/utilization.html#heatmaps][Brendan Gregg's blog post on quantized heatmaps]].
 
 The size of a bucket can be adjusted using the arrow keys. The {{{keys(←)}}} and {{{keys(→)}}} keys decrease and increase the amount of time represented by a bucket in steps of 10 ms.
 The {{{keys(↓)}}} and {{{keys(↑)}}} keys decrease and increase the range of percentage points per bucket.
