@@ -9,10 +9,10 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in
         {
-          packages.gotraceui = pkgs.buildGo123Module {
+          packages.gotraceui = pkgs.buildGo124Module {
             name = "gotraceui";
             src = self;
-            vendorHash = "sha256-lszJObdEN6/Mo94btf5AD6W5dmTx7ciQgJWgQZ05UiU=";
+            vendorHash = "sha256-SbEfEeeXkOrVKAe8k6KZ1T5iZff+CqpbEn+hdTvNGUA=";
 
             subPackages = ["cmd/gotraceui"];
 
@@ -27,11 +27,7 @@
                 xorg.libXfixes
                 libGL
               ] else if stdenv.isDarwin then [
-                darwin.apple_sdk_11_0.frameworks.Foundation
-                darwin.apple_sdk_11_0.frameworks.Metal
-                darwin.apple_sdk_11_0.frameworks.QuartzCore
-                darwin.apple_sdk_11_0.frameworks.AppKit
-                darwin.apple_sdk_11_0.MacOSX-SDK
+                apple-sdk
               ] else [ ]);
 
             ldflags = ["-X gioui.org/app.ID=co.honnef.Gotraceui"];
