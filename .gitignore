@@ -16,3 +16,4 @@
 /doc/manual/*.run.xml
 /gotraceui.pdf
 *.pprof
+/result
